@@ -1,0 +1,64 @@
+{
+	"name": "@nxgt/drizzle",
+	"version": "0.0.0",
+	"description": "Typed repositories, pagination, transactions, database errors and common columns for Drizzle ORM",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"README.md",
+		"package.json",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./pg": {
+			"types": "./dist/pg/index.d.ts",
+			"import": "./dist/pg/index.js",
+			"default": "./dist/pg/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"keywords": [
+		"drizzle",
+		"drizzle-orm",
+		"postgres",
+		"repository",
+		"pagination"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/softistx/nxgt-data.git",
+		"directory": "packages/drizzle"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	},
+	"scripts": {
+		"build": "bun run ../../build.ts",
+		"test": "bun test src",
+		"typecheck": "tsc --noEmit"
+	},
+	"nxgt": {
+		"entrypoints": [
+			"src/index.ts",
+			"src/pg/index.ts"
+		]
+	},
+	"devDependencies": {
+		"@electric-sql/pglite": "0.5.8",
+		"@types/bun": "^1.4.0",
+		"drizzle-orm": "1.0.0-rc.4"
+	},
+	"peerDependencies": {
+		"drizzle-orm": ">=1.0.0-rc.4 <2",
+		"typescript": "^6.0.3"
+	}
+}
