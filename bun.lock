@@ -14,7 +14,7 @@
     },
     "packages/drizzle": {
       "name": "@nxgt/drizzle",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "@electric-sql/pglite": "0.5.8",
         "@types/bun": "^1.4.0",
@@ -22,6 +22,18 @@
       },
       "peerDependencies": {
         "drizzle-orm": ">=1.0.0-rc.4 <2",
+        "typescript": "^6.0.3",
+      },
+    },
+    "packages/meilisearch": {
+      "name": "@nxgt/meilisearch",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@types/bun": "^1.4.0",
+        "meilisearch": "0.62.0",
+      },
+      "peerDependencies": {
+        "meilisearch": ">=0.62.0 <1",
         "typescript": "^6.0.3",
       },
     },
@@ -96,6 +108,8 @@
 
     "@nxgt/drizzle": ["@nxgt/drizzle@workspace:packages/drizzle"],
 
+    "@nxgt/meilisearch": ["@nxgt/meilisearch@workspace:packages/meilisearch"],
+
     "@pnpm/deps.graph-sequencer": ["@pnpm/deps.graph-sequencer@1100.0.1", "", {}, "sha512-pOr5+q1fLYKwFN3LAJuGZEnfXDcQ73zqgDHMtGy+K+uIoUqyY+6MeDCWFwfu+4EFuq76I5EPFofoNAI+Bmmq4A=="],
 
     "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
@@ -127,6 +141,8 @@
     "jsonc-parser": ["jsonc-parser@3.3.1", "", {}, "sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ=="],
 
     "launch-editor": ["launch-editor@2.14.1", "", { "dependencies": { "picocolors": "^1.1.1", "shell-quote": "^1.8.4" } }, "sha512-QWBrQsMpH7gPr965dsKD/3cKWiNoTjpATQf++Xq63N6sKRGMwlVXz41O1IZTMfZQgBctD/K5Zt06+/I6pP6+HA=="],
+
+    "meilisearch": ["meilisearch@0.62.0", "", {}, "sha512-/ETDW7mmWI2NcSmtJdTPhbjsIbs3VcuapszX5X6JhdHB0XbszPOhqd3EB2bEylL0HK7dgwh/4Z3MdyuycWVf5A=="],
 
     "package-manager-detector": ["package-manager-detector@1.8.0", "", {}, "sha512-yQA4H19AmPEoMUeavPMDIe1higySl/gH/yaQrkT/s07Qp+7pp2hYz30N3z2l5BkjVkF9Ow6o0wjJamm2y7Sn0A=="],
 

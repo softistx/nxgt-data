@@ -5,6 +5,7 @@ Data access for TypeScript apps: the code written around every table, once.
 | Package | | |
 | --- | --- | --- |
 | [`@nxgt/drizzle`](packages/drizzle) | typed repositories over Drizzle ORM tables, offset and cursor pagination, transactions, database errors you can `instanceof`, and the columns every table has. PostgreSQL first | [npm](https://www.npmjs.com/package/@nxgt/drizzle) |
+| [`@nxgt/meilisearch`](packages/meilisearch) | a typed Meilisearch index on the official SDK: one definition for its uid, primary key and settings, settings synced idempotently, and documents and searches typed by it | [npm](https://www.npmjs.com/package/@nxgt/meilisearch) |
 
 Each package's README, its npm page, shows how to use it, then documents
 every function, class and type it exports in its **API** section.
@@ -17,7 +18,7 @@ Bun 1.4.2.
 bun install
 bun run build        # first: exports point at dist/
 bun run typecheck
-bun run test         # against PostgreSQL in process, with PGlite: no Docker
+bun run test         # PostgreSQL in process (PGlite) and a real Meilisearch binary: no Docker
 bun run verify:artifacts
 ./node_modules/.bin/biome check --write
 ```

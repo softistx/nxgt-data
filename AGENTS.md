@@ -10,6 +10,7 @@ registry:
 | package | what it is |
 | --- | --- |
 | `@nxgt/drizzle` | an SDK over Drizzle ORM: typed repositories (`createRepository`), offset and cursor pagination, `withTransaction`, its own errors with `toDataError`, and the `id()`, `timestamps()`, `softDelete()` columns. PostgreSQL first |
+| `@nxgt/meilisearch` | a typed Meilisearch index on the official SDK: `defineIndex<Doc>()({ uid, primaryKey, settings })`, `syncIndex`/`syncIndexes` applying the settings idempotently, and `bindIndex` for typed documents and searches. Its one error is `SearchIndexError` |
 
 It was started on 2026-09-15, on the tooling of `softistx/nxgt-http`: the
 same build, artifact check, publish script, CI and conventions. When one of
@@ -28,6 +29,12 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   reading the new `.d.ts`: 1.0 changed the relational queries, the column
   types and some imports from 0.x. `@electric-sql/pglite` is a
   devDependency: the specs run a real PostgreSQL in process, with no Docker.
+- `@nxgt/meilisearch` has `meilisearch`, the official SDK, as a peer,
+  `>=0.62.0 <1`, and as a devDependency pinned exactly (`0.62.0`): a 0.x
+  SDK may break its types in a minor. Raise both together, after reading its
+  `indexes.d.ts` and `types/types.d.ts`, where `Settings` and `SearchParams`
+  live. The SDK's errors reach the caller as they are; the package's only
+  error of its own is `SearchIndexError`.
 - **A dialect is a subpath**, not a package: `@nxgt/drizzle/pg` today,
   `./mysql` and `./sqlite` later. What does not depend on a dialect, the
   errors, the cursor and the page shapes, is in `@nxgt/drizzle` itself, and
@@ -72,6 +79,19 @@ matching key in `exports`.
   spec file (`test/db.ts`), emptied between tests. The DDL is plain SQL in
   `test/schema.ts`, next to the Drizzle tables, with named constraints the
   specs assert on. No drizzle-kit.
+- **`@nxgt/meilisearch`'s specs run against a real Meilisearch**, not a mock
+  and not Docker: the official binary, from the GitHub releases of
+  meilisearch/meilisearch, pinned in `scripts/meilisearch.ts`
+  (`MEILISEARCH_VERSION`, v1.53.2 today). The script downloads it for the
+  platform (linux amd64/aarch64, macOS Apple silicon) into the git-ignored
+  `.cache/meilisearch/<version>/meilisearch`, and prints its path; the
+  package's `test` script runs it first. `$MEILISEARCH_BIN` names another
+  binary, for Intel macOS, which v1.53 no longer ships a community build
+  for. `test/server.ts` starts one server per spec file, on a free port,
+  with a temporary `--db-path` and a master key, waits for `/health`, and
+  kills it in `afterAll`; `reset` deletes every index between tests. CI
+  caches `.cache/meilisearch`, keyed on the hash of the script, so raising
+  the version there re-downloads.
 - **Type tests** are `test/types/*.ts`, checked by the package's
   `typecheck` (`tsc --noEmit`) and never run. A call that must not compile
   carries `// @ts-expect-error`; if it compiles, tsc fails on the unused
@@ -137,5 +157,6 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **86 pass, 0 fail**: drizzle 84, scripts 2. It runs one
+`bun run test` is **123 pass, 0 fail**: drizzle 84, meilisearch 34, scripts
+5. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
