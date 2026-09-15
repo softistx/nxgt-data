@@ -6,6 +6,7 @@ import {
 	expect,
 	test,
 } from 'bun:test';
+import { MeilisearchApiError } from 'meilisearch';
 import { type Movie, movies, sampleMovies } from '../../test/movies';
 import { startMeilisearch, type TestServer } from '../../test/server';
 import { SearchIndexError } from '../errors/search-index-error';
@@ -110,6 +111,20 @@ describe('writes', () => {
 		await Promise.all(enqueued.map((task) => task.waitTask()));
 		expect((await index.getMany([1, 4])).map((m) => m.rating)).toEqual([5, 5]);
 	});
+
+	test('customMetadata is kept on the task', async () => {
+		const index = await filled();
+		const deleted = await index.delete(1, {
+			wait: true,
+			customMetadata: 'from-the-spec',
+		});
+		expect(deleted.customMetadata).toBe('from-the-spec');
+		const added = await index.add([alien], {
+			wait: true,
+			customMetadata: 'again',
+		});
+		expect(added.customMetadata).toBe('again');
+	});
 });
 
 describe('reads', () => {
@@ -135,6 +150,30 @@ describe('reads', () => {
 		const found = await index.getMany([2, 3, 99]);
 		expect(found.map((m) => m.id).sort()).toEqual([2, 3]);
 		expect(await index.getMany([])).toEqual([]);
+	});
+
+	test('get on an index that does not exist throws the SDK’s error', async () => {
+		// Only a missing *document* is `undefined`; a missing index is a fault.
+		const index = bindIndex(t.client, movies);
+		const error = await index.get(1).catch((e) => e);
+		expect(error).toBeInstanceOf(MeilisearchApiError);
+		expect(error.cause.code).toBe('index_not_found');
+	});
+
+	test('list takes an offset', async () => {
+		const index = await filled();
+		const page = await index.list({
+			sort: ['year:asc'],
+			offset: 2,
+			limit: 2,
+			fields: ['title'],
+		});
+		expect(page).toEqual({
+			results: [{ title: 'Heat' }, { title: 'Arrival' }],
+			total: 4,
+			offset: 2,
+			limit: 2,
+		});
 	});
 
 	test('list filters, sorts and pages', async () => {

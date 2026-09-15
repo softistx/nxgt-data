@@ -60,6 +60,23 @@ describe('soft delete', () => {
 		expect((await repo.paginate()).total).toBe(1);
 	});
 
+	test('findFirst takes withDeleted too', async () => {
+		const { repo, ada } = await seed();
+		await repo.delete(ada.id);
+		const found = await repo.findFirst(
+			{ email: 'ada@example.com' },
+			{ withDeleted: true },
+		);
+		expect(found?.id).toBe(ada.id);
+		expect(found?.deletedAt).toBeInstanceOf(Date);
+	});
+
+	test('restore leaves a row that was never deleted alone', async () => {
+		const { repo, bob } = await seed();
+		expect((await repo.restore(bob.id)).deletedAt).toBeNull();
+		expect(await repo.count()).toBe(2);
+	});
+
 	test('a soft-deleted row cannot be deleted again, or updated', async () => {
 		const { repo, ada } = await seed();
 		await repo.delete(ada.id);

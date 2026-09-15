@@ -9,7 +9,7 @@ import {
 import { TransactionRollbackError } from 'drizzle-orm';
 import { createTestDb } from '../../../test/db';
 import { teams } from '../../../test/schema';
-import { ConflictError } from '../../errors/data-error';
+import { ConflictError, DataError } from '../../errors/data-error';
 import { createRepository } from '../repository/create-repository';
 import { withTransaction } from './with-transaction';
 
@@ -87,6 +87,19 @@ describe('withTransaction', () => {
 			});
 			throw new Error('outer fails');
 		}).catch(() => {});
+		expect(await names()).toEqual([]);
+	});
+
+	test('takes an access mode: a write in a read-only transaction is a DataError', async () => {
+		const error = await withTransaction(
+			t.db,
+			async (tx) => {
+				await tx.insert(teams).values({ name: 'Core' });
+			},
+			{ accessMode: 'read only' },
+		).catch((e) => e);
+		expect(error).toBeInstanceOf(DataError);
+		expect((error as DataError).sqlState).toBe('25006');
 		expect(await names()).toEqual([]);
 	});
 
