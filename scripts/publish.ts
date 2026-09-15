@@ -48,7 +48,12 @@ export async function appendChangesetsOutput(
 const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const REGISTRY = 'https://registry.npmjs.org';
 
-type Pkg = { name: string; version: string; dir: string; deps: Set<string> };
+export type Pkg = {
+	name: string;
+	version: string;
+	dir: string;
+	deps: Set<string>;
+};
 
 async function readPackages(): Promise<Pkg[]> {
 	const pkgs: Pkg[] = [];
@@ -74,7 +79,7 @@ async function readPackages(): Promise<Pkg[]> {
 }
 
 /** Dependencies first, so a consumer is never on the registry before its dependency. */
-function inDependencyOrder(pkgs: Pkg[]): Pkg[] {
+export function inDependencyOrder(pkgs: Pkg[]): Pkg[] {
 	const byName = new Map(pkgs.map((p) => [p.name, p]));
 	const done = new Set<string>();
 	const order: Pkg[] = [];

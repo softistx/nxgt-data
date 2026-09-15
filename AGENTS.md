@@ -157,6 +157,14 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **123 pass, 0 fail**: drizzle 84, meilisearch 34, scripts
-5. It runs one
+`bun run test` is **145 pass, 0 fail**: drizzle 93, meilisearch 42, scripts
+10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
+
+- **Meilisearch answers `succeeded` to a settings update whatever it holds**:
+  measured on v1.53.2 with an unknown ranking rule, an empty dictionary entry
+  and a 600-character sortable attribute. A failed settings task therefore
+  cannot be produced against a real server, so `syncIndex`'s `TASK_FAILED` and
+  `index_already_exists` branches are covered by a scripted client in
+  `sync-index.spec.ts`. Everything a server does reach is tested against the
+  real one.

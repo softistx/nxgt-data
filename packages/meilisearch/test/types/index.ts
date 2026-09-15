@@ -184,6 +184,30 @@ await index.list({ filter: ['genres = scifi'], sort: ['rating:asc'] });
 // @ts-expect-error title is not sortable
 await index.list({ sort: ['title:asc'] });
 
+// A write option is the SDK's, typed.
+index.add([movie], { customMetadata: 'import-42' });
+// @ts-expect-error customMetadata is a string
+index.add([movie], { customMetadata: 42 });
+await index.list({ offset: 10, limit: 5 });
+// @ts-expect-error update takes the document's attributes
+index.update([{ id: 1, year: '1979' }]);
+
+// `_geo`, when it is sortable, allows a geo sort and nothing else does.
+const places = defineIndex<{
+	id: string;
+	name: string;
+	_geo: { lat: number; lng: number };
+}>()({
+	uid: 'places',
+	primaryKey: 'id',
+	settings: { sortableAttributes: ['_geo', 'name'] },
+});
+await bindIndex(client, places).search('', {
+	sort: ['_geoPoint(48.85, 2.35):asc', 'name:desc'],
+});
+// @ts-expect-error movies has no _geo
+await index.search('', { sort: ['_geoPoint(48.85, 2.35):asc'] });
+
 // An index with no sortable attributes sorts on nothing.
 const tags = defineIndex<{ slug: string; label: string }>()({
 	uid: 'tags',

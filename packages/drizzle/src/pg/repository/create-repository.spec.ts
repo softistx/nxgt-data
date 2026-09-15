@@ -137,6 +137,22 @@ describe('create and read', () => {
 		).rejects.toThrow('no column under the key "nope"');
 	});
 
+	test('refuses an orderBy, or a where, that is not one', async () => {
+		const { posts } = repos();
+		await expect(
+			posts.findMany({ orderBy: { rank: 'down' } as never }),
+		).rejects.toThrow(`orderBy: "rank" must be 'asc' or 'desc', not down`);
+		await expect(
+			posts.findMany({ orderBy: { nope: 'asc' } as never }),
+		).rejects.toThrow('orderBy: "posts" has no column under the key "nope"');
+		await expect(posts.findMany({ orderBy: 42 as never })).rejects.toThrow(
+			'orderBy: expected a Drizzle ordering, a list, or an object',
+		);
+		await expect(posts.findMany({ where: 42 as never })).rejects.toThrow(
+			'where: expected a Drizzle condition or an object',
+		);
+	});
+
 	test('count and exists', async () => {
 		const { posts } = repos();
 		expect(await posts.count()).toBe(0);
@@ -347,5 +363,16 @@ describe('with', () => {
 			})
 			.catch(() => {});
 		expect(await teams.count()).toBe(0);
+	});
+
+	test('keeps the options it was created with', async () => {
+		const byEmail = createRepository(t.db, users, {
+			primaryKey: 'email',
+			maxPageSize: 1,
+		});
+		await byEmail.create({ email: 'ada@example.com' });
+		const bound = byEmail.with(t.db);
+		expect((await bound.getById('ada@example.com')).name).toBeNull();
+		expect((await bound.paginate({ pageSize: 10 })).pageSize).toBe(1);
 	});
 });

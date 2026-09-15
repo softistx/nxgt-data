@@ -8,7 +8,7 @@ import {
 } from 'bun:test';
 import { asc, eq, gt } from 'drizzle-orm';
 import { createTestDb } from '../../../test/db';
-import { posts, teams, users } from '../../../test/schema';
+import { logs, posts, teams, users } from '../../../test/schema';
 import { InvalidCursorError } from '../../errors/data-error';
 import { encodeCursor } from '../../pagination/cursor';
 import { createRepository } from '../repository/create-repository';
@@ -215,6 +215,48 @@ describe('repository.paginateByCursor', () => {
 		await expect(repo.paginateByCursor({ after: wrong })).rejects.toThrow(
 			'expected 1 value(s), got 2',
 		);
+	});
+
+	test('lowers a limit over maxPageSize', async () => {
+		await seedPosts();
+		const small = createRepository(t.db, posts, { maxPageSize: 3 });
+		const page = await small.paginateByCursor({ limit: 50 });
+		expect(page.items).toHaveLength(3);
+		expect(page.nextCursor).not.toBeNull();
+	});
+
+	test('pages soft-deleted rows in with withDeleted', async () => {
+		const people = createRepository(t.db, users);
+		const created = await people.createMany(
+			Array.from({ length: 4 }, (_, i) => ({ email: `u${i}@example.com` })),
+		);
+		await people.delete(created[1]?.id as string);
+		expect((await people.paginateByCursor({ limit: 10 })).items).toHaveLength(
+			3,
+		);
+		expect(
+			(await people.paginateByCursor({ limit: 10, withDeleted: true })).items,
+		).toHaveLength(4);
+	});
+
+	test('refuses to page along a column that is null in a row', async () => {
+		const people = createRepository(t.db, users);
+		await people.createMany([
+			{ email: 'a@example.com', name: 'a' },
+			{ email: 'b@example.com', name: 'b' },
+			// PostgreSQL sorts NULLs last: the third row of the page has none.
+			{ email: 'c@example.com' },
+			{ email: 'd@example.com' },
+		]);
+		await expect(
+			people.paginateByCursor({ limit: 3, orderBy: 'name' }),
+		).rejects.toThrow('"name" is null in a row of "users"');
+	});
+
+	test('needs a primary key', async () => {
+		const repo = createRepository(t.db, logs);
+		await repo.create({ message: 'hi' });
+		await expect(repo.paginateByCursor()).rejects.toThrow('has no primary key');
 	});
 
 	test('an empty table gives an empty page and no cursor', async () => {

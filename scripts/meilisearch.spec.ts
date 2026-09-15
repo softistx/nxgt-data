@@ -1,5 +1,25 @@
 import { describe, expect, test } from 'bun:test';
-import { assetFor, cachedBinaryPath, MEILISEARCH_VERSION } from './meilisearch';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+	assetFor,
+	cachedBinaryPath,
+	ensureMeilisearch,
+	MEILISEARCH_VERSION,
+} from './meilisearch';
+
+/** Runs `fn` with `$MEILISEARCH_BIN` set, and puts the environment back. */
+async function withBin(value: string, fn: () => Promise<void>): Promise<void> {
+	const before = process.env.MEILISEARCH_BIN;
+	process.env.MEILISEARCH_BIN = value;
+	try {
+		await fn();
+	} finally {
+		if (before === undefined) delete process.env.MEILISEARCH_BIN;
+		else process.env.MEILISEARCH_BIN = before;
+	}
+}
 
 describe('the Meilisearch binary', () => {
 	test('names the release asset for each platform the release ships', () => {
@@ -21,5 +41,29 @@ describe('the Meilisearch binary', () => {
 		expect(cachedBinaryPath()).toEndWith(
 			`/.cache/meilisearch/${MEILISEARCH_VERSION}/meilisearch`,
 		);
+		expect(cachedBinaryPath('v9.9.9')).toEndWith(
+			'/.cache/meilisearch/v9.9.9/meilisearch',
+		);
+	});
+
+	test('takes MEILISEARCH_BIN as it is, and downloads nothing', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'meilisearch-bin-'));
+		const binary = join(dir, 'meilisearch');
+		try {
+			await Bun.write(binary, '#!/bin/sh\necho v1.53.2\n');
+			await withBin(binary, async () => {
+				expect(await ensureMeilisearch()).toBe(binary);
+			});
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test('says so when MEILISEARCH_BIN points at nothing', async () => {
+		await withBin('/nowhere/meilisearch', async () => {
+			expect(ensureMeilisearch()).rejects.toThrow(
+				'MEILISEARCH_BIN is /nowhere/meilisearch, which does not exist',
+			);
+		});
 	});
 });
