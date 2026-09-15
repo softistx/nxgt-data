@@ -1,0 +1,57 @@
+{
+	"name": "@nxgt/meilisearch",
+	"version": "0.0.0",
+	"description": "A typed Meilisearch index: its definition, its settings synced idempotently, and typed documents and searches, on the official SDK",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"README.md",
+		"package.json",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"keywords": [
+		"meilisearch",
+		"search",
+		"index",
+		"settings",
+		"typescript"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/softistx/nxgt-data.git",
+		"directory": "packages/meilisearch"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	},
+	"scripts": {
+		"build": "bun run ../../build.ts",
+		"test": "bun run ../../scripts/meilisearch.ts && bun test src",
+		"typecheck": "tsc --noEmit"
+	},
+	"nxgt": {
+		"entrypoints": [
+			"src/index.ts"
+		]
+	},
+	"devDependencies": {
+		"@types/bun": "^1.4.0",
+		"meilisearch": "0.62.0"
+	},
+	"peerDependencies": {
+		"meilisearch": ">=0.62.0 <1",
+		"typescript": "^6.0.3"
+	}
+}

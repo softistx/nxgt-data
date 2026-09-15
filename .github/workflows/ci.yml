@@ -36,6 +36,15 @@ jobs:
         run: bun run typecheck
       # Per package, then the scripts' own specs. The specs run PostgreSQL in
       # process with PGlite: no service container, no Docker.
+      # @nxgt/meilisearch's specs start the official Meilisearch binary, which
+      # its `test` script downloads when it is missing. Cached, keyed on the
+      # script that pins its version, so a run downloads it only once per
+      # version.
+      - name: Cache the Meilisearch binary
+        uses: actions/cache@v4
+        with:
+          path: .cache/meilisearch
+          key: meilisearch-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/meilisearch.ts') }}
       - name: Run tests
         run: bun run test
       # The build exits 0 on packages that throw the instant they are imported —
