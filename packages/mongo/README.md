@@ -498,6 +498,40 @@ application never reads a numeric code:
 into `{ path, reason, specifiedAs, consideredValue }`. Anything that is not a
 server error reaches you untouched.
 
+## Connecting
+
+```ts
+import { closeMongo, connectMongo, getCollection } from '@nxgt/mongo';
+
+const mongo = await connectMongo('mongodb://db.internal:27017/app', { appName: 'api' });
+const users = getCollection(mongo.db, usersDefinition);
+
+app.get('/health', async () => {
+	const result = await mongo.ping({ timeoutMS: 500 });   // never throws
+	if (!result.ok) log.warn(result.error);   // the error names the hosts: keep it in
+	return { ok: result.ok };
+});
+
+process.on('SIGTERM', () => closeMongo());   // yours to wire
+```
+
+- **One client per URI.** Every `connectMongo` with the same URI shares a
+  `MongoClient`, connected once even when the calls race. Each call gets its
+  own connection; the client closes when the last one is closed, so a module
+  that closes its own does not cut the others off. `await using` closes it
+  too.
+- **Same options everywhere.** A second call with other options for a
+  connected URI throws; the message does not repeat the URI, which may hold a
+  password. Options are compared by value — a `serverApi` built again at each
+  call is the same — except functions and class instances, which must be the
+  same object. What the first call passed is kept: changing its object
+  afterwards changes nothing.
+- **A failed connect is forgotten**, so calling again tries again.
+- `closeMongo()` closes every client, whoever still holds one — the end of a
+  process or of a test file. Nothing listens to signals for you.
+- A `MongoClient` you open yourself works everywhere too: `connectMongo` is a
+  convenience, not a requirement.
+
 ## Not included
 
 - **No aggregation helpers.** The collection *is* the driver's collection as
@@ -505,7 +539,6 @@ server error reaches you untouched.
   driver's own, untouched.
 - **No migrations.** `sync` brings the schema and the indexes in line; it never
   rewrites a document.
-- **No connection management.** The client is yours to open and close.
 
 ## API
 
@@ -515,6 +548,7 @@ server error reaches you untouched.
 | `id`, `objectId`, `timestampField`, `deletedAtField`, `versionField`, `actorFieldOf` | the field builders |
 | `toObjectId`, `toObjectIds`, `tryObjectId`, `objectIdParam` | a string from outside as an `ObjectId` |
 | `isValidObjectId`, `isObjectIdString`, `isObjectId` | the checks behind them |
+| `connectMongo(uri, options?)`, `closeMongo()`, `MongoConnection`, `PingResult` | a shared client, closed with its last holder |
 | `getCollection(dbOrClient, definition, options?)` | the typed collection, driver methods included |
 | `CollectionHooks<Def>` and its pieces | hooks around the writes |
 | `ChangeOf<Def>`, `ChangeOptions<Def>`, `ChangeSubscription`, `ResumeToken` | what `onChange` hands over and takes |
@@ -613,6 +647,11 @@ operator, and getting it subtly wrong is worse than being honest about it.
 - **Change streams need a replica set.** A standalone `mongod` refuses them;
   a single-node replica set is enough, which is what this package's own specs
   run on.
+- **Close a shared client through its connection.** `mongo.client.close()`
+  skips the count: the closed client stays shared, and every later
+  `connectMongo` for that URI gets it, dead, until `closeMongo()`.
+- **A connect that `closeMongo()` interrupts rejects.** At shutdown, a request
+  still connecting fails rather than getting a closed client.
 - **Without post-images, an update's `document` is today's.** It is looked up
   when the change is read, so two quick updates can both arrive with the
   second one's document. Enable `changeStreamPreAndPostImages` when the exact
