@@ -45,6 +45,14 @@ jobs:
         with:
           path: .cache/meilisearch
           key: meilisearch-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/meilisearch.ts') }}
+      # @nxgt/mongo's specs start a real mongod, as a single-node replica set,
+      # which is what transactions need. mongodb-memory-server downloads it on
+      # the first start; the version is pinned in the file this key hashes.
+      - name: Cache the mongod binary
+        uses: actions/cache@v4
+        with:
+          path: .cache/mongodb
+          key: mongod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/mongo/test/server.ts') }}
       - name: Run tests
         run: bun run test
       # The build exits 0 on packages that throw the instant they are imported —
