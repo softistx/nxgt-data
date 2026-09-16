@@ -36,11 +36,12 @@ export function toDocument(ctx: CollectionContext, values: unknown): Fields {
 	// Parsing strips it too, but `validate: 'off'` does not parse.
 	if (!ctx.hasOwnId) delete stamped.id;
 	if (ctx.actor !== undefined) {
-		if (ctx.stamps.createdBy && stamped.createdBy === undefined) {
-			stamped.createdBy = ctx.actor;
+		const { createdBy, updatedBy } = ctx.stamps;
+		if (createdBy && stamped[createdBy] === undefined) {
+			stamped[createdBy] = ctx.actor;
 		}
-		if (ctx.stamps.updatedBy && stamped.updatedBy === undefined) {
-			stamped.updatedBy = ctx.actor;
+		if (updatedBy && stamped[updatedBy] === undefined) {
+			stamped[updatedBy] = ctx.actor;
 		}
 	}
 	return ctx.parses
@@ -82,19 +83,18 @@ export function toUpdate(ctx: CollectionContext, patch: unknown): Fields {
 		...(operators ? {} : setFromFields(ctx, patch)),
 	};
 
-	if (ctx.touches && set.updatedAt === undefined) set.updatedAt = new Date();
-	if (
-		ctx.actor !== undefined &&
-		ctx.stamps.updatedBy &&
-		set.updatedBy === undefined
-	) {
-		set.updatedBy = ctx.actor;
+	const { updatedAt, updatedBy, version } = ctx.stamps;
+	if (ctx.touches && updatedAt && set[updatedAt] === undefined) {
+		set[updatedAt] = new Date();
+	}
+	if (ctx.actor !== undefined && updatedBy && set[updatedBy] === undefined) {
+		set[updatedBy] = ctx.actor;
 	}
 	if (Object.keys(set).length > 0) update.$set = set;
 
-	if (ctx.locks) {
+	if (ctx.locks && version) {
 		const inc = isRecord(update.$inc) ? { ...update.$inc } : {};
-		inc.version = (inc.version as number | undefined) ?? 1;
+		inc[version] = (inc[version] as number | undefined) ?? 1;
 		update.$inc = inc;
 	}
 	return update;

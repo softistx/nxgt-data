@@ -58,18 +58,31 @@ export type ProjectionOf<Def> = {
 	[Field in FieldPath<Def>]?: 0 | 1 | boolean | ProjectionOperator;
 };
 
+/** The actor's type under one name, or `never` when there is no such field. */
+type ActorUnder<Doc, Name> = Name extends keyof Doc
+	? NonNullable<Doc[Name]>
+	: never;
+
 /**
- * Who is writing: the type the schema gives `createdBy`, or `updatedBy`, or
- * `deletedBy`. A collection with none of them has no actor to stamp, so `as`
- * cannot be called on it at all.
+ * Who is writing: the type the schema gives the first actor field there is.
+ *
+ * It reads the names off the definition rather than spelling `'createdBy'`,
+ * because the option may have renamed the field. Looking for the default name
+ * made `actors: { createdBy: 'openedBy' }` resolve to `never`, which quietly
+ * made `as()` uncallable on a collection that has an actor.
+ *
+ * A collection with none of the three has no actor to stamp, and `as` cannot
+ * be called on it at all.
  */
-export type ActorOf<Def> = 'createdBy' extends keyof DocumentOf<Def>
-	? NonNullable<DocumentOf<Def>['createdBy']>
-	: 'updatedBy' extends keyof DocumentOf<Def>
-		? NonNullable<DocumentOf<Def>['updatedBy']>
-		: 'deletedBy' extends keyof DocumentOf<Def>
-			? NonNullable<DocumentOf<Def>['deletedBy']>
-			: never;
+export type ActorOf<Def> = Def extends {
+	stamps: { createdBy: infer C; updatedBy: infer U; deletedBy: infer D };
+}
+	? [ActorUnder<DocumentOf<Def>, C>] extends [never]
+		? [ActorUnder<DocumentOf<Def>, U>] extends [never]
+			? ActorUnder<DocumentOf<Def>, D>
+			: ActorUnder<DocumentOf<Def>, U>
+		: ActorUnder<DocumentOf<Def>, C>
+	: never;
 
 /** What `$set` takes: a field's own type, or anything under a path. */
 export type SetOf<Def> = {
@@ -182,31 +195,50 @@ export interface CursorPaginateOptions<Def> extends ReadOptions {
 	direction?: OrderDirection;
 }
 
-export interface UpdateOptions {
+/**
+ * `Yes` when the definition keeps that stamp, `No` when it has none.
+ *
+ * It reads the literal names `defineCollection` put on the definition. A
+ * definition typed loosely — `AnyCollectionDefinition`, or `never` inside this
+ * package — has `string | false` there, and gets `Yes`: only a definition that
+ * is known to lack the stamp is refused.
+ */
+export type IfStamp<Def, Kind extends string, Yes, No> = [Def] extends [never]
+	? Yes
+	: [
+				Def extends { stamps: { [K in Kind]: infer Name } } ? Name : string,
+			] extends [false]
+		? No
+		: Yes;
+
+export interface UpdateOptions<Def = unknown> {
 	/**
-	 * Only update the document while its `version` is still this one. When it
+	 * Only update the document while its version is still this one. When it
 	 * is not, nothing is written and `OptimisticLockError` is thrown with the
-	 * version the document has now.
+	 * version the document has now. A collection with no version field does
+	 * not take it.
 	 */
-	expectedVersion?: number;
+	expectedVersion?: IfStamp<Def, 'version', number, never>;
 }
 
 export interface CollectionOptions<Def> {
 	/**
-	 * Soft delete through the `deletedAt` field. Default: on when the schema
-	 * has one. `false` makes `delete` a real delete.
+	 * Soft delete through the soft-delete field. Default: on when the
+	 * collection has one. `false` makes `delete` a real delete; a collection
+	 * with no such field takes `false` only.
 	 */
-	softDelete?: boolean;
+	softDelete?: IfStamp<Def, 'deletedAt', boolean, false>;
 	/**
-	 * Set `updatedAt` on every update that does not set it. Default: on when
-	 * the schema has the field.
+	 * Set the updated stamp on every update that does not set it. Default: on
+	 * when the collection has one; a collection without takes `false` only.
 	 */
-	touchUpdatedAt?: boolean;
+	touchUpdatedAt?: IfStamp<Def, 'updatedAt', boolean, false>;
 	/**
-	 * Raise `version` by one on every update. Default: on when the schema has
-	 * the field. `expectedVersion` needs it.
+	 * Raise the version by one on every update. Default: on when the
+	 * collection has a version field; one without takes `false` only.
+	 * `expectedVersion` needs it.
 	 */
-	optimisticLock?: boolean;
+	optimisticLock?: IfStamp<Def, 'version', boolean, false>;
 	/**
 	 * Check documents against the schema before writing them, which is also
 	 * what fills their defaults. Default `'parse'`. `'off'` sends them as they
@@ -221,6 +253,18 @@ export interface CollectionOptions<Def> {
 	actor?: ActorOf<Def>;
 	/** Which database, when `getCollection` is given a client rather than a `Db`. */
 	db?: string;
+	/**
+	 * Sync the collection before the first operation, once per database.
+	 *
+	 * For tests and for development, where waiting on a deployment step is the
+	 * thing in the way. It is **not** for production: `collMod` needs the
+	 * `dbAdmin` role, and neither it nor an index build may run in a
+	 * transaction. Use `syncAll` as a deployment step there.
+	 *
+	 * Only this package's own methods wait for it. `raw` and the driver's own
+	 * methods are the escape hatch, and the escape hatch is not managed.
+	 */
+	autoSync?: boolean;
 }
 
 /**
@@ -279,7 +323,7 @@ export interface CollectionApi<Def> {
 	update(
 		id: IdOf<Def>,
 		patch: Patch<Def>,
-		options?: UpdateOptions,
+		options?: UpdateOptions<Def>,
 	): Promise<ReadDocumentOf<Def>>;
 	/**
 	 * Updates every document that matches, and returns how many changed. The
@@ -301,8 +345,17 @@ export interface CollectionApi<Def> {
 	hardDelete(id: IdOf<Def>): Promise<ReadDocumentOf<Def>>;
 	/** A real delete of every document that matches, soft-deleted ones included. */
 	hardDeleteMany(filter: Filter<DocumentOf<Def>>): Promise<number>;
-	/** Clears `deletedAt` and returns the document. Throws `NotFoundError`. */
-	restore(id: IdOf<Def>): Promise<ReadDocumentOf<Def>>;
+	/**
+	 * Clears the soft-delete field and returns the document. Throws
+	 * `NotFoundError`. A collection with no soft delete has nothing to restore,
+	 * and the method cannot be called on it.
+	 */
+	restore: IfStamp<
+		Def,
+		'deletedAt',
+		(id: IdOf<Def>) => Promise<ReadDocumentOf<Def>>,
+		never
+	>;
 
 	/**
 	 * How many documents match, soft-deleted ones left out. The driver's

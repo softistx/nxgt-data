@@ -4,7 +4,9 @@ import type {
 	AnyCollectionDefinition,
 	CollectionDefinition,
 } from '../definition/define-collection';
+import type { StampNames } from '../definition/stamps';
 import { type SyncOptions, syncCollection } from '../sync/sync-collection';
+import { gated } from './auto-sync';
 import { type CollectionContext, createContext } from './context';
 import type { Fields } from './filters';
 import { paginate, paginateByCursor } from './paginate';
@@ -67,11 +69,14 @@ function databaseOf(source: CollectionSource, name: string | undefined): Db {
  * MongoDB has no ambient session, so a write inside a transaction that was not
  * given one is not part of it and is not rolled back.
  */
-export function getCollection<Schema extends z.ZodObject>(
+export function getCollection<
+	Schema extends z.ZodObject,
+	Names extends StampNames = StampNames,
+>(
 	source: CollectionSource,
-	definition: CollectionDefinition<Schema>,
-	options: CollectionOptions<CollectionDefinition<Schema>> = {},
-): TypedCollection<CollectionDefinition<Schema>> {
+	definition: CollectionDefinition<Schema, Names>,
+	options: CollectionOptions<CollectionDefinition<Schema, Names>> = {},
+): TypedCollection<CollectionDefinition<Schema, Names>> {
 	const db = databaseOf(source, options.db);
 	return build(db, definition, options as CollectionOptions<never>);
 }
@@ -143,6 +148,7 @@ function build<Def>(
 		build(db, definition, { ...options, ...changed });
 	const api = apiOf(ctx, rebuild);
 	const collection = ctx.collection;
+	const autoSync = options.autoSync === true;
 
 	/**
 	 * This package's methods first, the driver's collection behind them. A
@@ -154,7 +160,10 @@ function build<Def>(
 	 */
 	return new Proxy(api, {
 		get(target, key, receiver) {
-			if (Reflect.has(target, key)) return Reflect.get(target, key, receiver);
+			if (Reflect.has(target, key)) {
+				const own = Reflect.get(target, key, receiver);
+				return autoSync ? gated(db, definition, key, own) : own;
+			}
 			const value = (collection as unknown as Fields)[key as string];
 			return typeof value === 'function' ? value.bind(collection) : value;
 		},

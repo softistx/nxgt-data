@@ -21,51 +21,11 @@ export function id() {
 }
 
 /**
- * `createdAt` and `updatedAt`, filled on create. A collection sets `updatedAt`
- * on every update.
+ * The default name of each field a collection gives a meaning to. An option
+ * of `defineCollection` that is `true` adds the field under the name here;
+ * one given a string adds it under that name instead.
  */
-export function timestamps() {
-	return {
-		createdAt: z.date().default(() => new Date()),
-		updatedAt: z.date().default(() => new Date()),
-	};
-}
-
-/**
- * `deletedAt`, `null` while the document is live. A collection on a collection
- * with it soft-deletes, and leaves deleted documents out of every read.
- */
-export function softDelete() {
-	return { deletedAt: z.date().nullable().default(null) };
-}
-
-/**
- * `version`, raised by one on every update. A collection with it takes
- * `expectedVersion` and throws `OptimisticLockError` when it no longer
- * matches.
- */
-export function optimisticLock() {
-	return { version: z.int().nonnegative().default(0) };
-}
-
-/**
- * `createdBy`, `updatedBy` and `deletedBy`, stamped from the actor a
- * collection was given with `as(actor)`. The actor's own type is the schema
- * passed in, an `ObjectId` by default.
- */
-export function actors<Actor extends z.ZodType = ReturnType<typeof objectId>>(
-	actor: Actor = objectId() as unknown as Actor,
-) {
-	return {
-		createdBy: actor.nullable().default(null),
-		updatedBy: actor.nullable().default(null),
-		deletedBy: actor.nullable().default(null),
-	};
-}
-
-/** The fields the collection gives a meaning to, by name. */
 export const STAMP_FIELDS = {
-	id: '_id',
 	createdAt: 'createdAt',
 	updatedAt: 'updatedAt',
 	deletedAt: 'deletedAt',
@@ -74,3 +34,40 @@ export const STAMP_FIELDS = {
 	updatedBy: 'updatedBy',
 	deletedBy: 'deletedBy',
 } as const;
+
+/** One of the meanings a collection knows, whatever the field is called. */
+export type StampKind = keyof typeof STAMP_FIELDS;
+
+// --- the fields themselves --------------------------------------------
+//
+// One builder per field. `defineCollection`'s options are what *activate* a
+// stamp; these are the fields those options add, declared once, and they are
+// also how a schema declares such a field on its own — with no behaviour
+// attached, which is sometimes exactly what is wanted.
+
+/** A timestamp, filled on create. `updatedAt` is set again on every update. */
+export function timestampField() {
+	return z.date().default(() => new Date());
+}
+
+/** A soft-delete field: `null` while the document is live. */
+export function deletedAtField() {
+	return z.date().nullable().default(null);
+}
+
+/** A version field: raised by one on every update. */
+export function versionField() {
+	return z.int().nonnegative().default(0);
+}
+
+/** An actor reference, `null` until something stamps it. */
+export function actorFieldOf<Actor extends z.ZodType>(actor: Actor) {
+	return actor.nullable().default(null);
+}
+
+export type TimestampField = ReturnType<typeof timestampField>;
+export type DeletedAtField = ReturnType<typeof deletedAtField>;
+export type VersionField = ReturnType<typeof versionField>;
+export type ActorField<Actor extends z.ZodType> = ReturnType<
+	typeof actorFieldOf<Actor>
+>;

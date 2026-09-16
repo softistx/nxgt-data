@@ -11,6 +11,17 @@ import {
 } from './filters';
 import { findOne } from './reads';
 
+/** The version a document is at, whatever the field is called. */
+function versionOf(
+	ctx: CollectionContext,
+	document: Fields,
+): number | undefined {
+	const field = ctx.stamps.version;
+	if (!field) return undefined;
+	const value = document[field];
+	return typeof value === 'number' ? value : undefined;
+}
+
 /**
  * `findOneAndUpdate` answers `null` for a document that is not there, one
  * that is soft-deleted, and one whose version moved. Only a second read
@@ -34,16 +45,16 @@ async function updatedOrThrow(
 	if (expectedVersion !== undefined) {
 		const current = await findOne(ctx, { _id: id });
 		if (current) {
+			const actualVersion = versionOf(ctx, current);
 			throw new OptimisticLockError(
 				`Document ${String(id)} of "${ctx.name}" is at version ${String(
-					current.version,
+					actualVersion,
 				)}, not ${expectedVersion}: it changed since it was read`,
 				{
 					collection: ctx.name,
 					id,
 					expectedVersion,
-					actualVersion:
-						typeof current.version === 'number' ? current.version : undefined,
+					actualVersion,
 				},
 			);
 		}
@@ -53,12 +64,12 @@ async function updatedOrThrow(
 
 /** What a soft delete writes: the stamps, and the lock if there is one. */
 function softDeleteUpdate(ctx: CollectionContext): Fields {
-	const set: Fields = { deletedAt: new Date() };
-	if (ctx.actor !== undefined && ctx.stamps.deletedBy) {
-		set.deletedBy = ctx.actor;
-	}
+	const { deletedAt, deletedBy, version } = ctx.stamps;
+	const set: Fields = {};
+	if (deletedAt) set[deletedAt] = new Date();
+	if (ctx.actor !== undefined && deletedBy) set[deletedBy] = ctx.actor;
 	const update: Fields = { $set: set };
-	if (ctx.locks) update.$inc = { version: 1 };
+	if (ctx.locks && version) update.$inc = { [version]: 1 };
 	return update;
 }
 
@@ -96,16 +107,19 @@ export async function update(
 	opts: Fields = {},
 ): Promise<Fields> {
 	const expectedVersion = opts.expectedVersion as number | undefined;
-	if (expectedVersion !== undefined && !ctx.locks) {
+	const versionField = ctx.stamps.version;
+	if (expectedVersion !== undefined && (!ctx.locks || !versionField)) {
 		throw new TypeError(
-			`update: expectedVersion needs a "version" field, and "${ctx.name}" has none`,
+			`update: expectedVersion needs a version field, and "${ctx.name}" has none`,
 		);
 	}
 	const patched = toUpdate(ctx, patch);
 	const filter = mergeFilters(
 		{
 			_id: id,
-			...(expectedVersion === undefined ? {} : { version: expectedVersion }),
+			...(expectedVersion === undefined || !versionField
+				? {}
+				: { [versionField]: expectedVersion }),
 		},
 		live(ctx),
 	);
@@ -187,13 +201,14 @@ export async function restore(
 	ctx: CollectionContext,
 	id: unknown,
 ): Promise<Fields> {
-	if (!ctx.stamps.deletedAt) {
+	const { deletedAt, deletedBy, updatedAt, version } = ctx.stamps;
+	if (!deletedAt) {
 		throw new TypeError(`restore: "${ctx.name}" has no soft delete`);
 	}
-	const set: Fields = { deletedAt: null };
-	if (ctx.stamps.deletedBy) set.deletedBy = null;
-	if (ctx.touches) set.updatedAt = new Date();
+	const set: Fields = { [deletedAt]: null };
+	if (deletedBy) set[deletedBy] = null;
+	if (ctx.touches && updatedAt) set[updatedAt] = new Date();
 	const update: Fields = { $set: set };
-	if (ctx.locks) update.$inc = { version: 1 };
+	if (ctx.locks && version) update.$inc = { [version]: 1 };
 	return updatedOrThrow(ctx, id, { _id: id }, update, undefined);
 }

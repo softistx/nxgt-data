@@ -149,10 +149,30 @@ describe('soft delete', () => {
 		expect(await t.db.collection('users').countDocuments()).toBe(1);
 	});
 
-	test('softDelete: true on a collection without deletedAt throws at creation', async () => {
+	test('softDelete: true with no soft-delete field throws at creation', async () => {
 		const { posts } = await import('../../test/schema');
-		expect(() => getCollection(t.db, posts, { softDelete: true })).toThrow(
-			'softDelete needs a "deletedAt" field',
+		expect(() =>
+			// @ts-expect-error posts have no soft-delete field
+			getCollection(t.db, posts, { softDelete: true }),
+		).toThrow('softDelete needs a soft-delete field');
+	});
+
+	test('touchUpdatedAt: true with no updated stamp throws at creation', async () => {
+		// It used to be accepted and ignored, while its two siblings threw.
+		const { posts } = await import('../../test/schema');
+		expect(() =>
+			// @ts-expect-error posts have no updated stamp
+			getCollection(t.db, posts, { touchUpdatedAt: true }),
+		).toThrow('touchUpdatedAt needs an updated stamp');
+	});
+
+	test('restore on a collection with no soft delete throws', async () => {
+		const { posts } = await import('../../test/schema');
+		const collection = getCollection(t.db, posts);
+		const post = await collection.create({ title: 'a', rank: 1 });
+		// @ts-expect-error posts have nothing to restore
+		await expect(collection.restore(post._id)).rejects.toThrow(
+			'has no soft delete',
 		);
 	});
 });

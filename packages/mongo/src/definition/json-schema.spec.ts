@@ -1,12 +1,17 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
-import { id, objectId, softDelete, timestamps } from './fields';
+import { deletedAtField, id, objectId, timestampField } from './fields';
 import { toMongoJsonSchema } from './json-schema';
 
 describe('toMongoJsonSchema', () => {
 	test('declares Date and ObjectId with bsonType, which JSON Schema has not', () => {
 		const schema = toMongoJsonSchema(
-			z.object({ _id: id(), ...timestamps(), ...softDelete() }),
+			z.object({
+				_id: id(),
+				createdAt: timestampField(),
+				updatedAt: timestampField(),
+				deletedAt: deletedAtField(),
+			}),
 		);
 		expect(schema).toMatchObject({
 			type: 'object',

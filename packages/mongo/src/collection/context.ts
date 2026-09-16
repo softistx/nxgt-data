@@ -4,17 +4,12 @@ import type {
 	Collection as DriverCollection,
 } from 'mongodb';
 import type { z } from 'zod';
-import {
-	type AnyCollectionDefinition,
-	stampsOf,
-} from '../definition/define-collection';
+import type { AnyCollectionDefinition } from '../definition/define-collection';
+import type { StampNames } from '../definition/stamps';
 import { NotFoundError } from '../errors/data-error';
 import { toDataError } from '../errors/to-data-error';
 import { DEFAULT_MAX_PAGE_SIZE } from '../pagination/page';
 import type { CollectionOptions } from './types';
-
-/** Which of the fields the collection knows about a schema has. */
-type Stamps = ReturnType<typeof stampsOf>;
 
 /**
  * What every method of a collection works from, resolved once: the
@@ -39,8 +34,13 @@ export interface CollectionContext {
 	readonly collection: DriverCollection<any>;
 	readonly name: string;
 	readonly shape: Record<string, z.ZodType>;
-	readonly stamps: Stamps;
-	/** Who is writing, stamped into the `*By` fields. */
+	/**
+	 * What each stamp is **called** here, or `false` when there is none. Every
+	 * write reads its field name from this: nothing below may spell
+	 * `'deletedAt'` or `'version'` out, or a renamed stamp would be a lie.
+	 */
+	readonly stamps: StampNames;
+	/** Who is writing, stamped into the actor fields. */
 	readonly actor: unknown;
 	readonly session: ClientSession | undefined;
 	/** `{ session }` when there is one, to spread into the driver's options. */
@@ -53,18 +53,18 @@ export interface CollectionContext {
 	readonly hasOwnId: boolean;
 	/** Whether a write is checked against the schema, which fills its defaults. */
 	readonly parses: boolean;
-	/** Whether `delete` writes `deletedAt` rather than removing the document. */
+	/** Whether `delete` writes the soft-delete field rather than removing. */
 	readonly softDeletes: boolean;
-	/** Whether an update that does not set `updatedAt` gets it set. */
+	/** Whether an update that does not set the updated stamp gets it set. */
 	readonly touches: boolean;
-	/** Whether an update raises `version`. */
+	/** Whether an update raises the version field. */
 	readonly locks: boolean;
 }
 
 /**
- * Resolves a collection's options against its schema, and refuses the two
- * that cannot be honoured: a soft delete without `deletedAt`, and an
- * optimistic lock without `version`.
+ * Resolves a collection's options against its definition, and refuses the two
+ * that cannot be honoured: a soft delete on a collection with no such field,
+ * and an optimistic lock with no version field.
  */
 export function createContext(
 	db: Db,
@@ -73,17 +73,25 @@ export function createContext(
 ): CollectionContext {
 	const name = definition.name;
 	const shape = definition.schema.shape as Record<string, z.ZodType>;
-	const stamps = stampsOf(definition);
+	const stamps = definition.stamps;
 	const session = options.session;
 
 	if (options.softDelete === true && !stamps.deletedAt) {
 		throw new TypeError(
-			`getCollection: softDelete needs a "deletedAt" field, and "${name}" has none`,
+			`getCollection: softDelete needs a soft-delete field, and "${name}" has ` +
+				'none. Define it with `softDelete: true`, or a name of your own.',
+		);
+	}
+	if (options.touchUpdatedAt === true && !stamps.updatedAt) {
+		throw new TypeError(
+			`getCollection: touchUpdatedAt needs an updated stamp, and "${name}" has ` +
+				'none. Define it with `timestamps: true`, or a name of your own.',
 		);
 	}
 	if (options.optimisticLock === true && !stamps.version) {
 		throw new TypeError(
-			`getCollection: optimisticLock needs a "version" field, and "${name}" has none`,
+			`getCollection: optimisticLock needs a version field, and "${name}" has ` +
+				'none. Define it with `optimisticLock: true`, or a name of your own.',
 		);
 	}
 
@@ -100,9 +108,9 @@ export function createContext(
 		maxPageSize: options.maxPageSize ?? DEFAULT_MAX_PAGE_SIZE,
 		hasOwnId: 'id' in shape,
 		parses: (options.validate ?? 'parse') === 'parse',
-		softDeletes: options.softDelete ?? stamps.deletedAt,
-		touches: options.touchUpdatedAt ?? stamps.updatedAt,
-		locks: options.optimisticLock ?? stamps.version,
+		softDeletes: options.softDelete ?? stamps.deletedAt !== false,
+		touches: options.touchUpdatedAt ?? stamps.updatedAt !== false,
+		locks: options.optimisticLock ?? stamps.version !== false,
 	};
 }
 

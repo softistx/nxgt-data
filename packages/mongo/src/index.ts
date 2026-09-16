@@ -1,3 +1,4 @@
+export { resetAutoSync } from './collection/auto-sync';
 export {
 	type CollectionSource,
 	getCollection,
@@ -10,6 +11,7 @@ export type {
 	FieldPath,
 	FindFirstOptions,
 	FindManyOptions,
+	IfStamp,
 	OrderDirection,
 	PaginateOptions,
 	Patch,
@@ -24,6 +26,14 @@ export type {
 	UpdateOptions,
 } from './collection/types';
 export {
+	type CappedOption,
+	type ClusteredIndexOption,
+	creationOptionsOf,
+	type MongoCollectionOptions,
+	type TimeseriesGranularity,
+	type TimeseriesOption,
+} from './definition/collection-options';
+export {
 	type AnyCollectionDefinition,
 	type CollectionConfig,
 	type CollectionDefinition,
@@ -35,19 +45,21 @@ export {
 	type IndexKey,
 	type NewDocumentOf,
 	type ReadDocumentOf,
-	stampsOf,
-	type ValidationAction,
-	type ValidationConfig,
-	type ValidationLevel,
+	type StampedSchema,
 } from './definition/define-collection';
 export {
-	actors,
+	type ActorField,
+	actorFieldOf,
+	type DeletedAtField,
+	deletedAtField,
 	id,
 	objectId,
-	optimisticLock,
 	STAMP_FIELDS,
-	softDelete,
-	timestamps,
+	type StampKind,
+	type TimestampField,
+	timestampField,
+	type VersionField,
+	versionField,
 } from './definition/fields';
 export {
 	MONGO_JSON_SCHEMA_KEYWORDS,
@@ -62,6 +74,32 @@ export {
 	toObjectIds,
 	tryObjectId,
 } from './definition/object-id';
+export {
+	type ActorsChoice,
+	type ActorsOption,
+	type FieldForName,
+	type LockChoice,
+	type LockOption,
+	type MemberNameOf,
+	type NameFor,
+	type NameOption,
+	resolveStampNames,
+	type SoftDeleteChoice,
+	type SoftDeleteOption,
+	type StampNames,
+	type StampNamesOf,
+	type StampOptions,
+	type StampShape,
+	stampShapeOf,
+	type TimestampsChoice,
+	type TimestampsOption,
+} from './definition/stamps';
+export {
+	resolveValidation,
+	type ValidationAction,
+	type ValidationConfig,
+	type ValidationLevel,
+} from './definition/validation';
 export {
 	ConflictError,
 	DataError,
@@ -99,6 +137,18 @@ export {
 	type NormalizedIndex,
 	normalizeIndex,
 } from './sync/index-diff';
+export {
+	collModForOptions,
+	diffCollectionOptions,
+	immutableOptionsError,
+	type OptionMismatch,
+} from './sync/options-diff';
+export {
+	clearCollectionRegistry,
+	registerCollection,
+	registeredCollections,
+} from './sync/registry';
+export { syncAll } from './sync/sync-all';
 export {
 	type SyncOptions,
 	type SyncReport,
