@@ -9,9 +9,9 @@ import {
 import { z } from 'zod';
 import { logs, posts, users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
+import { until } from '../../test/until';
 import { defineCollection } from '../definition/define-collection';
 import { id } from '../definition/fields';
-import { DataError } from '../errors/data-error';
 import type { ChangeSubscription } from './change-types';
 import { getCollection } from './get-collection';
 
@@ -31,15 +31,6 @@ afterAll(async () => {
 	await Promise.all(open.splice(0).map((s) => s.close()));
 	await t.stop();
 });
-
-/** Waits until `check` holds, or fails after a while. */
-async function until(check: () => boolean, what: string): Promise<void> {
-	const deadline = Date.now() + 10_000;
-	while (!check()) {
-		if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-		await new Promise((resolve) => setTimeout(resolve, 20));
-	}
-}
 
 function track<S extends ChangeSubscription>(subscription: S): S {
 	open.push(subscription);
@@ -163,6 +154,66 @@ describe('soft deletes', () => {
 		expect(loud).toEqual(['create', 'delete', 'update', 'create']);
 	});
 
+	test('with pre-images, only a change of the stamp is a delete or a restore', async () => {
+		const notes = defineCollection({
+			name: 'notes',
+			schema: z.object({ _id: id(), rank: z.number() }),
+			softDelete: true,
+			options: { changeStreamPreAndPostImages: { enabled: true } },
+		});
+		const collection = getCollection(t.db, notes);
+		await collection.sync();
+		const heard: string[] = [];
+		const subscription = track(
+			collection.onChange((c) => void heard.push(c.type), {
+				withDeleted: true,
+			}),
+		);
+		await subscription.ready;
+		const note = await collection.create({ rank: 1 });
+		const raw = collection.raw;
+		await collection.delete(note._id);
+		// Stamped again: still deleted, so an update.
+		await raw.updateOne({ _id: note._id }, { $set: { deletedAt: new Date() } });
+		const deleted = await raw.findOne({ _id: note._id });
+		await raw.replaceOne({ _id: note._id }, {
+			...deleted,
+			deletedAt: null,
+		} as never);
+		// Cleared again, on a document that was not deleted: an update.
+		await raw.updateOne(
+			{ _id: note._id },
+			{ $set: { deletedAt: null, rank: 2 } },
+		);
+		await until(() => heard.length === 5, 'five changes');
+		expect(heard).toEqual(['create', 'delete', 'update', 'restore', 'update']);
+	});
+
+	test('without pre-images, the event alone decides', async () => {
+		const collection = getCollection(t.db, users);
+		const heard: string[] = [];
+		const subscription = track(
+			collection.onChange((c) => void heard.push(c.type), {
+				withDeleted: true,
+			}),
+		);
+		await subscription.ready;
+		const ada = await collection.create({ email: 'ada@example.com' });
+		const raw = collection.raw;
+		await collection.delete(ada._id);
+		// Stamped again: a delete, as nothing says it already was.
+		await raw.updateOne({ _id: ada._id }, { $set: { deletedAt: new Date() } });
+		const deleted = await raw.findOne({ _id: ada._id });
+		await raw.replaceOne({ _id: ada._id }, { ...deleted, age: 4 } as never);
+		// A replacement that clears the stamp cannot be told from any other.
+		await raw.replaceOne({ _id: ada._id }, {
+			...deleted,
+			deletedAt: null,
+		} as never);
+		await until(() => heard.length === 5, 'five changes');
+		expect(heard).toEqual(['create', 'delete', 'delete', 'delete', 'update']);
+	});
+
 	test('without the soft delete option, the stamp is an ordinary update', async () => {
 		const collection = getCollection(t.db, users, { softDelete: false });
 		const heard: string[] = [];
@@ -272,6 +323,7 @@ describe('choosing what to hear', () => {
 		const collection = getCollection(t.db, posts);
 		expect(() =>
 			collection.onChange(() => {}, {
+				// @ts-expect-error — refused in the types too
 				filter: { $expr: { $gt: ['$rank', 1] } },
 			}),
 		).toThrow('a filter cannot use $expr');
@@ -299,175 +351,5 @@ describe('choosing what to hear', () => {
 		);
 		await until(() => second.length === 1, 'the missed create');
 		expect(second).toEqual(['b']);
-	});
-});
-
-describe('the handler', () => {
-	test('gets one change at a time, in order', async () => {
-		const collection = getCollection(t.db, posts);
-		const log: string[] = [];
-		let busy = false;
-		const subscription = track(
-			collection.onChange(async (c) => {
-				if (busy) log.push('overlap');
-				busy = true;
-				await new Promise((resolve) => setTimeout(resolve, 30));
-				log.push(c.document?.title ?? '');
-				busy = false;
-			}),
-		);
-		await subscription.ready;
-		await collection.createMany([
-			{ title: '1', rank: 1 },
-			{ title: '2', rank: 2 },
-			{ title: '3', rank: 3 },
-		]);
-		await until(() => log.length === 3, 'three changes');
-		expect(log).toEqual(['1', '2', '3']);
-	});
-
-	test('a failure goes to onError, and the stream goes on', async () => {
-		const collection = getCollection(t.db, posts);
-		const errors: unknown[] = [];
-		const heard: string[] = [];
-		const subscription = track(
-			collection.onChange(
-				(c) => {
-					if (c.document?.title === 'bad') throw new Error('nope');
-					heard.push(c.document?.title ?? '');
-				},
-				{
-					onError: (error, change) =>
-						void errors.push([(error as Error).message, change?.type]),
-				},
-			),
-		);
-		await subscription.ready;
-		await collection.create({ title: 'bad', rank: 1 });
-		await collection.create({ title: 'good', rank: 2 });
-		await until(() => heard.length === 1, 'the good one');
-		expect(errors).toEqual([['nope', 'create']]);
-	});
-
-	test('an onError that throws stops the subscription with its error', async () => {
-		const collection = getCollection(t.db, posts);
-		const subscription = collection.onChange(
-			() => {
-				throw new Error('first');
-			},
-			{
-				onError: () => {
-					throw new Error('second');
-				},
-			},
-		);
-		await subscription.ready;
-		await collection.create({ title: 'a', rank: 1 });
-		await expect(subscription.closed).rejects.toThrow('second');
-	});
-
-	test('without onError, a failure stops the subscription', async () => {
-		const collection = getCollection(t.db, posts);
-		const subscription = collection.onChange(() => {
-			throw new Error('nope');
-		});
-		await subscription.ready;
-		await collection.create({ title: 'a', rank: 1 });
-		await expect(subscription.closed).rejects.toThrow('nope');
-	});
-});
-
-describe('when the stream fails', () => {
-	test('it reopens from its token, and misses nothing', async () => {
-		const collection = getCollection(t.db, posts);
-		const heard: string[] = [];
-		const subscription = track(
-			collection.onChange((c) => void heard.push(c.document?.title ?? '')),
-		);
-		await subscription.ready;
-		// Not a resumable error: the driver gives up and closes its stream.
-		// Measured, it gives up before handing over what was already there.
-		await t.failNext(['getMore'], { errorCode: 2 });
-		await collection.create({ title: 'a', rank: 1 });
-		await collection.create({ title: 'b', rank: 2 });
-		await until(() => heard.length === 2, 'both creates');
-		expect(heard).toEqual(['a', 'b']);
-	});
-
-	test('it gives up after its retries, with a DataError', async () => {
-		const collection = getCollection(t.db, posts);
-		const subscription = collection.onChange(() => {}, { retries: 1 });
-		await subscription.ready;
-		await t.failNext(['getMore', 'aggregate'], { errorCode: 2 }, 10);
-		const failure = await subscription.closed.catch((error) => error);
-		await t.failNext(['getMore', 'aggregate'], { errorCode: 2 }, 0);
-		expect(failure).toBeInstanceOf(DataError);
-		expect(failure).toMatchObject({ serverCode: 2, collection: 'posts' });
-	});
-
-	test('a fatal error is not retried, and onError hears it', async () => {
-		const collection = getCollection(t.db, posts);
-		const errors: unknown[] = [];
-		const subscription = collection.onChange(() => {}, {
-			onError: (error, change) =>
-				void errors.push([(error as DataError).serverCode, change]),
-		});
-		await subscription.ready;
-		await t.failNext(['getMore'], { errorCode: 280 });
-		expect(await subscription.closed).toBe('failed');
-		expect(errors).toEqual([[280, undefined]]);
-	});
-
-	test('close() does not wait out the pause between two attempts', async () => {
-		const collection = getCollection(t.db, posts);
-		const subscription = collection.onChange(() => {}, { retries: 10 });
-		await subscription.ready;
-		await t.failNext(['getMore', 'aggregate'], { errorCode: 2 }, 50);
-		// The `getMore` already out waits about a second on the server before
-		// it meets the failpoint; then attempts fail at once, with pauses of
-		// 100, 200, 400, then 800 ms — this lands in that last one.
-		await new Promise((resolve) => setTimeout(resolve, 2_200));
-		const started = Date.now();
-		await subscription.close();
-		await t.failNext(['getMore', 'aggregate'], { errorCode: 2 }, 0);
-		expect(await subscription.closed).toBe('closed');
-		expect(Date.now() - started).toBeLessThan(1_000);
-	});
-
-	test('a dropped collection ends it', async () => {
-		const collection = getCollection(t.db, posts);
-		const subscription = collection.onChange(() => {});
-		await subscription.ready;
-		await collection.raw.drop();
-		expect(await subscription.closed).toBe('invalidated');
-	});
-});
-
-describe('closing', () => {
-	test('resolves closed, and can be done with await using', async () => {
-		const collection = getCollection(t.db, posts);
-		let closed: Promise<unknown> | undefined;
-		{
-			await using subscription = collection.onChange(() => {});
-			await subscription.ready;
-			closed = subscription.closed;
-		}
-		expect(await closed).toBe('closed');
-	});
-
-	test('waits for the change being handled', async () => {
-		const collection = getCollection(t.db, posts);
-		let finished = false;
-		let started = false;
-		const subscription = collection.onChange(async () => {
-			started = true;
-			await new Promise((resolve) => setTimeout(resolve, 100));
-			finished = true;
-		});
-		await subscription.ready;
-		await collection.create({ title: 'a', rank: 1 });
-		await until(() => started, 'the handler');
-		await subscription.close();
-		expect(finished).toBe(true);
 	});
 });

@@ -370,7 +370,8 @@ const subscription = users.onChange(
 	},
 	{ events: ['create', 'delete'], filter: { age: { $gte: 18 } } },
 );
-await subscription.ready;          // a change made from here on is heard
+await subscription.ready;          // a change made from here on is heard;
+                                   // rejects if it never opened
 // …
 await subscription.close();        // or `await using subscription = …`
 ```
@@ -396,6 +397,10 @@ Every change also has `id`, `at` and `resumeToken`.
   document.
 - **Updates to soft-deleted documents** are left out, like every read, unless
   `withDeleted: true`. The soft delete and the restore always come through.
+- **A delete or a restore is a change of the soft-delete stamp.** With
+  pre-images, the stamp before and after is compared: stamping a deleted
+  document again is an update. Without them the event alone decides — see the
+  pitfalls.
 - **It keeps going.** The driver resumes on its own after a dropped
   connection. When it gives up, the stream is reopened from the last token it
   held — nothing is missed while the process is up — up to `retries` times in
@@ -406,6 +411,9 @@ Every change also has `id`, `at` and `resumeToken`.
   the first error closes the subscription and rejects `closed`.
 - **A restarted process starts from now.** Keep a change's `resumeToken`
   somewhere durable and pass it back as `startAfter` to pick up where it was.
+  It is typed `ResumeToken`, so an id is not taken for one; a token read back
+  from storage is `saved as ResumeToken`. A token the server refuses fails
+  at once rather than being retried.
 - A dropped or renamed collection ends the subscription: `closed` resolves
   with `'invalidated'`.
 
@@ -509,7 +517,7 @@ server error reaches you untouched.
 | `isValidObjectId`, `isObjectIdString`, `isObjectId` | the checks behind them |
 | `getCollection(dbOrClient, definition, options?)` | the typed collection, driver methods included |
 | `CollectionHooks<Def>` and its pieces | hooks around the writes |
-| `ChangeOf<Def>`, `ChangeOptions<Def>`, `ChangeSubscription` | what `onChange` hands over and takes |
+| `ChangeOf<Def>`, `ChangeOptions<Def>`, `ChangeSubscription`, `ResumeToken` | what `onChange` hands over and takes |
 | `syncCollection`, `syncCollections`, `syncAll` | create and bring in line, with `dryRun` |
 | `registeredCollections`, `clearCollectionRegistry` | what `syncAll` covers |
 | `resetAutoSync(db?)` | forget the syncs `autoSync` has run |
@@ -612,6 +620,12 @@ operator, and getting it subtly wrong is worse than being honest about it.
 - **Without pre-images, a hard delete is not filtered.** It carries no
   document to match, so a subscription with a `filter` still hears every
   hard delete. Ignore the ids you never saw, or enable pre-images.
+- **Without pre-images, a soft delete is read from the event alone.** An
+  update that sets the stamp is a `delete`, even on a document that was
+  already deleted; one that clears it is a `restore`, even on one that was
+  not. A replacement that leaves the stamp set is a `delete`, and one that
+  clears it an `update`: nothing says it was deleted before. Writes through
+  this package never meet these cases; the driver's own methods can.
 - **`closed` rejects when nobody handles an error.** Like an `error` event
   nobody listens to, that ends the process if nothing awaits it. Pass
   `onError`, or await `closed`.

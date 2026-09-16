@@ -9,6 +9,7 @@ export type {
 	CreateChange,
 	DeleteChange,
 	RestoreChange,
+	ResumeToken,
 	UpdateChange,
 } from './collection/change-types';
 export {

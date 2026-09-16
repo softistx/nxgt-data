@@ -15,9 +15,11 @@ fields.
 Changes are handed over one at a time, in order. The driver resumes on its
 own after a dropped connection; when it gives up, the stream is reopened from
 the last token it held, so nothing is missed while the process is up. A
-change's `resumeToken`, passed back as `startAfter`, picks up after a restart.
+change's `resumeToken` — typed `ResumeToken`, so an id is not taken for one —
+passed back as `startAfter`, picks up after a restart.
 The document is the exact post-image when the collection keeps them
 (`options.changeStreamPreAndPostImages`), and `before` is the pre-image.
 
 Errors go to `onError`; without it, the first one closes the subscription and
-rejects `closed`.
+rejects `closed`. `ready` rejects when the subscription fails before it ever
+opened. A handler may `close()` its own subscription.

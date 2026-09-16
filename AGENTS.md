@@ -187,8 +187,9 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   which are handed over as given: the rule is about closures the package
   builds.
 - **Specs are split by subject, not one per source file.** `collection/` has
-  nine: `id`, `optimistic-lock`, `paginate`, `soft-delete`,
-  `driver-methods`, `auto-sync`, `hooks`, `changes`, and the general one. A refactor that moves code must leave them untouched —
+  ten: `id`, `optimistic-lock`, `paginate`, `soft-delete`,
+  `driver-methods`, `auto-sync`, `hooks`, `changes`, `subscription`, and the
+  general one. A refactor that moves code must leave them untouched —
   if a spec has to change, the refactor changed behaviour.
 - **A public method that refuses something must have a `@ts-expect-error`
   case** in `test/types/`. Type safety is what the compiler rejects, not what
@@ -227,14 +228,22 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **379 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 234,
+`bun run test` is **386 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 241,
 scripts 10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
 
 - **The test mongod runs with `enableTestCommands`**, so a spec can make it
-  fail a command on demand with `t.failNext(['getMore'], { errorCode: 2 })`.
-  That is how the change-stream specs reach the reopen path; a spec that sets
-  a failpoint with `times` must not leave it armed for the next one.
+  fail a command on demand with `t.failNext(['getMore', 'aggregate'], …)`.
+  That is how the change-stream specs reach the reopen path, and the error
+  code matters — all measured:
+  - **43** (CursorNotFound) is the transient one to use. The driver resumes
+    once by itself after a failed `getMore`, so fail its `aggregate` too.
+  - **91** makes the driver forget the server: every command after it waits
+    about ten seconds.
+  - **2, 9, 14, 40647** are the caller's own input and are not retried, so
+    they cannot stand for a transient failure.
+  - `t.clearFailures()` turns a failpoint off; setting `times: 0` still fails
+    one more command. The subscription spec calls it after each test.
 - **The packages' suites run in parallel, and each wants a server**: a mongod,
   a Meilisearch binary and PGlite, all at once. On a machine that is short of
   memory they fail together, and the failures do not look like what they are: a

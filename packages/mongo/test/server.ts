@@ -29,6 +29,8 @@ export interface TestServer {
 		failure: Record<string, unknown>,
 		times?: number,
 	): Promise<void>;
+	/** Turns `failNext` off, whatever it has left to fail. */
+	clearFailures(): Promise<void>;
 	client: MongoClient;
 	db: Db;
 	/** Drops the database, so each test starts from an empty one. */
@@ -71,6 +73,12 @@ export async function startMongo(dbName = 'nxgt-mongo'): Promise<TestServer> {
 				mode: { times },
 				data: { failCommands: commands, ...failure },
 			});
+		},
+		// `{ times: 0 }` would still fail one more command — measured; `off` does not.
+		clearFailures: async () => {
+			await client
+				.db('admin')
+				.command({ configureFailPoint: 'failCommand', mode: 'off' });
 		},
 		reset: async () => {
 			await db.dropDatabase();

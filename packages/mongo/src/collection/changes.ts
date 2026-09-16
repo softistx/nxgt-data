@@ -48,7 +48,7 @@ function prefixed(filter: Fields, prefix: string): Fields {
 
 /** What the server is asked to send, built once per subscription. */
 export function pipelineOf(
-	ctx: CollectionContext,
+	_ctx: CollectionContext,
 	options: ChangeOptions<never>,
 ): Document[] {
 	const events = options.events ?? ALL;
@@ -64,11 +64,14 @@ export function pipelineOf(
 					prefixed(filter, 'fullDocument'),
 					{
 						operationType: 'delete',
-						// Without pre-images a hard delete carries no document: it
-						// cannot be matched, so it is let through.
-						...(keepsImages(ctx)
-							? prefixed(filter, 'fullDocumentBeforeChange')
-							: {}),
+						// A hard delete is matched on the document it removed when the
+						// event carries one, and let through when it does not: decided
+						// by what the server sent, not by what the definition says,
+						// since a collection may not be synced yet.
+						$or: [
+							{ fullDocumentBeforeChange: null },
+							prefixed(filter, 'fullDocumentBeforeChange'),
+						],
 					},
 					{ operationType: 'invalidate' },
 				],
@@ -83,10 +86,11 @@ export function watchOptionsOf(
 	ctx: CollectionContext,
 	startAfter: unknown,
 ): ChangeStreamOptions {
-	const images = keepsImages(ctx);
 	return {
-		fullDocument: images ? 'whenAvailable' : 'updateLookup',
-		fullDocumentBeforeChange: images ? 'whenAvailable' : 'off',
+		fullDocument: keepsImages(ctx) ? 'whenAvailable' : 'updateLookup',
+		// Asked for always: a collection without pre-images answers with none,
+		// and does not refuse — measured.
+		fullDocumentBeforeChange: 'whenAvailable',
 		...(startAfter === undefined ? {} : { startAfter: startAfter as never }),
 	};
 }
@@ -94,20 +98,45 @@ export function watchOptionsOf(
 const documentOf = (ctx: CollectionContext, value: unknown) =>
 	value ? withId(ctx, value as Fields) : undefined;
 
-/** What an update event is, once a soft delete and a restore are told apart. */
-function updateTypeOf(
+const isSet = (value: unknown) => value !== null && value !== undefined;
+
+/**
+ * What an update or a replacement is, once a soft delete and a restore are
+ * told apart from other writes.
+ *
+ * With a pre-image, the soft-delete field before and after is compared, so
+ * stamping an already-deleted document again is an update. Without one, the
+ * event is all there is: an update that sets the field is a delete, one that
+ * clears or removes it a restore, and a replacement that leaves the document
+ * deleted a delete — a replacement cannot be seen to restore.
+ */
+function writeTypeOf(
 	ctx: CollectionContext,
 	event: Fields,
-): ChangeType | undefined {
+	document: Fields | undefined,
+	before: Fields | undefined,
+): ChangeType {
 	const field = ctx.softDeletes ? ctx.stamps.deletedAt : false;
 	if (!field) return 'update';
-	const description = event.updateDescription as
-		| { updatedFields?: Fields; removedFields?: string[] }
-		| undefined;
-	const set = description?.updatedFields ?? {};
-	if (field in set) return set[field] === null ? 'restore' : 'delete';
-	if (description?.removedFields?.includes(field)) return 'restore';
-	return 'update';
+	let deletedNow: boolean | undefined;
+	if (event.operationType === 'replace') {
+		deletedNow = document ? isSet(document[field]) : undefined;
+	} else {
+		const description = event.updateDescription as
+			| { updatedFields?: Fields; removedFields?: string[] }
+			| undefined;
+		const set = description?.updatedFields ?? {};
+		if (field in set) deletedNow = isSet(set[field]);
+		else if (description?.removedFields?.includes(field)) deletedNow = false;
+	}
+	if (deletedNow === undefined) return 'update';
+	if (before) {
+		if (isSet(before[field]) === deletedNow) return 'update';
+		return deletedNow ? 'delete' : 'restore';
+	}
+	if (event.operationType === 'replace')
+		return deletedNow ? 'delete' : 'update';
+	return deletedNow ? 'delete' : 'restore';
 }
 
 /**
@@ -121,27 +150,24 @@ export function toChange(
 	options: ChangeOptions<never>,
 ): Fields | undefined {
 	const operation = event.operationType;
-	const type =
+	const document = documentOf(ctx, event.fullDocument);
+	const before = documentOf(ctx, event.fullDocumentBeforeChange);
+	const type: ChangeType | undefined =
 		operation === 'insert'
 			? 'create'
 			: operation === 'delete'
 				? 'delete'
-				: operation === 'replace'
-					? 'update'
-					: operation === 'update'
-						? updateTypeOf(ctx, event)
-						: undefined;
+				: operation === 'update' || operation === 'replace'
+					? writeTypeOf(ctx, event, document, before)
+					: undefined;
 	if (!type || !(options.events ?? ALL).includes(type)) return undefined;
 
-	const document = documentOf(ctx, event.fullDocument);
 	const field = ctx.softDeletes ? ctx.stamps.deletedAt : false;
 	if (
 		type === 'update' &&
 		field &&
 		!options.withDeleted &&
-		document &&
-		document[field] !== null &&
-		document[field] !== undefined
+		isSet(document?.[field])
 	) {
 		return undefined;
 	}
@@ -155,7 +181,7 @@ export function toChange(
 		at: (event.wallTime as Date | undefined) ?? new Date(),
 		resumeToken: event._id,
 		document,
-		before: documentOf(ctx, event.fullDocumentBeforeChange),
+		before,
 		...(type === 'delete' ? { hard: operation === 'delete' } : {}),
 		...(type === 'update'
 			? {

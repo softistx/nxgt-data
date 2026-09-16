@@ -12,6 +12,28 @@ import type { IfStamp } from './types';
  */
 export type ChangeType = 'create' | 'update' | 'delete' | 'restore';
 
+declare const resumeTokenBrand: unique symbol;
+
+/**
+ * Where a change stream is. Opaque, and branded so that an `_id` or a string
+ * is not taken for one: a token kept in storage is read back as
+ * `saved as ResumeToken`.
+ */
+export type ResumeToken = { readonly [resumeTokenBrand]: true };
+
+/**
+ * Filter operators that would be read against the change event rather than
+ * the document, and are refused. Written as `never` keys rather than an
+ * `Omit`, which the driver's index signature would turn into a filter that
+ * types nothing.
+ */
+interface NoEventOperators {
+	$expr?: never;
+	$text?: never;
+	$where?: never;
+	$comment?: never;
+}
+
 interface ChangeBase<Def> {
 	/** The document's `_id`. */
 	readonly id: IdOf<Def>;
@@ -21,7 +43,7 @@ interface ChangeBase<Def> {
 	 * Where the stream is, just after this change. Opaque: pass it back as
 	 * `startAfter` to pick up from here in another subscription.
 	 */
-	readonly resumeToken: unknown;
+	readonly resumeToken: ResumeToken;
 }
 
 export interface CreateChange<Def> extends ChangeBase<Def> {
@@ -107,7 +129,7 @@ export interface ChangeOptions<Def> {
 	 * against the one before when the collection keeps pre-images, and
 	 * delivered whatever the filter says when it does not.
 	 */
-	filter?: Filter<DocumentOf<Def>>;
+	filter?: Filter<DocumentOf<Def>> & NoEventOperators;
 	/**
 	 * Hear about updates to soft-deleted documents too. Default `false`, as
 	 * for every read: the soft delete itself, and the restore, are always
@@ -118,7 +140,7 @@ export interface ChangeOptions<Def> {
 	 * Start just after this token — a change's `resumeToken`, or a
 	 * subscription's — rather than now.
 	 */
-	startAfter?: unknown;
+	startAfter?: ResumeToken;
 	/**
 	 * What to do with an error: one the handler threw (the change is then
 	 * skipped and the stream goes on), or one that stopped the stream for
@@ -138,8 +160,10 @@ export interface ChangeOptions<Def> {
 /** A running subscription. */
 export interface ChangeSubscription extends AsyncDisposable {
 	/**
-	 * Resolves once the stream is open on the server: a change made after it
-	 * is heard. One made before may not be.
+	 * Resolves once the stream is open on the server — its first read has
+	 * answered, which takes up to a second: a change made after it is heard.
+	 * One made before may not be. Rejects, even with `onError`, when the
+	 * subscription fails before it ever opened.
 	 */
 	readonly ready: Promise<void>;
 	/**
@@ -149,7 +173,7 @@ export interface ChangeSubscription extends AsyncDisposable {
 	 */
 	readonly closed: Promise<CloseReason>;
 	/** Where the stream is: the token of the last change handled, once there is one. */
-	readonly resumeToken: unknown;
+	readonly resumeToken: ResumeToken | undefined;
 	/** Stops listening. A change being handled is finished first. */
 	close(): Promise<void>;
 }
