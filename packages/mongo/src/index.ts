@@ -4,6 +4,19 @@ export {
 	getCollection,
 } from './collection/get-collection';
 export type {
+	AfterHook,
+	BeforeHook,
+	CollectionHooks,
+	CreateArgs,
+	DeleteArgs,
+	DeleteHookContext,
+	DeleteManyArgs,
+	HookContext,
+	UpdateArgs,
+	UpdateManyArgs,
+	WriteOperation,
+} from './collection/hook-types';
+export type {
 	ActorOf,
 	CollectionApi,
 	CollectionOptions,

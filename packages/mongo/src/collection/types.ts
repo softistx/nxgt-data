@@ -13,6 +13,7 @@ import type {
 } from '../definition/define-collection';
 import type { CursorPage, Page, PageOptions } from '../pagination/page';
 import type { SyncOptions, SyncReport } from '../sync/sync-collection';
+import type { CollectionHooks } from './hook-types';
 
 export type OrderDirection = 'asc' | 'desc';
 
@@ -265,6 +266,14 @@ export interface CollectionOptions<Def> {
 	 * methods are the escape hatch, and the escape hatch is not managed.
 	 */
 	autoSync?: boolean;
+	/**
+	 * Hooks around the writes, typed by the schema. An array runs each set in
+	 * order — one for auditing, one for a tenant — with every `before` seeing
+	 * what the previous one returned.
+	 *
+	 * `withSession` and `as` keep them.
+	 */
+	hooks?: CollectionHooks<Def> | readonly CollectionHooks<Def>[];
 }
 
 /**
