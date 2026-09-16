@@ -10,7 +10,7 @@ import { ObjectId } from 'mongodb';
 import { posts, users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { NotFoundError, OptimisticLockError } from '../errors/data-error';
-import { createRepository } from './create-repository';
+import { getCollection } from './get-collection';
 
 let t: TestServer;
 
@@ -21,32 +21,32 @@ beforeEach(() => t.reset());
 afterAll(() => t.stop());
 
 async function seed() {
-	const repo = createRepository(t.db, users);
-	await repo.sync();
-	const ada = await repo.create({ email: 'ada@example.com' });
-	return { repo, ada };
+	const collection = getCollection(t.db, users);
+	await collection.sync();
+	const ada = await collection.create({ email: 'ada@example.com' });
+	return { collection, ada };
 }
 
 describe('optimistic locking', () => {
 	test('every update raises the version', async () => {
-		const { repo, ada } = await seed();
+		const { collection, ada } = await seed();
 		expect(ada.version).toBe(0);
-		expect((await repo.update(ada._id, { name: 'Ada' })).version).toBe(1);
-		expect((await repo.update(ada._id, { name: 'A' })).version).toBe(2);
-		expect((await repo.delete(ada._id)).version).toBe(3);
-		expect((await repo.restore(ada._id)).version).toBe(4);
+		expect((await collection.update(ada._id, { name: 'Ada' })).version).toBe(1);
+		expect((await collection.update(ada._id, { name: 'A' })).version).toBe(2);
+		expect((await collection.delete(ada._id)).version).toBe(3);
+		expect((await collection.restore(ada._id)).version).toBe(4);
 	});
 
 	test('expectedVersion writes only while the version still matches', async () => {
-		const { repo, ada } = await seed();
-		const updated = await repo.update(
+		const { collection, ada } = await seed();
+		const updated = await collection.update(
 			ada._id,
 			{ name: 'Ada' },
 			{ expectedVersion: 0 },
 		);
 		expect(updated.version).toBe(1);
 
-		const error = await repo
+		const error = await collection
 			.update(ada._id, { name: 'Stale' }, { expectedVersion: 0 })
 			.catch((e) => e);
 		expect(error).toBeInstanceOf(OptimisticLockError);
@@ -56,15 +56,15 @@ describe('optimistic locking', () => {
 		expect(error.collection).toBe('users');
 		expect(error.message).toContain('it changed since it was read');
 		// Nothing was written.
-		expect((await repo.getById(ada._id)).name).toBe('Ada');
+		expect((await collection.getById(ada._id)).name).toBe('Ada');
 	});
 
 	test('the second of two readers loses, and nothing is lost silently', async () => {
-		const { repo, ada } = await seed();
-		const first = await repo.getById(ada._id);
-		const second = await repo.getById(ada._id);
+		const { collection, ada } = await seed();
+		const first = await collection.getById(ada._id);
+		const second = await collection.getById(ada._id);
 
-		await repo.update(
+		await collection.update(
 			first._id,
 			{ name: 'First' },
 			{
@@ -72,7 +72,7 @@ describe('optimistic locking', () => {
 			},
 		);
 		await expect(
-			repo.update(
+			collection.update(
 				second._id,
 				{ name: 'Second' },
 				{
@@ -80,31 +80,31 @@ describe('optimistic locking', () => {
 				},
 			),
 		).rejects.toBeInstanceOf(OptimisticLockError);
-		expect((await repo.getById(ada._id)).name).toBe('First');
+		expect((await collection.getById(ada._id)).name).toBe('First');
 	});
 
 	test('an _id that is not there is a NotFoundError, not a lock failure', async () => {
-		const { repo } = await seed();
+		const { collection } = await seed();
 		await expect(
-			repo.update(new ObjectId(), { name: 'x' }, { expectedVersion: 0 }),
+			collection.update(new ObjectId(), { name: 'x' }, { expectedVersion: 0 }),
 		).rejects.toBeInstanceOf(NotFoundError);
 	});
 
 	test('expectedVersion needs a version field', async () => {
-		const repo = createRepository(t.db, posts);
-		await repo.sync();
-		const post = await repo.create({ title: 'a', rank: 1 });
+		const collection = getCollection(t.db, posts);
+		await collection.sync();
+		const post = await collection.create({ title: 'a', rank: 1 });
 		await expect(
-			repo.update(post._id, { title: 'b' }, { expectedVersion: 0 }),
+			collection.update(post._id, { title: 'b' }, { expectedVersion: 0 }),
 		).rejects.toThrow('expectedVersion needs a "version" field');
-		expect(() =>
-			createRepository(t.db, posts, { optimisticLock: true }),
-		).toThrow('optimisticLock needs a "version" field');
+		expect(() => getCollection(t.db, posts, { optimisticLock: true })).toThrow(
+			'optimisticLock needs a "version" field',
+		);
 	});
 
 	test('optimisticLock: false leaves the version alone', async () => {
 		const { ada } = await seed();
-		const repo = createRepository(t.db, users, { optimisticLock: false });
-		expect((await repo.update(ada._id, { name: 'Ada' })).version).toBe(0);
+		const collection = getCollection(t.db, users, { optimisticLock: false });
+		expect((await collection.update(ada._id, { name: 'Ada' })).version).toBe(0);
 	});
 });

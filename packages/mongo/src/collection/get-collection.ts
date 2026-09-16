@@ -1,4 +1,4 @@
-import type { ClientSession, Db, Document } from 'mongodb';
+import type { ClientSession, Db, Document, MongoClient } from 'mongodb';
 import type { z } from 'zod';
 import {
 	type AnyCollectionDefinition,
@@ -21,7 +21,11 @@ import {
 	toPage,
 } from '../pagination/page';
 import { type SyncOptions, syncCollection } from '../sync/sync-collection';
-import type { OrderDirection, Repository, RepositoryOptions } from './types';
+import type {
+	CollectionOptions,
+	OrderDirection,
+	TypedCollection,
+} from './types';
 
 type Fields = Record<string, unknown>;
 
@@ -43,47 +47,69 @@ function mergeFilters(a: Fields | undefined, b: Fields | undefined): Fields {
 	return { $and: [left, right] };
 }
 
+/** What a collection can be reached through: a database, or a client. */
+export type CollectionSource = Db | MongoClient;
+
 /**
- * A repository over one collection: typed reads and writes by `_id` or by
- * filter, pagination, soft delete, optimistic locking, audit stamps, and
- * MongoDB errors turned into this package's.
- *
- * ```ts
- * const users = createRepository(db, usersCollection);
- * const ada = await users.create({ email: 'ada@example.com' });
- * await users.update(ada._id, { name: 'Ada' }, { expectedVersion: ada.version });
- * ```
- *
- * Every operation runs in the repository's session, which `with(session)`
- * sets: MongoDB has no ambient session, so a write inside a transaction that
- * was not given one is not part of it and is not rolled back.
+ * A `Db`, from either. A client is told from a database by its `db` method,
+ * not by `instanceof`, which answers `false` across two copies of the driver.
  */
-export function createRepository<Schema extends z.ZodObject>(
-	db: Db,
-	definition: CollectionDefinition<Schema>,
-	options: RepositoryOptions = {},
-): Repository<CollectionDefinition<Schema>> {
-	return build(db, definition, options) as unknown as Repository<
-		CollectionDefinition<Schema>
-	>;
+function databaseOf(source: CollectionSource, name: string | undefined): Db {
+	const client = source as MongoClient;
+	if (typeof client.db === 'function') return client.db(name);
+	const db = source as Db;
+	if (name !== undefined && db.databaseName !== name) {
+		throw new TypeError(
+			`getCollection: given a Db for "${db.databaseName}", and a db option of ` +
+				`"${name}". Pass the client, or the database you mean.`,
+		);
+	}
+	return db;
 }
 
-function build(
+/**
+ * A collection: this package's methods and the driver's own, on one object.
+ *
+ * ```ts
+ * const users = getCollection(db, usersDefinition);
+ *
+ * const ada = await users.create({ email: 'ada@example.com' });
+ * await users.update(ada._id, { name: 'Ada' }, { expectedVersion: ada.version });
+ * await users.aggregate([{ $group: { _id: '$teamId', n: { $sum: 1 } } }]);
+ * ```
+ *
+ * It takes a `Db`, or a `MongoClient` — then the database is the URI's, or the
+ * one named in `{ db }`.
+ *
+ * Every operation runs in the collection's session, which `withSession` sets:
+ * MongoDB has no ambient session, so a write inside a transaction that was not
+ * given one is not part of it and is not rolled back.
+ */
+export function getCollection<Schema extends z.ZodObject>(
+	source: CollectionSource,
+	definition: CollectionDefinition<Schema>,
+	options: CollectionOptions<CollectionDefinition<Schema>> = {},
+): TypedCollection<CollectionDefinition<Schema>> {
+	const db = databaseOf(source, options.db);
+	return build(db, definition, options as CollectionOptions<never>);
+}
+
+function build<Def>(
 	db: Db,
 	definition: AnyCollectionDefinition,
-	options: RepositoryOptions,
-) {
+	options: CollectionOptions<never>,
+): TypedCollection<Def> {
 	const name = definition.name;
 	// The driver types a collection by its documents; this body works on any
-	// collection, and the public type above is what callers see.
+	// collection, and the public type is what callers see.
 	const collection = db.collection<any>(name);
 	const shape = definition.schema.shape as Record<string, z.ZodType>;
 	// A schema may declare an `id` field of its own; then it is that field's,
-	// and the repository neither computes it nor drops it.
+	// and this neither computes it nor drops it.
 	const hasOwnId = 'id' in shape;
 	const stamps = stampsOf(definition);
 	const session = options.session;
-	const actor = options.actor;
+	const actor = options.actor as unknown;
 	const maxPageSize = options.maxPageSize ?? DEFAULT_MAX_PAGE_SIZE;
 	const parses = (options.validate ?? 'parse') === 'parse';
 	const softDeletes = options.softDelete ?? stamps.deletedAt;
@@ -92,12 +118,12 @@ function build(
 
 	if (options.softDelete === true && !stamps.deletedAt) {
 		throw new TypeError(
-			`createRepository: softDelete needs a "deletedAt" field, and "${name}" has none`,
+			`getCollection: softDelete needs a "deletedAt" field, and "${name}" has none`,
 		);
 	}
 	if (options.optimisticLock === true && !stamps.version) {
 		throw new TypeError(
-			`createRepository: optimisticLock needs a "version" field, and "${name}" has none`,
+			`getCollection: optimisticLock needs a "version" field, and "${name}" has none`,
 		);
 	}
 
@@ -119,8 +145,8 @@ function build(
 		mergeFilters(isRecord(filter) ? filter : undefined, live(withDeleted));
 
 	/**
-	 * `id` on a document the repository gives back: `_id` as a string, computed
-	 * rather than stored — the collection holds `_id` alone.
+	 * `id` on a document this gives back: `_id` as a string, computed rather
+	 * than stored — the collection holds `_id` alone.
 	 *
 	 * It is enumerable, so `JSON.stringify` and a spread carry it and a handler
 	 * can return the document as it is. `toDocument` drops it again on a write,
@@ -161,7 +187,7 @@ function build(
 	/** The document to insert: checked against the schema, defaults filled. */
 	const toDocument = (values: unknown): Fields => {
 		const stamped: Fields = { ...(values as Fields) };
-		// A document that was read carries `id`, which is this repository's view
+		// A document that was read carries `id`, which is this collection's view
 		// of `_id` and not a field: writing it back would be refused by the
 		// validator, which allows no property the schema does not declare.
 		// Parsing strips it too, but `validate: 'off'` does not parse.
@@ -179,8 +205,8 @@ function build(
 
 	/**
 	 * The update to send: a patch of fields becomes `$set`, checked field by
-	 * field against the schema, with the stamps this repository keeps. A patch
-	 * that already speaks in operators is sent as it is, with the stamps added.
+	 * field against the schema, with the stamps this keeps. A patch that
+	 * already speaks in operators is sent as it is, with the stamps added.
 	 */
 	const toUpdate = (patch: unknown): Fields => {
 		if (!isRecord(patch)) {
@@ -327,15 +353,16 @@ function build(
 		});
 	}
 
-	const repository = {
+	const api = {
 		definition,
 		db,
-		collection,
+		raw: collection,
 		session,
 
-		with: (other: ClientSession | undefined) =>
+		withSession: (other: ClientSession | undefined) =>
 			build(db, definition, { ...options, session: other }),
-		as: (who: unknown) => build(db, definition, { ...options, actor: who }),
+		as: (who: unknown) =>
+			build(db, definition, { ...options, actor: who as never }),
 		sync: (syncOptions: SyncOptions = {}) =>
 			syncCollection(db, definition, { ...sessionOption, ...syncOptions }),
 
@@ -535,5 +562,22 @@ function build(
 		},
 	};
 
-	return repository;
+	/**
+	 * This package's methods first, the driver's collection behind them. A
+	 * name both define — `count`, `updateMany`, `deleteMany` — is this
+	 * package's; the driver's is on `raw`.
+	 *
+	 * A proxy rather than a copy, so that a method the driver gains is on the
+	 * collection without this package being republished.
+	 */
+	return new Proxy(api, {
+		get(target, key, receiver) {
+			if (Reflect.has(target, key)) return Reflect.get(target, key, receiver);
+			const value = (collection as unknown as Fields)[key as string];
+			return typeof value === 'function' ? value.bind(collection) : value;
+		},
+		has(target, key) {
+			return Reflect.has(target, key) || key in (collection as object);
+		},
+	}) as unknown as TypedCollection<Def>;
 }

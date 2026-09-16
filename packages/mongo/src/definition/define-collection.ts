@@ -79,7 +79,7 @@ export type DocumentOf<Def> = Def extends { schema: infer Schema }
 	: never;
 
 /**
- * A document as a repository gives it back: the stored document, plus `id`.
+ * A document as a collection gives it back: the stored document, plus `id`.
  *
  * `id` is `_id` as a string, computed rather than stored — the collection
  * holds `_id` alone. It is enumerable, so `JSON.stringify` and a spread carry
@@ -143,7 +143,7 @@ export function defineCollection<Schema extends z.ZodObject>(
 	}) as CollectionDefinition<Schema>;
 }
 
-/** Which of the fields the repository knows about a definition's schema has. */
+/** Which of the fields the collection knows about a definition's schema has. */
 export function stampsOf(definition: AnyCollectionDefinition): {
 	createdAt: boolean;
 	updatedAt: boolean;

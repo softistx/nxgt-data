@@ -11,11 +11,11 @@ import type {
 	NewDocumentOf,
 	Page,
 	ReadDocumentOf,
-	Repository,
+	TypedCollection,
 } from '../../src';
 import {
-	createRepository,
 	defineCollection,
+	getCollection,
 	id,
 	objectId,
 	softDelete,
@@ -41,58 +41,58 @@ assertType<Equal<IdOf<typeof users>, ObjectId>>(true);
 // `_id`, the timestamps and the version have defaults: a write leaves them out.
 assertType<Equal<NewDocumentOf<typeof users>['email'], string>>(true);
 
-const repo = createRepository(db, users);
-const postRepo = createRepository(db, posts);
+const collection = getCollection(db, users);
+const postRepo = getCollection(db, posts);
 
-// Reads give documents back, each with the `id` the repository computes.
+// Reads give documents back, each with the `id` the collection computes.
 type ReadUser = ReadDocumentOf<typeof users>;
-const found = await repo.findById({} as ObjectId);
+const found = await collection.findById({} as ObjectId);
 assertType<Equal<typeof found, ReadUser | undefined>>(true);
-const got = await repo.getById({} as ObjectId);
+const got = await collection.getById({} as ObjectId);
 assertType<Equal<typeof got, ReadUser>>(true);
-const many = await repo.findMany();
+const many = await collection.findMany();
 assertType<Equal<typeof many, ReadUser[]>>(true);
 // The stored document is the schema's, `id` apart.
 assertType<Equal<Omit<ReadUser, 'id'>, User>>(true);
 
 // create takes the schema's input.
-await repo.create({ email: 'ada@example.com' });
+await collection.create({ email: 'ada@example.com' });
 // @ts-expect-error email is required
-await repo.create({ name: 'Ada' });
+await collection.create({ name: 'Ada' });
 // @ts-expect-error age is a number
-await repo.create({ email: 'ada@example.com', age: 'old' });
+await collection.create({ email: 'ada@example.com', age: 'old' });
 // @ts-expect-error no such field
-await repo.create({ email: 'ada@example.com', nope: 1 });
+await collection.create({ email: 'ada@example.com', nope: 1 });
 
 // A patch is checked against the document, unlike the driver's UpdateFilter.
-await repo.update({} as ObjectId, { name: null });
+await collection.update({} as ObjectId, { name: null });
 // @ts-expect-error email is a string
-await repo.update({} as ObjectId, { email: 1 });
+await collection.update({} as ObjectId, { email: 1 });
 // MongoDB's operators are the escape hatch.
-await repo.update({} as ObjectId, { $inc: { version: 2 } });
+await collection.update({} as ObjectId, { $inc: { version: 2 } });
 
 // Filters are the driver's, typed by the document.
-await repo.findMany({ filter: { email: 'a', age: { $gt: 3 } } });
+await collection.findMany({ filter: { email: 'a', age: { $gt: 3 } } });
 // @ts-expect-error email is a string
-await repo.count({ email: 1 });
-await repo.exists({ deletedAt: null });
+await collection.count({ email: 1 });
+await collection.exists({ deletedAt: null });
 
 // The cursor pages along a field of the schema.
-const cursorPage = await repo.paginateByCursor({ orderBy: 'createdAt' });
+const cursorPage = await collection.paginateByCursor({ orderBy: 'createdAt' });
 assertType<Equal<typeof cursorPage, CursorPage<ReadUser>>>(true);
 // @ts-expect-error no such field
-await repo.paginateByCursor({ orderBy: 'nope' });
-const page = await repo.paginate({ pageSize: 10 });
+await collection.paginateByCursor({ orderBy: 'nope' });
+const page = await collection.paginate({ pageSize: 10 });
 assertType<Equal<typeof page, Page<ReadUser>>>(true);
 
-// `with` and `as` give back the same repository.
+// `with` and `as` give back the same collection.
 await withTransaction(db as never, async (session) => {
-	const scoped: Repository<typeof users> = repo.with(session);
+	const scoped: TypedCollection<typeof users> = collection.withSession(session);
 	await scoped.create({ email: 'ada@example.com' });
-	await repo.as({} as ObjectId).create({ email: 'b@example.com' });
+	await collection.as({} as ObjectId).create({ email: 'b@example.com' });
 });
 
-// A collection of another shape is another repository.
+// A collection of another shape is another collection.
 const post = await postRepo.getById({} as ObjectId);
 assertType<Equal<typeof post.rank, number>>(true);
 // @ts-expect-error posts have no email
@@ -102,13 +102,13 @@ await postRepo.create({ email: 'a@example.com', title: 't', rank: 1 });
 assertType<Equal<typeof got.id, string>>(true);
 assertType<Equal<(typeof many)[number]['id'], string>>(true);
 assertType<Equal<(typeof page.items)[number]['id'], string>>(true);
-const created = await repo.create({ email: 'ada@example.com' });
+const created = await collection.create({ email: 'ada@example.com' });
 assertType<Equal<typeof created.id, string>>(true);
 // It is computed, not stored: a write does not take it.
 // @ts-expect-error id is not a field of the document
-await repo.create({ email: 'ada@example.com', id: 'abc' });
+await collection.create({ email: 'ada@example.com', id: 'abc' });
 // @ts-expect-error id is not a field of the document
-await repo.update({} as ObjectId, { id: 'abc' });
+await collection.update({} as ObjectId, { id: 'abc' });
 
 // A definition needs an _id, and its settings are typed.
 defineCollection({

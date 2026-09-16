@@ -21,7 +21,7 @@ export function id() {
 }
 
 /**
- * `createdAt` and `updatedAt`, filled on create. A repository sets `updatedAt`
+ * `createdAt` and `updatedAt`, filled on create. A collection sets `updatedAt`
  * on every update.
  */
 export function timestamps() {
@@ -32,7 +32,7 @@ export function timestamps() {
 }
 
 /**
- * `deletedAt`, `null` while the document is live. A repository on a collection
+ * `deletedAt`, `null` while the document is live. A collection on a collection
  * with it soft-deletes, and leaves deleted documents out of every read.
  */
 export function softDelete() {
@@ -40,7 +40,7 @@ export function softDelete() {
 }
 
 /**
- * `version`, raised by one on every update. A repository with it takes
+ * `version`, raised by one on every update. A collection with it takes
  * `expectedVersion` and throws `OptimisticLockError` when it no longer
  * matches.
  */
@@ -50,7 +50,7 @@ export function optimisticLock() {
 
 /**
  * `createdBy`, `updatedBy` and `deletedBy`, stamped from the actor a
- * repository was given with `as(actor)`. The actor's own type is the schema
+ * collection was given with `as(actor)`. The actor's own type is the schema
  * passed in, an `ObjectId` by default.
  */
 export function actors<Actor extends z.ZodType = ReturnType<typeof objectId>>(
@@ -63,7 +63,7 @@ export function actors<Actor extends z.ZodType = ReturnType<typeof objectId>>(
 	};
 }
 
-/** The fields the repository gives a meaning to, by name. */
+/** The fields the collection gives a meaning to, by name. */
 export const STAMP_FIELDS = {
 	id: '_id',
 	createdAt: 'createdAt',

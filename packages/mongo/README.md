@@ -2,12 +2,13 @@
 
 A typed MongoDB collection, from one Zod schema: the schema types every read
 and write, and the same schema becomes the collection's `$jsonSchema`
-validator, applied idempotently. On top of it, a repository with pagination,
+validator, applied idempotently. On top of it, a collection with pagination,
 transactions, optimistic locking, soft delete, audit stamps, and MongoDB's
 errors turned into ones you can catch.
 
-It wraps the official `mongodb` driver, which stays a peer dependency: the
-driver's collection is one property away at any time.
+It wraps the official `mongodb` driver, which stays a peer dependency — and it
+does not hide it: the driver's own methods are on the very same object, so
+`aggregate`, `watch` and `bulkWrite` are always at hand.
 
 ## Install
 
@@ -31,6 +32,7 @@ export const users = defineCollection({
 		_id: id(),
 		email: z.email(),
 		name: z.string().nullable().default(null),
+		loginCount: z.int().default(0),
 		...timestamps(),
 		...softDelete(),
 		...optimisticLock(),
@@ -109,28 +111,51 @@ already full.
 ## Documents
 
 ```ts
-import { createRepository } from '@nxgt/mongo';
+import { getCollection } from '@nxgt/mongo';
 
-const repo = createRepository(db, users);
+const collection = getCollection(db, users);   // a Db, or a MongoClient
 
-const ada = await repo.create({ email: 'ada@example.com' });
+const ada = await collection.create({ email: 'ada@example.com' });
 // → { _id: ObjectId, id: '507f…', email, name: null, createdAt: Date, version: 0, … }
 
-await repo.findById(ada._id);            // the document, or undefined
-await repo.getById(ada._id);             // or NotFoundError
-await repo.findFirst({ email: 'ada@example.com' });
-await repo.findMany({ filter: { name: null }, sort: { createdAt: -1 }, limit: 10 });
-await repo.count({ name: null });
-await repo.exists({ email: 'ada@example.com' });
+await collection.findById(ada._id);            // the document, or undefined
+await collection.getById(ada._id);             // or NotFoundError
+await collection.findFirst({ email: 'ada@example.com' });
+await collection.findMany({ filter: { name: null }, sort: { createdAt: -1 }, limit: 10 });
+await collection.count({ name: null });
+await collection.exists({ email: 'ada@example.com' });
 
-await repo.update(ada._id, { name: 'Ada' });          // checked field by field
-await repo.update(ada._id, { $inc: { logins: 1 } });  // MongoDB's operators too
-await repo.updateMany({ name: null }, { name: 'unknown' });
+await collection.update(ada._id, { name: 'Ada' });             // checked field by field
+await collection.update(ada._id, { $inc: { loginCount: 1 } }); // MongoDB's operators too
+await collection.updateMany({ name: null }, { name: 'unknown' });
 
-await repo.delete(ada._id);       // soft, on a schema with deletedAt
-await repo.restore(ada._id);
-await repo.hardDelete(ada._id);   // really gone
+await collection.delete(ada._id);       // soft, on a schema with deletedAt
+await collection.restore(ada._id);
+await collection.hardDelete(ada._id);   // really gone
 ```
+
+**The driver's collection is the same object.** Everything this package does
+not wrap is on it directly — no `.collection` to go through:
+
+```ts
+await collection.aggregate([{ $group: { _id: '$teamId', n: { $sum: 1 } } }]).toArray();
+collection.watch();
+await collection.distinct('email');
+await collection.bulkWrite([…]);
+collection.collectionName;   // 'users'
+```
+
+Three names are defined by both, and this package's win, because a filter that
+came out empty must not rewrite a collection: `count`, `updateMany` and
+`deleteMany` return a number and require a filter. The driver's own are on
+`raw`, which is its `Collection`, untouched:
+
+```ts
+await collection.updateMany({ name: null }, { name: 'x' });      // → number
+await collection.raw.updateMany({}, { $set: { name: 'x' } });    // → UpdateResult
+```
+
+`raw` is also the way out for an update operator this package does not name.
 
 `create` checks the document against the schema before sending it, which is
 also what fills its defaults. `update` checks each field of a patch — the
@@ -192,15 +217,20 @@ document is repeated or skipped while the collection is written to, where
 import { withTransaction } from '@nxgt/mongo';
 
 await withTransaction(client, async (session) => {
-	const team = await teams.with(session).create({ name: 'Core' });
-	await users.with(session).update(userId, { teamId: team._id });
+	const team = await teams.withSession(session).create({ name: 'Core' });
+	await users.withSession(session).update(userId, { teamId: team._id });
 });
 ```
 
 **Every operation has to be given the session.** MongoDB has no ambient
 session: a write that was not given one runs outside the transaction and is not
-rolled back with it. `repository.with(session)` is how a repository takes it,
-and it returns a new repository rather than changing the one you have.
+rolled back with it. `collection.withSession(session)` is how a collection
+takes it, and it returns a new collection rather than changing the one you
+have.
+
+`withSession` binds **this package's** methods. A driver method on the same
+object — `aggregate`, `bulkWrite`, `countDocuments` — takes its session the
+driver's way, in its options: `collection.aggregate(pipeline, { session })`.
 
 Given a session that is already in a transaction, `withTransaction` joins it.
 MongoDB has no savepoints, so an inner failure takes the whole transaction
@@ -259,7 +289,7 @@ server error reaches you untouched.
 | `id`, `objectId`, `timestamps`, `softDelete`, `optimisticLock`, `actors` | the field helpers |
 | `toObjectId`, `toObjectIds`, `tryObjectId`, `objectIdParam` | a string from outside as an `ObjectId` |
 | `isValidObjectId`, `isObjectIdString`, `isObjectId` | the checks behind them |
-| `createRepository(db, definition, options?)` | the typed repository |
+| `getCollection(dbOrClient, definition, options?)` | the typed collection, driver methods included |
 | `syncCollection`, `syncCollections` | create and bring in line, with `dryRun` |
 | `withTransaction(clientOrSession, fn, options?)` | a transaction, joined when nested |
 | `toMongoJsonSchema(schema)` | a Zod schema as a MongoDB `$jsonSchema` |
@@ -267,14 +297,47 @@ server error reaches you untouched.
 | `DataError` and its subclasses, `toDataError` | the errors |
 | `diffIndexes`, `normalizeIndex`, `validationMatches` | what `sync` compares with |
 
-`RepositoryOptions` turns the behaviours off one by one: `softDelete`,
-`touchUpdatedAt`, `optimisticLock`, `validate: 'off'`, `maxPageSize`.
+`CollectionOptions` turns the behaviours off one by one: `softDelete`,
+`touchUpdatedAt`, `optimisticLock`, `validate: 'off'`, `maxPageSize`, and it
+names the database with `db` when you pass a client.
+
+## What does not compile
+
+The schema types more than the documents. These are compile errors, each one
+kept as a test in `test/types/strictness.ts`:
+
+```ts
+await collection.findMany({ sort: { nope: 1 } });        // no such field
+await collection.findMany({ sort: { email: 'up' } });    // not a direction
+await collection.findMany({ projection: { nope: 1 } });  // no such field
+await collection.findMany({ projection: { email: 2 } }); // 0, 1 or an operator
+await collection.update(id, { $set: { nope: 1 } });      // no such field
+await collection.update(id, { $set: { email: 1 } });     // email is a string
+await collection.update(id, { $inc: { email: 1 } });     // not a numeric field
+await collection.update(id, { $push: { title: 'x' } });  // not an array field
+await collection.update(id, { id: 'abc' });              // id is computed
+collection.as('not-an-object-id');                       // the schema types the actor
+posts.as(someone);                                       // posts stamp no actor
+```
+
+What is **not** checked: the tail of a dotted path, and a `filter`, which stays
+the driver's `Filter` — rebuilding it would mean reimplementing every query
+operator, and getting it subtly wrong is worse than being honest about it.
 
 ## Traps
 
 - **There is no ambient session.** An operation inside `withTransaction` that
   was not given the session is not part of the transaction. Use
-  `repository.with(session)` for every one of them.
+  `collection.withSession(session)` for every one of them.
+- **A driver method does not take the collection's session.** `withSession`
+  binds this package's methods; `collection.aggregate(…)` is the driver's own,
+  so it wants `{ session }` in its options like anywhere else. The session is
+  on the collection as `collection.session` when you need to pass it along.
+- **`estimatedDocumentCount` counts writes that have not committed.** It reads
+  the storage engine's metadata rather than the documents, so it is not
+  transactional and it is not exact — a document inserted by an open
+  transaction is already in its answer. `count` queries, and is the one to
+  assert on.
 - **`$jsonSchema` is not JSON Schema.** MongoDB rejects `$ref`, `$schema`,
   `default`, `format` and `id`, has no `integer` type, and treats a keyword it
   does not know as an error rather than ignoring it. `toMongoJsonSchema`
