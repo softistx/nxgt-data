@@ -61,7 +61,7 @@ describe('the driver’s own methods', () => {
 	});
 });
 
-describe('the three names both define', () => {
+describe('the names both define', () => {
 	test('are ours, and the driver’s are on raw', async () => {
 		const collection = await seed();
 
@@ -71,6 +71,8 @@ describe('the three names both define', () => {
 		expect(await collection.deleteMany({ age: 36 })).toBe(2);
 		// Soft-deleted, so they are still there for the driver.
 		expect(await collection.raw.count()).toBe(2);
+		expect(await collection.distinct('name')).toEqual([]);
+		expect(await collection.raw.distinct('name')).toEqual(['x']);
 
 		// The driver's: its own result shape, and no filter is required.
 		const result = await collection.raw.updateMany(

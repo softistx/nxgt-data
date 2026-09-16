@@ -257,14 +257,15 @@ not wrap is on it directly — no `.collection` to go through:
 ```ts
 await collection.aggregate([{ $group: { _id: '$teamId', n: { $sum: 1 } } }]).toArray();
 collection.watch();
-await collection.distinct('email');
+await collection.raw.distinct('email');   // `distinct` is this package's
 await collection.bulkWrite([…]);
 collection.collectionName;   // 'users'
 ```
 
-Three names are defined by both, and this package's win, because a filter that
-came out empty must not rewrite a collection: `count`, `updateMany` and
-`deleteMany` return a number and require a filter. The driver's own are on
+Four names are defined by both, and this package's win. `count`, `updateMany`
+and `deleteMany` return a number and require a filter, because a filter that
+came out empty must not rewrite a collection; `distinct` leaves soft-deleted
+documents out, as every read does. The driver's own are on
 `raw`, which is its `Collection`, untouched:
 
 ```ts
@@ -532,11 +533,47 @@ process.on('SIGTERM', () => closeMongo());   // yours to wire
 - A `MongoClient` you open yourself works everywhere too: `connectMongo` is a
   convenience, not a requirement.
 
+## Aggregation
+
+Three helpers for what comes up most, typed by the schema, soft-deleted
+documents left out as every read does (`withDeleted: true` to keep them).
+Anything else is `.aggregate()`, which is on the collection too.
+
+```ts
+await members.distinct('level');                       // ['junior', 'senior']
+await members.distinct('tags', { teamId });            // an array field gives its elements
+
+await orders.groupBy('status', {
+	filter: { createdAt: { $gte: monthStart } },
+	measures: { total: { sum: 'amount' }, average: { avg: 'amount' }, last: { max: 'createdAt' } },
+});
+// [{ key: 'paid', count: 12, total: 4310, average: 359.2, last: Date }, …]
+
+const withRelations = await members.populate(await members.findMany(), {
+	team: { from: teams, by: 'teamId' },          // a team, or null
+	mentors: { from: members, by: 'mentorIds' },  // a list field gives a list, in its order
+	mentees: { from: members, on: 'mentorIds' },  // the members that point to this one
+});
+```
+
+- **`groupBy`** gives each group's `key`, `count` and the measures: `sum` and
+  `avg` take numeric fields, `min` and `max` any field. The largest groups
+  come first, ties by key; `sort: 'key'` orders by key, and `limit` keeps the
+  first ones. Documents without the field are one group, keyed `null`. A
+  group whose field is missing everywhere sums to `0` and averages to `null`.
+- **`populate`** takes documents you already have — from `findMany`,
+  `paginate`, anywhere — and sends **one query per relation**, however many
+  documents there are. `by` follows a field of these documents; `on` gathers
+  the documents of `from` whose field points back. The related collection
+  reads as it always does: its session (pass `withSession(session)` for a
+  transaction), its soft delete, and `withDeleted` on the relation. It
+  returns copies and leaves your documents alone.
+- **`distinct`** answers in the server's order, and never `undefined`.
+
 ## Not included
 
-- **No aggregation helpers.** The collection *is* the driver's collection as
-  well: `.aggregate()`, `.watch()` and the rest are on it, and `raw` is the
-  driver's own, untouched.
+- **No aggregation pipeline builder.** The helpers above cover the common
+  cases; `.aggregate()` and `raw` are the driver's own, untouched.
 - **No migrations.** `sync` brings the schema and the indexes in line; it never
   rewrites a document.
 
@@ -549,6 +586,7 @@ process.on('SIGTERM', () => closeMongo());   // yours to wire
 | `toObjectId`, `toObjectIds`, `tryObjectId`, `objectIdParam` | a string from outside as an `ObjectId` |
 | `isValidObjectId`, `isObjectIdString`, `isObjectId` | the checks behind them |
 | `connectMongo(uri, options?)`, `closeMongo()`, `MongoConnection`, `PingResult` | a shared client, closed with its last holder |
+| `DistinctOf`, `Group`, `GroupByOptions`, `Measure`, `Measures`, `Populated`, `Relations`, `ByRelation`, `OnRelation`, `RelatedCollection` | what `distinct`, `groupBy` and `populate` take and give |
 | `getCollection(dbOrClient, definition, options?)` | the typed collection, driver methods included |
 | `CollectionHooks<Def>` and its pieces | hooks around the writes |
 | `ChangeOf<Def>`, `ChangeOptions<Def>`, `ChangeSubscription`, `ResumeToken` | what `onChange` hands over and takes |
@@ -582,7 +620,13 @@ await collection.update(id, { $push: { title: 'x' } });  // not an array field
 await collection.update(id, { id: 'abc' });              // id is computed
 collection.as('not-an-object-id');                       // the schema types the actor
 posts.as(someone);                                       // posts stamp no actor
+await members.groupBy('level', { measures: { n: { sum: 'name' } } });  // not a number
+await members.groupBy('level', { measures: { count: { sum: 'score' } } }); // count is taken
+await members.populate(found, { team: { from: teams, by: 'name' } });  // not a reference
+await members.populate(found, { name: { from: teams, by: 'teamId' } }); // name is a field
 ```
+
+The aggregation cases are in `test/types/aggregation.ts`.
 
 What is **not** checked: the tail of a dotted path, and a `filter`, which stays
 the driver's `Filter` — rebuilding it would mean reimplementing every query
@@ -647,6 +691,13 @@ operator, and getting it subtly wrong is worse than being honest about it.
 - **Change streams need a replica set.** A standalone `mongod` refuses them;
   a single-node replica set is enough, which is what this package's own specs
   run on.
+- **`populate` matches ids by type, not by collection.** Any `ObjectId`
+  field can point to any collection keyed by `ObjectId`; the type checks the
+  kind of id, and nothing more can. A `by` naming the wrong collection
+  compiles and finds nothing.
+- **`populate`'s `$in` holds every id at once.** One query per relation is
+  the point, but a page of ten thousand documents makes a filter of ten
+  thousand ids: page first, then populate.
 - **Close a shared client through its connection.** `mongo.client.close()`
   skips the count: the closed client stays shared, and every later
   `connectMongo` for that URI gets it, dead, until `closeMongo()`.

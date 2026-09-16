@@ -14,6 +14,14 @@ import type {
 import type { CursorPage, Page, PageOptions } from '../pagination/page';
 import type { SyncOptions, SyncReport } from '../sync/sync-collection';
 import type {
+	DistinctOf,
+	Group,
+	GroupByOptions,
+	Measures,
+	Populated,
+	Relations,
+} from './aggregation/types';
+import type {
 	ChangeHandler,
 	ChangeOptions,
 	ChangeSubscription,
@@ -409,14 +417,55 @@ export interface CollectionApi<Def> {
 	paginateByCursor(
 		options?: CursorPaginateOptions<Def>,
 	): Promise<CursorPage<ReadDocumentOf<Def>>>;
+
+	/**
+	 * The distinct values of a field among the documents that match,
+	 * soft-deleted ones left out. An array field gives its elements. The
+	 * driver's `distinct` is `raw.distinct`.
+	 */
+	distinct<K extends FieldOf<Def>>(
+		field: K,
+		filter?: Filter<DocumentOf<Def>>,
+		options?: ReadOptions,
+	): Promise<DistinctOf<Def, K>[]>;
+
+	/**
+	 * The documents that match, grouped on a field: each group's `key`, its
+	 * `count`, and the measures asked for.
+	 *
+	 * ```ts
+	 * await orders.groupBy('status', { measures: { total: { sum: 'amount' } } });
+	 * // [{ key: 'paid', count: 12, total: 4_310 }, …]
+	 * ```
+	 */
+	groupBy<
+		K extends FieldOf<Def>,
+		const M extends Measures<Def> = Record<never, never>,
+	>(field: K, options?: GroupByOptions<Def, M>): Promise<Group<Def, K, M>[]>;
+
+	/**
+	 * The documents given, with their related documents under each
+	 * relation's name — one query per relation.
+	 *
+	 * ```ts
+	 * const withAuthors = await posts.populate(found, {
+	 * 	author: { from: users, by: 'authorId' },   // a user, or null
+	 * 	comments: { from: comments, on: 'postId' }, // every comment on it
+	 * });
+	 * ```
+	 */
+	populate<Doc extends ReadDocumentOf<Def>, const R>(
+		documents: readonly Doc[],
+		relations: R & Relations<Def, R>,
+	): Promise<Populated<Def, Doc, R>[]>;
 }
 
 /**
  * A collection: this package's methods, plus every method of the driver's own
  * `Collection` that they do not redefine.
  *
- * Three names are defined by both, and this package's win: `count`,
- * `updateMany` and `deleteMany`. The driver's are on `raw`.
+ * Four names are defined by both, and this package's win: `count`,
+ * `distinct`, `updateMany` and `deleteMany`. The driver's are on `raw`.
  */
 export type TypedCollection<Def> = CollectionApi<Def> &
 	Omit<DriverCollection<DocumentOf<Def>>, keyof CollectionApi<Def>>;
