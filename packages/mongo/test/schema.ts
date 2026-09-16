@@ -9,7 +9,7 @@ import {
 	timestamps,
 } from '../src/definition/fields';
 
-/** Everything the repository knows about: stamps, soft delete and a version. */
+/** Everything the collection knows about: stamps, soft delete and a version. */
 export const users = defineCollection({
 	name: 'users',
 	schema: z.object({

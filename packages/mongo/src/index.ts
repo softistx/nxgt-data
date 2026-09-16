@@ -1,4 +1,29 @@
 export {
+	type CollectionSource,
+	getCollection,
+} from './collection/get-collection';
+export type {
+	ActorOf,
+	CollectionApi,
+	CollectionOptions,
+	CursorPaginateOptions,
+	FieldPath,
+	FindFirstOptions,
+	FindManyOptions,
+	OrderDirection,
+	PaginateOptions,
+	Patch,
+	ProjectionOf,
+	ProjectionOperator,
+	PushOf,
+	ReadOptions,
+	SetOf,
+	SortOf,
+	TypedCollection,
+	UpdateOperators,
+	UpdateOptions,
+} from './collection/types';
+export {
 	type AnyCollectionDefinition,
 	type CollectionConfig,
 	type CollectionDefinition,
@@ -66,19 +91,6 @@ export {
 	pageWindow,
 	toPage,
 } from './pagination/page';
-export { createRepository } from './repository/create-repository';
-export type {
-	CursorPaginateOptions,
-	FindFirstOptions,
-	FindManyOptions,
-	OrderDirection,
-	PaginateOptions,
-	Patch,
-	ReadOptions,
-	Repository,
-	RepositoryOptions,
-	UpdateOptions,
-} from './repository/types';
 export {
 	diffIndexes,
 	type IndexDiff,

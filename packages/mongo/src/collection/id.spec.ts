@@ -11,7 +11,7 @@ import { posts, users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { defineCollection } from '../definition/define-collection';
 import { id } from '../definition/fields';
-import { createRepository } from './create-repository';
+import { getCollection } from './get-collection';
 
 let t: TestServer;
 
@@ -22,35 +22,35 @@ beforeEach(() => t.reset());
 afterAll(() => t.stop());
 
 async function seed() {
-	const repo = createRepository(t.db, users);
-	await repo.sync();
-	const ada = await repo.create({ email: 'ada@example.com' });
-	return { repo, ada };
+	const collection = getCollection(t.db, users);
+	await collection.sync();
+	const ada = await collection.create({ email: 'ada@example.com' });
+	return { collection, ada };
 }
 
 describe('the id of a document', () => {
-	test('is _id as a string, on everything a repository gives back', async () => {
-		const { repo, ada } = await seed();
+	test('is _id as a string, on everything a collection gives back', async () => {
+		const { collection, ada } = await seed();
 		expect(ada.id).toBe(ada._id.toHexString());
 
-		expect((await repo.getById(ada._id)).id).toBe(ada.id);
-		expect((await repo.findById(ada._id))?.id).toBe(ada.id);
-		expect((await repo.findFirst({ email: 'ada@example.com' }))?.id).toBe(
+		expect((await collection.getById(ada._id)).id).toBe(ada.id);
+		expect((await collection.findById(ada._id))?.id).toBe(ada.id);
+		expect((await collection.findFirst({ email: 'ada@example.com' }))?.id).toBe(
 			ada.id,
 		);
-		expect((await repo.findMany())[0]?.id).toBe(ada.id);
-		expect((await repo.paginate()).items[0]?.id).toBe(ada.id);
-		expect((await repo.paginateByCursor()).items[0]?.id).toBe(ada.id);
-		expect((await repo.update(ada._id, { name: 'Ada' })).id).toBe(ada.id);
-		expect((await repo.delete(ada._id)).id).toBe(ada.id);
-		expect((await repo.restore(ada._id)).id).toBe(ada.id);
-		expect((await repo.hardDelete(ada._id)).id).toBe(ada.id);
+		expect((await collection.findMany())[0]?.id).toBe(ada.id);
+		expect((await collection.paginate()).items[0]?.id).toBe(ada.id);
+		expect((await collection.paginateByCursor()).items[0]?.id).toBe(ada.id);
+		expect((await collection.update(ada._id, { name: 'Ada' })).id).toBe(ada.id);
+		expect((await collection.delete(ada._id)).id).toBe(ada.id);
+		expect((await collection.restore(ada._id)).id).toBe(ada.id);
+		expect((await collection.hardDelete(ada._id)).id).toBe(ada.id);
 	});
 
 	test('createMany gives one to each', async () => {
-		const repo = createRepository(t.db, posts);
-		await repo.sync();
-		const created = await repo.createMany([
+		const collection = getCollection(t.db, posts);
+		await collection.sync();
+		const created = await collection.createMany([
 			{ title: 'a', rank: 1 },
 			{ title: 'b', rank: 2 },
 		]);
@@ -75,10 +75,10 @@ describe('the id of a document', () => {
 	});
 
 	test('a document that was read can be written back', async () => {
-		const { repo, ada } = await seed();
-		const read = await repo.getById(ada._id);
+		const { collection, ada } = await seed();
+		const read = await collection.getById(ada._id);
 		// The schema strips `id`, so the copy is inserted without it.
-		const copy = await repo.create({
+		const copy = await collection.create({
 			...read,
 			_id: undefined as never,
 			email: 'copy@example.com',
@@ -93,9 +93,9 @@ describe('the id of a document', () => {
 	});
 
 	test('validate: off does not parse, and still writes no id', async () => {
-		const { repo, ada } = await seed();
-		const read = await repo.getById(ada._id);
-		const raw = createRepository(t.db, users, { validate: 'off' });
+		const { collection, ada } = await seed();
+		const read = await collection.getById(ada._id);
+		const raw = getCollection(t.db, users, { validate: 'off' });
 		// Nothing strips the field here: `toDocument` is what drops it, and
 		// without it the collection's validator would refuse the document.
 		const written = await raw.create({
@@ -112,8 +112,8 @@ describe('the id of a document', () => {
 	});
 
 	test('a projection without _id gets none', async () => {
-		const { repo } = await seed();
-		const [projected] = await repo.findMany({
+		const { collection } = await seed();
+		const [projected] = await collection.findMany({
 			projection: { email: 1, _id: 0 },
 		});
 		expect(projected).toEqual({ email: 'ada@example.com' } as never);
@@ -125,14 +125,14 @@ describe('the id of a document', () => {
 			name: 'things',
 			schema: z.object({ _id: id(), id: z.string() }),
 		});
-		const repo = createRepository(t.db, things);
-		await repo.sync();
+		const collection = getCollection(t.db, things);
+		await collection.sync();
 
-		const thing = await repo.create({ id: 'mine' });
+		const thing = await collection.create({ id: 'mine' });
 		expect(thing.id).toBe('mine');
 		// It is a field like any other: stored, and read back as it was.
 		const stored = await t.db.collection('things').findOne({ _id: thing._id });
 		expect(stored?.id).toBe('mine');
-		expect((await repo.getById(thing._id)).id).toBe('mine');
+		expect((await collection.getById(thing._id)).id).toBe('mine');
 	});
 });

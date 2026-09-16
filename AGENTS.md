@@ -11,7 +11,7 @@ registry:
 | --- | --- |
 | `@nxgt/drizzle` | an SDK over Drizzle ORM: typed repositories (`createRepository`), offset and cursor pagination, `withTransaction`, its own errors with `toDataError`, and the `id()`, `timestamps()`, `softDelete()` columns. PostgreSQL first |
 | `@nxgt/meilisearch` | a typed Meilisearch index on the official SDK: `defineIndex<Doc>()({ uid, primaryKey, settings })`, `syncIndex`/`syncIndexes` applying the settings idempotently, and `bindIndex` for typed documents and searches. Its one error is `SearchIndexError` |
-| `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection`, `syncCollection` applying the `$jsonSchema` validator and the indexes idempotently, `createRepository` with pagination, soft delete, optimistic locking and audit stamps, and `withTransaction`. Its errors are `DataError` and its subclasses |
+| `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection`, `syncCollection` applying the `$jsonSchema` validator and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, and `withTransaction`. Its errors are `DataError` and its subclasses |
 
 It was started on 2026-09-15, on the tooling of `softistx/nxgt-http`: the
 same build, artifact check, publish script, CI and conventions. When one of
@@ -178,7 +178,7 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **279 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 134,
+`bun run test` is **289 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 144,
 scripts 10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
 

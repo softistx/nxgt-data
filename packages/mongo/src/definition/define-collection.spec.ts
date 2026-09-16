@@ -50,7 +50,7 @@ describe('defineCollection', () => {
 });
 
 describe('stampsOf', () => {
-	test('reports the fields the repository gives a meaning to', () => {
+	test('reports the fields the collection gives a meaning to', () => {
 		const full = defineCollection({
 			name: 'users',
 			schema: z.object({

@@ -14,13 +14,13 @@ function isSession(host: TransactionHost): host is ClientSession {
  * throws, and a MongoDB error turned into a `DataError` on the way out. The
  * session is the argument, and **every operation inside has to be given it**:
  * MongoDB has no ambient session, so an operation without one runs outside the
- * transaction and is not rolled back. `repository.with(session)` is how a
- * repository takes it.
+ * transaction and is not rolled back. `collection.withSession(session)` is how
+ * a collection takes it.
  *
  * ```ts
  * await withTransaction(client, async (session) => {
- * 	const team = await teams.with(session).create({ name: 'Core' });
- * 	await users.with(session).update(userId, { teamId: team._id });
+ * 	const team = await teams.withSession(session).create({ name: 'Core' });
+ * 	await users.withSession(session).update(userId, { teamId: team._id });
  * });
  * ```
  *
