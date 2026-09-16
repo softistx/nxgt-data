@@ -46,8 +46,23 @@ const db = client.db('app');
 ## Definition
 
 `defineCollection` takes the collection's name, the Zod schema of its
-documents, its indexes as the driver describes them, and how its validator is
-applied.
+documents, its indexes, and how its validator is applied.
+
+An index is keyed on the schema's own fields, so an editor completes them and a
+typo does not compile. A path into a field is allowed too, since that is how
+MongoDB indexes a nested key. Everything else is the driver's own
+`IndexDescription` — `unique`, `name`, `collation`, `expireAfterSeconds`,
+`partialFilterExpression`:
+
+```ts
+indexes: [
+	{ key: { email: 1 }, unique: true, name: 'users_email_unique' },
+	{ key: { createdAt: -1 } },
+	{ key: { 'address.city': 1 } },
+	// @ts-expect-error there is no such field
+	{ key: { emial: 1 } },
+]
+```
 
 The schema is the one source of truth. `z.output` is what a read gives back,
 `z.input` what a write takes: a field with a default — `_id`, `createdAt`,
@@ -99,7 +114,7 @@ import { createRepository } from '@nxgt/mongo';
 const repo = createRepository(db, users);
 
 const ada = await repo.create({ email: 'ada@example.com' });
-// → { _id: ObjectId, email, name: null, createdAt: Date, version: 0, … }
+// → { _id: ObjectId, id: '507f…', email, name: null, createdAt: Date, version: 0, … }
 
 await repo.findById(ada._id);            // the document, or undefined
 await repo.getById(ada._id);             // or NotFoundError
@@ -121,6 +136,36 @@ await repo.hardDelete(ada._id);   // really gone
 also what fills its defaults. `update` checks each field of a patch — the
 driver's own `UpdateFilter` is intersected with `Document` and accepts any key
 whatsoever, including a typo.
+
+## Ids
+
+Every document a repository gives back carries `id`: its `_id` as a string. It
+is computed, never stored — the collection holds `_id` alone — and it is an
+ordinary enumerable property, so `JSON.stringify` and a spread carry it and a
+handler can return the document as it is.
+
+Because it is not a stored field, nothing can be filtered or patched on it: the
+server would match nothing, and TypeScript refuses it. To go the other way,
+from a string that arrived over HTTP:
+
+```ts
+import { toObjectId, tryObjectId, isValidObjectId, objectIdParam } from '@nxgt/mongo';
+
+await repo.getById(toObjectId(params.id));   // an ObjectId, or InvalidIdError
+tryObjectId(params.id);                      // an ObjectId, or undefined
+isValidObjectId(params.id);                  // a boolean
+toObjectIds(query.ids);                      // for a `$in` filter
+
+// Or as part of a schema, where the parameters are parsed:
+const route = z.object({ id: objectIdParam() });
+const { id } = route.parse(params);          // ObjectId
+```
+
+**Do not call `new ObjectId(value)` on input you did not produce.** Given
+`null` or `undefined` the driver does not throw: it invents a fresh id, so a
+parameter that never arrived becomes a perfectly valid id that matches nothing.
+`toObjectId` throws `InvalidIdError`, which a handler can turn into a 400 or a
+404.
 
 ## Pagination
 
@@ -190,6 +235,7 @@ application never reads a numeric code:
 | `ValidationError` | `VALIDATION` | the collection's validator refused it (121) |
 | `OptimisticLockError` | `OPTIMISTIC_LOCK` | `expectedVersion` no longer matches |
 | `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write |
+| `InvalidIdError` | `INVALID_ID` | a value that is no `ObjectId`, nor the string of one |
 | `DataError` | `DATABASE` | any other server error, with its `serverCode` |
 
 `ConflictError` carries `index`, `keys` and, when the server gives them,
@@ -211,6 +257,8 @@ server error reaches you untouched.
 | --- | --- |
 | `defineCollection(config)` | a collection: name, schema, indexes, validation |
 | `id`, `objectId`, `timestamps`, `softDelete`, `optimisticLock`, `actors` | the field helpers |
+| `toObjectId`, `toObjectIds`, `tryObjectId`, `objectIdParam` | a string from outside as an `ObjectId` |
+| `isValidObjectId`, `isObjectIdString`, `isObjectId` | the checks behind them |
 | `createRepository(db, definition, options?)` | the typed repository |
 | `syncCollection`, `syncCollections` | create and bring in line, with `dryRun` |
 | `withTransaction(clientOrSession, fn, options?)` | a transaction, joined when nested |
@@ -255,6 +303,15 @@ server error reaches you untouched.
 - **Rebuilding an index drops it first.** MongoDB cannot alter an index in
   place, so `sync` drops and recreates one whose options changed: there is a
   window with no index, and on a large collection the rebuild is not free.
+- **`new ObjectId(undefined)` is a fresh id, not an error.** So is
+  `new ObjectId(null)`. A missing route parameter turns into a valid id that
+  matches nothing, and the bug surfaces as an empty result rather than as a
+  failure. Use `toObjectId`, which throws, or `tryObjectId`, which answers
+  `undefined`.
+- **`id` is computed, not stored.** It is on every document a repository
+  returns, and on none in the collection: a filter or a patch keyed on it would
+  match nothing, so both are compile errors. Query on `_id`. A schema that
+  declares an `id` field of its own keeps it, untouched.
 - **`validate: 'off'` also turns the defaults off.** Nothing fills `_id`,
   `createdAt` or `version` any more, because filling them is what parsing does.
 - **The driver retries a transaction's callback** on a transient error, for up

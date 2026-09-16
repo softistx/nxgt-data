@@ -11,6 +11,7 @@ import type {
 	FieldOf,
 	IdOf,
 	NewDocumentOf,
+	ReadDocumentOf,
 } from '../definition/define-collection';
 import type { CursorPage, Page, PageOptions } from '../pagination/page';
 import type { SyncOptions, SyncReport } from '../sync/sync-collection';
@@ -69,6 +70,11 @@ export type Patch<Def> =
 	// fail both of them.
 	| (UpdateFilter<DocumentOf<Def>> & {
 			[K in keyof DocumentOf<Def>]?: never;
+	  } & {
+			// `id` is computed from `_id` and stored nowhere, so writing it is
+			// always a mistake — one this branch would otherwise wave through,
+			// since it is no field of the document.
+			id?: never;
 	  });
 
 export interface UpdateOptions {
@@ -138,27 +144,29 @@ export interface Repository<Def> {
 	findById(
 		id: IdOf<Def>,
 		options?: ReadOptions,
-	): Promise<DocumentOf<Def> | undefined>;
+	): Promise<ReadDocumentOf<Def> | undefined>;
 	/** The document with this `_id`. Throws `NotFoundError`. */
-	getById(id: IdOf<Def>, options?: ReadOptions): Promise<DocumentOf<Def>>;
+	getById(id: IdOf<Def>, options?: ReadOptions): Promise<ReadDocumentOf<Def>>;
 	/** The first document that matches, or `undefined`. */
 	findFirst(
 		filter?: Filter<DocumentOf<Def>>,
 		options?: FindFirstOptions<Def>,
-	): Promise<DocumentOf<Def> | undefined>;
+	): Promise<ReadDocumentOf<Def> | undefined>;
 	/** Every document that matches. */
-	findMany(options?: FindManyOptions<Def>): Promise<DocumentOf<Def>[]>;
+	findMany(options?: FindManyOptions<Def>): Promise<ReadDocumentOf<Def>[]>;
 
 	/** Checks the document against the schema, fills its defaults, inserts it. */
-	create(values: NewDocumentOf<Def>): Promise<DocumentOf<Def>>;
+	create(values: NewDocumentOf<Def>): Promise<ReadDocumentOf<Def>>;
 	/** The same, in one insert. `[]` sends nothing. */
-	createMany(values: readonly NewDocumentOf<Def>[]): Promise<DocumentOf<Def>[]>;
+	createMany(
+		values: readonly NewDocumentOf<Def>[],
+	): Promise<ReadDocumentOf<Def>[]>;
 	/** Updates the document with this `_id` and returns it. Throws `NotFoundError`. */
 	update(
 		id: IdOf<Def>,
 		patch: Patch<Def>,
 		options?: UpdateOptions,
-	): Promise<DocumentOf<Def>>;
+	): Promise<ReadDocumentOf<Def>>;
 	/** Updates every document that matches, and returns how many changed. */
 	updateMany(
 		filter: Filter<DocumentOf<Def>>,
@@ -168,15 +176,15 @@ export interface Repository<Def> {
 	 * Deletes the document with this `_id` and returns it: a soft delete on a
 	 * collection with `deletedAt`. Throws `NotFoundError`.
 	 */
-	delete(id: IdOf<Def>): Promise<DocumentOf<Def>>;
+	delete(id: IdOf<Def>): Promise<ReadDocumentOf<Def>>;
 	/** Deletes every document that matches, and returns how many. */
 	deleteMany(filter: Filter<DocumentOf<Def>>): Promise<number>;
 	/** A real delete, of a live or a soft-deleted document. */
-	hardDelete(id: IdOf<Def>): Promise<DocumentOf<Def>>;
+	hardDelete(id: IdOf<Def>): Promise<ReadDocumentOf<Def>>;
 	/** A real delete of every document that matches, soft-deleted ones included. */
 	hardDeleteMany(filter: Filter<DocumentOf<Def>>): Promise<number>;
 	/** Clears `deletedAt` and returns the document. Throws `NotFoundError`. */
-	restore(id: IdOf<Def>): Promise<DocumentOf<Def>>;
+	restore(id: IdOf<Def>): Promise<ReadDocumentOf<Def>>;
 
 	/** How many documents match. */
 	count(
@@ -189,9 +197,9 @@ export interface Repository<Def> {
 		options?: ReadOptions,
 	): Promise<boolean>;
 	/** One page of the documents that match, and how many there are. */
-	paginate(options?: PaginateOptions<Def>): Promise<Page<DocumentOf<Def>>>;
+	paginate(options?: PaginateOptions<Def>): Promise<Page<ReadDocumentOf<Def>>>;
 	/** One page of the documents that match, after a cursor. */
 	paginateByCursor(
 		options?: CursorPaginateOptions<Def>,
-	): Promise<CursorPage<DocumentOf<Def>>>;
+	): Promise<CursorPage<ReadDocumentOf<Def>>>;
 }

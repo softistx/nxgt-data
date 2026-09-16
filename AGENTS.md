@@ -178,9 +178,18 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **262 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 117,
+`bun run test` is **279 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 134,
 scripts 10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
+
+- **The packages' suites run in parallel, and each wants a server**: a mongod,
+  a Meilisearch binary and PGlite, all at once. On a machine that is short of
+  memory they fail together, and the failures do not look like what they are: a
+  mongo `beforeAll` that times out is reported as `(fail) (unnamed)` and raises
+  the test count by one, and Meilisearch fails its first test after several
+  seconds and the rest in a millisecond each. Before reading that as a
+  regression, run the packages one at a time — green in series means it was the
+  machine, not the code.
 
 - **Meilisearch answers `succeeded` to a settings update whatever it holds**:
   measured on v1.53.2 with an unknown ranking rule, an empty dictionary entry
