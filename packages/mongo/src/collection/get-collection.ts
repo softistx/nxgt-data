@@ -6,6 +6,9 @@ import type {
 } from '../definition/define-collection';
 import type { StampNames } from '../definition/stamps';
 import { type SyncOptions, syncCollection } from '../sync/sync-collection';
+import { distinct } from './aggregation/distinct';
+import { type GroupByRuntime, groupBy } from './aggregation/group-by';
+import { populate } from './aggregation/populate';
 import { gated } from './auto-sync';
 import { subscribe } from './changes/subscription';
 import type { ChangeHandler, ChangeOptions } from './changes/types';
@@ -86,8 +89,8 @@ export function getCollection<
 
 /**
  * This package's methods, bound to a context. Each one lives in a subject
- * folder — `operations/`, `hooks/`, `changes/`; this is only the surface they
- * are reached by.
+ * folder — `operations/`, `hooks/`, `changes/`, `aggregation/`; this is only
+ * the surface they are reached by.
  */
 function apiOf(ctx: CollectionContext, rebuild: Rebuild, self: Self) {
 	return {
@@ -134,6 +137,13 @@ function apiOf(ctx: CollectionContext, rebuild: Rebuild, self: Self) {
 			exists(ctx, filter, opts),
 		paginate: (opts?: Fields) => paginate(ctx, opts),
 		paginateByCursor: (opts?: Fields) => paginateByCursor(ctx, opts),
+
+		distinct: (field: string, filter?: unknown, opts?: Fields) =>
+			distinct(ctx, field, { ...opts, filter }),
+		groupBy: (field: string, opts?: GroupByRuntime) =>
+			groupBy(ctx, field, opts),
+		populate: (documents: readonly unknown[], relations: Fields) =>
+			populate(ctx, documents, relations),
 		onChange: (handler: ChangeHandler<never>, opts?: ChangeOptions<never>) =>
 			subscribe(ctx, handler, opts),
 	};

@@ -194,7 +194,8 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   `context.ts`, `filters.ts`, `documents.ts` — and each subject has a folder whose files drop the prefix:
   - `operations/` — `reads`, `writes`, `paginate`;
   - `hooks/` — `types`, `sets`, `hooked`;
-  - `changes/` — `types`, `events`, `subscription`, `retry`.
+  - `changes/` — `types`, `events`, `subscription`, `retry`;
+  - `aggregation/` — `types`, `distinct`, `group-by`, `populate`.
 
   A subject imports the root, and another subject only one way: `hooks/`
   wraps `operations/writes`, so `operations/` never imports `hooks/`. Only
@@ -202,10 +203,11 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   import of a subject is `context.ts` → `hooks/sets`, a leaf that imports
   nothing and turns the `hooks` option into context data.
 - **Specs are split by subject, not one per source file.** `collection/` has
-  ten, beside the code they test: `id`, `optimistic-lock`, `soft-delete`,
+  eleven, beside the code they test: `id`, `optimistic-lock`, `soft-delete`,
   `driver-methods`, `auto-sync` and the general one at the root,
-  `operations/paginate`, `hooks/hooks`, `changes/changes` and
-  `changes/subscription`. A refactor that moves code must leave them untouched —
+  `operations/paginate`, `hooks/hooks`, `changes/changes`,
+  `changes/subscription` and `aggregation/aggregation`. Beside `collection/`,
+  `connection/connect` covers `connectMongo`. A refactor that moves code must leave them untouched —
   if a spec has to change, the refactor changed behaviour.
 - **A public method that refuses something must have a `@ts-expect-error`
   case** in `test/types/`. Type safety is what the compiler rejects, not what
@@ -244,7 +246,7 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **399 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 254,
+`bun run test` is **416 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 271,
 scripts 10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
 

@@ -1,3 +1,18 @@
+export type {
+	ByRelation,
+	DistinctOf,
+	Group,
+	GroupByOptions,
+	GroupKeyOf,
+	Measure,
+	Measures,
+	NumericFieldOf,
+	OnRelation,
+	Populated,
+	ReferenceFieldOf,
+	RelatedCollection,
+	Relations,
+} from './collection/aggregation/types';
 export { resetAutoSync } from './collection/auto-sync';
 export type {
 	ChangeHandler,
