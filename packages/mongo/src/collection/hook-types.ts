@@ -73,6 +73,11 @@ type Awaitable<T> = T | Promise<T>;
  * Runs before the write, with what it is about to write. Returning a value of
  * the same shape replaces it — a filled field, a narrower filter; returning
  * nothing keeps it. Throwing stops the write.
+ *
+ * A misspelt field in the returned object is **not** a compile error:
+ * TypeScript does not check a returned literal for extra properties, and the
+ * schema then drops the field when it parses the write. Measured with every
+ * form of this return type; none restores the check.
  */
 export type BeforeHook<Args, Context> = (
 	args: Args,
@@ -91,7 +96,9 @@ export type BeforeHook<Args, Context> = (
 export type AfterHook<Result, Args, Context> = (
 	result: Result,
 	context: Context & Args,
-) => Awaitable<void>;
+	// What it answers is ignored, so an expression body that returns the
+	// driver's own promise — an audit `insertOne` — is accepted as it is.
+) => unknown;
 
 /**
  * Hooks around this package's writes, typed by the collection's schema.

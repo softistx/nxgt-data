@@ -202,6 +202,40 @@ describe('update', () => {
 	});
 });
 
+describe('a hook that narrows a filter', () => {
+	test('does not let an empty filter through', async () => {
+		// The shape a tenant rule takes: `{ $and: [filter, …] }` is never
+		// empty, so a guard that ran after the hook would let `{}` through.
+		let ran = 0;
+		const collection = getCollection(t.db, posts, {
+			hooks: {
+				beforeDeleteMany: ({ filter }) => {
+					ran += 1;
+					return { filter: { $and: [filter, { rank: { $gte: 0 } }] } };
+				},
+				beforeUpdateMany: ({ filter, patch }) => {
+					ran += 1;
+					return { filter: { $and: [filter, { rank: { $gte: 0 } }] }, patch };
+				},
+			},
+		});
+		await collection.createMany([
+			{ title: 'a', rank: 1 },
+			{ title: 'b', rank: 2 },
+		]);
+		await expect(collection.deleteMany({})).rejects.toThrow('needs a filter');
+		await expect(collection.hardDeleteMany({})).rejects.toThrow(
+			'needs a filter',
+		);
+		await expect(collection.updateMany({}, { title: 'z' })).rejects.toThrow(
+			'needs a filter',
+		);
+		// Refused before any hook ran, side effects included.
+		expect(ran).toBe(0);
+		expect(await stored('posts')).toHaveLength(2);
+	});
+});
+
 describe('delete', () => {
 	function recording() {
 		const calls: [string, WriteOperation, boolean][] = [];

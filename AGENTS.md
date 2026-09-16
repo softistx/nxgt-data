@@ -187,8 +187,8 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   which are handed over as given: the rule is about closures the package
   builds.
 - **Specs are split by subject, not one per source file.** `collection/` has
-  six: `id`, `optimistic-lock`, `paginate`, `soft-delete`, `driver-methods`,
-  and the general one. A refactor that moves code must leave them untouched —
+  eight: `id`, `optimistic-lock`, `paginate`, `soft-delete`,
+  `driver-methods`, `auto-sync`, `hooks`, and the general one. A refactor that moves code must leave them untouched —
   if a spec has to change, the refactor changed behaviour.
 - **A public method that refuses something must have a `@ts-expect-error`
   case** in `test/types/`. Type safety is what the compiler rejects, not what
@@ -227,7 +227,7 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **355 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 210,
+`bun run test` is **356 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 211,
 scripts 10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
 

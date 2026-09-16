@@ -97,3 +97,58 @@ getCollection(db, users, { hooks: [shared, shared] });
 
 // @ts-expect-error a set typed for users is not one for posts
 getCollection(db, posts, { hooks: shared });
+
+// --- more of what is refused -------------------------------------------
+
+getCollection(db, users, {
+	// @ts-expect-error no such hook: a typo is the likeliest mistake
+	hooks: { beforeCreat: () => {} },
+});
+
+const typo = { beforeCreat: () => {} };
+// @ts-expect-error the same typo, through a variable
+getCollection(db, users, { hooks: typo });
+
+// @ts-expect-error a set for users, inside the array, is not one for posts
+getCollection(db, posts, { hooks: [shared] });
+
+getCollection(db, users, {
+	// @ts-expect-error an id is an ObjectId
+	hooks: { beforeUpdate: ({ patch }) => ({ id: 'abc', patch }) },
+});
+
+getCollection(db, users, {
+	// A before hook's answer *replaces* the arguments, so an expression body
+	// returning something else would delete with `id: undefined`.
+	// @ts-expect-error an InsertOneResult is not `{ id }`
+	hooks: {
+		beforeDelete: ({ id }, { collection }) =>
+			collection.db.collection('audit').insertOne({ id }),
+	},
+});
+
+getCollection(db, users, {
+	// @ts-expect-error async or not, the answer is `{ values }`
+	hooks: { beforeCreate: async ({ values }) => values },
+});
+
+// --- what is accepted, on purpose --------------------------------------
+
+// An after hook's answer is ignored, so returning the driver's promise is fine.
+getCollection(db, users, {
+	hooks: {
+		afterCreate: (document, { collection, session }) =>
+			collection.db
+				.collection('audit')
+				.insertOne({ user: document._id }, { session }),
+	},
+});
+
+// Not refused, and cannot be: TypeScript does not check a returned literal
+// for extra properties. The schema drops `emial` when it parses the write, so
+// the fill silently does nothing. The README lists it under Traps.
+getCollection(db, users, {
+	hooks: {
+		beforeCreate: ({ values }) => ({ values: { ...values, emial: 'x' } }),
+	},
+});

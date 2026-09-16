@@ -535,6 +535,13 @@ operator, and getting it subtly wrong is worse than being honest about it.
   `context.collection` is the collection the write runs on, hooks included:
   an `afterCreate` that creates in the same collection recurses. Write
   through `collection.raw`, or another collection, instead.
+- **A misspelt field in a `before` hook's answer compiles.** TypeScript does
+  not check a returned literal for extra properties, so
+  `({ values }) => ({ values: { ...values, emial } })` is accepted, and the
+  schema then drops `emial` without a word. The same mistake passed to
+  `create` directly is refused.
+- **A filter is checked before the hooks run.** `deleteMany({})` is refused
+  even when a hook would have narrowed it, and no hook runs for it.
 - **An `after` hook is not part of the write.** When it throws, the document
   is already stored. Run the write in `withTransaction`, and write through
   `context.session`, when the two must stand or fall together.

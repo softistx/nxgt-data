@@ -1,5 +1,5 @@
 import type { CollectionContext } from './context';
-import type { Fields } from './filters';
+import { type Fields, requireFilter } from './filters';
 import type { WriteOperation } from './hook-types';
 import {
 	create,
@@ -120,6 +120,10 @@ export async function hookedUpdateMany(
 	filter: unknown,
 	patch: unknown,
 ): Promise<number> {
+	// The caller's filter is checked before any hook runs: a hook that narrows
+	// it turns `{}` into a filter that is no longer empty, and the guard would
+	// then let an update of every document through.
+	requireFilter(ctx, 'updateMany', filter);
 	const context = contextOf(ctx, self, 'updateMany');
 	const args = await before(
 		ctx,
@@ -158,10 +162,11 @@ export async function hookedDeleteMany(
 	filter: unknown,
 	hard: boolean,
 ): Promise<number> {
+	const method = hard ? 'hardDeleteMany' : 'deleteMany';
+	// Before the hooks, as in `hookedUpdateMany`.
+	requireFilter(ctx, method, filter);
 	const goesForGood = hard || !ctx.softDeletes;
-	const context = contextOf(ctx, self, hard ? 'hardDeleteMany' : 'deleteMany', {
-		hard: goesForGood,
-	});
+	const context = contextOf(ctx, self, method, { hard: goesForGood });
 	const args = await before(ctx, 'beforeDeleteMany', { filter }, context);
 	const count = hard
 		? await hardDeleteMany(ctx, args.filter)
