@@ -246,7 +246,7 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **412 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 267,
+`bun run test` is **416 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 271,
 scripts 10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
 

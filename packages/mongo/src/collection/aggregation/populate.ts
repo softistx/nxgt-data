@@ -1,3 +1,5 @@
+import { BSON } from 'mongodb';
+import type { CollectionContext } from '../context';
 import type { Fields } from '../filters';
 
 /** What `populate` calls on the collection a relation reads from. */
@@ -13,13 +15,31 @@ interface Relation {
 }
 
 /**
- * A key an id can be looked up by: two `ObjectId`s with the same value are
- * two objects, so they are compared by their hex string.
+ * A key an id can be looked up by. Two ids with the same value are two
+ * objects, so they are compared by their canonical Extended JSON, which keeps
+ * what `String()` loses: a date's milliseconds, a binary's bytes, and an
+ * embedded document's field order, which the server compares too.
  */
-function keyOf(value: unknown): string {
-	const hex = (value as { toHexString?: () => string } | null)?.toHexString;
-	if (typeof hex === 'function') return `oid:${hex.call(value)}`;
-	return `${typeof value}:${String(value)}`;
+const keyOf = (value: unknown): string =>
+	BSON.EJSON.stringify(value as never, { relaxed: false });
+
+interface ZodNode {
+	_zod?: { def: { type: string; innerType?: ZodNode; out?: ZodNode } };
+}
+
+/**
+ * Whether the schema declares the field as a list, under any optional,
+ * nullable or default wrapping: then a missing value populates as `[]`,
+ * as its type says.
+ */
+function isListField(ctx: CollectionContext, field: string): boolean {
+	const shape = ctx.definition.schema.shape as Record<string, ZodNode>;
+	let def = shape[field]?._zod?.def;
+	while (def) {
+		if (def.type === 'array') return true;
+		def = (def.type === 'pipe' ? def.out : def.innerType)?._zod?.def;
+	}
+	return false;
 }
 
 const listOf = (value: unknown): unknown[] =>
@@ -48,7 +68,12 @@ function relationOf(name: string, given: unknown): Relation {
 }
 
 /** The documents a field points to, one query for all of them. */
-async function followBy(documents: Fields[], name: string, r: Relation) {
+async function followBy(
+	documents: Fields[],
+	name: string,
+	r: Relation,
+	list: boolean,
+) {
 	const field = r.by as string;
 	const ids = unique(documents.flatMap((d) => listOf(d[field])));
 	const found =
@@ -62,8 +87,8 @@ async function followBy(documents: Fields[], name: string, r: Relation) {
 	const byId = new Map(found.map((doc) => [keyOf(doc._id), doc]));
 	for (const document of documents) {
 		const value = document[field];
-		document[name] = Array.isArray(value)
-			? value.flatMap((id) => byId.get(keyOf(id)) ?? [])
+		document[name] = list
+			? listOf(value).flatMap((id) => byId.get(keyOf(id)) ?? [])
 			: (byId.get(keyOf(value)) ?? null);
 	}
 }
@@ -101,6 +126,7 @@ async function followOn(documents: Fields[], name: string, r: Relation) {
  * It returns copies; the documents given are left as they were.
  */
 export async function populate(
+	ctx: CollectionContext,
 	documents: readonly unknown[],
 	relations: Fields,
 ): Promise<Fields[]> {
@@ -110,8 +136,8 @@ export async function populate(
 	);
 	await Promise.all(
 		checked.map(([name, relation]) =>
-			relation.by !== undefined
-				? followBy(copies, name, relation)
+			typeof relation.by === 'string'
+				? followBy(copies, name, relation, isListField(ctx, relation.by))
 				: followOn(copies, name, relation),
 		),
 	);

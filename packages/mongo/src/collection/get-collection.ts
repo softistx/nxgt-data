@@ -143,7 +143,7 @@ function apiOf(ctx: CollectionContext, rebuild: Rebuild, self: Self) {
 		groupBy: (field: string, opts?: GroupByRuntime) =>
 			groupBy(ctx, field, opts),
 		populate: (documents: readonly unknown[], relations: Fields) =>
-			populate(documents, relations),
+			populate(ctx, documents, relations),
 		onChange: (handler: ChangeHandler<never>, opts?: ChangeOptions<never>) =>
 			subscribe(ctx, handler, opts),
 	};

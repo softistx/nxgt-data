@@ -77,6 +77,16 @@ export async function groups() {
 	await people.groupBy('level', { measures: { count: { sum: 'score' } } });
 	// @ts-expect-error `key` too
 	await people.groupBy('level', { measures: { key: { max: 'score' } } });
+	// @ts-expect-error `_id` would replace what the documents are grouped on
+	await people.groupBy('level', { measures: { _id: { sum: 'score' } } });
+	// @ts-expect-error an operator is no name
+	await people.groupBy('level', { measures: { $x: { sum: 'score' } } });
+	// @ts-expect-error nor is a path
+	await people.groupBy('level', { measures: { 'a.b': { sum: 'score' } } });
+	await people.groupBy('level', {
+		// @ts-expect-error one figure per measure
+		measures: { t: { sum: 'score', avg: 'score' } },
+	});
 	// @ts-expect-error no such measure
 	await people.groupBy('level', { measures: { mid: { median: 'score' } } });
 	// @ts-expect-error by count or by key
@@ -89,6 +99,7 @@ export async function populations() {
 		team: { from: team, by: 'teamId' },
 		mentors: { from: people, by: 'mentorIds' },
 		mentees: { from: people, on: 'mentorIds' },
+		reviewers: { from: people, by: 'reviewerIds' },
 	});
 	if (one) {
 		assertType<Equal<typeof one.team, ReadDocumentOf<typeof teams> | null>>(
@@ -98,6 +109,10 @@ export async function populations() {
 			true,
 		);
 		assertType<Equal<typeof one.mentees, ReadDocumentOf<typeof members>[]>>(
+			true,
+		);
+		// An optional list field still gives a list: `[]` when it is missing.
+		assertType<Equal<typeof one.reviewers, ReadDocumentOf<typeof members>[]>>(
 			true,
 		);
 		// The document's own fields are still there.

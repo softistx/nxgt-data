@@ -6,7 +6,13 @@ import {
 	expect,
 	test,
 } from 'bun:test';
-import { members, teams } from '../../../test/relations';
+import {
+	bookings,
+	events,
+	members,
+	slots,
+	teams,
+} from '../../../test/relations';
 import { startMongo, type TestServer } from '../../../test/server';
 import { withTransaction } from '../../transaction/with-transaction';
 import { getCollection } from '../get-collection';
@@ -20,6 +26,9 @@ beforeEach(async () => {
 	await t.reset();
 	await getCollection(t.db, teams).sync();
 	await getCollection(t.db, members).sync();
+	await getCollection(t.db, events).sync();
+	await getCollection(t.db, slots).sync();
+	await getCollection(t.db, bookings).sync();
 });
 afterAll(async () => {
 	await t.stop();
@@ -133,23 +142,33 @@ describe('groupBy', () => {
 		expect(all.reduce((n, g) => n + g.count, 0)).toBe(4);
 	});
 
-	test('refuses a measure it cannot name or read', async () => {
+	test('refuses a measure it cannot name or read, as a rejection', async () => {
 		const { people } = await seed();
 		const bad = [
 			{ count: { sum: 'score' } },
+			{ key: { sum: 'score' } },
+			// It would replace what the documents are grouped on.
+			{ _id: { sum: 'score' } },
 			{ $x: { sum: 'score' } },
+			{ 'a.b': { sum: 'score' } },
 			{ total: { sum: 'score', avg: 'score' } },
 			{ total: { median: 'score' } },
+			{ total: { sum: 5 } },
 			{ total: 'score' },
 		];
 		for (const measures of bad) {
-			expect(() => people.groupBy('level', { measures } as never)).toThrow(
-				TypeError,
+			await expect(
+				people.groupBy('level', { measures } as never),
+			).rejects.toThrow(TypeError);
+		}
+		await expect(
+			people.groupBy('level', { sort: 'size' } as never),
+		).rejects.toThrow("sort is 'count' or 'key'");
+		for (const limit of [0, -1, 1.5, Number.NaN]) {
+			await expect(people.groupBy('level', { limit })).rejects.toThrow(
+				'limit must be a whole number',
 			);
 		}
-		expect(() => people.groupBy('level', { sort: 'size' } as never)).toThrow(
-			"sort is 'count' or 'key'",
-		);
 	});
 });
 
@@ -205,6 +224,77 @@ describe('populate', () => {
 		expect(lone?.team).toBeNull();
 		expect(lone?.mentees).toEqual([]);
 		expect(cy?.mentees).toEqual([]);
+	});
+
+	test('gives a list field a list, even when it is missing', async () => {
+		const { people, ada, bob } = await seed();
+		await people.update(ada._id, { reviewerIds: [bob._id] });
+		const [first, second] = await people.populate(
+			await people.findMany({
+				filter: { name: { $in: ['Ada', 'Bob'] } },
+				sort: { name: 1 },
+			}),
+			{ reviewers: { from: people, by: 'reviewerIds' } },
+		);
+		expect(first?.reviewers.map((m) => m.name)).toEqual(['Bob']);
+		// Bob has no `reviewerIds` at all.
+		expect(second?.reviewers).toEqual([]);
+	});
+
+	test('follows a deleted target when asked', async () => {
+		const { team, people, web } = await seed();
+		await team.delete(web._id);
+		const [cy] = await people.populate(
+			await people.findMany({ filter: { name: 'Cy' } }),
+			{
+				hidden: { from: team, by: 'teamId' },
+				shown: { from: team, by: 'teamId', withDeleted: true },
+			},
+		);
+		expect(cy?.hidden).toBeNull();
+		expect(cy?.shown?.name).toBe('Web');
+	});
+
+	test('counts a document that points back twice once', async () => {
+		const { people, ada, bob } = await seed();
+		await people.update(bob._id, { mentorIds: [ada._id, ada._id] });
+		const [first] = await people.populate(
+			await people.findMany({ filter: { name: 'Ada' } }),
+			{ mentees: { from: people, on: 'mentorIds' } },
+		);
+		expect(first?.mentees.map((m) => m.name)).toEqual(['Bob', 'Cy']);
+	});
+
+	test('matches ids that are dates or documents by value', async () => {
+		const agenda = getCollection(t.db, events);
+		const rooms = getCollection(t.db, slots);
+		const booked = getCollection(t.db, bookings);
+		const early = new Date('2026-01-01T10:00:00.001Z');
+		const late = new Date('2026-01-01T10:00:00.002Z');
+		await agenda.create({ _id: early, label: 'early' });
+		await agenda.create({ _id: late, label: 'late' });
+		await rooms.create({ _id: { room: 'a', hour: 1 }, label: 'a1' });
+		await rooms.create({ _id: { room: 'b', hour: 2 }, label: 'b2' });
+		await booked.create({
+			eventAt: new Date(early.getTime()),
+			slotIds: [
+				{ room: 'b', hour: 2 },
+				{ room: 'a', hour: 1 },
+			],
+		});
+		await booked.create({ eventAt: new Date(late.getTime()), slotIds: [] });
+		const populated = await booked.populate(
+			await booked.findMany({ sort: { eventAt: 1 } }),
+			{
+				event: { from: agenda, by: 'eventAt' },
+				slots: { from: rooms, by: 'slotIds' },
+			},
+		);
+		expect(populated.map((b) => b.event?.label)).toEqual(['early', 'late']);
+		expect(populated.map((b) => b.slots.map((s) => s.label))).toEqual([
+			['b2', 'a1'],
+			[],
+		]);
 	});
 
 	test('sends one query per relation, whatever the number of documents', async () => {

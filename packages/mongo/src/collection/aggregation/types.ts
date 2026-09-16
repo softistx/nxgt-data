@@ -19,10 +19,6 @@ export type DistinctOf<Def, K extends FieldOf<Def>> = Exclude<
 	undefined
 >;
 
-export interface DistinctOptions<Def> extends ReadOptions {
-	filter?: Filter<DocumentOf<Def>>;
-}
-
 /** The fields whose values are numbers, which a sum or an average can take. */
 export type NumericFieldOf<Def> = {
 	[K in FieldOf<Def>]: NonNullable<DocumentOf<Def>[K]> extends number
@@ -30,17 +26,34 @@ export type NumericFieldOf<Def> = {
 		: never;
 }[FieldOf<Def>];
 
-/** One figure `groupBy` computes per group, next to its `count`. */
+/**
+ * One figure `groupBy` computes per group, next to its `count`: exactly one
+ * of `sum`, `avg`, `min` or `max` — the others are `never`, which a union
+ * would otherwise let through together.
+ */
 export type Measure<Def> =
-	| { readonly sum: NumericFieldOf<Def> }
-	| { readonly avg: NumericFieldOf<Def> }
-	| { readonly min: FieldOf<Def> }
-	| { readonly max: FieldOf<Def> };
+	| { readonly sum: NumericFieldOf<Def>; avg?: never; min?: never; max?: never }
+	| { readonly avg: NumericFieldOf<Def>; sum?: never; min?: never; max?: never }
+	| { readonly min: FieldOf<Def>; sum?: never; avg?: never; max?: never }
+	| { readonly max: FieldOf<Def>; sum?: never; avg?: never; min?: never };
 
-/** The names `groupBy` gives its measures. `key` and `count` are its own. */
-export type Measures<Def> = Record<string, Measure<Def>> & {
-	key?: never;
-	count?: never;
+export type Measures<Def> = Record<string, Measure<Def>>;
+
+/**
+ * The names a measure cannot take: the group's own `key` and `count`, the
+ * server's `_id` — which would replace what the documents are grouped on —
+ * an operator, or a path.
+ */
+type ReservedName =
+	| 'key'
+	| 'count'
+	| '_id'
+	| `$${string}`
+	| `${string}.${string}`;
+
+/** The measures as given, a reserved name refused. */
+export type NamedMeasures<M> = {
+	[N in keyof M]: N extends ReservedName ? never : M[N];
 };
 
 type Present<T> = Exclude<T, undefined>;
@@ -72,7 +85,7 @@ export type Group<Def, K extends FieldOf<Def>, M> = {
 
 export interface GroupByOptions<Def, M> extends ReadOptions {
 	filter?: Filter<DocumentOf<Def>>;
-	measures?: M;
+	measures?: M & NamedMeasures<M>;
 	/** `'count'` (default): the largest groups first. `'key'`: by key. */
 	sort?: 'count' | 'key';
 	limit?: number;
@@ -113,12 +126,6 @@ export interface OnRelation<Def, F> {
 	readonly withDeleted?: boolean;
 }
 
-type AnyRelation = {
-	from: { definition: unknown };
-	by?: unknown;
-	on?: unknown;
-};
-
 /**
  * The relations as given, each checked against the collection it reads
  * from. A name the documents already use is refused: it would be overwritten.
@@ -144,9 +151,11 @@ type RelatedValue<Def, Rel> = Rel extends {
 		? ReadDocumentOf<F>[]
 		: never;
 
-/** The documents, each with its related ones under the relation's name. */
+/**
+ * The documents, each with its related ones under the relation's name. A
+ * list field gives a list — `[]` when it is missing — and any other field one
+ * document or `null`.
+ */
 export type Populated<Def, Doc, R> = Doc & {
 	[N in keyof R]: RelatedValue<Def, R[N]>;
 };
-
-export type { AnyRelation };

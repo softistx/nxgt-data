@@ -1,7 +1,6 @@
 export type {
 	ByRelation,
 	DistinctOf,
-	DistinctOptions,
 	Group,
 	GroupByOptions,
 	GroupKeyOf,

@@ -32,7 +32,7 @@ export interface GroupByRuntime {
  * The documents grouped on one field, with each group's size and the
  * measures asked for. The largest groups come first unless `sort: 'key'`.
  */
-export function groupBy(
+export async function groupBy(
 	ctx: CollectionContext,
 	field: string,
 	opts: GroupByRuntime = {},
@@ -53,7 +53,14 @@ export function groupBy(
 		// `_id` breaks ties, so that the order is the same from call to call.
 		{ $sort: sort === 'count' ? { count: -1, _id: 1 } : { _id: 1 } },
 	];
-	if (opts.limit !== undefined) pipeline.push({ $limit: opts.limit });
+	if (opts.limit !== undefined) {
+		if (!Number.isInteger(opts.limit) || opts.limit < 1) {
+			throw new TypeError(
+				`groupBy: limit must be a whole number of at least 1, not ${String(opts.limit)}`,
+			);
+		}
+		pipeline.push({ $limit: opts.limit });
+	}
 	return run(ctx, async () => {
 		const groups = await ctx.collection
 			.aggregate(pipeline, { ...ctx.sessionOption })

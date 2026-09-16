@@ -563,12 +563,18 @@ const withRelations = await members.populate(await members.findMany(), {
   group whose field is missing everywhere sums to `0` and averages to `null`.
 - **`populate`** takes documents you already have — from `findMany`,
   `paginate`, anywhere — and sends **one query per relation**, however many
-  documents there are. `by` follows a field of these documents; `on` gathers
+  documents there are. `by` follows a field of these documents — a list
+  field gives a list, `[]` when it is missing, and any other field a document
+  or `null`; `on` gathers
   the documents of `from` whose field points back. The related collection
   reads as it always does: its session (pass `withSession(session)` for a
   transaction), its soft delete, and `withDeleted` on the relation. It
-  returns copies and leaves your documents alone.
-- **`distinct`** answers in the server's order, and never `undefined`.
+  returns copies and leaves your documents alone. Ids are matched by value,
+  whatever their type: an `ObjectId`, a date, an embedded document.
+- **`distinct`** answers in the server's order, and never `undefined`. It
+  takes no collation or hint; `raw.distinct` does.
+- A bad measure, `sort` or `limit` rejects with a `TypeError`, as every
+  method here rejects rather than throws.
 
 ## Not included
 
@@ -586,7 +592,7 @@ const withRelations = await members.populate(await members.findMany(), {
 | `toObjectId`, `toObjectIds`, `tryObjectId`, `objectIdParam` | a string from outside as an `ObjectId` |
 | `isValidObjectId`, `isObjectIdString`, `isObjectId` | the checks behind them |
 | `connectMongo(uri, options?)`, `closeMongo()`, `MongoConnection`, `PingResult` | a shared client, closed with its last holder |
-| `DistinctOf`, `Group`, `GroupByOptions`, `Measure`, `Measures`, `Populated`, `Relations`, `ByRelation`, `OnRelation`, `RelatedCollection` | what `distinct`, `groupBy` and `populate` take and give |
+| `DistinctOf`, `Group`, `GroupKeyOf`, `GroupByOptions`, `Measure`, `Measures`, `NumericFieldOf`, `Populated`, `Relations`, `ByRelation`, `OnRelation`, `ReferenceFieldOf`, `RelatedCollection` | what `distinct`, `groupBy` and `populate` take and give |
 | `getCollection(dbOrClient, definition, options?)` | the typed collection, driver methods included |
 | `CollectionHooks<Def>` and its pieces | hooks around the writes |
 | `ChangeOf<Def>`, `ChangeOptions<Def>`, `ChangeSubscription`, `ResumeToken` | what `onChange` hands over and takes |
