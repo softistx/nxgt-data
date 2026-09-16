@@ -11,6 +11,7 @@ registry:
 | --- | --- |
 | `@nxgt/drizzle` | an SDK over Drizzle ORM: typed repositories (`createRepository`), offset and cursor pagination, `withTransaction`, its own errors with `toDataError`, and the `id()`, `timestamps()`, `softDelete()` columns. PostgreSQL first |
 | `@nxgt/meilisearch` | a typed Meilisearch index on the official SDK: `defineIndex<Doc>()({ uid, primaryKey, settings })`, `syncIndex`/`syncIndexes` applying the settings idempotently, and `bindIndex` for typed documents and searches. Its one error is `SearchIndexError` |
+| `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection`, `syncCollection` applying the `$jsonSchema` validator and the indexes idempotently, `createRepository` with pagination, soft delete, optimistic locking and audit stamps, and `withTransaction`. Its errors are `DataError` and its subclasses |
 
 It was started on 2026-09-15, on the tooling of `softistx/nxgt-http`: the
 same build, artifact check, publish script, CI and conventions. When one of
@@ -39,8 +40,17 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   `./mysql` and `./sqlite` later. What does not depend on a dialect, the
   errors, the cursor and the page shapes, is in `@nxgt/drizzle` itself, and
   every dialect throws those same classes.
-- **Another database library is another package**: `@nxgt/mongo` is the
-  next one planned. It keeps its own errors, as every package here does.
+- `@nxgt/mongo` has two peers, both required: `mongodb` `>=7.0.0 <8` and
+  `zod` `>=4.6.5 <5`, pinned exactly as devDependencies (`7.6.0`, `4.6.5`).
+  Zod is not an implementation detail there: the schema an application writes
+  is the package's input, so the application's copy has to be the one the
+  package parses with. Raise them together, after reading `mongodb.d.ts`,
+  where `Filter`, `UpdateFilter` and `IndexDescription` live.
+  `mongodb-memory-server-core` is a devDependency, and it depends on
+  `mongodb ^7.2.0`: keep the pin inside that range, or the tree carries two
+  drivers and two `ObjectId` classes, which no `instanceof` survives.
+- **Another database library is another package**, and each keeps its own
+  errors, as every package here does.
 
 **There are no cycles and there must not be one**, devDependencies included.
 
@@ -92,6 +102,17 @@ matching key in `exports`.
   kills it in `afterAll`; `reset` deletes every index between tests. CI
   caches `.cache/meilisearch`, keyed on the hash of the script, so raising
   the version there re-downloads.
+- **`@nxgt/mongo`'s specs run against a real mongod**, started by
+  `mongodb-memory-server-core` as a **single-node replica set**: transactions
+  need one, and a standalone mongod refuses to start one. The version is
+  pinned in `test/server.ts` (`MONGOD_VERSION`, 8.2.6 today), and the binary
+  is downloaded on the first start into the git-ignored `.cache/mongodb`,
+  which CI caches keyed on the hash of that file. `-core` rather than
+  `mongodb-memory-server`: the wrapper's `postinstall` downloads 120 MB during
+  every `bun install`. On Arch and Manjaro the library falls back to the
+  Ubuntu 22.04 build on its own; keep mongod at 6.0 or above, because the
+  older fallback wants `libcrypto.so.1.1`, which a current distribution no
+  longer ships.
 - **Type tests** are `test/types/*.ts`, checked by the package's
   `typecheck` (`tsc --noEmit`) and never run. A call that must not compile
   carries `// @ts-expect-error`; if it compiles, tsc fails on the unused
@@ -157,8 +178,8 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **145 pass, 0 fail**: drizzle 93, meilisearch 42, scripts
-10. It runs one
+`bun run test` is **262 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 117,
+scripts 10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
 
 - **Meilisearch answers `succeeded` to a settings update whatever it holds**:
