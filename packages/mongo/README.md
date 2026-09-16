@@ -309,6 +309,50 @@ parameter that never arrived becomes a perfectly valid id that matches nothing.
 `toObjectId` throws `InvalidIdError`, which a handler can turn into a 400 or a
 404.
 
+## Hooks
+
+Hooks run around this package's writes, typed by the collection's schema:
+
+```ts
+const collection = getCollection(db, users, {
+	hooks: {
+		beforeCreate: ({ values }) => ({
+			values: { ...values, email: values.email.toLowerCase() },
+		}),
+		afterDelete: async (user, { hard, actor, session, collection }) => {
+			await collection.db
+				.collection('audit')
+				.insertOne({ user: user._id, hard, actor }, { session });
+		},
+	},
+});
+```
+
+| hooks | around | `before` gets and may return | `after` gets |
+| --- | --- | --- | --- |
+| `beforeCreate`, `afterCreate` | `create`, and each document of `createMany` | `{ values }` | the document |
+| `beforeUpdate`, `afterUpdate` | `update` | `{ id, patch }` | the document |
+| `beforeUpdateMany`, `afterUpdateMany` | `updateMany` | `{ filter, patch }` | the count |
+| `beforeDelete`, `afterDelete` | `delete`, `hardDelete` | `{ id }` | the document |
+| `beforeDeleteMany`, `afterDeleteMany` | `deleteMany`, `hardDeleteMany` | `{ filter }` | the count |
+| `beforeRestore`, `afterRestore` | `restore`, on a collection that soft deletes | `{ id }` | the document |
+
+- A `before` hook that returns a value of the same shape **replaces** what is
+  written — a filled field, a narrower filter. Returning nothing keeps it.
+  Throwing stops the write.
+- An `after` hook gets the result, with the arguments beside the context. The
+  write has happened: throwing rejects the call and undoes nothing, unless the
+  write ran in a transaction.
+- Every hook gets `operation`, `collection` — the one the write runs on,
+  session and actor included — `session` and `actor`. The delete hooks also
+  get `hard`, which is `true` for a hard delete and for a `delete` on a
+  collection that does not soft delete.
+- `hooks` takes an array too: each set runs in order, and every `before` sees
+  what the previous one returned. A set typed as `CollectionHooks<typeof users>`
+  can be written once and shared.
+- `withSession` and `as` keep the hooks. Reads, and the driver's own methods,
+  run none.
+
 ## Pagination
 
 ```ts
@@ -408,6 +452,7 @@ server error reaches you untouched.
 | `toObjectId`, `toObjectIds`, `tryObjectId`, `objectIdParam` | a string from outside as an `ObjectId` |
 | `isValidObjectId`, `isObjectIdString`, `isObjectId` | the checks behind them |
 | `getCollection(dbOrClient, definition, options?)` | the typed collection, driver methods included |
+| `CollectionHooks<Def>` and its pieces | hooks around the writes |
 | `syncCollection`, `syncCollections`, `syncAll` | create and bring in line, with `dryRun` |
 | `registeredCollections`, `clearCollectionRegistry` | what `syncAll` covers |
 | `resetAutoSync(db?)` | forget the syncs `autoSync` has run |
@@ -419,7 +464,7 @@ server error reaches you untouched.
 
 `CollectionOptions` turns the behaviours off one by one: `softDelete`,
 `touchUpdatedAt`, `optimisticLock`, `validate: 'off'`, `maxPageSize`,
-`autoSync`, and it names the database with `db` when you pass a client.
+`autoSync`, `hooks`, and it names the database with `db` when you pass a client.
 
 ## What does not compile
 
@@ -486,6 +531,20 @@ operator, and getting it subtly wrong is worse than being honest about it.
 - **A time-series collection cannot have a validator.** MongoDB refuses it at
   creation and refuses the later `collMod` too, so `validation.level` defaults
   to `'off'` there and asking for anything else throws.
+- **A hook that writes to its own collection runs the hooks again.**
+  `context.collection` is the collection the write runs on, hooks included:
+  an `afterCreate` that creates in the same collection recurses. Write
+  through `collection.raw`, or another collection, instead.
+- **A misspelt field in a `before` hook's answer compiles.** TypeScript does
+  not check a returned literal for extra properties, so
+  `({ values }) => ({ values: { ...values, emial } })` is accepted, and the
+  schema then drops `emial` without a word. The same mistake passed to
+  `create` directly is refused.
+- **A filter is checked before the hooks run.** `deleteMany({})` is refused
+  even when a hook would have narrowed it, and no hook runs for it.
+- **An `after` hook is not part of the write.** When it throws, the document
+  is already stored. Run the write in `withTransaction`, and write through
+  `context.session`, when the two must stand or fall together.
 - **`autoSync` remembers across a dropped database.** The memo is what makes it
   sync once rather than before every call, and `dropDatabase` does not clear
   it. `resetAutoSync(db)` does.

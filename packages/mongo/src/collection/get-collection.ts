@@ -9,6 +9,16 @@ import { type SyncOptions, syncCollection } from '../sync/sync-collection';
 import { gated } from './auto-sync';
 import { type CollectionContext, createContext } from './context';
 import type { Fields } from './filters';
+import {
+	hookedCreate,
+	hookedCreateMany,
+	hookedDelete,
+	hookedDeleteMany,
+	hookedRestore,
+	hookedUpdate,
+	hookedUpdateMany,
+	type Self,
+} from './hooks';
 import { paginate, paginateByCursor } from './paginate';
 import {
 	countDocuments,
@@ -19,17 +29,6 @@ import {
 	getById,
 } from './reads';
 import type { CollectionOptions, TypedCollection } from './types';
-import {
-	create,
-	createMany,
-	deleteMany,
-	deleteOne,
-	hardDelete,
-	hardDeleteMany,
-	restore,
-	update,
-	updateMany,
-} from './writes';
 
 /** What a collection can be reached through: a database, or a client. */
 export type CollectionSource = Db | MongoClient;
@@ -75,7 +74,9 @@ export function getCollection<
 >(
 	source: CollectionSource,
 	definition: CollectionDefinition<Schema, Names>,
-	options: CollectionOptions<CollectionDefinition<Schema, Names>> = {},
+	// The definition alone decides the types: inferring them from the options
+	// too let a hook set typed for another collection widen them until it fit.
+	options: NoInfer<CollectionOptions<CollectionDefinition<Schema, Names>>> = {},
 ): TypedCollection<CollectionDefinition<Schema, Names>> {
 	const db = databaseOf(source, options.db);
 	return build(db, definition, options as CollectionOptions<never>);
@@ -85,7 +86,7 @@ export function getCollection<
  * This package's methods, bound to a context. Each one lives in `reads`,
  * `writes` or `paginate`; this is only the surface they are reached by.
  */
-function apiOf(ctx: CollectionContext, rebuild: Rebuild) {
+function apiOf(ctx: CollectionContext, rebuild: Rebuild, self: Self) {
 	return {
 		definition: ctx.definition,
 		db: ctx.db,
@@ -109,18 +110,20 @@ function apiOf(ctx: CollectionContext, rebuild: Rebuild) {
 			findFirst(ctx, filter, opts),
 		findMany: (opts?: Fields) => findMany(ctx, opts),
 
-		create: (values: unknown) => create(ctx, values),
-		createMany: (values: readonly unknown[]) => createMany(ctx, values),
+		create: (values: unknown) => hookedCreate(ctx, self, values),
+		createMany: (values: readonly unknown[]) =>
+			hookedCreateMany(ctx, self, values),
 		update: (id: unknown, patch: unknown, opts?: Fields) =>
-			update(ctx, id, patch, opts),
+			hookedUpdate(ctx, self, id, patch, opts),
 		updateMany: (filter: unknown, patch: unknown) =>
-			updateMany(ctx, filter, patch),
+			hookedUpdateMany(ctx, self, filter, patch),
 
-		delete: (id: unknown) => deleteOne(ctx, id),
-		deleteMany: (filter: unknown) => deleteMany(ctx, filter),
-		hardDelete: (id: unknown) => hardDelete(ctx, id),
-		hardDeleteMany: (filter: unknown) => hardDeleteMany(ctx, filter),
-		restore: (id: unknown) => restore(ctx, id),
+		delete: (id: unknown) => hookedDelete(ctx, self, id, false),
+		deleteMany: (filter: unknown) => hookedDeleteMany(ctx, self, filter, false),
+		hardDelete: (id: unknown) => hookedDelete(ctx, self, id, true),
+		hardDeleteMany: (filter: unknown) =>
+			hookedDeleteMany(ctx, self, filter, true),
+		restore: (id: unknown) => hookedRestore(ctx, self, id),
 
 		count: (filter?: unknown, opts?: { withDeleted?: boolean }) =>
 			countDocuments(ctx, filter, opts),
@@ -146,7 +149,8 @@ function build<Def>(
 	const ctx = createContext(db, definition, options);
 	const rebuild: Rebuild = (changed) =>
 		build(db, definition, { ...options, ...changed });
-	const api = apiOf(ctx, rebuild);
+	let proxy: TypedCollection<Def> | undefined;
+	const api = apiOf(ctx, rebuild, () => proxy);
 	const collection = ctx.collection;
 	const autoSync = options.autoSync === true;
 
@@ -158,7 +162,7 @@ function build<Def>(
 	 * A proxy rather than a copy, so that a method the driver gains is on the
 	 * collection without this package being republished.
 	 */
-	return new Proxy(api, {
+	proxy = new Proxy(api, {
 		get(target, key, receiver) {
 			if (Reflect.has(target, key)) {
 				const own = Reflect.get(target, key, receiver);
@@ -171,4 +175,5 @@ function build<Def>(
 			return Reflect.has(target, key) || key in (collection as object);
 		},
 	}) as unknown as TypedCollection<Def>;
+	return proxy;
 }

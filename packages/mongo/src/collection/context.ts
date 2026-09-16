@@ -9,6 +9,7 @@ import type { StampNames } from '../definition/stamps';
 import { NotFoundError } from '../errors/data-error';
 import { toDataError } from '../errors/to-data-error';
 import { DEFAULT_MAX_PAGE_SIZE } from '../pagination/page';
+import { type HookSet, hookSetsOf } from './hook-sets';
 import type { CollectionOptions } from './types';
 
 /**
@@ -59,6 +60,12 @@ export interface CollectionContext {
 	readonly touches: boolean;
 	/** Whether an update raises the version field. */
 	readonly locks: boolean;
+	/**
+	 * The hook sets, in the order they run. Functions, but the caller's, and
+	 * given as they are: the rule against closures is about the ones this
+	 * package would build over the context.
+	 */
+	readonly hooks: readonly HookSet[];
 }
 
 /**
@@ -111,6 +118,7 @@ export function createContext(
 		softDeletes: options.softDelete ?? stamps.deletedAt !== false,
 		touches: options.touchUpdatedAt ?? stamps.updatedAt !== false,
 		locks: options.optimisticLock ?? stamps.version !== false,
+		hooks: hookSetsOf(options.hooks),
 	};
 }
 
