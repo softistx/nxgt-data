@@ -1,7 +1,7 @@
+export { resetAutoSync } from './collection/auto-sync';
 export {
 	type CollectionSource,
 	getCollection,
-	resetAutoSync,
 } from './collection/get-collection';
 export type {
 	ActorOf,
@@ -11,6 +11,7 @@ export type {
 	FieldPath,
 	FindFirstOptions,
 	FindManyOptions,
+	IfStamp,
 	OrderDirection,
 	PaginateOptions,
 	Patch,
@@ -76,13 +77,17 @@ export {
 export {
 	type ActorsChoice,
 	type ActorsOption,
+	type FieldForName,
 	type LockChoice,
 	type LockOption,
+	type MemberNameOf,
+	type NameFor,
 	type NameOption,
 	resolveStampNames,
 	type SoftDeleteChoice,
 	type SoftDeleteOption,
 	type StampNames,
+	type StampNamesOf,
 	type StampOptions,
 	type StampShape,
 	stampShapeOf,

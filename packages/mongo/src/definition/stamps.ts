@@ -133,10 +133,11 @@ type ActorFieldOf<Opt> = Opt extends { type: infer Actor extends z.ZodType }
  * `MemberNameOf` is the same resolution the timestamps use, and the same one
  * `memberNameOf` performs at runtime — a second, weaker copy here is how
  * `{ createdBy: true }` came to add the field at runtime while the type left
- * it out. A stamp's default name is its own key, so `K` serves as both.
+ * it out. The default name is read from `STAMP_FIELDS`, as the runtime reads
+ * it, rather than assumed to be the key.
  */
 type ActorFieldFor<Opt, K extends StampKind> = FieldForName<
-	MemberNameOf<Opt, K, K>,
+	MemberNameOf<Opt, K, (typeof STAMP_FIELDS)[K]>,
 	ActorFieldOf<Opt>
 >;
 
@@ -175,9 +176,15 @@ export type StampNamesOf<TS, SD, OL, AC> = {
 		MemberNameOf<SD, 'deletedAt', typeof STAMP_FIELDS.deletedAt>
 	>;
 	version: NameFor<MemberNameOf<OL, 'version', typeof STAMP_FIELDS.version>>;
-	createdBy: NameFor<MemberNameOf<AC, 'createdBy', 'createdBy'>>;
-	updatedBy: NameFor<MemberNameOf<AC, 'updatedBy', 'updatedBy'>>;
-	deletedBy: NameFor<MemberNameOf<AC, 'deletedBy', 'deletedBy'>>;
+	createdBy: NameFor<
+		MemberNameOf<AC, 'createdBy', typeof STAMP_FIELDS.createdBy>
+	>;
+	updatedBy: NameFor<
+		MemberNameOf<AC, 'updatedBy', typeof STAMP_FIELDS.updatedBy>
+	>;
+	deletedBy: NameFor<
+		MemberNameOf<AC, 'deletedBy', typeof STAMP_FIELDS.deletedBy>
+	>;
 };
 
 // --- and at runtime ----------------------------------------------------

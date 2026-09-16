@@ -97,7 +97,10 @@ export interface CollectionConfig<
 	options?: MongoCollectionOptions<
 		NoInfer<keyof z.output<StampedSchema<Shape, TS, SD, OL, AC>> & string>
 	>;
-	/** `createdAt` and `updatedAt`. A name renames both, keeping their suffixes. */
+	/**
+	 * `createdAt` and `updatedAt`: `true` for both, or
+	 * `{ createdAt: 'openedAt', updatedAt: false }` to name or drop each one.
+	 */
 	timestamps?: TS;
 	/** `deletedAt`: `delete` then writes it instead of removing the document. */
 	softDelete?: SD;

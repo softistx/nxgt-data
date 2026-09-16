@@ -6,6 +6,7 @@ import type {
 } from '../definition/define-collection';
 import type { StampNames } from '../definition/stamps';
 import { type SyncOptions, syncCollection } from '../sync/sync-collection';
+import { gated } from './auto-sync';
 import { type CollectionContext, createContext } from './context';
 import type { Fields } from './filters';
 import { paginate, paginateByCursor } from './paginate';
@@ -131,61 +132,6 @@ function apiOf(ctx: CollectionContext, rebuild: Rebuild) {
 }
 
 /**
- * The syncs `autoSync` has started, per database and per collection, so that
- * every collection of the same database waits on the same one — including the
- * ones `withSession` and `as` build, which are the same collection again.
- *
- * A sync that failed is forgotten, so the next call tries again: a server that
- * was not up yet is not a reason to refuse every operation for the life of the
- * process.
- */
-let syncs = new WeakMap<Db, Map<string, Promise<unknown>>>();
-
-/**
- * Forgets the syncs `autoSync` has already run, for one database or for all.
- *
- * The memo is what makes `autoSync` sync once and not before every call, and
- * it outlives the collection itself — a `dropDatabase` leaves this package
- * thinking a collection it can no longer see is in shape. A test that empties
- * its database between cases calls this alongside.
- */
-export function resetAutoSync(db?: Db): void {
-	if (db) syncs.delete(db);
-	else syncs = new WeakMap();
-}
-
-function syncOnce(
-	db: Db,
-	definition: AnyCollectionDefinition,
-): Promise<unknown> {
-	let byName = syncs.get(db);
-	if (!byName) {
-		byName = new Map();
-		syncs.set(db, byName);
-	}
-	const started = byName.get(definition.name);
-	if (started) return started;
-	const running = syncCollection(db, definition);
-	byName.set(definition.name, running);
-	running.catch(() => byName.delete(definition.name));
-	return running;
-}
-
-/**
- * What does not wait for `autoSync`: the properties, the two that build
- * another collection, and `sync` itself.
- */
-const UNGATED = new Set([
-	'definition',
-	'db',
-	'raw',
-	'session',
-	'withSession',
-	'as',
-	'sync',
-]);
-
-/**
  * The same collection with one option changed, as `withSession` and `as`
  * give it back. It answers `unknown` because the collection this package
  * hands out is typed by the cast at the end of `build`, not by `apiOf`.
@@ -216,20 +162,7 @@ function build<Def>(
 		get(target, key, receiver) {
 			if (Reflect.has(target, key)) {
 				const own = Reflect.get(target, key, receiver);
-				if (
-					!autoSync ||
-					typeof own !== 'function' ||
-					UNGATED.has(key as string)
-				) {
-					return own;
-				}
-				// The sync is looked up per call, not captured here: that is one
-				// map lookup, and it is what lets `resetAutoSync` reach a
-				// collection somebody is already holding.
-				return (...args: unknown[]) =>
-					syncOnce(db, definition).then(() =>
-						(own as (...a: unknown[]) => unknown)(...args),
-					);
+				return autoSync ? gated(db, definition, key, own) : own;
 			}
 			const value = (collection as unknown as Fields)[key as string];
 			return typeof value === 'function' ? value.bind(collection) : value;

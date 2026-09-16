@@ -195,31 +195,50 @@ export interface CursorPaginateOptions<Def> extends ReadOptions {
 	direction?: OrderDirection;
 }
 
-export interface UpdateOptions {
+/**
+ * `Yes` when the definition keeps that stamp, `No` when it has none.
+ *
+ * It reads the literal names `defineCollection` put on the definition. A
+ * definition typed loosely — `AnyCollectionDefinition`, or `never` inside this
+ * package — has `string | false` there, and gets `Yes`: only a definition that
+ * is known to lack the stamp is refused.
+ */
+export type IfStamp<Def, Kind extends string, Yes, No> = [Def] extends [never]
+	? Yes
+	: [
+				Def extends { stamps: { [K in Kind]: infer Name } } ? Name : string,
+			] extends [false]
+		? No
+		: Yes;
+
+export interface UpdateOptions<Def = unknown> {
 	/**
-	 * Only update the document while its `version` is still this one. When it
+	 * Only update the document while its version is still this one. When it
 	 * is not, nothing is written and `OptimisticLockError` is thrown with the
-	 * version the document has now.
+	 * version the document has now. A collection with no version field does
+	 * not take it.
 	 */
-	expectedVersion?: number;
+	expectedVersion?: IfStamp<Def, 'version', number, never>;
 }
 
 export interface CollectionOptions<Def> {
 	/**
-	 * Soft delete through the `deletedAt` field. Default: on when the schema
-	 * has one. `false` makes `delete` a real delete.
+	 * Soft delete through the soft-delete field. Default: on when the
+	 * collection has one. `false` makes `delete` a real delete; a collection
+	 * with no such field takes `false` only.
 	 */
-	softDelete?: boolean;
+	softDelete?: IfStamp<Def, 'deletedAt', boolean, false>;
 	/**
-	 * Set `updatedAt` on every update that does not set it. Default: on when
-	 * the schema has the field.
+	 * Set the updated stamp on every update that does not set it. Default: on
+	 * when the collection has one; a collection without takes `false` only.
 	 */
-	touchUpdatedAt?: boolean;
+	touchUpdatedAt?: IfStamp<Def, 'updatedAt', boolean, false>;
 	/**
-	 * Raise `version` by one on every update. Default: on when the schema has
-	 * the field. `expectedVersion` needs it.
+	 * Raise the version by one on every update. Default: on when the
+	 * collection has a version field; one without takes `false` only.
+	 * `expectedVersion` needs it.
 	 */
-	optimisticLock?: boolean;
+	optimisticLock?: IfStamp<Def, 'version', boolean, false>;
 	/**
 	 * Check documents against the schema before writing them, which is also
 	 * what fills their defaults. Default `'parse'`. `'off'` sends them as they
@@ -304,7 +323,7 @@ export interface CollectionApi<Def> {
 	update(
 		id: IdOf<Def>,
 		patch: Patch<Def>,
-		options?: UpdateOptions,
+		options?: UpdateOptions<Def>,
 	): Promise<ReadDocumentOf<Def>>;
 	/**
 	 * Updates every document that matches, and returns how many changed. The
@@ -326,8 +345,17 @@ export interface CollectionApi<Def> {
 	hardDelete(id: IdOf<Def>): Promise<ReadDocumentOf<Def>>;
 	/** A real delete of every document that matches, soft-deleted ones included. */
 	hardDeleteMany(filter: Filter<DocumentOf<Def>>): Promise<number>;
-	/** Clears `deletedAt` and returns the document. Throws `NotFoundError`. */
-	restore(id: IdOf<Def>): Promise<ReadDocumentOf<Def>>;
+	/**
+	 * Clears the soft-delete field and returns the document. Throws
+	 * `NotFoundError`. A collection with no soft delete has nothing to restore,
+	 * and the method cannot be called on it.
+	 */
+	restore: IfStamp<
+		Def,
+		'deletedAt',
+		(id: IdOf<Def>) => Promise<ReadDocumentOf<Def>>,
+		never
+	>;
 
 	/**
 	 * How many documents match, soft-deleted ones left out. The driver's

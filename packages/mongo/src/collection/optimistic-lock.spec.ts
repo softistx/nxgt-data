@@ -96,12 +96,16 @@ describe('optimistic locking', () => {
 		const post = await collection.create({ title: 'a', rank: 1 });
 		// The message names no field: a collection may call its version
 		// anything, so quoting "version" here would be a lie for half of them.
+		// Both are compile errors too; the runtime check is for a caller the
+		// types do not reach.
 		await expect(
+			// @ts-expect-error posts have no version field
 			collection.update(post._id, { title: 'b' }, { expectedVersion: 0 }),
 		).rejects.toThrow('expectedVersion needs a version field');
-		expect(() => getCollection(t.db, posts, { optimisticLock: true })).toThrow(
-			'optimisticLock needs a version field',
-		);
+		expect(() =>
+			// @ts-expect-error posts have no version field
+			getCollection(t.db, posts, { optimisticLock: true }),
+		).toThrow('optimisticLock needs a version field');
 	});
 
 	test('optimisticLock: false leaves the version alone', async () => {

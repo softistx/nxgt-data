@@ -10,7 +10,8 @@ import { z } from 'zod';
 import { startMongo, type TestServer } from '../../test/server';
 import { defineCollection } from '../definition/define-collection';
 import { id } from '../definition/fields';
-import { getCollection, resetAutoSync } from './get-collection';
+import { resetAutoSync } from './auto-sync';
+import { getCollection } from './get-collection';
 
 let t: TestServer;
 
@@ -85,6 +86,39 @@ describe('autoSync', () => {
 		resetAutoSync(t.db);
 		await collection.create({ total: 20 });
 		expect(await indexNames()).toEqual(['_id_', 'invoices_total']);
+	});
+
+	test('without a database, it forgets every one of them', async () => {
+		const collection = getCollection(t.db, invoices, { autoSync: true });
+		await collection.create({ total: 10 });
+		await t.db.collection('invoices').dropIndex('invoices_total');
+		resetAutoSync();
+		await collection.create({ total: 20 });
+		expect(await indexNames()).toEqual(['_id_', 'invoices_total']);
+	});
+
+	test('a sync that failed is tried again, not remembered', async () => {
+		// A plain `audit` is already there; the definition wants it capped,
+		// which sync refuses to pretend it did.
+		await t.db.createCollection('audit');
+		const audit = defineCollection({
+			name: 'audit',
+			schema: z.object({ _id: id(), message: z.string() }),
+			options: { capped: { size: 4096 } },
+		});
+		const collection = getCollection(t.db, audit, { autoSync: true });
+		await expect(collection.create({ message: 'a' })).rejects.toThrow(
+			'options MongoDB cannot change',
+		);
+
+		// Once the collection is out of the way, the next call syncs again
+		// rather than failing forever on the first answer.
+		await t.db.collection('audit').drop();
+		await collection.create({ message: 'b' });
+		const [info] = await t.db
+			.listCollections({ name: 'audit' }, { nameOnly: false })
+			.toArray();
+		expect(info?.options?.capped).toBe(true);
 	});
 
 	test('off by default: nothing is created ahead of the write', async () => {

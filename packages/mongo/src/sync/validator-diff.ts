@@ -2,6 +2,7 @@ import type {
 	ValidationAction,
 	ValidationLevel,
 } from '../definition/validation';
+import { canonical } from './canonical';
 
 /** A collection's validation, as `listCollections` reports it in `options`. */
 export interface LiveValidation {
@@ -15,16 +16,6 @@ export interface WantedValidation {
 	validator: Record<string, unknown> | undefined;
 	level: ValidationLevel;
 	action: ValidationAction;
-}
-
-function canonical(value: unknown): string {
-	return JSON.stringify(value ?? null, (_name, inner) =>
-		inner && typeof inner === 'object' && !Array.isArray(inner)
-			? Object.fromEntries(
-					Object.entries(inner).sort(([a], [b]) => (a < b ? -1 : 1)),
-				)
-			: inner,
-	);
 }
 
 /** Has a collection a validator at all? An empty one is no validator. */

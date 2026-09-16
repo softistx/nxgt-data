@@ -82,6 +82,12 @@ export function createContext(
 				'none. Define it with `softDelete: true`, or a name of your own.',
 		);
 	}
+	if (options.touchUpdatedAt === true && !stamps.updatedAt) {
+		throw new TypeError(
+			`getCollection: touchUpdatedAt needs an updated stamp, and "${name}" has ` +
+				'none. Define it with `timestamps: true`, or a name of your own.',
+		);
+	}
 	if (options.optimisticLock === true && !stamps.version) {
 		throw new TypeError(
 			`getCollection: optimisticLock needs a version field, and "${name}" has ` +

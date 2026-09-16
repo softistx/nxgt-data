@@ -1,4 +1,5 @@
 import type { IndexDescription, IndexDescriptionInfo } from 'mongodb';
+import { canonical } from './canonical';
 
 /**
  * What MongoDB fills a collation in with. It reads an index's collation back
@@ -83,16 +84,6 @@ export function normalizeIndex(
 		options[name] = value;
 	}
 	return { name: index.name ?? indexNameOf(key), key, options };
-}
-
-function canonical(value: unknown): string {
-	return JSON.stringify(value, (_name, inner) =>
-		inner && typeof inner === 'object' && !Array.isArray(inner)
-			? Object.fromEntries(
-					Object.entries(inner).sort(([a], [b]) => (a < b ? -1 : 1)),
-				)
-			: inner,
-	);
 }
 
 /** Are two indexes the same index, with the same options? */

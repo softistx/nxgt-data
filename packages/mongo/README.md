@@ -182,6 +182,10 @@ import './collections';            // the definitions
 const reports = await syncAll(db);
 ```
 
+It covers every definition the process has loaded. When one process holds the
+collections of several databases, sync each database's own list with
+`syncCollections(db, [users, teams])` instead.
+
 ### Options MongoDB cannot change
 
 Most collection options are decided once. `sync` changes the few `collMod`
@@ -388,8 +392,9 @@ server error reaches you untouched.
 
 ## Not included
 
-- **No aggregation helpers.** `repository.collection` is the driver's
-  collection: `.aggregate()`, `.watch()` and the rest are there.
+- **No aggregation helpers.** The collection *is* the driver's collection as
+  well: `.aggregate()`, `.watch()` and the rest are on it, and `raw` is the
+  driver's own, untouched.
 - **No migrations.** `sync` brings the schema and the indexes in line; it never
   rewrites a document.
 - **No connection management.** The client is yours to open and close.
