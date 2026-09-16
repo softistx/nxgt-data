@@ -10,6 +10,7 @@ import type {
 	IdOf,
 	NewDocumentOf,
 	Page,
+	ReadDocumentOf,
 	Repository,
 } from '../../src';
 import {
@@ -43,13 +44,16 @@ assertType<Equal<NewDocumentOf<typeof users>['email'], string>>(true);
 const repo = createRepository(db, users);
 const postRepo = createRepository(db, posts);
 
-// Reads give documents back.
+// Reads give documents back, each with the `id` the repository computes.
+type ReadUser = ReadDocumentOf<typeof users>;
 const found = await repo.findById({} as ObjectId);
-assertType<Equal<typeof found, User | undefined>>(true);
+assertType<Equal<typeof found, ReadUser | undefined>>(true);
 const got = await repo.getById({} as ObjectId);
-assertType<Equal<typeof got, User>>(true);
+assertType<Equal<typeof got, ReadUser>>(true);
 const many = await repo.findMany();
-assertType<Equal<typeof many, User[]>>(true);
+assertType<Equal<typeof many, ReadUser[]>>(true);
+// The stored document is the schema's, `id` apart.
+assertType<Equal<Omit<ReadUser, 'id'>, User>>(true);
 
 // create takes the schema's input.
 await repo.create({ email: 'ada@example.com' });
@@ -75,11 +79,11 @@ await repo.exists({ deletedAt: null });
 
 // The cursor pages along a field of the schema.
 const cursorPage = await repo.paginateByCursor({ orderBy: 'createdAt' });
-assertType<Equal<typeof cursorPage, CursorPage<User>>>(true);
+assertType<Equal<typeof cursorPage, CursorPage<ReadUser>>>(true);
 // @ts-expect-error no such field
 await repo.paginateByCursor({ orderBy: 'nope' });
 const page = await repo.paginate({ pageSize: 10 });
-assertType<Equal<typeof page, Page<User>>>(true);
+assertType<Equal<typeof page, Page<ReadUser>>>(true);
 
 // `with` and `as` give back the same repository.
 await withTransaction(db as never, async (session) => {
@@ -94,12 +98,49 @@ assertType<Equal<typeof post.rank, number>>(true);
 // @ts-expect-error posts have no email
 await postRepo.create({ email: 'a@example.com', title: 't', rank: 1 });
 
+// A read gives back the document plus `id`, the string of `_id`.
+assertType<Equal<typeof got.id, string>>(true);
+assertType<Equal<(typeof many)[number]['id'], string>>(true);
+assertType<Equal<(typeof page.items)[number]['id'], string>>(true);
+const created = await repo.create({ email: 'ada@example.com' });
+assertType<Equal<typeof created.id, string>>(true);
+// It is computed, not stored: a write does not take it.
+// @ts-expect-error id is not a field of the document
+await repo.create({ email: 'ada@example.com', id: 'abc' });
+// @ts-expect-error id is not a field of the document
+await repo.update({} as ObjectId, { id: 'abc' });
+
 // A definition needs an _id, and its settings are typed.
 defineCollection({
 	name: 'tags',
 	schema: z.object({ _id: id(), slug: z.string() }),
 	indexes: [{ key: { slug: 1 }, unique: true }],
 	validation: { level: 'moderate', action: 'warn' },
+});
+
+// An index is keyed on the schema's fields, which is what an editor completes.
+defineCollection({
+	name: 'users',
+	schema: users.schema,
+	indexes: [
+		{ key: { email: 1 }, unique: true, name: 'users_email_unique' },
+		{ key: { createdAt: -1, email: 1 } },
+		// A path into a field: MongoDB indexes nested keys this way.
+		{ key: { 'teamId.slug': 1 } },
+		{ key: { email: 'text' }, collation: { locale: 'fr' } },
+	],
+});
+defineCollection({
+	name: 'users',
+	schema: users.schema,
+	// @ts-expect-error no such field to index
+	indexes: [{ key: { emial: 1 } }],
+});
+defineCollection({
+	name: 'users',
+	schema: users.schema,
+	// @ts-expect-error 'up' is not an index direction
+	indexes: [{ key: { email: 'up' } }],
 });
 defineCollection({
 	name: 'tags',

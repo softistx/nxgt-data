@@ -45,10 +45,11 @@ describe('create and read', () => {
 		expect(ada.createdAt).toBeInstanceOf(Date);
 		expect(ada.deletedAt).toBeNull();
 		expect(ada.version).toBe(0);
-		// It is the document that is stored, not a shape of our own.
-		expect(await t.db.collection('users').findOne({ _id: ada._id })).toEqual(
-			ada as never,
-		);
+		// It is the document that is stored, not a shape of our own — `id`
+		// apart, which is computed from `_id` and stored nowhere.
+		expect(ada.id).toBe(ada._id.toHexString());
+		const stored = await t.db.collection('users').findOne({ _id: ada._id });
+		expect({ ...stored, id: ada.id }).toEqual(ada as never);
 	});
 
 	test('create refuses a document the schema refuses, before sending it', async () => {

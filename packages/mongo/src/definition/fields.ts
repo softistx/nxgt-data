@@ -1,14 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { z } from 'zod';
-
-/** An `ObjectId`, read without `instanceof`: two copies of the driver. */
-function isObjectId(value: unknown): value is ObjectId {
-	return (
-		typeof value === 'object' &&
-		value !== null &&
-		(value as { _bsontype?: unknown })._bsontype === 'ObjectId'
-	);
-}
+import { isObjectId } from './object-id';
 
 /**
  * An `ObjectId`, declared to MongoDB as `bsonType: 'objectId'`. JSON Schema

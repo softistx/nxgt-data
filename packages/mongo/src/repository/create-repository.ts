@@ -78,6 +78,9 @@ function build(
 	// collection, and the public type above is what callers see.
 	const collection = db.collection<any>(name);
 	const shape = definition.schema.shape as Record<string, z.ZodType>;
+	// A schema may declare an `id` field of its own; then it is that field's,
+	// and the repository neither computes it nor drops it.
+	const hasOwnId = 'id' in shape;
 	const stamps = stampsOf(definition);
 	const session = options.session;
 	const actor = options.actor;
@@ -115,6 +118,32 @@ function build(
 	const scoped = (filter: unknown, withDeleted?: boolean): Fields =>
 		mergeFilters(isRecord(filter) ? filter : undefined, live(withDeleted));
 
+	/**
+	 * `id` on a document the repository gives back: `_id` as a string, computed
+	 * rather than stored — the collection holds `_id` alone.
+	 *
+	 * It is enumerable, so `JSON.stringify` and a spread carry it and a handler
+	 * can return the document as it is. `toDocument` drops it again on a write,
+	 * and it is no part of `DocumentOf`, so nothing can filter on it: the server
+	 * would match nothing.
+	 */
+	const withId = <T>(document: T): T => {
+		if (
+			hasOwnId ||
+			!isRecord(document) ||
+			document._id === undefined ||
+			Object.hasOwn(document, 'id')
+		) {
+			return document;
+		}
+		Object.defineProperty(document, 'id', {
+			get: () => String((document as Fields)._id),
+			enumerable: true,
+			configurable: true,
+		});
+		return document;
+	};
+
 	const notFound = (id: unknown) =>
 		new NotFoundError(`No document in "${name}" with _id ${String(id)}`, {
 			collection: name,
@@ -132,6 +161,11 @@ function build(
 	/** The document to insert: checked against the schema, defaults filled. */
 	const toDocument = (values: unknown): Fields => {
 		const stamped: Fields = { ...(values as Fields) };
+		// A document that was read carries `id`, which is this repository's view
+		// of `_id` and not a field: writing it back would be refused by the
+		// validator, which allows no property the schema does not declare.
+		// Parsing strips it too, but `validate: 'off'` does not parse.
+		if (!hasOwnId) delete stamped.id;
 		if (actor !== undefined) {
 			if (stamps.createdBy && stamped.createdBy === undefined) {
 				stamped.createdBy = actor;
@@ -189,12 +223,13 @@ function build(
 	};
 
 	const findOne = async (filter: Fields, projection?: unknown) =>
-		run(async () =>
-			collection.findOne(filter, {
+		run(async () => {
+			const found = await collection.findOne(filter, {
 				...sessionOption,
 				...(projection ? { projection } : {}),
-			}),
-		);
+			});
+			return found === null ? null : withId(found as Fields);
+		});
 
 	async function findById(id: unknown, opts: { withDeleted?: boolean } = {}) {
 		const found = await findOne(scoped({ _id: id }, opts.withDeleted));
@@ -219,7 +254,8 @@ function build(
 			if (opts.sort !== undefined) cursor = cursor.sort(opts.sort as never);
 			if (opts.skip !== undefined) cursor = cursor.skip(opts.skip as number);
 			if (opts.limit !== undefined) cursor = cursor.limit(opts.limit as number);
-			return cursor.toArray();
+			const found = await cursor.toArray();
+			return found.map((document) => withId(document as Fields));
 		});
 	}
 
@@ -251,7 +287,7 @@ function build(
 				returnDocument: 'after',
 			}),
 		);
-		if (updated) return updated as Fields;
+		if (updated) return withId(updated as Fields);
 
 		if (expectedVersion !== undefined) {
 			const current = await findOne({ _id: id });
@@ -278,7 +314,7 @@ function build(
 			collection.findOneAndDelete({ _id: id }, { ...sessionOption }),
 		);
 		if (!deleted) throw notFound(id);
-		return deleted as Fields;
+		return withId(deleted as Fields);
 	}
 
 	async function hardDeleteMany(filter: unknown): Promise<number> {
@@ -317,7 +353,7 @@ function build(
 			const document = toDocument(values);
 			return run(async () => {
 				await collection.insertOne(document as Document, { ...sessionOption });
-				return document;
+				return withId(document);
 			});
 		},
 
@@ -328,7 +364,7 @@ function build(
 				await collection.insertMany(documents as Document[], {
 					...sessionOption,
 				});
-				return documents;
+				return documents.map((document) => withId(document));
 			});
 		},
 

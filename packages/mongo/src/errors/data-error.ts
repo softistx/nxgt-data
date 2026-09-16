@@ -5,7 +5,8 @@ export type DataErrorCode =
 	| 'CONFLICT'
 	| 'VALIDATION'
 	| 'OPTIMISTIC_LOCK'
-	| 'INVALID_CURSOR';
+	| 'INVALID_CURSOR'
+	| 'INVALID_ID';
 
 /** One reason a document failed the collection's `$jsonSchema` validator. */
 export interface ValidationIssue {
@@ -124,6 +125,22 @@ export class OptimisticLockError extends DataError {
 	override readonly code = 'OPTIMISTIC_LOCK' as const;
 
 	constructor(message = 'Version conflict', options: DataErrorOptions = {}) {
+		super(message, options);
+	}
+}
+
+/**
+ * A value that is not an `ObjectId` and not the string of one.
+ *
+ * It is a `DataError` rather than a `TypeError` because it is usually data,
+ * not a mistake in the code: an id off a URL or a form reaches `toObjectId`,
+ * and a handler wants to answer 400 or 404 rather than crash.
+ */
+export class InvalidIdError extends DataError {
+	override name = 'InvalidIdError';
+	override readonly code = 'INVALID_ID' as const;
+
+	constructor(message = 'Invalid id', options: DataErrorOptions = {}) {
 		super(message, options);
 	}
 }
