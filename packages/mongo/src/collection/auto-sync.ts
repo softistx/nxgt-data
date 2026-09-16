@@ -45,7 +45,7 @@ function syncOnce(
 
 /**
  * What does not wait for `autoSync`: the properties, the two that build
- * another collection, and `sync` itself.
+ * another collection, `sync` itself, and `onChange`.
  */
 const UNGATED = new Set([
 	'definition',
@@ -55,6 +55,9 @@ const UNGATED = new Set([
 	'withSession',
 	'as',
 	'sync',
+	// It answers a subscription, not a promise; and watching a collection
+	// that does not exist yet is allowed.
+	'onChange',
 ]);
 
 /**

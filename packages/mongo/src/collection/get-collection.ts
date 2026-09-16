@@ -7,6 +7,7 @@ import type {
 import type { StampNames } from '../definition/stamps';
 import { type SyncOptions, syncCollection } from '../sync/sync-collection';
 import { gated } from './auto-sync';
+import type { ChangeHandler, ChangeOptions } from './change-types';
 import { type CollectionContext, createContext } from './context';
 import type { Fields } from './filters';
 import {
@@ -28,6 +29,7 @@ import {
 	findMany,
 	getById,
 } from './reads';
+import { subscribe } from './subscription';
 import type { CollectionOptions, TypedCollection } from './types';
 
 /** What a collection can be reached through: a database, or a client. */
@@ -131,6 +133,8 @@ function apiOf(ctx: CollectionContext, rebuild: Rebuild, self: Self) {
 			exists(ctx, filter, opts),
 		paginate: (opts?: Fields) => paginate(ctx, opts),
 		paginateByCursor: (opts?: Fields) => paginateByCursor(ctx, opts),
+		onChange: (handler: ChangeHandler<never>, opts?: ChangeOptions<never>) =>
+			subscribe(ctx, handler, opts),
 	};
 }
 

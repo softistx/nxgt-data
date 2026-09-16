@@ -13,6 +13,11 @@ import type {
 } from '../definition/define-collection';
 import type { CursorPage, Page, PageOptions } from '../pagination/page';
 import type { SyncOptions, SyncReport } from '../sync/sync-collection';
+import type {
+	ChangeHandler,
+	ChangeOptions,
+	ChangeSubscription,
+} from './change-types';
 import type { CollectionHooks } from './hook-types';
 
 export type OrderDirection = 'asc' | 'desc';
@@ -365,6 +370,24 @@ export interface CollectionApi<Def> {
 		(id: IdOf<Def>) => Promise<ReadDocumentOf<Def>>,
 		never
 	>;
+
+	/**
+	 * Listens to the changes of this collection until `close()`, typed by its
+	 * schema: `create`, `update`, `delete` — soft or hard — and `restore`.
+	 *
+	 * ```ts
+	 * const subscription = users.onChange(async (change) => {
+	 * 	if (change.type === 'create') await welcome(change.document.email);
+	 * }, { events: ['create'] });
+	 * await subscription.ready;
+	 * ```
+	 *
+	 * It needs a replica set or a sharded cluster, as every change stream does.
+	 */
+	onChange(
+		handler: ChangeHandler<Def>,
+		options?: ChangeOptions<Def>,
+	): ChangeSubscription;
 
 	/**
 	 * How many documents match, soft-deleted ones left out. The driver's

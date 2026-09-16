@@ -162,7 +162,7 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 - **A long file of declarations is fine; a long function is not.** A type or
   an options interface earns its length in documentation —
-  `mongo/src/collection/types.ts` is 362 lines and every one of them is a
+  `mongo/src/collection/types.ts` is 422 lines and every one of them is a
   declaration with a reason. A *function* past **80 lines** is the signal.
   Keep a source file under **250** lines; when it climbs, it is almost always
   one function that grew, not a file that filled up.
@@ -187,8 +187,8 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   which are handed over as given: the rule is about closures the package
   builds.
 - **Specs are split by subject, not one per source file.** `collection/` has
-  eight: `id`, `optimistic-lock`, `paginate`, `soft-delete`,
-  `driver-methods`, `auto-sync`, `hooks`, and the general one. A refactor that moves code must leave them untouched —
+  nine: `id`, `optimistic-lock`, `paginate`, `soft-delete`,
+  `driver-methods`, `auto-sync`, `hooks`, `changes`, and the general one. A refactor that moves code must leave them untouched —
   if a spec has to change, the refactor changed behaviour.
 - **A public method that refuses something must have a `@ts-expect-error`
   case** in `test/types/`. Type safety is what the compiler rejects, not what
@@ -227,10 +227,14 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **356 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 211,
+`bun run test` is **379 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 234,
 scripts 10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
 
+- **The test mongod runs with `enableTestCommands`**, so a spec can make it
+  fail a command on demand with `t.failNext(['getMore'], { errorCode: 2 })`.
+  That is how the change-stream specs reach the reopen path; a spec that sets
+  a failpoint with `times` must not leave it armed for the next one.
 - **The packages' suites run in parallel, and each wants a server**: a mongod,
   a Meilisearch binary and PGlite, all at once. On a machine that is short of
   memory they fail together, and the failures do not look like what they are: a

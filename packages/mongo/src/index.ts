@@ -1,4 +1,16 @@
 export { resetAutoSync } from './collection/auto-sync';
+export type {
+	ChangeHandler,
+	ChangeOf,
+	ChangeOptions,
+	ChangeSubscription,
+	ChangeType,
+	CloseReason,
+	CreateChange,
+	DeleteChange,
+	RestoreChange,
+	UpdateChange,
+} from './collection/change-types';
 export {
 	type CollectionSource,
 	getCollection,
