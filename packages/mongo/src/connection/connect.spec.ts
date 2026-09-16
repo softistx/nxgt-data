@@ -71,6 +71,24 @@ describe('connectMongo', () => {
 		expect((error as Error).message).not.toContain(t.uri);
 	});
 
+	test('compares options by value, as they were given', async () => {
+		const options = { appName: 'one', serverApi: { version: '1' as const } };
+		const a = await connectMongo(t.uri, options);
+		// Built again: the same values, another object.
+		const b = await connectMongo(t.uri, {
+			appName: 'one',
+			serverApi: { version: '1' },
+		});
+		expect(b.client).toBe(a.client);
+		// Changing the first object afterwards changes nothing.
+		options.appName = 'two';
+		await expect(connectMongo(t.uri, options)).rejects.toThrow('other options');
+		// A key only the second call has is a difference too.
+		await expect(
+			connectMongo(t.uri, { ...options, appName: 'one', retryWrites: false }),
+		).rejects.toThrow('other options');
+	});
+
 	test('forgets a failed connect, so the next call tries again', async () => {
 		const [first, second] = await Promise.allSettled([
 			connectMongo(NOWHERE),
@@ -97,14 +115,16 @@ describe('ping', () => {
 
 	test('answers within its timeout when the server does not', async () => {
 		const mongo = await connectMongo(t.uri);
-		await t.failNext(['ping'], { blockConnection: true, blockTimeMS: 2_000 });
+		await t.failNext(['ping'], { blockConnection: true, blockTimeMS: 4_000 });
 		const started = Date.now();
-		const result = await mongo.ping({ timeoutMS: 300 });
+		// The default: two seconds.
+		const result = await mongo.ping();
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
 			expect((result.error as Error).name).toBe('MongoOperationTimeoutError');
 		}
-		expect(Date.now() - started).toBeLessThan(1_500);
+		expect(Date.now() - started).toBeGreaterThanOrEqual(1_900);
+		expect(Date.now() - started).toBeLessThan(3_500);
 		await t.clearFailures();
 	});
 });
@@ -114,8 +134,27 @@ describe('closeMongo', () => {
 		const a = await connectMongo(t.uri);
 		await closeMongo();
 		expect((await a.ping()).ok).toBe(false);
-		await a.close();
 		const b = await connectMongo(t.uri);
+		// `a` held the client `closeMongo` closed, not `b`'s.
+		await a.close();
 		expect((await b.ping()).ok).toBe(true);
+		const c = await connectMongo(t.uri);
+		expect(c.client).toBe(b.client);
+	});
+
+	test('a connect it interrupts fails rather than hand a closed client', async () => {
+		const pending = connectMongo(t.uri);
+		await closeMongo();
+		await expect(pending).rejects.toThrow('closed while this one');
+		const after = await connectMongo(t.uri);
+		expect((await after.ping()).ok).toBe(true);
+	});
+
+	test('two closes at once both wait for the client', async () => {
+		const mongo = await connectMongo(t.uri);
+		const first = mongo.close();
+		await mongo.close();
+		expect((await mongo.ping()).ok).toBe(false);
+		await first;
 	});
 });

@@ -28,23 +28,41 @@ interface Shared {
 
 const clients = new Map<string, Shared>();
 
+function isPlain(value: unknown): value is Record<string, unknown> {
+	if (typeof value !== 'object' || value === null) return false;
+	const proto = Object.getPrototypeOf(value);
+	return proto === Object.prototype || proto === null;
+}
+
 /**
- * The same options, compared key by key: an options object is usually built
- * again at each call, so identity would refuse every second call.
+ * The same options, compared by value: an options object — and its
+ * `serverApi` or `auth` — is usually built again at each call, so identity
+ * would refuse every second call. Plain objects and arrays are compared
+ * inside; anything else (a function, a class instance) must be the same one.
  */
-function sameOptions(a: MongoClientOptions, b: MongoClientOptions): boolean {
-	const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-	for (const key of keys) {
-		const k = key as keyof MongoClientOptions;
-		if (!Object.is(a[k], b[k])) return false;
+function sameValue(a: unknown, b: unknown): boolean {
+	if (Object.is(a, b)) return true;
+	if (Array.isArray(a) && Array.isArray(b)) {
+		return a.length === b.length && a.every((v, i) => sameValue(v, b[i]));
 	}
-	return true;
+	if (!isPlain(a) || !isPlain(b)) return false;
+	const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+	return [...keys].every((key) => sameValue(a[key], b[key]));
+}
+
+/** Options kept as they were given, whatever the caller does to its object. */
+function snapshot<T>(value: T): T {
+	if (Array.isArray(value)) return value.map(snapshot) as T;
+	if (!isPlain(value)) return value;
+	return Object.fromEntries(
+		Object.entries(value).map(([key, v]) => [key, snapshot(v)]),
+	) as T;
 }
 
 function share(uri: string, options: MongoClientOptions): Shared {
 	const found = clients.get(uri);
 	if (found) {
-		if (!sameOptions(found.options, options)) {
+		if (!sameValue(found.options, options)) {
 			// The URI is not in the message: it may carry a password.
 			throw new TypeError(
 				'connectMongo: this URI is already connected with other options. ' +
@@ -54,7 +72,7 @@ function share(uri: string, options: MongoClientOptions): Shared {
 		return found;
 	}
 	const shared: Shared = {
-		options,
+		options: snapshot(options),
 		connecting: new MongoClient(uri, options).connect(),
 		holders: 0,
 	};
@@ -100,22 +118,25 @@ export async function connectMongo(
 ): Promise<MongoConnection> {
 	const shared = share(uri, options);
 	shared.holders += 1;
-	let client: MongoClient;
-	try {
-		client = await shared.connecting;
-	} catch (error) {
-		shared.holders -= 1;
-		throw error;
+	const client = await shared.connecting;
+	if (clients.get(uri) !== shared) {
+		// `closeMongo` ran while this was connecting: the client is closed.
+		throw new Error(
+			'connectMongo: every client was closed while this one was connecting.',
+		);
 	}
 	const db = client.db();
-	let closed = false;
-	const close = async () => {
-		if (closed) return;
-		closed = true;
-		shared.holders -= 1;
-		if (shared.holders > 0 || clients.get(uri) !== shared) return;
-		clients.delete(uri);
-		await client.close();
+	let closing: Promise<void> | undefined;
+	// Kept, so that a second `close()` waits for the first one's work.
+	const close = () => {
+		closing ??= (async () => {
+			shared.holders -= 1;
+			// A client `closeMongo` replaced is not this connection's to drop.
+			if (shared.holders > 0 || clients.get(uri) !== shared) return;
+			clients.delete(uri);
+			await client.close();
+		})();
+		return closing;
 	};
 	return {
 		client,
