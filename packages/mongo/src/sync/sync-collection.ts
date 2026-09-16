@@ -1,15 +1,22 @@
-import type {
-	ClientSession,
-	Db,
-	Document,
-	IndexDescription,
-	IndexDescriptionInfo,
-} from 'mongodb';
+import type { ClientSession, Db, Document, IndexDescription } from 'mongodb';
+import { creationOptionsOf } from '../definition/collection-options';
 import type { AnyCollectionDefinition } from '../definition/define-collection';
 import { toMongoJsonSchema } from '../definition/json-schema';
-import { DataError } from '../errors/data-error';
 import { toDataError } from '../errors/to-data-error';
 import { diffIndexes, normalizeIndex } from './index-diff';
+import {
+	collModForOptions,
+	diffCollectionOptions,
+	immutableOptionsError,
+	type OptionMismatch,
+} from './options-diff';
+import {
+	liveIndexes,
+	liveOptions,
+	serverCode,
+	writeOptions,
+	writeValidation,
+} from './server';
 import {
 	hasValidator,
 	type LiveValidation,
@@ -21,7 +28,8 @@ export interface SyncOptions {
 	/**
 	 * Compare and report, but send nothing: no collection is created, no
 	 * validator written, no index touched. For a check in CI, or a look before
-	 * a deploy.
+	 * a deploy. An option that cannot be changed is reported here rather than
+	 * thrown, so one run lists everything that is wrong at once.
 	 */
 	dryRun?: boolean;
 	/**
@@ -44,6 +52,16 @@ export interface SyncReport {
 	created: boolean;
 	/** What the `$jsonSchema` validator needed. */
 	validator: 'unchanged' | 'created' | 'updated' | 'removed';
+	/** MongoDB's own collection options. */
+	options: {
+		/** Those `collMod` changed, by name: `capped.size`, `expireAfterSeconds`. */
+		changed: string[];
+		/**
+		 * Those the live collection disagrees on and MongoDB cannot change.
+		 * Outside `dryRun` this is always empty: sync throws instead.
+		 */
+		immutable: OptionMismatch[];
+	};
 	indexes: {
 		created: string[];
 		/** There with other options: MongoDB cannot change one, so it is dropped and built again. */
@@ -52,42 +70,6 @@ export interface SyncReport {
 		unchanged: string[];
 	};
 	dryRun: boolean;
-}
-
-function serverCode(error: unknown): number | undefined {
-	const code = (error as { code?: unknown } | null)?.code;
-	return typeof code === 'number' ? code : undefined;
-}
-
-async function collectionOptions(
-	db: Db,
-	name: string,
-	session: ClientSession | undefined,
-): Promise<LiveValidation | undefined> {
-	// `nameOnly: false` is what types the answer as the whole entry: without
-	// it the driver's overload gives back a name and a type alone.
-	const [info] = await db
-		.listCollections(
-			{ name },
-			{ ...(session ? { session } : {}), nameOnly: false },
-		)
-		.toArray();
-	return info ? ((info.options ?? {}) as LiveValidation) : undefined;
-}
-
-/** The indexes of a collection, or none when it does not exist yet. */
-async function liveIndexes(
-	db: Db,
-	name: string,
-	session: ClientSession | undefined,
-): Promise<IndexDescriptionInfo[]> {
-	try {
-		return await db.collection(name).indexes({ session });
-	} catch (error) {
-		// NamespaceNotFound: nothing is there, so nothing is indexed.
-		if (serverCode(error) === 26) return [];
-		throw error;
-	}
 }
 
 function validationFor(definition: AnyCollectionDefinition): WantedValidation {
@@ -102,55 +84,56 @@ function validationFor(definition: AnyCollectionDefinition): WantedValidation {
 	};
 }
 
-function creationOptions(wanted: WantedValidation): Document {
-	return wanted.validator === undefined
-		? {}
-		: {
-				validator: wanted.validator,
-				validationLevel: wanted.level,
-				validationAction: wanted.action,
-			};
+/** Everything `createCollection` takes: the options, plus the validator. */
+function creationOptions(
+	definition: AnyCollectionDefinition,
+	wanted: WantedValidation,
+): Document {
+	return {
+		...creationOptionsOf(definition.options),
+		...(wanted.validator === undefined
+			? {}
+			: {
+					validator: wanted.validator,
+					validationLevel: wanted.level,
+					validationAction: wanted.action,
+				}),
+	};
 }
 
-async function writeValidation(
+/** Creates the collection, or says it was already there. */
+async function createIfMissing(
 	db: Db,
-	name: string,
+	definition: AnyCollectionDefinition,
 	wanted: WantedValidation,
 	session: ClientSession | undefined,
-): Promise<void> {
+): Promise<Document | undefined> {
 	try {
-		await db.command(
-			{
-				collMod: name,
-				// An empty validator is how one is removed: the key then goes
-				// away entirely, and the level and the action stay behind.
-				validator: wanted.validator ?? {},
-				...(wanted.validator === undefined
-					? {}
-					: { validationLevel: wanted.level, validationAction: wanted.action }),
-			},
-			session ? { session } : undefined,
-		);
+		await db.createCollection(definition.name, {
+			...creationOptions(definition, wanted),
+			...(session ? { session } : {}),
+		});
+		return undefined;
 	} catch (error) {
-		if (serverCode(error) === 13) {
-			throw new DataError(
-				`sync: not allowed to run collMod on "${name}". Writing a validator ` +
-					'needs the `collMod` action, which `readWrite` does not grant and ' +
-					'`dbAdmin` does: sync with a role that has it, not with the ' +
-					'application’s own user.',
-				{ collection: name, serverCode: 13, cause: error },
-			);
+		// NamespaceExists: another sync created it between the lookup and the
+		// creation. Go on with theirs, which is compared like any other.
+		if (serverCode(error) !== 48) {
+			throw toDataError(error, { collection: definition.name });
 		}
-		throw toDataError(error, { collection: name });
+		return (await liveOptions(db, definition.name, session)) ?? {};
 	}
 }
 
 /**
  * Brings one collection in line with its definition, and says what it changed:
  *
- * 1. creates the collection, with its validator, when it is missing;
- * 2. writes the validator with `collMod` when it differs from the definition's;
- * 3. creates the indexes that are missing, and rebuilds those whose options
+ * 1. creates the collection, with its options and its validator, when it is
+ *    missing;
+ * 2. changes the collection options `collMod` accepts, and **throws** on a
+ *    difference MongoDB cannot change — a collation, a clustered index, or
+ *    making an existing collection capped are decided once, at creation;
+ * 3. writes the validator with `collMod` when it differs from the definition's;
+ * 4. creates the indexes that are missing, and rebuilds those whose options
  *    changed — MongoDB refuses to alter an index in place.
  *
  * Run it twice and the second run sends nothing.
@@ -173,7 +156,7 @@ export async function syncCollection(
 	const session = options.session;
 	const wanted = validationFor(definition);
 
-	let live = await collectionOptions(db, name, session);
+	let live = await liveOptions(db, name, session);
 	let created = false;
 	let validator: SyncReport['validator'] = 'unchanged';
 
@@ -181,29 +164,31 @@ export async function syncCollection(
 		created = true;
 		if (wanted.validator !== undefined) validator = 'created';
 		if (!dryRun) {
-			try {
-				await db.createCollection(name, {
-					...creationOptions(wanted),
-					...(session ? { session } : {}),
-				});
-			} catch (error) {
-				// NamespaceExists: another sync created it between the lookup and
-				// the creation. Go on with theirs, which is compared below.
-				if (serverCode(error) !== 48) {
-					throw toDataError(error, { collection: name });
-				}
+			const existing = await createIfMissing(db, definition, wanted, session);
+			if (existing) {
 				created = false;
 				validator = 'unchanged';
-				live = await collectionOptions(db, name, session);
+				live = existing;
 			}
 		}
 	}
 
-	if (live && !validationMatches(wanted, live)) {
+	const mismatches = live
+		? diffCollectionOptions(definition.options, live)
+		: [];
+	const immutable = mismatches.filter((m) => !m.mutable);
+	if (immutable.length > 0 && !dryRun)
+		throw immutableOptionsError(name, immutable);
+	const changed = mismatches.filter((m) => m.mutable).map((m) => m.option);
+	if (changed.length > 0 && !dryRun) {
+		await writeOptions(db, name, collModForOptions(mismatches), session);
+	}
+
+	if (live && !validationMatches(wanted, live as LiveValidation)) {
 		validator =
 			wanted.validator === undefined
 				? 'removed'
-				: hasValidator(live)
+				: hasValidator(live as LiveValidation)
 					? 'updated'
 					: 'created';
 		if (!dryRun) await writeValidation(db, name, wanted, session);
@@ -239,6 +224,7 @@ export async function syncCollection(
 		name,
 		created,
 		validator,
+		options: { changed, immutable: dryRun ? immutable : [] },
 		indexes: {
 			created: diff.create.map((index) => normalizeIndex(index).name),
 			recreated: diff.recreate.map((index) => normalizeIndex(index).name),

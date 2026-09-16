@@ -24,12 +24,17 @@ export function mergeFilters(
 	return { $and: [left, right] };
 }
 
-/** The filter that leaves soft-deleted documents out. */
+/**
+ * The filter that leaves soft-deleted documents out, keyed on whatever the
+ * collection calls its soft-delete field.
+ */
 export function live(
 	ctx: CollectionContext,
 	withDeleted?: boolean,
 ): Fields | undefined {
-	return ctx.softDeletes && !withDeleted ? { deletedAt: null } : undefined;
+	const field = ctx.stamps.deletedAt;
+	if (!ctx.softDeletes || withDeleted || !field) return undefined;
+	return { [field]: null };
 }
 
 /** A caller's filter, narrowed to the documents this collection shows. */

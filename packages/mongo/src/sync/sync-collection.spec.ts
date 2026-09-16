@@ -69,6 +69,7 @@ describe('syncCollection', () => {
 			name: 'users',
 			created: false,
 			validator: 'unchanged',
+			options: { changed: [], immutable: [] },
 			indexes: {
 				created: [],
 				recreated: [],
@@ -177,6 +178,90 @@ describe('syncCollection', () => {
 			.collection('users')
 			.insertOne({ email: 'not-an-email' } as never);
 		await expect(bad).rejects.toMatchObject({ code: 121 });
+	});
+});
+
+describe('the collection options', () => {
+	const capped = defineCollection({
+		name: 'audit',
+		schema: z.object({ _id: id(), message: z.string() }),
+		options: { capped: { size: 4096, max: 10 } },
+	});
+
+	const readings = defineCollection({
+		name: 'readings',
+		schema: z.object({ _id: id(), at: z.date(), sensor: z.string() }),
+		options: {
+			timeseries: { timeField: 'at', metaField: 'sensor' },
+			expireAfterSeconds: 3600,
+		},
+	});
+
+	test('creates the collection with them', async () => {
+		const report = await syncCollection(t.db, capped);
+		expect(report.created).toBe(true);
+		expect(report.options).toEqual({ changed: [], immutable: [] });
+		expect(await optionsOf('audit')).toMatchObject({
+			capped: true,
+			size: 4096,
+			max: 10,
+		});
+	});
+
+	test('a second run changes nothing, defaults and all', async () => {
+		// The server fills a collation in and computes a bucket span: a sync
+		// that compared for equality would report a difference every time.
+		await syncCollection(t.db, readings);
+		const again = await syncCollection(t.db, readings);
+		expect(again.options).toEqual({ changed: [], immutable: [] });
+		expect(again.created).toBe(false);
+	});
+
+	test('changes what collMod accepts', async () => {
+		await syncCollection(t.db, capped);
+		const wider = defineCollection({
+			name: 'audit',
+			schema: capped.schema,
+			options: { capped: { size: 8192, max: 10 } },
+		});
+		const report = await syncCollection(t.db, wider);
+		expect(report.options.changed).toEqual(['capped.size']);
+		expect(await optionsOf('audit')).toMatchObject({ size: 8192 });
+		// And once it is done, it is done.
+		expect((await syncCollection(t.db, wider)).options.changed).toEqual([]);
+	});
+
+	test('throws on a difference MongoDB cannot change, naming it', async () => {
+		// A plain collection is there; the definition now asks for a capped one.
+		await syncCollection(t.db, logs);
+		const cappedLogs = defineCollection({
+			name: 'logs',
+			schema: logs.schema,
+			options: { capped: { size: 4096 } },
+		});
+		const failing = syncCollection(t.db, cappedLogs);
+		await expect(failing).rejects.toThrow('"logs" already exists');
+		await expect(failing).rejects.toThrow('capped: the collection has null');
+		// And it sent nothing: the collection is what it was.
+		expect((await optionsOf('logs'))?.capped).toBeUndefined();
+	});
+
+	test('a dry run lists them all instead of throwing on the first', async () => {
+		await syncCollection(t.db, logs);
+		const other = defineCollection({
+			name: 'logs',
+			schema: logs.schema,
+			options: {
+				capped: { size: 4096 },
+				collation: { locale: 'fr' },
+			},
+		});
+		const report = await syncCollection(t.db, other, { dryRun: true });
+		expect(report.options.immutable.map((m) => m.option)).toEqual([
+			'capped',
+			'collation',
+		]);
+		expect((await optionsOf('logs'))?.capped).toBeUndefined();
 	});
 });
 

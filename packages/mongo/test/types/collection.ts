@@ -18,8 +18,6 @@ import {
 	getCollection,
 	id,
 	objectId,
-	softDelete,
-	timestamps,
 	withTransaction,
 } from '../../src';
 import { posts, type User, users } from '../schema';
@@ -144,7 +142,9 @@ defineCollection({
 });
 defineCollection({
 	name: 'tags',
-	schema: z.object({ _id: objectId(), ...timestamps(), ...softDelete() }),
+	schema: z.object({ _id: objectId() }),
+	timestamps: true,
+	softDelete: true,
 	// @ts-expect-error not a validation level
 	validation: { level: 'lenient' },
 });

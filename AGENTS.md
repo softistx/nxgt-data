@@ -11,7 +11,7 @@ registry:
 | --- | --- |
 | `@nxgt/drizzle` | an SDK over Drizzle ORM: typed repositories (`createRepository`), offset and cursor pagination, `withTransaction`, its own errors with `toDataError`, and the `id()`, `timestamps()`, `softDelete()` columns. PostgreSQL first |
 | `@nxgt/meilisearch` | a typed Meilisearch index on the official SDK: `defineIndex<Doc>()({ uid, primaryKey, settings })`, `syncIndex`/`syncIndexes` applying the settings idempotently, and `bindIndex` for typed documents and searches. Its one error is `SearchIndexError` |
-| `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection`, `syncCollection` applying the `$jsonSchema` validator and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, and `withTransaction`. Its errors are `DataError` and its subclasses |
+| `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection` with its stamps and MongoDB's own collection options, `syncCollection`/`syncAll` applying the `$jsonSchema` validator, the collection options and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, and `withTransaction`. Its errors are `DataError` and its subclasses |
 
 It was started on 2026-09-15, on the tooling of `softistx/nxgt-http`: the
 same build, artifact check, publish script, CI and conventions. When one of
@@ -162,7 +162,7 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 - **A long file of declarations is fine; a long function is not.** A type or
   an options interface earns its length in documentation —
-  `mongo/src/collection/types.ts` is 337 lines and every one of them is a
+  `mongo/src/collection/types.ts` is 362 lines and every one of them is a
   declaration with a reason. A *function* past **80 lines** is the signal.
   Keep a source file under **250** lines; when it climbs, it is almost always
   one function that grew, not a file that filled up.
@@ -225,7 +225,7 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **289 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 144,
+`bun run test` is **326 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 181,
 scripts 10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
 

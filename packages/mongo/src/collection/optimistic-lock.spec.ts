@@ -94,11 +94,13 @@ describe('optimistic locking', () => {
 		const collection = getCollection(t.db, posts);
 		await collection.sync();
 		const post = await collection.create({ title: 'a', rank: 1 });
+		// The message names no field: a collection may call its version
+		// anything, so quoting "version" here would be a lie for half of them.
 		await expect(
 			collection.update(post._id, { title: 'b' }, { expectedVersion: 0 }),
-		).rejects.toThrow('expectedVersion needs a "version" field');
+		).rejects.toThrow('expectedVersion needs a version field');
 		expect(() => getCollection(t.db, posts, { optimisticLock: true })).toThrow(
-			'optimisticLock needs a "version" field',
+			'optimisticLock needs a version field',
 		);
 	});
 

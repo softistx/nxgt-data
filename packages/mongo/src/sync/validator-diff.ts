@@ -1,7 +1,7 @@
 import type {
 	ValidationAction,
 	ValidationLevel,
-} from '../definition/define-collection';
+} from '../definition/validation';
 
 /** A collection's validation, as `listCollections` reports it in `options`. */
 export interface LiveValidation {

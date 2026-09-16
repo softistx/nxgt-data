@@ -149,10 +149,10 @@ describe('soft delete', () => {
 		expect(await t.db.collection('users').countDocuments()).toBe(1);
 	});
 
-	test('softDelete: true on a collection without deletedAt throws at creation', async () => {
+	test('softDelete: true with no soft-delete field throws at creation', async () => {
 		const { posts } = await import('../../test/schema');
 		expect(() => getCollection(t.db, posts, { softDelete: true })).toThrow(
-			'softDelete needs a "deletedAt" field',
+			'softDelete needs a soft-delete field',
 		);
 	});
 });

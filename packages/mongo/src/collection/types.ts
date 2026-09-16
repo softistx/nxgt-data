@@ -58,18 +58,31 @@ export type ProjectionOf<Def> = {
 	[Field in FieldPath<Def>]?: 0 | 1 | boolean | ProjectionOperator;
 };
 
+/** The actor's type under one name, or `never` when there is no such field. */
+type ActorUnder<Doc, Name> = Name extends keyof Doc
+	? NonNullable<Doc[Name]>
+	: never;
+
 /**
- * Who is writing: the type the schema gives `createdBy`, or `updatedBy`, or
- * `deletedBy`. A collection with none of them has no actor to stamp, so `as`
- * cannot be called on it at all.
+ * Who is writing: the type the schema gives the first actor field there is.
+ *
+ * It reads the names off the definition rather than spelling `'createdBy'`,
+ * because the option may have renamed the field. Looking for the default name
+ * made `actors: { createdBy: 'openedBy' }` resolve to `never`, which quietly
+ * made `as()` uncallable on a collection that has an actor.
+ *
+ * A collection with none of the three has no actor to stamp, and `as` cannot
+ * be called on it at all.
  */
-export type ActorOf<Def> = 'createdBy' extends keyof DocumentOf<Def>
-	? NonNullable<DocumentOf<Def>['createdBy']>
-	: 'updatedBy' extends keyof DocumentOf<Def>
-		? NonNullable<DocumentOf<Def>['updatedBy']>
-		: 'deletedBy' extends keyof DocumentOf<Def>
-			? NonNullable<DocumentOf<Def>['deletedBy']>
-			: never;
+export type ActorOf<Def> = Def extends {
+	stamps: { createdBy: infer C; updatedBy: infer U; deletedBy: infer D };
+}
+	? [ActorUnder<DocumentOf<Def>, C>] extends [never]
+		? [ActorUnder<DocumentOf<Def>, U>] extends [never]
+			? ActorUnder<DocumentOf<Def>, D>
+			: ActorUnder<DocumentOf<Def>, U>
+		: ActorUnder<DocumentOf<Def>, C>
+	: never;
 
 /** What `$set` takes: a field's own type, or anything under a path. */
 export type SetOf<Def> = {
@@ -221,6 +234,18 @@ export interface CollectionOptions<Def> {
 	actor?: ActorOf<Def>;
 	/** Which database, when `getCollection` is given a client rather than a `Db`. */
 	db?: string;
+	/**
+	 * Sync the collection before the first operation, once per database.
+	 *
+	 * For tests and for development, where waiting on a deployment step is the
+	 * thing in the way. It is **not** for production: `collMod` needs the
+	 * `dbAdmin` role, and neither it nor an index build may run in a
+	 * transaction. Use `syncAll` as a deployment step there.
+	 *
+	 * Only this package's own methods wait for it. `raw` and the driver's own
+	 * methods are the escape hatch, and the escape hatch is not managed.
+	 */
+	autoSync?: boolean;
 }
 
 /**

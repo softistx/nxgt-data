@@ -4,6 +4,7 @@ import type {
 	AnyCollectionDefinition,
 	CollectionDefinition,
 } from '../definition/define-collection';
+import type { StampNames } from '../definition/stamps';
 import { type SyncOptions, syncCollection } from '../sync/sync-collection';
 import { type CollectionContext, createContext } from './context';
 import type { Fields } from './filters';
@@ -67,11 +68,14 @@ function databaseOf(source: CollectionSource, name: string | undefined): Db {
  * MongoDB has no ambient session, so a write inside a transaction that was not
  * given one is not part of it and is not rolled back.
  */
-export function getCollection<Schema extends z.ZodObject>(
+export function getCollection<
+	Schema extends z.ZodObject,
+	Names extends StampNames = StampNames,
+>(
 	source: CollectionSource,
-	definition: CollectionDefinition<Schema>,
-	options: CollectionOptions<CollectionDefinition<Schema>> = {},
-): TypedCollection<CollectionDefinition<Schema>> {
+	definition: CollectionDefinition<Schema, Names>,
+	options: CollectionOptions<CollectionDefinition<Schema, Names>> = {},
+): TypedCollection<CollectionDefinition<Schema, Names>> {
 	const db = databaseOf(source, options.db);
 	return build(db, definition, options as CollectionOptions<never>);
 }
@@ -127,6 +131,61 @@ function apiOf(ctx: CollectionContext, rebuild: Rebuild) {
 }
 
 /**
+ * The syncs `autoSync` has started, per database and per collection, so that
+ * every collection of the same database waits on the same one — including the
+ * ones `withSession` and `as` build, which are the same collection again.
+ *
+ * A sync that failed is forgotten, so the next call tries again: a server that
+ * was not up yet is not a reason to refuse every operation for the life of the
+ * process.
+ */
+let syncs = new WeakMap<Db, Map<string, Promise<unknown>>>();
+
+/**
+ * Forgets the syncs `autoSync` has already run, for one database or for all.
+ *
+ * The memo is what makes `autoSync` sync once and not before every call, and
+ * it outlives the collection itself — a `dropDatabase` leaves this package
+ * thinking a collection it can no longer see is in shape. A test that empties
+ * its database between cases calls this alongside.
+ */
+export function resetAutoSync(db?: Db): void {
+	if (db) syncs.delete(db);
+	else syncs = new WeakMap();
+}
+
+function syncOnce(
+	db: Db,
+	definition: AnyCollectionDefinition,
+): Promise<unknown> {
+	let byName = syncs.get(db);
+	if (!byName) {
+		byName = new Map();
+		syncs.set(db, byName);
+	}
+	const started = byName.get(definition.name);
+	if (started) return started;
+	const running = syncCollection(db, definition);
+	byName.set(definition.name, running);
+	running.catch(() => byName.delete(definition.name));
+	return running;
+}
+
+/**
+ * What does not wait for `autoSync`: the properties, the two that build
+ * another collection, and `sync` itself.
+ */
+const UNGATED = new Set([
+	'definition',
+	'db',
+	'raw',
+	'session',
+	'withSession',
+	'as',
+	'sync',
+]);
+
+/**
  * The same collection with one option changed, as `withSession` and `as`
  * give it back. It answers `unknown` because the collection this package
  * hands out is typed by the cast at the end of `build`, not by `apiOf`.
@@ -143,6 +202,7 @@ function build<Def>(
 		build(db, definition, { ...options, ...changed });
 	const api = apiOf(ctx, rebuild);
 	const collection = ctx.collection;
+	const autoSync = options.autoSync === true;
 
 	/**
 	 * This package's methods first, the driver's collection behind them. A
@@ -154,7 +214,23 @@ function build<Def>(
 	 */
 	return new Proxy(api, {
 		get(target, key, receiver) {
-			if (Reflect.has(target, key)) return Reflect.get(target, key, receiver);
+			if (Reflect.has(target, key)) {
+				const own = Reflect.get(target, key, receiver);
+				if (
+					!autoSync ||
+					typeof own !== 'function' ||
+					UNGATED.has(key as string)
+				) {
+					return own;
+				}
+				// The sync is looked up per call, not captured here: that is one
+				// map lookup, and it is what lets `resetAutoSync` reach a
+				// collection somebody is already holding.
+				return (...args: unknown[]) =>
+					syncOnce(db, definition).then(() =>
+						(own as (...a: unknown[]) => unknown)(...args),
+					);
+			}
 			const value = (collection as unknown as Fields)[key as string];
 			return typeof value === 'function' ? value.bind(collection) : value;
 		},

@@ -23,7 +23,7 @@ decides their versions and there is only ever one copy of each.
 
 ```ts
 import { MongoClient } from 'mongodb';
-import { defineCollection, id, timestamps, softDelete, optimisticLock, actors } from '@nxgt/mongo';
+import { defineCollection, id } from '@nxgt/mongo';
 import { z } from 'zod';
 
 export const users = defineCollection({
@@ -33,11 +33,11 @@ export const users = defineCollection({
 		email: z.email(),
 		name: z.string().nullable().default(null),
 		loginCount: z.int().default(0),
-		...timestamps(),
-		...softDelete(),
-		...optimisticLock(),
-		...actors(),
 	}),
+	timestamps: true,
+	softDelete: true,
+	optimisticLock: true,
+	actors: true,
 	indexes: [{ key: { email: 1 }, unique: true, name: 'users_email_unique' }],
 });
 
@@ -70,17 +70,78 @@ The schema is the one source of truth. `z.output` is what a read gives back,
 `z.input` what a write takes: a field with a default — `_id`, `createdAt`,
 `version` — is optional to write and always there once read.
 
-The field helpers are ordinary Zod schemas, so a collection can take some of
-them, all of them, or none:
+### Stamps
 
-| helper | fields | what the repository does with them |
+Four options add fields to the schema and turn the behaviour that reads them
+on. They are options rather than fields you spread in, because a field on its
+own is only a field: adding `deletedAt` by hand never made `delete` soft.
+
+| option | fields | what the collection does with them |
 | --- | --- | --- |
-| `id()` | `_id` | a fresh `ObjectId` on create |
-| `objectId()` | — | an `ObjectId`, declared as `bsonType: 'objectId'` |
-| `timestamps()` | `createdAt`, `updatedAt` | sets `updatedAt` on every update |
-| `softDelete()` | `deletedAt` | `delete` sets it, reads leave those documents out |
-| `optimisticLock()` | `version` | raised on every update; `expectedVersion` checks it |
-| `actors(schema?)` | `createdBy`, `updatedBy`, `deletedBy` | stamped from `repository.as(actor)` |
+| `timestamps` | `createdAt`, `updatedAt` | sets `updatedAt` on every update |
+| `softDelete` | `deletedAt` | `delete` sets it, reads leave those documents out |
+| `optimisticLock` | `version` | raised on every update; `expectedVersion` checks it |
+| `actors` | `createdBy`, `updatedBy`, `deletedBy` | stamped from `collection.as(actor)` |
+
+Each one reads the same way: `true` for its fields under their default names,
+`false` or absent for none, or an object naming them one by one. **Inside that
+object an absent key means on, under its default name**; only `false` turns a
+field off.
+
+```ts
+defineCollection({
+	name: 'tickets',
+	schema: z.object({ _id: id(), subject: z.string() }),
+	timestamps: { createdAt: 'openedAt' },   // updatedAt keeps its name
+	softDelete: { deletedAt: 'removedAt' },
+	optimisticLock: { version: 'revision' },
+	actors: { type: z.string(), createdBy: 'openedBy', deletedBy: false },
+});
+```
+
+The name follows everywhere: the document's TypeScript type, the `$jsonSchema`
+validator, the field `delete` writes, the field a read filters on, and the
+fields an index may be keyed on. Nothing in the package spells a stamp's name
+out, which is what makes a rename true rather than cosmetic.
+
+`actors.type` is the actor's own Zod type — `z.string()`, a branded id, an
+`objectId()` by default — and it is what `collection.as(actor)` takes.
+
+The single-field builders are still there for a field with **no** behaviour
+attached: `timestampField()`, `deletedAtField()`, `versionField()`,
+`actorFieldOf(type)`, plus `id()` and `objectId()`.
+
+### MongoDB's own collection options
+
+`options` is what MongoDB is given when the collection is created, keyed on the
+schema's fields where it names one:
+
+```ts
+defineCollection({
+	name: 'readings',
+	schema: z.object({ _id: id(), at: z.date(), sensor: z.string(), value: z.number() }),
+	options: {
+		timeseries: { timeField: 'at', metaField: 'sensor' },
+		expireAfterSeconds: 7 * 24 * 3600,
+	},
+});
+
+defineCollection({
+	name: 'audit',
+	schema: z.object({ _id: id(), message: z.string() }),
+	options: { capped: { size: 64 * 1024, max: 1000 } },
+});
+```
+
+`capped` is one object rather than MongoDB's three sibling keys, because the
+server refuses `capped` without a `size`: here that is a compile error.
+`collation`, `clusteredIndex` and `changeStreamPreAndPostImages` are the
+driver's own.
+
+A time-series collection gets **no validator**: MongoDB answers `'timeseries'
+is not allowed with 'validator'`. The default turns itself off there, and
+asking for one anyway throws where the definition is written rather than hours
+later against a server.
 
 ## Sync
 
@@ -107,6 +168,58 @@ not have, and neither it nor an index build may run inside a transaction.
 is already there. `{ action: 'warn' }` logs a document that fails instead of
 refusing it, which is how a validator is rolled out onto a collection that is
 already full.
+
+### Every collection at once
+
+Defining a collection registers it, so `syncAll` needs no list anyone has to
+keep up to date — importing the module that defines a collection is what puts
+it in:
+
+```ts
+import { syncAll } from '@nxgt/mongo';
+import './collections';            // the definitions
+
+const reports = await syncAll(db);
+```
+
+### Options MongoDB cannot change
+
+Most collection options are decided once. `sync` changes the few `collMod`
+accepts — `capped.size`, `capped.max`, `expireAfterSeconds`, a time series'
+granularity and bucket spans, `changeStreamPreAndPostImages` — and **throws**
+on the rest, naming the option, what the collection has and what the definition
+asks for:
+
+```
+sync: "logs" already exists with options MongoDB cannot change:
+  capped: the collection has null, the definition asks for true
+```
+
+Making an existing collection capped, its collation and its clustered index are
+among those. `dryRun: true` lists every difference at once instead of throwing
+on the first.
+
+Only what the definition actually asks for is compared, which is also why a
+sync of an unchanged collection sends nothing: MongoDB fills its own defaults
+in — a `collation: { locale: 'fr' }` comes back with eleven keys and a
+`version` — and comparing those for equality would report a difference every
+single time.
+
+### Syncing from the collection, for tests and development
+
+`autoSync` syncs once per database, before the first operation:
+
+```ts
+const collection = getCollection(db, users, { autoSync: true });
+await collection.create({ email: 'ada@example.com' });   // the collection is there
+```
+
+It is **not** for production: `collMod` needs `dbAdmin`, and neither it nor an
+index build may run in a transaction. Only this package's own methods wait for
+it — `raw` and the driver's own methods are the escape hatch, and the escape
+hatch is not managed. A test that drops its database between cases calls
+`resetAutoSync(db)` alongside, or the next case would think a collection it can
+no longer see is still in shape.
 
 ## Documents
 
@@ -238,7 +351,7 @@ down.
 
 ## Optimistic locking
 
-On a schema with `optimisticLock()`, every update raises `version`. Pass the
+With `optimisticLock`, every update raises the version field. Pass the
 version you read and the update only applies while the document is still that
 one:
 
@@ -285,21 +398,23 @@ server error reaches you untouched.
 
 | export | what it is |
 | --- | --- |
-| `defineCollection(config)` | a collection: name, schema, indexes, validation |
-| `id`, `objectId`, `timestamps`, `softDelete`, `optimisticLock`, `actors` | the field helpers |
+| `defineCollection(config)` | a collection: name, schema, stamps, options, indexes, validation |
+| `id`, `objectId`, `timestampField`, `deletedAtField`, `versionField`, `actorFieldOf` | the field builders |
 | `toObjectId`, `toObjectIds`, `tryObjectId`, `objectIdParam` | a string from outside as an `ObjectId` |
 | `isValidObjectId`, `isObjectIdString`, `isObjectId` | the checks behind them |
 | `getCollection(dbOrClient, definition, options?)` | the typed collection, driver methods included |
-| `syncCollection`, `syncCollections` | create and bring in line, with `dryRun` |
+| `syncCollection`, `syncCollections`, `syncAll` | create and bring in line, with `dryRun` |
+| `registeredCollections`, `clearCollectionRegistry` | what `syncAll` covers |
+| `resetAutoSync(db?)` | forget the syncs `autoSync` has run |
 | `withTransaction(clientOrSession, fn, options?)` | a transaction, joined when nested |
 | `toMongoJsonSchema(schema)` | a Zod schema as a MongoDB `$jsonSchema` |
 | `encodeCursor`, `decodeCursor`, `pageWindow`, `toPage` | the pagination pieces |
 | `DataError` and its subclasses, `toDataError` | the errors |
-| `diffIndexes`, `normalizeIndex`, `validationMatches` | what `sync` compares with |
+| `diffIndexes`, `normalizeIndex`, `validationMatches`, `diffCollectionOptions` | what `sync` compares with |
 
 `CollectionOptions` turns the behaviours off one by one: `softDelete`,
-`touchUpdatedAt`, `optimisticLock`, `validate: 'off'`, `maxPageSize`, and it
-names the database with `db` when you pass a client.
+`touchUpdatedAt`, `optimisticLock`, `validate: 'off'`, `maxPageSize`,
+`autoSync`, and it names the database with `db` when you pass a client.
 
 ## What does not compile
 
@@ -356,6 +471,19 @@ operator, and getting it subtly wrong is worse than being honest about it.
   `validationLevel: 'moderate'` keeps it that way for updates too.
 - **Writing a validator needs `dbAdmin`.** `collMod` is not granted by
   `readWrite`. Sync with a deployment credential, not the application's.
+- **A stamp's name is not `deletedAt`.** It is whatever the option called it,
+  and every filter, patch and index is typed against that name — indexing
+  `deletedAt` on a collection that renamed it to `removedAt` is a compile
+  error, not a silently useless index.
+- **A stamp option turns a behaviour on; a field does not.** Declaring
+  `deletedAt` in the schema by hand leaves `delete` a real delete. Doing both
+  throws: the field would be added twice.
+- **A time-series collection cannot have a validator.** MongoDB refuses it at
+  creation and refuses the later `collMod` too, so `validation.level` defaults
+  to `'off'` there and asking for anything else throws.
+- **`autoSync` remembers across a dropped database.** The memo is what makes it
+  sync once rather than before every call, and `dropDatabase` does not clear
+  it. `resetAutoSync(db)` does.
 - **A duplicate key from a bulk write carries no values.** MongoDB puts
   `keyPattern` and `keyValue` on a single write's error only; for
   `createMany`, `ConflictError.keys` is parsed out of the message and `values`
