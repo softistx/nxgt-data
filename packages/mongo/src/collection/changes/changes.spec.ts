@@ -7,13 +7,13 @@ import {
 	test,
 } from 'bun:test';
 import { z } from 'zod';
-import { logs, posts, users } from '../../test/schema';
-import { startMongo, type TestServer } from '../../test/server';
-import { until } from '../../test/until';
-import { defineCollection } from '../definition/define-collection';
-import { id } from '../definition/fields';
-import type { ChangeSubscription } from './change-types';
-import { getCollection } from './get-collection';
+import { logs, posts, users } from '../../../test/schema';
+import { startMongo, type TestServer } from '../../../test/server';
+import { until } from '../../../test/until';
+import { defineCollection } from '../../definition/define-collection';
+import { id } from '../../definition/fields';
+import { getCollection } from '../get-collection';
+import type { ChangeSubscription } from './types';
 
 let t: TestServer;
 const open: ChangeSubscription[] = [];

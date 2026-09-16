@@ -1,15 +1,15 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ChangeStream, Document } from 'mongodb';
-import { toDataError } from '../errors/to-data-error';
+import { toDataError } from '../../errors/to-data-error';
+import type { CollectionContext } from '../context';
+import { pipelineOf, toChange, watchOptionsOf } from './events';
+import { pause, retriesOf, worthRetrying } from './retry';
 import type {
 	ChangeHandler,
 	ChangeOptions,
 	ChangeSubscription,
 	CloseReason,
-} from './change-types';
-import { pipelineOf, toChange, watchOptionsOf } from './changes';
-import type { CollectionContext } from './context';
-import { pause, retriesOf, worthRetrying } from './retry';
+} from './types';
 
 /**
  * The end of a subscription by an error of the caller's code: a handler that

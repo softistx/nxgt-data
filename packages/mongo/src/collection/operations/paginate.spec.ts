@@ -6,11 +6,11 @@ import {
 	expect,
 	test,
 } from 'bun:test';
-import { posts, users } from '../../test/schema';
-import { startMongo, type TestServer } from '../../test/server';
-import { InvalidCursorError } from '../errors/data-error';
-import { encodeCursor } from '../pagination/cursor';
-import { getCollection } from './get-collection';
+import { posts, users } from '../../../test/schema';
+import { startMongo, type TestServer } from '../../../test/server';
+import { InvalidCursorError } from '../../errors/data-error';
+import { encodeCursor } from '../../pagination/cursor';
+import { getCollection } from '../get-collection';
 
 let t: TestServer;
 

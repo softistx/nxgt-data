@@ -4,8 +4,8 @@ import type {
 	IdOf,
 	NewDocumentOf,
 	ReadDocumentOf,
-} from '../definition/define-collection';
-import type { ActorOf, IfStamp, Patch, TypedCollection } from './types';
+} from '../../definition/define-collection';
+import type { ActorOf, IfStamp, Patch, TypedCollection } from '../types';
 
 /** The write a hook is running for. */
 export type WriteOperation =

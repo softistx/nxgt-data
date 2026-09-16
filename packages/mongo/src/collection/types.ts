@@ -17,8 +17,8 @@ import type {
 	ChangeHandler,
 	ChangeOptions,
 	ChangeSubscription,
-} from './change-types';
-import type { CollectionHooks } from './hook-types';
+} from './changes/types';
+import type { CollectionHooks } from './hooks/types';
 
 export type OrderDirection = 'asc' | 'desc';
 
