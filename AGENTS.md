@@ -152,6 +152,53 @@ publishes to npm.
 | --- | --- |
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
 | `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change both when the reason applies to both |
+| `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 87 lines each, ten of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ |
+
+## Keeping the code maintainable
+
+These are measured limits, not taste. They exist because both packages grew
+the same shape before anyone looked: `@nxgt/mongo`'s `build()` reached **487
+lines**, and `@nxgt/drizzle`'s still holds **321**.
+
+- **A long file of declarations is fine; a long function is not.** A type or
+  an options interface earns its length in documentation —
+  `mongo/src/collection/types.ts` is 337 lines and every one of them is a
+  declaration with a reason. A *function* past **80 lines** is the signal.
+  Keep a source file under **250** lines; when it climbs, it is almost always
+  one function that grew, not a file that filled up.
+- **A builder that grows becomes a context plus modules by role.** When a
+  factory accumulates a closure — ten captured variables and twenty inner
+  functions — extract the resolved state into a `context.ts`, and move the
+  methods into siblings named after what they do: `filters.ts`,
+  `documents.ts`, `reads.ts`, `writes.ts`, `paginate.ts`. Each takes the
+  context as its **first argument**. `mongo/src/collection/` is the worked
+  example, and the factory that is left (`get-collection.ts`) only assembles
+  and proxies. Do the same in `@nxgt/drizzle`'s `pg/repository/` when it is
+  next opened for a real change — not before, and never in the same PR as a
+  behaviour change.
+- **The context holds data, not closures.** This is the half of the rule that
+  is easy to miss, and it was missed here first: a `createContext` that
+  resolves the options *and* returns eight functions closed over them is the
+  same factory one size down, and it grew straight back to 173 lines. Once
+  `hasOwnId` and `parses` were on the context like every other resolved
+  value, every helper became a plain function over it and the factory fell to
+  **41 lines**. If a context field cannot be printed, it does not belong on
+  the context.
+- **Specs are split by subject, not one per source file.** `collection/` has
+  six: `id`, `optimistic-lock`, `paginate`, `soft-delete`, `driver-methods`,
+  and the general one. A refactor that moves code must leave them untouched —
+  if a spec has to change, the refactor changed behaviour.
+- **A public method that refuses something must have a `@ts-expect-error`
+  case** in `test/types/`. Type safety is what the compiler rejects, not what
+  the README claims: when this was last measured on `@nxgt/mongo`, **seven of
+  twelve** plausible mistakes still compiled.
+- **Never factor across packages.** Layering comes first; a near-copy goes in
+  the duplication table above instead, with what makes the two diverge.
+- **Refactoring is its own pull request**, with a `chore:` commit and a patch
+  changeset that says plainly that nothing public moved. The proof is that
+  the test counts are identical on both sides of it.
+- **The `code-reviewer` agent** in `.claude/agents/` checks all of this. It
+  reads and reports; it does not edit. Run it before opening a pull request.
 
 ## Conventions
 
