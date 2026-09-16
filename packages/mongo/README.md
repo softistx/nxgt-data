@@ -498,6 +498,34 @@ application never reads a numeric code:
 into `{ path, reason, specifiedAs, consideredValue }`. Anything that is not a
 server error reaches you untouched.
 
+## Connecting
+
+```ts
+import { closeMongo, connectMongo, getCollection } from '@nxgt/mongo';
+
+const mongo = await connectMongo('mongodb://db.internal:27017/app', { appName: 'api' });
+const users = getCollection(mongo.db, usersDefinition);
+
+app.get('/health', async () => mongo.ping({ timeoutMS: 500 }));
+// { ok: true, latencyMs: 1.2 } — or { ok: false, error }, never a throw
+
+process.on('SIGTERM', () => closeMongo());   // yours to wire
+```
+
+- **One client per URI.** Every `connectMongo` with the same URI shares a
+  `MongoClient`, connected once even when the calls race. Each call gets its
+  own connection; the client closes when the last one is closed, so a module
+  that closes its own does not cut the others off. `await using` closes it
+  too.
+- **Same options everywhere.** A second call with other options for a
+  connected URI throws; the message does not repeat the URI, which may hold a
+  password.
+- **A failed connect is forgotten**, so calling again tries again.
+- `closeMongo()` closes every client, whoever still holds one — the end of a
+  process or of a test file. Nothing listens to signals for you.
+- A `MongoClient` you open yourself works everywhere too: `connectMongo` is a
+  convenience, not a requirement.
+
 ## Not included
 
 - **No aggregation helpers.** The collection *is* the driver's collection as
@@ -505,7 +533,6 @@ server error reaches you untouched.
   driver's own, untouched.
 - **No migrations.** `sync` brings the schema and the indexes in line; it never
   rewrites a document.
-- **No connection management.** The client is yours to open and close.
 
 ## API
 
@@ -515,6 +542,7 @@ server error reaches you untouched.
 | `id`, `objectId`, `timestampField`, `deletedAtField`, `versionField`, `actorFieldOf` | the field builders |
 | `toObjectId`, `toObjectIds`, `tryObjectId`, `objectIdParam` | a string from outside as an `ObjectId` |
 | `isValidObjectId`, `isObjectIdString`, `isObjectId` | the checks behind them |
+| `connectMongo(uri, options?)`, `closeMongo()`, `MongoConnection`, `PingResult` | a shared client, closed with its last holder |
 | `getCollection(dbOrClient, definition, options?)` | the typed collection, driver methods included |
 | `CollectionHooks<Def>` and its pieces | hooks around the writes |
 | `ChangeOf<Def>`, `ChangeOptions<Def>`, `ChangeSubscription`, `ResumeToken` | what `onChange` hands over and takes |

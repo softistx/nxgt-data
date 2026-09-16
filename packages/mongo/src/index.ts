@@ -52,6 +52,12 @@ export type {
 	UpdateOptions,
 } from './collection/types';
 export {
+	closeMongo,
+	connectMongo,
+	type MongoConnection,
+	type PingResult,
+} from './connection/connect';
+export {
 	type CappedOption,
 	type ClusteredIndexOption,
 	creationOptionsOf,
