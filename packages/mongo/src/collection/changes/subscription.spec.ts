@@ -8,12 +8,12 @@ import {
 	test,
 } from 'bun:test';
 import { MongoClient } from 'mongodb';
-import { posts } from '../../test/schema';
-import { startMongo, type TestServer } from '../../test/server';
-import { sleep, until } from '../../test/until';
-import { DataError } from '../errors/data-error';
-import type { ChangeSubscription } from './change-types';
-import { getCollection } from './get-collection';
+import { posts } from '../../../test/schema';
+import { startMongo, type TestServer } from '../../../test/server';
+import { sleep, until } from '../../../test/until';
+import { DataError } from '../../errors/data-error';
+import { getCollection } from '../get-collection';
+import type { ChangeSubscription } from './types';
 
 let t: TestServer;
 const open: ChangeSubscription[] = [];

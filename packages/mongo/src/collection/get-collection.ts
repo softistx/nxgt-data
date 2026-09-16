@@ -7,7 +7,8 @@ import type {
 import type { StampNames } from '../definition/stamps';
 import { type SyncOptions, syncCollection } from '../sync/sync-collection';
 import { gated } from './auto-sync';
-import type { ChangeHandler, ChangeOptions } from './change-types';
+import { subscribe } from './changes/subscription';
+import type { ChangeHandler, ChangeOptions } from './changes/types';
 import { type CollectionContext, createContext } from './context';
 import type { Fields } from './filters';
 import {
@@ -19,8 +20,8 @@ import {
 	hookedUpdate,
 	hookedUpdateMany,
 	type Self,
-} from './hooks';
-import { paginate, paginateByCursor } from './paginate';
+} from './hooks/hooked';
+import { paginate, paginateByCursor } from './operations/paginate';
 import {
 	countDocuments,
 	exists,
@@ -28,8 +29,7 @@ import {
 	findFirst,
 	findMany,
 	getById,
-} from './reads';
-import { subscribe } from './subscription';
+} from './operations/reads';
 import type { CollectionOptions, TypedCollection } from './types';
 
 /** What a collection can be reached through: a database, or a client. */
@@ -85,8 +85,9 @@ export function getCollection<
 }
 
 /**
- * This package's methods, bound to a context. Each one lives in `reads`,
- * `writes` or `paginate`; this is only the surface they are reached by.
+ * This package's methods, bound to a context. Each one lives in a subject
+ * folder — `operations/`, `hooks/`, `changes/`; this is only the surface they
+ * are reached by.
  */
 function apiOf(ctx: CollectionContext, rebuild: Rebuild, self: Self) {
 	return {

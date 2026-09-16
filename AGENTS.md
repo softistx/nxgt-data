@@ -169,13 +169,13 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 - **A builder that grows becomes a context plus modules by role.** When a
   factory accumulates a closure — ten captured variables and twenty inner
   functions — extract the resolved state into a `context.ts`, and move the
-  methods into siblings named after what they do: `filters.ts`,
-  `documents.ts`, `reads.ts`, `writes.ts`, `paginate.ts`. Each takes the
-  context as its **first argument**. `mongo/src/collection/` is the worked
-  example, and the factory that is left (`get-collection.ts`) only assembles
-  and proxies. Do the same in `@nxgt/drizzle`'s `pg/repository/` when it is
-  next opened for a real change — not before, and never in the same PR as a
-  behaviour change.
+  methods into modules named after what they do: `filters.ts`,
+  `documents.ts`, `operations/reads.ts`, `operations/writes.ts`,
+  `operations/paginate.ts`. Each takes the context as its **first
+  argument**. `mongo/src/collection/` is the worked example, and the factory
+  that is left (`get-collection.ts`) only assembles and proxies. Do the same
+  in `@nxgt/drizzle`'s `pg/repository/` when it is next opened for a real
+  change — not before, and never in the same PR as a behaviour change.
 - **The context holds data, not closures.** This is the half of the rule that
   is easy to miss, and it was missed here first: a `createContext` that
   resolves the options *and* returns eight functions closed over them is the
@@ -186,10 +186,26 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   the context. The one exception is the caller's own hooks,
   which are handed over as given: the rule is about closures the package
   builds.
+- **A folder is a subject; when one holds more than one, split it.** A
+  folder past a dozen source files, or one whose files need a prefix to tell
+  them apart (`hook-types`, `change-types`), is several subjects. In
+  `mongo/src/collection/` the root keeps what every subject shares — the
+  surface (`get-collection.ts`, `types.ts`, `auto-sync.ts`), the
+  `context.ts`, `filters.ts`, `documents.ts` — and each subject has a folder whose files drop the prefix:
+  - `operations/` — `reads`, `writes`, `paginate`;
+  - `hooks/` — `types`, `sets`, `hooked`;
+  - `changes/` — `types`, `events`, `subscription`, `retry`.
+
+  A subject imports the root, and another subject only one way: `hooks/`
+  wraps `operations/writes`, so `operations/` never imports `hooks/`. Only
+  `get-collection.ts` and `types.ts` reach into all of them. The one root
+  import of a subject is `context.ts` → `hooks/sets`, a leaf that imports
+  nothing and turns the `hooks` option into context data.
 - **Specs are split by subject, not one per source file.** `collection/` has
-  ten: `id`, `optimistic-lock`, `paginate`, `soft-delete`,
-  `driver-methods`, `auto-sync`, `hooks`, `changes`, `subscription`, and the
-  general one. A refactor that moves code must leave them untouched —
+  ten, beside the code they test: `id`, `optimistic-lock`, `soft-delete`,
+  `driver-methods`, `auto-sync` and the general one at the root,
+  `operations/paginate`, `hooks/hooks`, `changes/changes` and
+  `changes/subscription`. A refactor that moves code must leave them untouched —
   if a spec has to change, the refactor changed behaviour.
 - **A public method that refuses something must have a `@ts-expect-error`
   case** in `test/types/`. Type safety is what the compiler rejects, not what

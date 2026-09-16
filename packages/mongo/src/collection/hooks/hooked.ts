@@ -1,6 +1,5 @@
-import type { CollectionContext } from './context';
-import { type Fields, requireFilter } from './filters';
-import type { WriteOperation } from './hook-types';
+import type { CollectionContext } from '../context';
+import { type Fields, requireFilter } from '../filters';
 import {
 	create,
 	createMany,
@@ -11,7 +10,8 @@ import {
 	restore,
 	update,
 	updateMany,
-} from './writes';
+} from '../operations/writes';
+import type { WriteOperation } from './types';
 
 /**
  * The collection a hook is handed, fetched when the hook runs: it is the

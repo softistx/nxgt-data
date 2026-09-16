@@ -1,14 +1,14 @@
 import type { Document } from 'mongodb';
-import { OptimisticLockError } from '../errors/data-error';
-import { type CollectionContext, notFound, run } from './context';
-import { toDocument, toUpdate, withId } from './documents';
+import { OptimisticLockError } from '../../errors/data-error';
+import { type CollectionContext, notFound, run } from '../context';
+import { toDocument, toUpdate, withId } from '../documents';
 import {
 	type Fields,
 	live,
 	mergeFilters,
 	requireFilter,
 	scoped,
-} from './filters';
+} from '../filters';
 import { findOne } from './reads';
 
 /** The version a document is at, whatever the field is called. */

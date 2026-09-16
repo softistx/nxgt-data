@@ -9,7 +9,7 @@ import type { StampNames } from '../definition/stamps';
 import { NotFoundError } from '../errors/data-error';
 import { toDataError } from '../errors/to-data-error';
 import { DEFAULT_MAX_PAGE_SIZE } from '../pagination/page';
-import { type HookSet, hookSetsOf } from './hook-sets';
+import { type HookSet, hookSetsOf } from './hooks/sets';
 import type { CollectionOptions } from './types';
 
 /**
@@ -18,9 +18,9 @@ import type { CollectionOptions } from './types';
  * read against the schema.
  *
  * It holds **data only**. The operations are plain functions that take it as
- * their first argument, in `filters.ts`, `documents.ts`, `reads.ts`,
- * `writes.ts` and `paginate.ts` — a context of closures would only be the
- * factory this package split up, one size down.
+ * their first argument, in `filters.ts`, `documents.ts` and the subject
+ * folders (`operations/`, `hooks/`, `changes/`) — a context of closures would
+ * only be the factory this package split up, one size down.
  *
  * `withSession` and `as` build another one, cheaply: they are the same
  * collection with a single option changed.

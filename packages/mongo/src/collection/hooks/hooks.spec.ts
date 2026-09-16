@@ -7,11 +7,11 @@ import {
 	test,
 } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { posts, users } from '../../test/schema';
-import { startMongo, type TestServer } from '../../test/server';
-import { withTransaction } from '../transaction/with-transaction';
-import { getCollection } from './get-collection';
-import type { CollectionHooks, WriteOperation } from './hook-types';
+import { posts, users } from '../../../test/schema';
+import { startMongo, type TestServer } from '../../../test/server';
+import { withTransaction } from '../../transaction/with-transaction';
+import { getCollection } from '../get-collection';
+import type { CollectionHooks, WriteOperation } from './types';
 
 let t: TestServer;
 

@@ -1,8 +1,8 @@
 import type { ChangeStreamOptions, Document } from 'mongodb';
-import type { ChangeOptions, ChangeType } from './change-types';
-import type { CollectionContext } from './context';
-import { withId } from './documents';
-import type { Fields } from './filters';
+import type { CollectionContext } from '../context';
+import { withId } from '../documents';
+import type { Fields } from '../filters';
+import type { ChangeOptions, ChangeType } from './types';
 
 const ALL: readonly ChangeType[] = ['create', 'update', 'delete', 'restore'];
 

@@ -11,7 +11,7 @@ export type {
 	RestoreChange,
 	ResumeToken,
 	UpdateChange,
-} from './collection/change-types';
+} from './collection/changes/types';
 export {
 	type CollectionSource,
 	getCollection,
@@ -28,7 +28,7 @@ export type {
 	UpdateArgs,
 	UpdateManyArgs,
 	WriteOperation,
-} from './collection/hook-types';
+} from './collection/hooks/types';
 export type {
 	ActorOf,
 	CollectionApi,

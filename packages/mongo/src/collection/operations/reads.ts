@@ -1,6 +1,6 @@
-import { type CollectionContext, notFound, run } from './context';
-import { withId } from './documents';
-import { type Fields, scoped } from './filters';
+import { type CollectionContext, notFound, run } from '../context';
+import { withId } from '../documents';
+import { type Fields, scoped } from '../filters';
 
 /** One document, straight from the driver, carrying its computed `id`. */
 export function findOne(

@@ -1,4 +1,4 @@
-import type { ChangeOptions } from './change-types';
+import type { ChangeOptions } from './types';
 
 /**
  * Server errors a new stream would only meet again: the caller's own input

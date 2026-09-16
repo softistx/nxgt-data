@@ -3,8 +3,8 @@ import type {
 	DocumentOf,
 	IdOf,
 	ReadDocumentOf,
-} from '../definition/define-collection';
-import type { IfStamp } from './types';
+} from '../../definition/define-collection';
+import type { IfStamp } from '../types';
 
 /**
  * What happened to a document, in this package's words rather than the
