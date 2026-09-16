@@ -23,6 +23,14 @@ export const MONGOD_CACHE = join(
 
 export interface TestServer {
 	uri: string;
+	/** Makes the next `times` of these commands fail, as the server would. */
+	failNext(
+		commands: string[],
+		failure: Record<string, unknown>,
+		times?: number,
+	): Promise<void>;
+	/** Turns `failNext` off, whatever it has left to fail. */
+	clearFailures(): Promise<void>;
 	client: MongoClient;
 	db: Db;
 	/** Drops the database, so each test starts from an empty one. */
@@ -40,8 +48,15 @@ export async function startMongo(dbName = 'nxgt-mongo'): Promise<TestServer> {
 	const replSet = await MongoMemoryReplSet.create({
 		replSet: { count: 1, storageEngine: 'wiredTiger' },
 		binary: { version: MONGOD_VERSION, downloadDir: MONGOD_CACHE },
-		// 10 seconds is the default, and a cold CI runner takes longer.
-		instanceOpts: [{ launchTimeout: 60_000 }],
+		instanceOpts: [
+			{
+				// 10 seconds is the default, and a cold CI runner takes longer.
+				launchTimeout: 60_000,
+				// `configureFailPoint`, which is how a spec makes the server fail a
+				// change stream's `getMore` on demand. Never on a real deployment.
+				args: ['--setParameter', 'enableTestCommands=1'],
+			},
+		],
 	});
 
 	const uri = replSet.getUri(dbName);
@@ -52,6 +67,19 @@ export async function startMongo(dbName = 'nxgt-mongo'): Promise<TestServer> {
 		uri,
 		client,
 		db,
+		failNext: async (commands, failure, times = 1) => {
+			await client.db('admin').command({
+				configureFailPoint: 'failCommand',
+				mode: { times },
+				data: { failCommands: commands, ...failure },
+			});
+		},
+		// `{ times: 0 }` would still fail one more command — measured; `off` does not.
+		clearFailures: async () => {
+			await client
+				.db('admin')
+				.command({ configureFailPoint: 'failCommand', mode: 'off' });
+		},
 		reset: async () => {
 			await db.dropDatabase();
 		},

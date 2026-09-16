@@ -353,6 +353,70 @@ const collection = getCollection(db, users, {
 - `withSession` and `as` keep the hooks. Reads, and the driver's own methods,
   run none.
 
+## Change streams
+
+`onChange` listens to a collection's changes, typed by its schema, in this
+package's words: a soft delete is a `delete`, not an update that set a date.
+
+```ts
+const subscription = users.onChange(
+	async (change) => {
+		switch (change.type) {
+			case 'create':  await welcome(change.document.email); break;
+			case 'update':  await reindex(change.document);       break;
+			case 'delete':  await forget(change.id, change.hard);  break;
+			case 'restore': await reindex(change.document);       break;
+		}
+	},
+	{ events: ['create', 'delete'], filter: { age: { $gte: 18 } } },
+);
+await subscription.ready;          // a change made from here on is heard;
+                                   // rejects if it failed before opening
+// …
+await subscription.close();        // or `await using subscription = …`
+```
+
+| change | carries |
+| --- | --- |
+| `create` | `document` |
+| `update` | `document` (`undefined` if deleted since), `before`, `fields: { set, removed }` — `undefined` for a replacement |
+| `delete` | `hard`, `document` after a soft delete, `before` |
+| `restore` | `document`, `before` — only on a collection that soft deletes |
+
+Every change also has `id`, `at` and `resumeToken`.
+
+- **One change at a time.** The next is handed over once the handler's
+  promise settles, so the order is the server's.
+- **The document is the one after the change** when the collection keeps
+  post-images (`options: { changeStreamPreAndPostImages: { enabled: true } }`),
+  and the document **as it is now** otherwise — a later write may already be
+  in it. `before` is there only with pre-images.
+- **`filter`** is a filter on the documents, matched against the one after the
+  change. It takes field conditions, `$and`, `$or` and `$nor`; any other
+  top-level operator is refused, since it would read the event rather than the
+  document.
+- **Updates to soft-deleted documents** are left out, like every read, unless
+  `withDeleted: true`. The soft delete and the restore always come through.
+- **A delete or a restore is a change of the soft-delete stamp.** With
+  pre-images, the stamp before and after is compared: stamping a deleted
+  document again is an update. Without them the event alone decides — see the
+  pitfalls.
+- **It keeps going.** The driver resumes on its own after a dropped
+  connection. When it gives up, the stream is reopened from the last token it
+  held — nothing is missed while the process is up — up to `retries` times in
+  a row (default 5, with a pause that doubles from 100 ms to 10 s). A history
+  the server no longer has, or a user who may not read, is not retried.
+- **Errors.** A handler that throws, or a stream that fails for good, goes to
+  `onError`; the stream goes on after a handler's error. Without `onError`,
+  the first error closes the subscription and rejects `closed`.
+- **A restarted process starts from now.** Keep a change's `resumeToken`
+  somewhere durable and pass it back as `startAfter` to pick up where it was.
+  It is typed `ResumeToken`, so an id is not taken for one; a token read back
+  from storage is `saved as ResumeToken`. A token the server refuses fails
+  at once rather than being retried.
+- A dropped or renamed collection ends the subscription: `closed` resolves
+  with `'invalidated'`.
+
 ## Pagination
 
 ```ts
@@ -453,6 +517,7 @@ server error reaches you untouched.
 | `isValidObjectId`, `isObjectIdString`, `isObjectId` | the checks behind them |
 | `getCollection(dbOrClient, definition, options?)` | the typed collection, driver methods included |
 | `CollectionHooks<Def>` and its pieces | hooks around the writes |
+| `ChangeOf<Def>`, `ChangeOptions<Def>`, `ChangeSubscription`, `ResumeToken` | what `onChange` hands over and takes |
 | `syncCollection`, `syncCollections`, `syncAll` | create and bring in line, with `dryRun` |
 | `registeredCollections`, `clearCollectionRegistry` | what `syncAll` covers |
 | `resetAutoSync(db?)` | forget the syncs `autoSync` has run |
@@ -545,6 +610,25 @@ operator, and getting it subtly wrong is worse than being honest about it.
 - **An `after` hook is not part of the write.** When it throws, the document
   is already stored. Run the write in `withTransaction`, and write through
   `context.session`, when the two must stand or fall together.
+- **Change streams need a replica set.** A standalone `mongod` refuses them;
+  a single-node replica set is enough, which is what this package's own specs
+  run on.
+- **Without post-images, an update's `document` is today's.** It is looked up
+  when the change is read, so two quick updates can both arrive with the
+  second one's document. Enable `changeStreamPreAndPostImages` when the exact
+  state after each change matters.
+- **Without pre-images, a hard delete is not filtered.** It carries no
+  document to match, so a subscription with a `filter` still hears every
+  hard delete. Ignore the ids you never saw, or enable pre-images.
+- **Without pre-images, a soft delete is read from the event alone.** An
+  update that sets the stamp is a `delete`, even on a document that was
+  already deleted; one that clears it is a `restore`, even on one that was
+  not. A replacement that leaves the stamp set is a `delete`, and one that
+  clears it an `update`: nothing says it was deleted before. Writes through
+  this package never meet these cases; the driver's own methods can.
+- **`closed` rejects when nobody handles an error.** Like an `error` event
+  nobody listens to, that ends the process if nothing awaits it. Pass
+  `onError`, or await `closed`.
 - **`autoSync` remembers across a dropped database.** The memo is what makes it
   sync once rather than before every call, and `dropDatabase` does not clear
   it. `resetAutoSync(db)` does.
