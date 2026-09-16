@@ -371,7 +371,7 @@ const subscription = users.onChange(
 	{ events: ['create', 'delete'], filter: { age: { $gte: 18 } } },
 );
 await subscription.ready;          // a change made from here on is heard;
-                                   // rejects if it never opened
+                                   // rejects if it failed before opening
 // …
 await subscription.close();        // or `await using subscription = …`
 ```

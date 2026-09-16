@@ -9,24 +9,7 @@ import type {
 } from './change-types';
 import { pipelineOf, toChange, watchOptionsOf } from './changes';
 import type { CollectionContext } from './context';
-
-/**
- * Server errors a new stream would only meet again: the caller's own input
- * (2 BadValue, 9 FailedToParse, 14 TypeMismatch, 40647 — a bad filter or
- * token, measured), a
- * history the server no longer has (280, 286), a user who may not read (13,
- * 18). Everything else the driver gave up on is worth another try from the
- * last token — measured, without the resumable label the driver gives up even
- * on 91 ShutdownInProgress, and closes its stream with its token intact.
- */
-const FATAL = new Set([2, 9, 13, 14, 18, 280, 286, 40647]);
-
-function worthRetrying(error: unknown): boolean {
-	const { name, code } = (error ?? {}) as { name?: unknown; code?: unknown };
-	if (typeof name !== 'string' || !name.startsWith('Mongo')) return false;
-	if (name === 'MongoAPIError') return false;
-	return typeof code !== 'number' || !FATAL.has(code);
-}
+import { pause, retriesOf, worthRetrying } from './retry';
 
 /**
  * The end of a subscription by an error of the caller's code: a handler that
@@ -54,28 +37,12 @@ interface State {
 }
 
 /**
- * The subscription whose handler is running, if any: how `close()` knows it
- * was called from inside one, where waiting for the handler to finish would
- * wait for itself.
+ * The subscription whose handler or `onError` is running, if any: how
+ * `close()` knows it was called from inside one, where waiting for it to
+ * finish would wait for itself. Timers and promises started in a handler carry
+ * it too, so a `close()` from one of them returns without waiting either.
  */
 const delivering = new AsyncLocalStorage<State>();
-
-/** Waits before another attempt, or less if the subscription is closed. */
-function pause(attempt: number, signal: AbortSignal): Promise<void> {
-	const ms = Math.min(100 * 2 ** (attempt - 1), 10_000);
-	return new Promise((resolve) => {
-		if (signal.aborted) return resolve();
-		const timer = setTimeout(resolve, ms);
-		signal.addEventListener(
-			'abort',
-			() => {
-				clearTimeout(timer);
-				resolve();
-			},
-			{ once: true },
-		);
-	});
-}
 
 /** Hands one change to the handler, or its error to `onError`. */
 async function deliver(
@@ -164,16 +131,6 @@ async function listen(
 	return 'closed';
 }
 
-function retriesOf(options: ChangeOptions<never>): number {
-	const retries = options.retries ?? 5;
-	if (!Number.isInteger(retries) || retries < 0) {
-		throw new TypeError(
-			`onChange: retries must be a whole number of at least 0, not ${String(retries)}`,
-		);
-	}
-	return retries;
-}
-
 /**
  * Listens to the collection's changes, typed by its schema, until `close()`.
  *
@@ -189,7 +146,7 @@ export function subscribe(
 	options: ChangeOptions<never> = {},
 ): ChangeSubscription {
 	// Checked before anything is opened, so a bad filter throws here.
-	const pipeline = pipelineOf(ctx, options);
+	const pipeline = pipelineOf(options);
 	const retries = retriesOf(options);
 	// Not `Promise.withResolvers`: the driver runs on Node 20, which lacks it.
 	let markReady: () => void = () => undefined;
@@ -221,8 +178,10 @@ export function subscribe(
 			const cause = error instanceof Stopped ? error.cause : error;
 			failReady(cause);
 			const told = error instanceof Stopped && error.told;
-			if (told || !options.onError) throw cause;
-			await options.onError(cause, undefined);
+			const onError = options.onError;
+			if (told || !onError) throw cause;
+			// As one run from a handler, so that it may `close()` too.
+			await delivering.run(state, () => onError(cause, undefined));
 			return 'failed';
 		},
 	);

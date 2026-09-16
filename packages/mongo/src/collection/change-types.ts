@@ -29,9 +29,11 @@ export type ResumeToken = { readonly [resumeTokenBrand]: true };
  */
 interface NoEventOperators {
 	$expr?: never;
+	$jsonSchema?: never;
 	$text?: never;
 	$where?: never;
 	$comment?: never;
+	$sampleRate?: never;
 }
 
 interface ChangeBase<Def> {
@@ -162,8 +164,8 @@ export interface ChangeSubscription extends AsyncDisposable {
 	/**
 	 * Resolves once the stream is open on the server — its first read has
 	 * answered, which takes up to a second: a change made after it is heard.
-	 * One made before may not be. Rejects, even with `onError`, when the
-	 * subscription fails before it ever opened.
+	 * One made before may not be. Resolves too when it is closed before it
+	 * opened, and rejects, even with `onError`, when it fails before then.
 	 */
 	readonly ready: Promise<void>;
 	/**

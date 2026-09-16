@@ -47,10 +47,7 @@ function prefixed(filter: Fields, prefix: string): Fields {
 }
 
 /** What the server is asked to send, built once per subscription. */
-export function pipelineOf(
-	_ctx: CollectionContext,
-	options: ChangeOptions<never>,
-): Document[] {
+export function pipelineOf(options: ChangeOptions<never>): Document[] {
 	const events = options.events ?? ALL;
 	const operations = [...new Set(events.flatMap((e) => OPERATIONS[e]))];
 	const stages: Document[] = [

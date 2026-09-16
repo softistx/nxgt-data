@@ -93,6 +93,10 @@ userRepo.onChange(() => {}, { filter: { $where: 'true' } });
 userRepo.onChange(() => {}, { filter: { $text: { $search: 'ada' } } });
 // @ts-expect-error $comment
 userRepo.onChange(() => {}, { filter: { $comment: 'why' } });
+// @ts-expect-error $jsonSchema
+userRepo.onChange(() => {}, { filter: { $jsonSchema: {} } });
+// @ts-expect-error $sampleRate
+userRepo.onChange(() => {}, { filter: { $sampleRate: 0.5 } });
 // …and the logical ones still type their conditions.
 userRepo.onChange(() => {}, {
 	filter: { $or: [{ email: 'ada@example.com' }, { age: { $gt: 3 } }] },

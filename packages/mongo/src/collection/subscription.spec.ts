@@ -7,6 +7,7 @@ import {
 	expect,
 	test,
 } from 'bun:test';
+import { MongoClient } from 'mongodb';
 import { posts } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { sleep, until } from '../../test/until';
@@ -212,6 +213,35 @@ describe('when the stream fails', () => {
 		await t.failNext(['getMore'], { errorCode: 280 });
 		expect(await subscription.closed).toBe('failed');
 		expect(errors).toEqual([[280, undefined]]);
+	});
+
+	test('onError can close the subscription a fatal error ended', async () => {
+		const collection = getCollection(t.db, posts);
+		let subscription: ChangeSubscription | undefined;
+		let returned = false;
+		subscription = collection.onChange(() => {}, {
+			onError: async () => {
+				await subscription?.close();
+				returned = true;
+			},
+		});
+		await subscription.ready;
+		await t.failNext(['getMore'], { errorCode: 280 });
+		expect(await subscription.closed).toBe('failed');
+		expect(returned).toBe(true);
+	});
+
+	test('a closed client is not retried', async () => {
+		const client = new MongoClient(t.uri);
+		await client.connect();
+		const collection = getCollection(client, posts);
+		const subscription = collection.onChange(() => {});
+		await subscription.ready;
+		const started = Date.now();
+		await client.close();
+		await expect(subscription.closed).rejects.toThrow();
+		// Five retries would pause 3.1 seconds in all.
+		expect(Date.now() - started).toBeLessThan(1_000);
 	});
 
 	test('a token the server refuses fails at once', async () => {
