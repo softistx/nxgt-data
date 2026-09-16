@@ -1,5 +1,27 @@
 # @nxgt/mongo
 
+## 0.7.0
+
+### Minor Changes
+
+- [#22](https://github.com/softistx/nxgt-data/pull/22) [`174eb4c`](https://github.com/softistx/nxgt-data/commit/174eb4c39d2e4979af9fcef73cdb17f39732dbcf) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `connectMongo(uri, options)`: one `MongoClient` shared per URI
+  
+  Every call with the same URI shares a client, connected once even when the
+  calls race, and gets its own `MongoConnection` (`client`, `db`, `ping`,
+  `close`, `await using`). The client closes with its last connection, so one
+  module closing its own does not cut the others off. A second call with other
+  options throws without repeating the URI. A failed connect is forgotten, so
+  the next call retries. `ping({ timeoutMS })` answers `{ ok, latencyMs }` or
+  `{ ok: false, error }` and never throws. `closeMongo()` closes every client at
+  shutdown; nothing listens to signals for you.
+
+### Patch Changes
+
+- [#20](https://github.com/softistx/nxgt-data/pull/20) [`ec2c664`](https://github.com/softistx/nxgt-data/commit/ec2c6640275dbddc28fcdaf1c669ab79fea9a5d1) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Internal: `src/collection/` is split into subject folders (`operations/`,
+  `hooks/`, `changes/`). Nothing public moved: the exports, their types and
+  their behaviour are unchanged, and the test counts are the same on both
+  sides.
+
 ## 0.6.0
 
 ### Minor Changes
