@@ -37,7 +37,7 @@ the symptom.
 **Structure**
 - A function over 80 lines, or a source file over 250. Name the function, give
   its line count, and say which seam would split it — for a grown factory, the
-  `context.ts` + `reads.ts` / `writes.ts` / `paginate.ts` shape that
+  `context.ts` + `operations/reads.ts` / `operations/writes.ts` / `operations/paginate.ts` shape that
   `packages/mongo/src/collection/` already follows.
 - A factory whose closure captures many variables and holds many inner
   functions. This is the shape that produced the two worst files here; catch

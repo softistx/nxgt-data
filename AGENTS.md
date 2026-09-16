@@ -173,9 +173,9 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   `documents.ts`, `operations/reads.ts`, `operations/writes.ts`,
   `operations/paginate.ts`. Each takes the context as its **first
   argument**. `mongo/src/collection/` is the worked example, and the factory
-  that is left (`get-collection.ts`) only assembles and proxies. Do the same in `@nxgt/drizzle`'s `pg/repository/` when it is
-  next opened for a real change — not before, and never in the same PR as a
-  behaviour change.
+  that is left (`get-collection.ts`) only assembles and proxies. Do the same
+  in `@nxgt/drizzle`'s `pg/repository/` when it is next opened for a real
+  change — not before, and never in the same PR as a behaviour change.
 - **The context holds data, not closures.** This is the half of the rule that
   is easy to miss, and it was missed here first: a `createContext` that
   resolves the options *and* returns eight functions closed over them is the
@@ -190,15 +190,17 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   folder past a dozen source files, or one whose files need a prefix to tell
   them apart (`hook-types`, `change-types`), is several subjects. In
   `mongo/src/collection/` the root keeps what every subject shares — the
-  surface (`get-collection.ts`, `types.ts`), the `context.ts`, `filters.ts`,
-  `documents.ts` — and each subject has a folder whose files drop the prefix:
+  surface (`get-collection.ts`, `types.ts`, `auto-sync.ts`), the
+  `context.ts`, `filters.ts`, `documents.ts` — and each subject has a folder whose files drop the prefix:
   - `operations/` — `reads`, `writes`, `paginate`;
   - `hooks/` — `types`, `sets`, `hooked`;
   - `changes/` — `types`, `events`, `subscription`, `retry`.
 
   A subject imports the root, and another subject only one way: `hooks/`
   wraps `operations/writes`, so `operations/` never imports `hooks/`. Only
-  `get-collection.ts` and `types.ts` reach into all of them.
+  `get-collection.ts` and `types.ts` reach into all of them. The one root
+  import of a subject is `context.ts` → `hooks/sets`, a leaf that imports
+  nothing and turns the `hooks` option into context data.
 - **Specs are split by subject, not one per source file.** `collection/` has
   ten, beside the code they test: `id`, `optimistic-lock`, `soft-delete`,
   `driver-methods`, `auto-sync` and the general one at the root,
