@@ -11,7 +11,7 @@ registry:
 | --- | --- |
 | `@nxgt/drizzle` | an SDK over Drizzle ORM: typed repositories (`createRepository`), offset and cursor pagination, `withTransaction`, its own errors with `toDataError`, and the `id()`, `timestamps()`, `softDelete()` columns. PostgreSQL first |
 | `@nxgt/meilisearch` | a typed Meilisearch index on the official SDK: `defineIndex<Doc>()({ uid, primaryKey, settings })`, `syncIndex`/`syncIndexes` applying the settings idempotently, and `bindIndex` for typed documents and searches. Its one error is `SearchIndexError` |
-| `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection` with its stamps and MongoDB's own collection options, `syncCollection`/`syncAll` applying the `$jsonSchema` validator, the collection options and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, and `withTransaction`. Its errors are `DataError` and its subclasses |
+| `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection` with its stamps and MongoDB's own collection options, `syncCollection`/`syncAll` applying the `$jsonSchema` validator, the collection options and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, `withTransaction`, and migrations in code under the `./migrations` subpath. Its errors are `DataError` and its subclasses |
 
 It was started on 2026-09-15, on the tooling of `softistx/nxgt-http`: the
 same build, artifact check, publish script, CI and conventions. When one of
@@ -36,6 +36,9 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   `indexes.d.ts` and `types/types.d.ts`, where `Settings` and `SearchParams`
   live. The SDK's errors reach the caller as they are; the package's only
   error of its own is `SearchIndexError`.
+- **`@nxgt/mongo/migrations` is a subpath** of `@nxgt/mongo`, not a package:
+  migrations reuse its `withTransaction` and its errors, and version with it.
+  `src/migrations/` imports the rest of the package; nothing else imports it.
 - **A dialect is a subpath**, not a package: `@nxgt/drizzle/pg` today,
   `./mysql` and `./sqlite` later. What does not depend on a dialect, the
   errors, the cursor and the page shapes, is in `@nxgt/drizzle` itself, and
@@ -209,7 +212,8 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   root,
   `operations/paginate`, `hooks/hooks`, `changes/changes`,
   `changes/subscription` and `aggregation/aggregation`. Beside `collection/`,
-  `connection/connect` covers `connectMongo`. A refactor that moves code must leave them untouched —
+  `connection/connect` covers `connectMongo`, and `migrations/` has three:
+  `plan` (the list against the records, no server), `migrate` and `lock`. A refactor that moves code must leave them untouched —
   if a spec has to change, the refactor changed behaviour.
 - **A public method that refuses something must have a `@ts-expect-error`
   case** in `test/types/`. Type safety is what the compiler rejects, not what
@@ -254,7 +258,7 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **457 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 312,
+`bun run test` is **505 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 360,
 scripts 10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
 
@@ -278,6 +282,16 @@ process per package, then the scripts' specs. Treat any failure as yours.
   seconds and the rest in a millisecond each. Before reading that as a
   regression, run the packages one at a time — green in series means it was the
   machine, not the code.
+
+- **The migration lock is timed by the server (`$$NOW`)**, and two things
+  mongod 8.2 refuses shaped how it is taken — both measured:
+  - `$expr` in the filter of an **upsert** ("not allowed in the query
+    predicate for an upsert"), so taking the lock is two atomic writes: an
+    insert, then a take-over of a lapsed lock by an update filtered on
+    `$expr`;
+  - `$documents` on a **collection's** `aggregate` (it needs
+    `{ aggregate: 1 }`), so the insert is `db.aggregate([{ $documents }, { $merge,
+    whenMatched: 'fail' }])`, which answers 11000 when the lock exists.
 
 - **Meilisearch answers `succeeded` to a settings update whatever it holds**:
   measured on v1.53.2 with an unknown ranking rule, an empty dictionary entry

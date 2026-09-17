@@ -6,7 +6,9 @@ export type DataErrorCode =
 	| 'VALIDATION'
 	| 'OPTIMISTIC_LOCK'
 	| 'INVALID_CURSOR'
-	| 'INVALID_ID';
+	| 'INVALID_ID'
+	| 'MIGRATION'
+	| 'MIGRATION_LOCKED';
 
 /** One reason a document failed the collection's `$jsonSchema` validator. */
 export interface ValidationIssue {
