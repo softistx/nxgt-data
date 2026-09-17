@@ -45,6 +45,13 @@ const client = await MongoClient.connect(process.env.MONGO_URL);
 const db = client.db('app');
 ```
 
+## Subpaths
+
+| import | what it holds |
+| --- | --- |
+| `@nxgt/mongo` | everything below, but migrations |
+| `@nxgt/mongo/migrations` | [migrations](#migrations): `defineMigration`, `migrate`, `rollback`, `migrationStatus`, `MigrationError`, `MigrationLockedError` |
+
 ## Definition
 
 `defineCollection` takes the collection's name, the Zod schema of its
@@ -532,6 +539,8 @@ application never reads a numeric code:
 | `OptimisticLockError` | `OPTIMISTIC_LOCK` | the version in the patch no longer matches |
 | `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write |
 | `InvalidIdError` | `INVALID_ID` | a value that is no `ObjectId`, nor the string of one |
+| `MigrationError` | `MIGRATION` | a migration failed, or the list does not match the records — from `@nxgt/mongo/migrations` |
+| `MigrationLockedError` | `MIGRATION_LOCKED` | another run holds the migration lock, or this one lost it — from `@nxgt/mongo/migrations` |
 | `DataError` | `DATABASE` | any other server error, with its `serverCode` |
 
 `ConflictError` carries `index`, `keys` and, when the server gives them,
@@ -572,6 +581,89 @@ process.on('SIGTERM', () => closeMongo());   // yours to wire
   process or of a test file. Nothing listens to signals for you.
 - A `MongoClient` you open yourself works everywhere too: `connectMongo` is a
   convenience, not a requirement.
+
+## Migrations
+
+`sync` brings the validator and the indexes in line; a migration is for what it
+never does — rewriting documents. They are a list, in code, applied in order
+and recorded:
+
+```ts
+import { defineMigration, migrate, migrationStatus, rollback } from '@nxgt/mongo/migrations';
+
+export const migrations = [
+	defineMigration({
+		id: '2026-09-17-posts-by-slug',
+		transaction: false,   // an index build cannot run in a transaction
+		async up({ db }) {
+			await db.collection('posts').createIndex({ slug: 1 }, { name: 'posts_slug' });
+		},
+		async down({ db }) {
+			await db.collection('posts').dropIndex('posts_slug');
+		},
+	}),
+	defineMigration({
+		id: '2026-09-18-backfill-slug',
+		async up({ db, session }) {
+			await db
+				.collection('posts')
+				.updateMany({ slug: null }, [{ $set: { slug: '$title', slugBackfilled: true } }], { session });
+		},
+		async down({ db, session }) {
+			await db
+				.collection('posts')
+				.updateMany({ slugBackfilled: true }, { $unset: { slug: '', slugBackfilled: '' } }, { session });
+		},
+	}),
+];
+
+await migrate(db, migrations);                    // { applied: [{ id, durationMs }, …], pending: [] }
+await migrate(db, migrations, { dryRun: true });  // { applied: [], pending: ['…'] }
+await rollback(db, migrations);                   // undoes 2026-09-18-backfill-slug
+await rollback(db, migrations, { to: '2026-09-17-posts-by-slug', dryRun: true });
+// { reverted: [], pending: ['2026-09-18-backfill-slug'] }
+await migrationStatus(db, migrations);            // [{ id, state: 'applied' | 'pending' | 'missing', appliedAt }]
+```
+
+- **The id is permanent.** It is what the migration is recorded under:
+  renaming one makes it a new migration. It takes letters, digits, `_`, `-`,
+  `.` and `:`; anything else throws when `defineMigration` runs, which is
+  usually when the list is imported. The order is the list's, not the ids'.
+- **Each migration runs in a transaction**, with its record: it is applied and
+  recorded, or neither. That needs a replica set, as every transaction does.
+  `session` is that transaction's, and every operation has to be given it.
+  `transaction: false` is for what a transaction cannot hold — an index build,
+  `collMod`, a dropped collection — and such a migration that fails half-way
+  stays half-done; it is not recorded.
+- **The list only grows at its end.** `migrate` and `rollback` refuse, before
+  running anything, a list that lost an applied migration or has a pending one
+  before an applied one. `migrationStatus` reports those two as `missing` and
+  `pending` instead. All three refuse a list that names an id twice.
+- **`to`** applies up to and including a migration; for `rollback`, it undoes
+  everything after it, the last first. Without it, `rollback` undoes the last
+  applied migration alone. Either way, a rollback that would reach a migration
+  with no `down` is refused as a whole, before anything is undone.
+- **A dry run** reports what would run, and neither takes the lock nor creates
+  the records' collection.
+- **Two runs never migrate at once.** A run holds a lock, a document in
+  `<collection>_lock`, renewed every third of `lockTtlMs` while it works and
+  timed by the server's clock, so hosts whose clocks disagree still agree. A
+  second run fails with `MigrationLockedError`, whose `holder` and `expiresAt`
+  say who holds it and until when. A crashed run blocks the next one for
+  `lockTtlMs` at most — default 60 000, at least 1000. A run whose lock was
+  taken over or removed throws `MigrationLockedError` ("lost its migration
+  lock") before its next migration.
+- **A failure is a `MigrationError`**: `migration` names it, `cause` holds
+  the original error, and the ones before it stay applied.
+- The records are in `nxgt_migrations`, one document per migration
+  (`{ _id: id, appliedAt, durationMs }`). Another name goes to all three
+  calls, the same each time:
+
+```ts
+const options = { collection: 'schema_history', lockTtlMs: 5 * 60_000 };
+await migrate(db, migrations, options);
+await migrationStatus(db, migrations, options);
+```
 
 ## Aggregation
 
@@ -620,8 +712,9 @@ const withRelations = await members.populate(await members.findMany(), {
 
 - **No aggregation pipeline builder.** The helpers above cover the common
   cases; `.aggregate()` and `raw` are the driver's own, untouched.
-- **No migrations.** `sync` brings the schema and the indexes in line; it never
-  rewrites a document.
+- **No migration files or CLI.** Migrations are a list in code, run from a
+  script of yours: nothing reads a directory, and there is no binary to
+  configure.
 
 ## API
 
@@ -644,6 +737,7 @@ const withRelations = await members.populate(await members.findMany(), {
 | `toMongoJsonSchema(schema)` | a Zod schema as a MongoDB `$jsonSchema` |
 | `encodeCursor`, `decodeCursor`, `pageWindow`, `toPage` | the pagination pieces |
 | `DataError` and its subclasses, `toDataError` | the errors |
+| `defineMigration`, `migrate`, `rollback`, `migrationStatus`, `MigrationError`, `MigrationLockedError` | from `@nxgt/mongo/migrations`: migrations, in code |
 | `diffIndexes`, `normalizeIndex`, `validationMatches`, `diffCollectionOptions` | what `sync` compares with |
 
 `CollectionOptions` turns the behaviours off one by one: `softDelete`,
@@ -678,10 +772,16 @@ await members.groupBy('level', { measures: { n: { sum: 'name' } } });  // not a 
 await members.groupBy('level', { measures: { count: { sum: 'score' } } }); // count is taken
 await members.populate(found, { team: { from: teams, by: 'name' } });  // not a reference
 await members.populate(found, { name: { from: teams, by: 'teamId' } }); // name is a field
+await migrate(client, migrations);                       // a Db, not a client
+await migrate(db, migrations, { to: backfill });         // `to` is the migration's id
+defineMigration({ id: 'x', up: () => {} });              // up is awaited
 ```
 
 The aggregation cases are in `test/types/aggregation.ts`, the stamp cases in
-`test/types/stamp-writes.ts`.
+`test/types/stamp-writes.ts`, the migration cases in `test/types/migrations.ts`.
+
+A migration is refused structurally: an object shaped like one that did not go
+through `defineMigration` compiles, and skips its id check.
 
 What is **not** checked: the tail of a dotted path, and a `filter`, which stays
 the driver's `Filter` — rebuilding it would mean reimplementing every query
@@ -802,11 +902,17 @@ operator, and getting it subtly wrong is worse than being honest about it.
   returns, and on none in the collection: a filter or a patch keyed on it would
   match nothing, so both are compile errors. Query on `_id`. A schema that
   declares an `id` field of its own keeps it, untouched.
-- **`validate: 'off'` also turns the defaults off.** Nothing fills `_id`,
-  `createdAt` or `version` any more, because filling them is what parsing does.
+- **`validate: 'off'` also turns the schema's defaults off.** Filling them is
+  what parsing does: a field like `name: z.string().default('')` stays absent.
+  The stamps the collection keeps are still filled, and the driver still
+  generates an `_id`.
 - **The driver retries a transaction's callback** on a transient error, for up
   to 120 seconds, so `fn` must be safe to run twice — and must not swallow
   errors, or the driver cannot tell whether the transaction was aborted.
+- **A migration without a transaction runs again after a failure.** It is not
+  recorded, so the next `migrate` starts it over, on top of what it did
+  before failing: write it so a second run changes nothing more. In a
+  transaction, only what `up` does outside the session can happen twice.
 - **`session.abortTransaction()` inside the callback resolves.**
   `withTransaction` returns the callback's value; it does not throw.
 

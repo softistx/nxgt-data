@@ -18,6 +18,11 @@
 			"import": "./dist/index.js",
 			"default": "./dist/index.js"
 		},
+		"./migrations": {
+			"types": "./dist/migrations/index.d.ts",
+			"import": "./dist/migrations/index.js",
+			"default": "./dist/migrations/index.js"
+		},
 		"./package.json": "./package.json"
 	},
 	"keywords": [
@@ -26,7 +31,8 @@
 		"repository",
 		"pagination",
 		"jsonschema",
-		"typescript"
+		"typescript",
+		"migrations"
 	],
 	"repository": {
 		"type": "git",
@@ -44,7 +50,8 @@
 	},
 	"nxgt": {
 		"entrypoints": [
-			"src/index.ts"
+			"src/index.ts",
+			"src/migrations/index.ts"
 		]
 	},
 	"devDependencies": {
