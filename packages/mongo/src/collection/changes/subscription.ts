@@ -32,6 +32,8 @@ interface State {
 	token: unknown;
 	/** The token of the last change handled: what `resumeToken` shows. */
 	handled: unknown;
+	/** Where the stream is, changes or not: what `position` shows. */
+	position: unknown;
 	/** Failed attempts since the last read that worked. */
 	failures: number;
 }
@@ -80,12 +82,18 @@ async function drain(
 		// A read that worked, change or not, ends a run of failures.
 		state.failures = 0;
 		markReady();
-		if (!event) continue;
+		if (!event) {
+			// Nothing new: the server said where the stream is, and every change
+			// before that point has been handled. That is what `position` is for.
+			state.position = stream.resumeToken ?? state.position;
+			continue;
+		}
 		if (event.operationType === 'invalidate') return 'invalidated';
 		const change = toChange(ctx, event as Document, options);
 		if (change) await deliver(state, handler, change, options);
 		state.handled = event._id;
 		state.token = event._id;
+		state.position = event._id;
 	}
 	return 'closed';
 }
@@ -165,6 +173,7 @@ export function subscribe(
 		stream: undefined,
 		token: options.startAfter,
 		handled: undefined,
+		position: undefined,
 		failures: 0,
 	};
 
@@ -201,6 +210,9 @@ export function subscribe(
 		closed,
 		get resumeToken() {
 			return state.handled as never;
+		},
+		get position() {
+			return state.position as never;
 		},
 		close,
 		[Symbol.asyncDispose]: close,

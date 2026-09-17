@@ -352,4 +352,40 @@ describe('choosing what to hear', () => {
 		await until(() => second.length === 1, 'the missed create');
 		expect(second).toEqual(['b']);
 	});
+
+	test('position moves while the collection is quiet, resumeToken does not', async () => {
+		const collection = getCollection(t.db, posts);
+		const heard: string[] = [];
+		const subscription = track(
+			collection.onChange((c) => void heard.push(c.document?.title ?? '')),
+		);
+		await subscription.ready;
+		expect(subscription.resumeToken).toBeUndefined();
+		// The first read answered with nothing: the server said where it is.
+		const opened = subscription.position;
+		expect(opened).toBeDefined();
+
+		await collection.create({ title: 'a', rank: 1 });
+		await until(() => heard.length === 1, 'the create');
+		expect(subscription.position).toEqual(subscription.resumeToken as never);
+
+		// Nothing more happens, and the position still moves on.
+		const handled = subscription.resumeToken;
+		await until(
+			() => subscription.position !== handled,
+			'a position past the last change',
+		);
+		expect(subscription.resumeToken).toEqual(handled as never);
+
+		// It is a token to resume from: the change after it is heard, that one is not.
+		await collection.create({ title: 'b', rank: 2 });
+		const after: string[] = [];
+		track(
+			collection.onChange((c) => void after.push(c.document?.title ?? ''), {
+				startAfter: subscription.position,
+			}),
+		);
+		await until(() => after.length === 1, 'the create after the position');
+		expect(after).toEqual(['b']);
+	});
 });
