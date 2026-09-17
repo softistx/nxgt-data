@@ -84,12 +84,19 @@ export function useServers(name: string) {
 			flushIntervalMs: 20,
 			...options,
 		});
-	/** Starts a sync, and closes it after the test. */
-	const start = async (options?: Parameters<typeof sync>[0]) => {
-		const r = await sync(options).start();
+	/**
+	 * Closes this sync after the test, and takes the rejection `closed` ends
+	 * with when the servers stop under a sync still running: nobody would be
+	 * waiting for it then, and Bun counts an unhandled rejection as an error.
+	 */
+	const track = (r: RunningSearchSync) => {
 		running.push(r);
+		r.closed.catch(() => undefined);
 		return r;
 	};
+	/** Starts a sync, and closes it after the test. */
+	const start = async (options?: Parameters<typeof sync>[0]) =>
+		track(await sync(options).start());
 	/** What the index holds, sorted by id. */
 	const indexed = async () => {
 		const page = await index()
@@ -100,7 +107,7 @@ export function useServers(name: string) {
 			});
 		return byId(page.results.map((hit) => [hit.id, hit.title] as const));
 	};
-	return { servers, collection, index, sync, start, indexed };
+	return { servers, collection, index, sync, start, track, indexed };
 }
 
 /** Polls `read` until it gives what `expected` is, or fails after a while. */

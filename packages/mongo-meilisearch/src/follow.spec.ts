@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { byId, eventually, useServers } from '../test/fixtures';
 import { SearchSyncError } from './errors';
 
-const { servers, collection, index, sync, start, indexed } =
+const { servers, collection, index, sync, start, track, indexed } =
 	useServers('follow');
 
 const rejection = (promise: Promise<unknown>) =>
@@ -60,7 +60,7 @@ describe('start', () => {
 
 	test('picks up where the last run stopped', async () => {
 		const search = sync();
-		const running = await search.start();
+		const running = track(await search.start());
 		const kept = await collection().create({ title: 'Kept' });
 		await eventually(indexed, [[String(kept._id), 'Kept']]);
 		await running.close();
@@ -122,7 +122,7 @@ describe('batches', () => {
 
 	test('close sends what is waiting, and records it', async () => {
 		const search = sync({ flushIntervalMs: 60_000 });
-		const running = await search.start();
+		const running = track(await search.start());
 		const before = await search.state();
 		const article = await collection().create({ title: 'late' });
 		await Bun.sleep(300);
@@ -136,7 +136,7 @@ describe('batches', () => {
 
 	test('a flush with nothing to send records only where the stream is', async () => {
 		const search = sync({ flushIntervalMs: 60_000 });
-		const running = await search.start();
+		const running = track(await search.start());
 		const started = await search.state();
 		await running.flush();
 		const idle = await search.state();
@@ -159,7 +159,7 @@ describe('batches', () => {
 describe('a quiet collection', () => {
 	test('records where the stream is, so its point stays fresh', async () => {
 		const search = sync({ positionIntervalMs: 60 });
-		const running = await search.start();
+		const running = track(await search.start());
 		const first = await search.state();
 		expect(first?.resumeToken).toBeDefined();
 
@@ -180,7 +180,7 @@ describe('a quiet collection', () => {
 
 	test('a change waiting to be sent is never skipped by the beat', async () => {
 		const search = sync({ flushIntervalMs: 60_000, positionIntervalMs: 60 });
-		const running = await search.start();
+		const running = track(await search.start());
 		const article = await collection().create({ title: 'waiting' });
 		await Bun.sleep(300);
 
@@ -247,12 +247,14 @@ describe('what stops a running sync', () => {
 		await search.reindex();
 		const before = await search.state();
 		const boom = new Error('boom');
-		const running = await sync({
-			transform: (article) => {
-				if (article.title === 'bad') throw boom;
-				return { id: String(article._id), title: article.title };
-			},
-		}).start();
+		const running = track(
+			await sync({
+				transform: (article) => {
+					if (article.title === 'bad') throw boom;
+					return { id: String(article._id), title: article.title };
+				},
+			}).start(),
+		);
 
 		await collection().create({ title: 'bad' });
 		const error = await rejection(running.closed);
@@ -312,7 +314,7 @@ describe('what stops a running sync', () => {
 
 	test('the collection dropped, and what a later start does', async () => {
 		const search = sync();
-		const running = await search.start();
+		const running = track(await search.start());
 		const gone = await collection().create({ title: 'gone' });
 		await eventually(indexed, [[String(gone._id), 'gone']]);
 
@@ -332,7 +334,7 @@ describe('what stops a running sync', () => {
 
 	test('a sync that is already following refuses to run twice', async () => {
 		const search = sync();
-		await search.start();
+		track(await search.start());
 		const started = await rejection(search.start());
 		expect(started.code).toBe('RUNNING');
 		expect(started.message).toBe(
@@ -346,9 +348,9 @@ describe('what stops a running sync', () => {
 
 	test('once closed, it may reindex and start again', async () => {
 		const search = sync();
-		const running = await search.start();
+		const running = track(await search.start());
 		await running.close();
 		await search.reindex();
-		await search.start();
+		track(await search.start());
 	});
 });
