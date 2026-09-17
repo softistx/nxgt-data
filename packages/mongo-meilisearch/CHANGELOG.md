@@ -1,5 +1,11 @@
 # @nxgt/mongo-meilisearch
 
+## 0.1.1
+
+### Patch Changes
+
+- [#35](https://github.com/softistx/nxgt-data/pull/35) [`7d5e04c`](https://github.com/softistx/nxgt-data/commit/7d5e04cb3dfb62085d397e95f5e703269df3fa89) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Corrects the published peer range on `@nxgt/mongo`: 0.1.0 asked for `^0.10.0`, which has no `position` on a change subscription — the token this package records while a collection is quiet. It asks for `^0.11.0`, the version it is built against.
+
 ## 0.1.0
 
 ### Minor Changes
