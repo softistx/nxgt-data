@@ -220,8 +220,14 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 - **Refactoring is its own pull request**, with a `chore:` commit and a patch
   changeset that says plainly that nothing public moved. The proof is that
   the test counts are identical on both sides of it.
-- **The `code-reviewer` agent** in `.claude/agents/` checks all of this. It
-  reads and reports; it does not edit. Run it before opening a pull request.
+- **The `code-reviewer` agent** checks all of this. It comes from the shared
+  `nxgt-review` plugin (marketplace `nxgt-core`), and reviews against this
+  file and its reference for this repository,
+  `plugins/nxgt-review/references/nxgt-data.md` in `softistx/nxgt-core`. It
+  reads and reports; it does not edit. Run it before opening a pull request
+  (skill `review-before-a-pr`), and `documentation-auditor` (plugin
+  `nxgt-docs`) beside it when a public surface changed. A rule changed here
+  is changed in that reference too.
 
 ## Conventions
 
