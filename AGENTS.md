@@ -12,6 +12,7 @@ registry:
 | `@nxgt/drizzle` | an SDK over Drizzle ORM: typed repositories (`createRepository`), offset and cursor pagination, `withTransaction`, its own errors with `toDataError`, and the `id()`, `timestamps()`, `softDelete()` columns. PostgreSQL first |
 | `@nxgt/meilisearch` | a typed Meilisearch index on the official SDK: `defineIndex<Doc>()({ uid, primaryKey, settings })`, `syncIndex`/`syncIndexes` applying the settings idempotently, and `bindIndex` for typed documents and searches. Its one error is `SearchIndexError` |
 | `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection` with its stamps and MongoDB's own collection options, `syncCollection`/`syncAll` applying the `$jsonSchema` validator, the collection options and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, `withTransaction`, and migrations in code under the `./migrations` subpath. Its errors are `DataError` and its subclasses |
+| `@nxgt/mongo-meilisearch` | keeps a Meilisearch index in step with a MongoDB collection: `createSearchSync` with a `transform` typed by both definitions, `reindex`, and `start`, which follows the collection's changes in batches from a resume point kept in MongoDB. Its one error is `SearchSyncError` |
 
 It was started on 2026-09-15, on the tooling of `softistx/nxgt-http`: the
 same build, artifact check, publish script, CI and conventions. When one of
@@ -20,7 +21,8 @@ them changes there for a reason that applies here, change it here too.
 ## Layering
 
 Every package is **standalone**: it depends on no sibling, only on the
-library it wraps, as a peer. A package that would use a sibling declares it
+library it wraps, as a peer — except the bridge, `@nxgt/mongo-meilisearch`,
+below. A package that would use a sibling declares it
 by `workspace:^` and imports it by its published name, as in nxgt-http; there
 is no tsconfig `paths` to a sibling and no relative import into one.
 
@@ -52,6 +54,15 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   `mongodb-memory-server-core` is a devDependency, and it depends on
   `mongodb ^7.2.0`: keep the pin inside that range, or the tree carries two
   drivers and two `ObjectId` classes, which no `instanceof` survives.
+- **`@nxgt/mongo-meilisearch` is the one package built on siblings.** It
+  has `@nxgt/mongo` and `@nxgt/meilisearch` as required peers, by
+  `workspace:^`, and as devDependencies, the same way; `mongodb` and
+  `meilisearch` are peers with their siblings' ranges and pins. Neither
+  sibling knows it: a bridge between two packages is a third package, never
+  an import from one into the other. `bun publish` turns `workspace:^` into
+  `^<current version>`, and changesets gives the bridge a **patch** when a
+  sibling it peers on takes a minor (measured with changesets 3.0.3), so it
+  is republished with the new range.
 - **Another database library is another package**, and each keeps its own
   errors, as every package here does.
 
@@ -116,6 +127,14 @@ matching key in `exports`.
   Ubuntu 22.04 build on its own; keep mongod at 6.0 or above, because the
   older fallback wants `libcrypto.so.1.1`, which a current distribution no
   longer ships.
+- **`@nxgt/mongo-meilisearch`'s specs run against both**: its `test/`
+  holds a copy of each sibling's server (`mongo.ts`, `meilisearch.ts`), and
+  `test/fixtures.ts` starts one of each per spec file. Its specs are
+  `create-search-sync` (the options and errors, no server), `reindex` and
+  `follow`. Its `test` script
+  downloads Meilisearch first, as `@nxgt/meilisearch`'s does, and passes
+  `--timeout 30000`: Meilisearch takes about half a second to apply each
+  write, measured, so a test that writes a few batches outlasts Bun's 5 s.
 - **Type tests** are `test/types/*.ts`, checked by the package's
   `typecheck` (`tsc --noEmit`) and never run. A call that must not compile
   carries `// @ts-expect-error`; if it compiles, tsc fails on the unused
@@ -156,6 +175,7 @@ publishes to npm.
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
 | `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change both when the reason applies to both |
 | `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 87 lines each, ten of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ |
+| `test/server.ts` of `@nxgt/mongo` and of `@nxgt/meilisearch`, as `test/mongo.ts` and `test/meilisearch.ts` in `@nxgt/mongo-meilisearch` | a package reaches no sibling's tests. Keep `MONGOD_VERSION` equal in both mongo copies: CI keys the mongod cache on the hash of both files |
 
 ## Keeping the code maintainable
 
@@ -258,8 +278,8 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **506 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 361,
-scripts 10. It runs one
+`bun run test` is **546 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 361,
+mongo-meilisearch 40, scripts 10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
 
 - **The test mongod runs with `enableTestCommands`**, so a spec can make it
