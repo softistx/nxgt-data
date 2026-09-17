@@ -452,11 +452,18 @@ Every change also has `id`, `at` and `resumeToken`.
 - **Errors.** A handler that throws, or a stream that fails for good, goes to
   `onError`; the stream goes on after a handler's error. Without `onError`,
   the first error closes the subscription and rejects `closed`.
-- **A restarted process starts from now.** Keep a change's `resumeToken`
-  somewhere durable and pass it back as `startAfter` to pick up where it was.
+- **A restarted process starts from now.** Keep a change's `resumeToken`,
+  or the subscription's `position`, somewhere durable and pass it back as
+  `startAfter` to pick up where it was.
   It is typed `ResumeToken`, so an id is not taken for one; a token read back
   from storage is `saved as ResumeToken`. A token the server refuses fails
   at once rather than being retried.
+- **`position` moves while the collection is quiet**, and `resumeToken` does
+  not. `resumeToken` is the last change handled; `position` is that, or, after
+  a read that brought nothing, the point the server gave — every change up to
+  it has been handled either way. A worker that keeps its place recording
+  `position` is not sent back to the start of a long silence by a history the
+  server has since dropped.
 - A dropped or renamed collection ends the subscription: `closed` resolves
   with `'invalidated'`.
 
@@ -729,7 +736,7 @@ const withRelations = await members.populate(await members.findMany(), {
 | `DistinctOf`, `Group`, `GroupKeyOf`, `GroupByOptions`, `Measure`, `Measures`, `NumericFieldOf`, `Populated`, `Relations`, `ByRelation`, `OnRelation`, `ReferenceFieldOf`, `RelatedCollection` | what `distinct`, `groupBy` and `populate` take and give |
 | `getCollection(dbOrClient, definition, options?)` | the typed collection, driver methods included |
 | `CollectionHooks<Def>` and its pieces | hooks around the writes |
-| `ChangeOf<Def>`, `ChangeOptions<Def>`, `ChangeSubscription`, `ResumeToken` | what `onChange` hands over and takes |
+| `ChangeOf<Def>`, `ChangeOptions<Def>`, `ChangeSubscription` (`ready`, `closed`, `resumeToken`, `position`, `close`), `ResumeToken` | what `onChange` hands over and takes |
 | `syncCollection`, `syncCollections`, `syncAll` | create and bring in line, with `dryRun` |
 | `registeredCollections`, `clearCollectionRegistry` | what `syncAll` covers |
 | `resetAutoSync(db?)` | forget the syncs `autoSync` has run |

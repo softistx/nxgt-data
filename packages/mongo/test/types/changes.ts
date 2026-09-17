@@ -115,3 +115,8 @@ postRepo.onChange(() => {}, { startAfter: saved });
 postRepo.onChange(() => {}, { startAfter: saved as ResumeToken });
 const where: ResumeToken | undefined = postRepo.onChange(() => {}).resumeToken;
 void where;
+// The position is a token too, and it is read, never set.
+const at: ResumeToken | undefined = postRepo.onChange(() => {}).position;
+postRepo.onChange(() => {}, { startAfter: at });
+// @ts-expect-error the position is the subscription's to move
+postRepo.onChange(() => {}).position = at;

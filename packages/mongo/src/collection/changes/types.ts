@@ -176,6 +176,14 @@ export interface ChangeSubscription extends AsyncDisposable {
 	readonly closed: Promise<CloseReason>;
 	/** Where the stream is: the token of the last change handled, once there is one. */
 	readonly resumeToken: ResumeToken | undefined;
+	/**
+	 * Where the stream is, changes or not: the last change handled, or, after
+	 * a read that brought nothing, the point the server gave. Every change up
+	 * to it has been handled, so it is safe to keep and pass back as
+	 * `startAfter` — and it moves on while the collection is quiet, which
+	 * `resumeToken` does not. `undefined` until the first read answers.
+	 */
+	readonly position: ResumeToken | undefined;
 	/** Stops listening. A change being handled is finished first. */
 	close(): Promise<void>;
 }
