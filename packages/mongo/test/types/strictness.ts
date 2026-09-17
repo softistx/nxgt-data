@@ -35,7 +35,7 @@ await collection.findMany({ projection: { email: 2 } });
 // --- patches ------------------------------------------------------------
 await collection.update(id, { name: 'Ada' });
 await collection.update(id, { $set: { name: 'Ada' } });
-await collection.update(id, { $inc: { version: 1 } });
+await collection.update(id, { $inc: { age: 1 } });
 await postCollection.update(id, { $push: { tags: 'new' } });
 await postCollection.update(id, { $push: { tags: { $each: ['a', 'b'] } } });
 // @ts-expect-error no such field on the document

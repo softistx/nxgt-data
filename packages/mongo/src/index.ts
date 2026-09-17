@@ -49,10 +49,12 @@ export type {
 	CollectionApi,
 	CollectionOptions,
 	CursorPaginateOptions,
+	ExpectedVersion,
 	FieldPath,
 	FindFirstOptions,
 	FindManyOptions,
 	IfStamp,
+	ManyPatch,
 	OrderDirection,
 	PaginateOptions,
 	Patch,
@@ -60,11 +62,14 @@ export type {
 	ProjectionOperator,
 	PushOf,
 	ReadOptions,
+	RemovablePath,
 	SetOf,
 	SortOf,
 	TypedCollection,
 	UpdateOperators,
-	UpdateOptions,
+	WritableDocumentOf,
+	WritableFieldOf,
+	WritablePath,
 } from './collection/types';
 export {
 	closeMongo,
@@ -90,7 +95,6 @@ export {
 	type FieldOf,
 	type IdOf,
 	type IndexKey,
-	type NewDocumentOf,
 	type ReadDocumentOf,
 	type StampedSchema,
 } from './definition/define-collection';
@@ -100,6 +104,7 @@ export {
 	type DeletedAtField,
 	deletedAtField,
 	id,
+	type ObjectIdField,
 	objectId,
 	STAMP_FIELDS,
 	type StampKind,
@@ -147,6 +152,13 @@ export {
 	type ValidationConfig,
 	type ValidationLevel,
 } from './definition/validation';
+export type {
+	FixedOnUpdate,
+	NewDocumentOf,
+	SetByCollection,
+	StampNameOf,
+	VersionNameOf,
+} from './definition/writable';
 export {
 	ConflictError,
 	DataError,

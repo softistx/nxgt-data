@@ -4,6 +4,7 @@ import {
 	actorFieldOf,
 	type DeletedAtField,
 	deletedAtField,
+	type ObjectIdField,
 	objectId,
 	STAMP_FIELDS,
 	type StampKind,
@@ -125,7 +126,7 @@ export type LockShape<Opt> = FieldForName<
 /** The actor's field type: the one given, or an `ObjectId`. */
 type ActorFieldOf<Opt> = Opt extends { type: infer Actor extends z.ZodType }
 	? ActorField<Actor>
-	: ActorField<ReturnType<typeof objectId>>;
+	: ActorField<ObjectIdField>;
 
 /**
  * One `*By` field, under whatever name the option gave it.

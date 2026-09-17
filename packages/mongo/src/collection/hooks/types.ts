@@ -2,10 +2,16 @@ import type { ClientSession, Filter } from 'mongodb';
 import type {
 	DocumentOf,
 	IdOf,
-	NewDocumentOf,
 	ReadDocumentOf,
 } from '../../definition/define-collection';
-import type { ActorOf, IfStamp, Patch, TypedCollection } from '../types';
+import type { NewDocumentOf } from '../../definition/writable';
+import type {
+	ActorOf,
+	IfStamp,
+	ManyPatch,
+	Patch,
+	TypedCollection,
+} from '../types';
 
 /** The write a hook is running for. */
 export type WriteOperation =
@@ -56,7 +62,7 @@ export interface UpdateArgs<Def> {
 
 export interface UpdateManyArgs<Def> {
 	filter: Filter<DocumentOf<Def>>;
-	patch: Patch<Def>;
+	patch: ManyPatch<Def>;
 }
 
 export interface DeleteArgs<Def> {

@@ -105,11 +105,10 @@ export async function hookedUpdate(
 	self: Self,
 	id: unknown,
 	patch: unknown,
-	opts?: Fields,
 ): Promise<Fields> {
 	const context = contextOf(ctx, self, 'update');
 	const args = await before(ctx, 'beforeUpdate', { id, patch }, context);
-	const document = await update(ctx, args.id, args.patch, opts);
+	const document = await update(ctx, args.id, args.patch);
 	await after(ctx, 'afterUpdate', document, context, args);
 	return document;
 }

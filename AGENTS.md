@@ -162,7 +162,7 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 - **A long file of declarations is fine; a long function is not.** A type or
   an options interface earns its length in documentation —
-  `mongo/src/collection/types.ts` is 422 lines and every one of them is a
+  `mongo/src/collection/types.ts` is 513 lines and every one of them is a
   declaration with a reason. A *function* past **80 lines** is the signal.
   Keep a source file under **250** lines; when it climbs, it is almost always
   one function that grew, not a file that filled up.
@@ -191,7 +191,8 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   them apart (`hook-types`, `change-types`), is several subjects. In
   `mongo/src/collection/` the root keeps what every subject shares — the
   surface (`get-collection.ts`, `types.ts`, `auto-sync.ts`), the
-  `context.ts`, `filters.ts`, `documents.ts` — and each subject has a folder whose files drop the prefix:
+  `context.ts`, `filters.ts`, `documents.ts` and the stamp-write policy
+  `documents.ts` applies, `stamp-writes.ts` — and each subject has a folder whose files drop the prefix:
   - `operations/` — `reads`, `writes`, `paginate`;
   - `hooks/` — `types`, `sets`, `hooked`;
   - `changes/` — `types`, `events`, `subscription`, `retry`;
@@ -203,8 +204,9 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   import of a subject is `context.ts` → `hooks/sets`, a leaf that imports
   nothing and turns the `hooks` option into context data.
 - **Specs are split by subject, not one per source file.** `collection/` has
-  eleven, beside the code they test: `id`, `optimistic-lock`, `soft-delete`,
-  `driver-methods`, `auto-sync` and the general one at the root,
+  twelve, beside the code they test: `id`, `optimistic-lock`, `soft-delete`,
+  `stamp-writes`, `driver-methods`, `auto-sync` and the general one at the
+  root,
   `operations/paginate`, `hooks/hooks`, `changes/changes`,
   `changes/subscription` and `aggregation/aggregation`. Beside `collection/`,
   `connection/connect` covers `connectMongo`. A refactor that moves code must leave them untouched —
@@ -246,7 +248,7 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **416 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 271,
+`bun run test` is **457 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 312,
 scripts 10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
 
