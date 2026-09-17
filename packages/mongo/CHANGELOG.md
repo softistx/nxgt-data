@@ -1,5 +1,11 @@
 # @nxgt/mongo
 
+## 0.11.0
+
+### Minor Changes
+
+- [#31](https://github.com/softistx/nxgt-data/pull/31) [`62bd44b`](https://github.com/softistx/nxgt-data/commit/62bd44b3012d3db6d5c55474eb7ba47d73c9dd3b) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `onChange`'s subscription gains `position`: where the stream is, changes or not. `resumeToken` is the last change handled and stands still while the collection is quiet; `position` is that token, or, after a read that brought nothing, the point the server gave, and every change up to it has been handled. A worker that records `position` instead is not sent back to the start of a long silence by a history the server has since dropped.
+
 ## 0.10.0
 
 ### Minor Changes
