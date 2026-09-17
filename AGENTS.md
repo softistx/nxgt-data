@@ -93,8 +93,8 @@ matching key in `exports`.
   consumer does, imports every subpath in `exports`, runs every bin with
   `--help`, and rejects a manifest that would break an install: a `link:` or
   `file:` in a field a consumer resolves, a **required** peer on no registry,
-  an exact pin on a sibling, or a package that is not MIT or ships no
-  `LICENSE`. `changeset:publish` runs it, so a release cannot skip it.
+  a sibling range that leaves out the sibling released beside it, an exact pin
+  on a sibling, or a package that is not MIT or ships no `LICENSE`. `changeset:publish` runs it, so a release cannot skip it.
 - **Build before typecheck and tests.** CI builds first.
 
 ## Tests
@@ -161,7 +161,14 @@ publishes to npm.
   General → Workflow permissions: *Read and write*, plus *Allow GitHub Actions
   to create and approve pull requests*. To check it:
   `gh api /repos/softistx/nxgt-data/actions/permissions/workflow`.
-- **Siblings are depended on by `workspace:^`, never `workspace:*`.**
+- **Siblings are depended on by `workspace:^`, never `workspace:*`.** What
+  `workspace:^` becomes in a published manifest is read from **`bun.lock`**,
+  not from the sibling's `package.json` — measured: `@nxgt/mongo-meilisearch`
+  0.1.0 went out with a peer on `@nxgt/mongo` `^0.10.0` while the workspace
+  held 0.11.0, because `changeset version` bumps manifests and leaves the
+  lockfile alone. `changeset:version` therefore ends with
+  `bun install --lockfile-only`, and a stale `bun.lock` in a release is a bug,
+  not noise.
 - **`typescript` is a peer, `^6.0.3`, in every package**, as in nxgt-core
   and nxgt-http; do not raise it in one package alone.
 - **Every package is public**, like the repository. Never `private: true`.

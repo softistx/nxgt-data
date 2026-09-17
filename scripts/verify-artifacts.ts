@@ -65,6 +65,8 @@ async function readPackages(): Promise<Pkg[]> {
  *   - a **required** peer that is on no registry. This is the shape that once
  *     broke every consumer's install of nxgt-core with a 404. An *optional*
  *     peer is safe whatever its range; a required one is not.
+ *   - a **sibling range that leaves out the sibling in this workspace**, which
+ *     is what a stale `bun.lock` publishes.
  *   - an **exact pin on a sibling package**. `workspace:*` publishes as the
  *     exact version, so a package would demand the exact
  *     sibling it was built with while the consumer's own caret range
@@ -74,7 +76,10 @@ async function readPackages(): Promise<Pkg[]> {
  *   - a **license other than MIT, or no `LICENSE` in the tarball**. npm only
  *     ships the `LICENSE` in the package's own directory, never the root's.
  */
-async function manifestProblems(tarballs: string[]): Promise<string[]> {
+async function manifestProblems(
+	tarballs: string[],
+	versions: Record<string, string>,
+): Promise<string[]> {
 	const problems: string[] = [];
 	const own = new Set<string>();
 	const manifests: Record<string, unknown>[] = [];
@@ -113,6 +118,18 @@ async function manifestProblems(tarballs: string[]): Promise<string[]> {
 					problems.push(
 						`${name}: ${field}.${dep} = ${range} pins a sibling exactly; ` +
 							'use `workspace:^` so the consumer gets one copy',
+					);
+				}
+				// What `workspace:^` becomes is read from `bun.lock`, not from
+				// the sibling's manifest: a lockfile left behind by
+				// `changeset version` publishes a range that excludes the
+				// sibling being released beside it. Measured on
+				// @nxgt/mongo-meilisearch 0.1.0.
+				const sibling = versions[dep];
+				if (sibling && !Bun.semver.satisfies(sibling, String(range))) {
+					problems.push(
+						`${name}: ${field}.${dep} = ${range} leaves out ${dep}@${sibling}, ` +
+							'the version beside it; run `bun install --lockfile-only`',
 					);
 				}
 			}
@@ -159,14 +176,21 @@ try {
 		overrides[pkg.name] = `file:${file}`;
 	}
 
-	const problems = await manifestProblems(tarballs);
+	const versions: Record<string, string> = {};
+	for (const pkg of packages) {
+		versions[pkg.name] = (
+			await Bun.file(join(pkg.dir, 'package.json')).json()
+		).version;
+	}
+	const problems = await manifestProblems(tarballs, versions);
 	if (problems.length > 0) {
 		console.error('\nA published manifest would break a consumer:\n');
 		for (const problem of problems) console.error(`  ${problem}`);
 		console.error(
 			'\nA `link:` or `file:` no consumer can resolve, a required peer that is\n' +
-				'on no registry, an exact pin on a sibling, or a license other than\n' +
-				'MIT or no LICENSE shipped. See AGENTS.md.',
+				'on no registry, a sibling range that leaves out the sibling beside\n' +
+				'it, an exact pin on a sibling, or a license other than MIT or no\n' +
+				'LICENSE shipped. See AGENTS.md.',
 		);
 		process.exit(1);
 	}
