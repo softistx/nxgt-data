@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/mongo-meilisearch",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Keeps a Meilisearch index in step with a MongoDB collection: a typed transform, a full reindex, and a change stream that resumes where it stopped",
 	"license": "MIT",
 	"type": "module",
