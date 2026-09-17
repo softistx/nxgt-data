@@ -62,7 +62,7 @@ function databaseOf(source: CollectionSource, name: string | undefined): Db {
  * const users = getCollection(db, usersDefinition);
  *
  * const ada = await users.create({ email: 'ada@example.com' });
- * await users.update(ada._id, { name: 'Ada' }, { expectedVersion: ada.version });
+ * await users.update(ada._id, { name: 'Ada', version: ada.version });
  * await users.aggregate([{ $group: { _id: '$teamId', n: { $sum: 1 } } }]);
  * ```
  *
@@ -119,8 +119,7 @@ function apiOf(ctx: CollectionContext, rebuild: Rebuild, self: Self) {
 		create: (values: unknown) => hookedCreate(ctx, self, values),
 		createMany: (values: readonly unknown[]) =>
 			hookedCreateMany(ctx, self, values),
-		update: (id: unknown, patch: unknown, opts?: Fields) =>
-			hookedUpdate(ctx, self, id, patch, opts),
+		update: (id: unknown, patch: unknown) => hookedUpdate(ctx, self, id, patch),
 		updateMany: (filter: unknown, patch: unknown) =>
 			hookedUpdateMany(ctx, self, filter, patch),
 

@@ -7,7 +7,7 @@ import {
 	test,
 } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { posts, users } from '../../test/schema';
+import { posts, tickets, users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { NotFoundError, OptimisticLockError } from '../errors/data-error';
 import { getCollection } from './get-collection';
@@ -37,17 +37,16 @@ describe('optimistic locking', () => {
 		expect((await collection.restore(ada._id)).version).toBe(4);
 	});
 
-	test('expectedVersion writes only while the version still matches', async () => {
+	test('a version in the patch writes only while it still matches', async () => {
 		const { collection, ada } = await seed();
-		const updated = await collection.update(
-			ada._id,
-			{ name: 'Ada' },
-			{ expectedVersion: 0 },
-		);
+		const updated = await collection.update(ada._id, {
+			name: 'Ada',
+			version: 0,
+		});
 		expect(updated.version).toBe(1);
 
 		const error = await collection
-			.update(ada._id, { name: 'Stale' }, { expectedVersion: 0 })
+			.update(ada._id, { name: 'Stale', version: 0 })
 			.catch((e) => e);
 		expect(error).toBeInstanceOf(OptimisticLockError);
 		expect(error.code).toBe('OPTIMISTIC_LOCK');
@@ -64,21 +63,15 @@ describe('optimistic locking', () => {
 		const first = await collection.getById(ada._id);
 		const second = await collection.getById(ada._id);
 
-		await collection.update(
-			first._id,
-			{ name: 'First' },
-			{
-				expectedVersion: first.version,
-			},
-		);
+		await collection.update(first._id, {
+			name: 'First',
+			version: first.version,
+		});
 		await expect(
-			collection.update(
-				second._id,
-				{ name: 'Second' },
-				{
-					expectedVersion: second.version,
-				},
-			),
+			collection.update(second._id, {
+				name: 'Second',
+				version: second.version,
+			}),
 		).rejects.toBeInstanceOf(OptimisticLockError);
 		expect((await collection.getById(ada._id)).name).toBe('First');
 	});
@@ -86,26 +79,66 @@ describe('optimistic locking', () => {
 	test('an _id that is not there is a NotFoundError, not a lock failure', async () => {
 		const { collection } = await seed();
 		await expect(
-			collection.update(new ObjectId(), { name: 'x' }, { expectedVersion: 0 }),
+			collection.update(new ObjectId(), { name: 'x', version: 0 }),
 		).rejects.toBeInstanceOf(NotFoundError);
 	});
 
-	test('expectedVersion needs a version field', async () => {
+	test('an expected version needs a version field, and the lock', async () => {
 		const collection = getCollection(t.db, posts);
 		await collection.sync();
 		const post = await collection.create({ title: 'a', rank: 1 });
-		// The message names no field: a collection may call its version
-		// anything, so quoting "version" here would be a lie for half of them.
-		// Both are compile errors too; the runtime check is for a caller the
-		// types do not reach.
+		// The first is a compile error too. The second is not: the types see
+		// the definition, not the options a collection was opened with.
 		await expect(
 			// @ts-expect-error posts have no version field
-			collection.update(post._id, { title: 'b' }, { expectedVersion: 0 }),
-		).rejects.toThrow('expectedVersion needs a version field');
+			collection.update(post._id, { title: 'b', version: 0 }),
+		).rejects.toThrow('has no field "version"');
+		const { ada } = await seed();
+		await expect(
+			getCollection(t.db, users, { optimisticLock: false }).update(ada._id, {
+				name: 'x',
+				version: 0,
+			}),
+		).rejects.toThrow('without its optimistic lock');
 		expect(() =>
 			// @ts-expect-error posts have no version field
 			getCollection(t.db, posts, { optimisticLock: true }),
 		).toThrow('optimisticLock needs a version field');
+	});
+
+	test('the expected version goes by the name the collection gives it', async () => {
+		const collection = getCollection(t.db, tickets);
+		await collection.sync();
+		const ticket = await collection.create({ subject: 'a' });
+		const updated = await collection.update(ticket._id, {
+			subject: 'b',
+			revision: 0,
+		});
+		expect(updated.revision).toBe(1);
+		await expect(
+			collection.update(ticket._id, { subject: 'c', revision: 0 }),
+		).rejects.toBeInstanceOf(OptimisticLockError);
+		await expect(
+			// @ts-expect-error the version is called `revision` here
+			collection.update(ticket._id, { subject: 'c', version: 1 }),
+		).rejects.toThrow('has no field "version"');
+	});
+
+	test('the expected version is a whole number', async () => {
+		const { collection, ada } = await seed();
+		for (const version of [-1, 1.5, '1']) {
+			await expect(
+				collection.update(ada._id, { name: 'x', version: version as never }),
+			).rejects.toThrow('must be a whole number');
+		}
+	});
+
+	test('updateMany takes no expected version', async () => {
+		const { collection } = await seed();
+		await expect(
+			// @ts-expect-error one version cannot stand for many documents
+			collection.updateMany({ name: null }, { name: 'x', version: 0 }),
+		).rejects.toThrow('"version" is kept by "users" itself');
 	});
 
 	test('optimisticLock: false leaves the version alone', async () => {

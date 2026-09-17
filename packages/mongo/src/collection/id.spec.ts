@@ -77,10 +77,19 @@ describe('the id of a document', () => {
 	test('a document that was read can be written back', async () => {
 		const { collection, ada } = await seed();
 		const read = await collection.getById(ada._id);
-		// The schema strips `id`, so the copy is inserted without it.
+		// The stamps are the collection's; the rest is written back. The
+		// schema strips `id`, so the copy is inserted without it.
+		const {
+			_id,
+			version,
+			deletedAt,
+			createdBy,
+			updatedBy,
+			deletedBy,
+			...rest
+		} = read;
 		const copy = await collection.create({
-			...read,
-			_id: undefined as never,
+			...rest,
 			email: 'copy@example.com',
 		});
 		expect(copy._id).not.toEqual(ada._id);
@@ -98,17 +107,42 @@ describe('the id of a document', () => {
 		const raw = getCollection(t.db, users, { validate: 'off' });
 		// Nothing strips the field here: `toDocument` is what drops it, and
 		// without it the collection's validator would refuse the document.
+		const {
+			_id,
+			version,
+			deletedAt,
+			createdBy,
+			updatedBy,
+			deletedBy,
+			...rest
+		} = read;
 		const written = await raw.create({
-			...read,
-			_id: undefined as never,
+			...rest,
 			email: 'copy@example.com',
-		} as never);
+		});
 		const stored = await t.db
 			.collection('users')
 			.findOne({ email: 'copy@example.com' });
 		expect(stored).not.toBeNull();
 		expect(Object.hasOwn(stored as object, 'id')).toBe(false);
 		expect(written).toBeDefined();
+	});
+
+	test('validate: off still fills the stamps the collection keeps', async () => {
+		const raw = getCollection(t.db, users, { validate: 'off' });
+		await raw.sync();
+		const at = new Date('2020-01-02T03:04:05Z');
+		const written = await raw.create({
+			email: 'ada@example.com',
+			name: null,
+			teamId: null,
+			createdAt: at,
+		});
+		expect(written.createdAt).toEqual(at);
+		expect(written.updatedAt).toBeInstanceOf(Date);
+		expect(written.version).toBe(0);
+		expect(written.deletedAt).toBeNull();
+		expect(written.createdBy).toBeNull();
 	});
 
 	test('a projection without _id gets none', async () => {

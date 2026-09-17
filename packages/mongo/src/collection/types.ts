@@ -8,9 +8,14 @@ import type {
 	DocumentOf,
 	FieldOf,
 	IdOf,
-	NewDocumentOf,
 	ReadDocumentOf,
 } from '../definition/define-collection';
+import type {
+	FixedOnUpdate,
+	NewDocumentOf,
+	StampNameOf,
+	VersionNameOf,
+} from '../definition/writable';
 import type { CursorPage, Page, PageOptions } from '../pagination/page';
 import type { SyncOptions, SyncReport } from '../sync/sync-collection';
 import type {
@@ -98,9 +103,25 @@ export type ActorOf<Def> = Def extends {
 		: ActorUnder<DocumentOf<Def>, C>
 	: never;
 
+/** A field an update may write — any but the stamps the collection keeps. */
+export type WritableFieldOf<Def> = Exclude<FieldOf<Def>, FixedOnUpdate<Def>>;
+
+/** A writable field, or a path into one. */
+export type WritablePath<Def> =
+	| WritableFieldOf<Def>
+	| `${WritableFieldOf<Def>}.${string}`;
+
+/**
+ * A field an update may take away, with `$unset` or `$rename`: a writable
+ * one, but not the updated stamp, which every update sets.
+ */
+export type RemovablePath<Def> =
+	| Exclude<WritableFieldOf<Def>, StampNameOf<Def, 'updatedAt'>>
+	| `${WritableFieldOf<Def>}.${string}`;
+
 /** What `$set` takes: a field's own type, or anything under a path. */
 export type SetOf<Def> = {
-	[Field in FieldPath<Def>]?: Field extends keyof DocumentOf<Def>
+	[Field in WritablePath<Def>]?: Field extends keyof DocumentOf<Def>
 		? DocumentOf<Def>[Field]
 		: unknown;
 };
@@ -118,33 +139,33 @@ export type SetOf<Def> = {
 export interface UpdateOperators<Def> {
 	$set?: SetOf<Def>;
 	$setOnInsert?: SetOf<Def>;
-	$unset?: { [Field in FieldPath<Def>]?: '' | 1 | true };
+	$unset?: { [Field in RemovablePath<Def>]?: '' | 1 | true };
 	$inc?: {
 		[Field in
-			| NumericFieldsOf<DocumentOf<Def>>
-			| `${FieldOf<Def>}.${string}`]?: number;
+			| Exclude<NumericFieldsOf<DocumentOf<Def>>, FixedOnUpdate<Def>>
+			| `${WritableFieldOf<Def>}.${string}`]?: number;
 	};
 	$mul?: {
 		[Field in
-			| NumericFieldsOf<DocumentOf<Def>>
-			| `${FieldOf<Def>}.${string}`]?: number;
+			| Exclude<NumericFieldsOf<DocumentOf<Def>>, FixedOnUpdate<Def>>
+			| `${WritableFieldOf<Def>}.${string}`]?: number;
 	};
 	$min?: SetOf<Def>;
 	$max?: SetOf<Def>;
-	$rename?: { [Field in FieldPath<Def>]?: string };
+	$rename?: { [Field in RemovablePath<Def>]?: RemovablePath<Def> };
 	$currentDate?: {
-		[Field in FieldPath<Def>]?: true | { $type: 'date' | 'timestamp' };
+		[Field in WritablePath<Def>]?: true | { $type: 'date' | 'timestamp' };
 	};
 	$push?: PushOf<Def>;
 	$addToSet?: PushOf<Def>;
-	$pull?: { [Field in FieldPath<Def>]?: unknown };
-	$pullAll?: { [Field in FieldPath<Def>]?: readonly unknown[] };
-	$pop?: { [Field in FieldPath<Def>]?: 1 | -1 };
+	$pull?: { [Field in WritablePath<Def>]?: unknown };
+	$pullAll?: { [Field in WritablePath<Def>]?: readonly unknown[] };
+	$pop?: { [Field in WritablePath<Def>]?: 1 | -1 };
 }
 
 /** What `$push` and `$addToSet` take: an element of the array, or `$each`. */
 export type PushOf<Def> = {
-	[Field in ArrayFieldsOf<DocumentOf<Def>>]?:
+	[Field in Exclude<ArrayFieldsOf<DocumentOf<Def>>, FixedOnUpdate<Def>>]?:
 		| ElementOf<DocumentOf<Def>[Field]>
 		| {
 				$each: readonly ElementOf<DocumentOf<Def>[Field]>[];
@@ -153,24 +174,59 @@ export type PushOf<Def> = {
 				$sort?: 1 | -1 | Record<string, 1 | -1>;
 		  };
 	// An index signature cannot be optional, so the paths are a mapped type.
-} & { [Path in `${string}.${string}`]?: unknown };
+} & { [Path in `${WritableFieldOf<Def>}.${string}`]?: unknown };
+
+/** The document's fields an update may write. */
+export type WritableDocumentOf<Def> = Omit<DocumentOf<Def>, FixedOnUpdate<Def>>;
+
+/**
+ * The version the document must still be at, under the version field's own
+ * name. It is checked, not written: the collection raises the version itself.
+ */
+export type ExpectedVersion<Def> = { [K in VersionNameOf<Def>]?: number };
+
+/** The stamps an update may not write, each refused by name. */
+type FixedFields<Def> = {
+	[K in Exclude<FixedOnUpdate<Def>, VersionNameOf<Def>>]?: never;
+};
 
 /**
  * What an update writes: the document's own fields, checked against the
- * schema, or MongoDB's operators for what they cannot say.
+ * schema, or MongoDB's operators for what they cannot say — and, either way,
+ * the version it expects, when the collection keeps one.
+ *
+ * ```ts
+ * await tickets.update(id, { subject: 'x', revision: 3 }); // only at revision 3
+ * ```
+ *
+ * The stamps the collection keeps are not writable: `createdAt` never moves,
+ * and `deletedAt`, the version and the actors are the collection's own.
+ * `updatedAt` may be given, and is set to now otherwise.
  */
-export type Patch<Def> =
-	| Partial<DocumentOf<Def>>
-	// Forbidding the document's own fields on this branch is what makes a
-	// mistyped patch fail both of them rather than falling through to this one.
-	| (UpdateOperators<Def> & {
-			[K in keyof DocumentOf<Def>]?: never;
-	  } & {
-			// `id` is computed from `_id` and stored nowhere, so writing it is
-			// always a mistake — one this branch would otherwise wave through,
-			// since it is no field of the document.
-			id?: never;
-	  });
+export type Patch<Def> = ExpectedVersion<Def> &
+	FixedFields<Def> &
+	(
+		| Partial<WritableDocumentOf<Def>>
+		// Forbidding the document's own fields on this branch is what makes a
+		// mistyped patch fail both of them rather than falling through to this
+		// one.
+		| (UpdateOperators<Def> & {
+				[K in keyof WritableDocumentOf<Def>]?: never;
+		  } & {
+				// `id` is computed from `_id` and stored nowhere, so writing it is
+				// always a mistake — one this branch would otherwise wave
+				// through, since it is no field of the document.
+				id?: never;
+		  })
+	);
+
+/**
+ * What `updateMany` writes: a patch with no expected version, which one
+ * version could not say for many documents.
+ */
+export type ManyPatch<Def> = Patch<Def> & {
+	[K in VersionNameOf<Def>]?: never;
+};
 
 export interface ReadOptions {
 	/** Include soft-deleted documents. Ignored without a `deletedAt` field. */
@@ -225,16 +281,6 @@ export type IfStamp<Def, Kind extends string, Yes, No> = [Def] extends [never]
 		? No
 		: Yes;
 
-export interface UpdateOptions<Def = unknown> {
-	/**
-	 * Only update the document while its version is still this one. When it
-	 * is not, nothing is written and `OptimisticLockError` is thrown with the
-	 * version the document has now. A collection with no version field does
-	 * not take it.
-	 */
-	expectedVersion?: IfStamp<Def, 'version', number, never>;
-}
-
 export interface CollectionOptions<Def> {
 	/**
 	 * Soft delete through the soft-delete field. Default: on when the
@@ -250,7 +296,7 @@ export interface CollectionOptions<Def> {
 	/**
 	 * Raise the version by one on every update. Default: on when the
 	 * collection has a version field; one without takes `false` only.
-	 * `expectedVersion` needs it.
+	 * An expected version in a patch needs it.
 	 */
 	optimisticLock?: IfStamp<Def, 'version', boolean, false>;
 	/**
@@ -342,11 +388,7 @@ export interface CollectionApi<Def> {
 		values: readonly NewDocumentOf<Def>[],
 	): Promise<ReadDocumentOf<Def>[]>;
 	/** Updates the document with this `_id` and returns it. Throws `NotFoundError`. */
-	update(
-		id: IdOf<Def>,
-		patch: Patch<Def>,
-		options?: UpdateOptions<Def>,
-	): Promise<ReadDocumentOf<Def>>;
+	update(id: IdOf<Def>, patch: Patch<Def>): Promise<ReadDocumentOf<Def>>;
 	/**
 	 * Updates every document that matches, and returns how many changed. The
 	 * driver's own `updateMany`, which returns an `UpdateResult` and takes no
@@ -354,7 +396,7 @@ export interface CollectionApi<Def> {
 	 */
 	updateMany(
 		filter: Filter<DocumentOf<Def>>,
-		patch: Patch<Def>,
+		patch: ManyPatch<Def>,
 	): Promise<number>;
 	/**
 	 * Deletes the document with this `_id` and returns it: a soft delete on a

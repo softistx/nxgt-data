@@ -9,9 +9,9 @@ import type { ActorOf } from '../../src/collection/types';
 import {
 	type DocumentOf,
 	defineCollection,
-	type NewDocumentOf,
 } from '../../src/definition/define-collection';
 import { id, type objectId } from '../../src/definition/fields';
+import type { NewDocumentOf } from '../../src/definition/writable';
 
 type Assert<T extends true> = T;
 type Equals<A, B> =
@@ -143,7 +143,7 @@ const bare = getCollection(db, logs);
 declare const bareId: Log['_id'];
 
 // @ts-expect-error no version field to check
-await bare.update(bareId, { message: 'x' }, { expectedVersion: 1 });
+await bare.update(bareId, { message: 'x', version: 1 });
 // @ts-expect-error no soft delete to restore from
 await bare.restore(bareId);
 // @ts-expect-error no soft-delete field to turn on
@@ -158,7 +158,7 @@ getCollection(db, logs, { softDelete: false, optimisticLock: false });
 // And a collection that has them, under any name, takes all of it.
 const kept = getCollection(db, users);
 declare const keptId: User['_id'];
-await kept.update(keptId, { email: 'b@example.com' }, { expectedVersion: 1 });
+await kept.update(keptId, { email: 'b@example.com', version: 1 });
 await kept.restore(keptId);
 getCollection(db, users, { softDelete: true, optimisticLock: true });
 

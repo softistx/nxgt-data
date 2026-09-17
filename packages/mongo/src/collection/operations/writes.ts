@@ -104,16 +104,9 @@ export async function update(
 	ctx: CollectionContext,
 	id: unknown,
 	patch: unknown,
-	opts: Fields = {},
 ): Promise<Fields> {
-	const expectedVersion = opts.expectedVersion as number | undefined;
 	const versionField = ctx.stamps.version;
-	if (expectedVersion !== undefined && (!ctx.locks || !versionField)) {
-		throw new TypeError(
-			`update: expectedVersion needs a version field, and "${ctx.name}" has none`,
-		);
-	}
-	const patched = toUpdate(ctx, patch);
+	const { update: patched, expectedVersion } = toUpdate(ctx, patch);
 	const filter = mergeFilters(
 		{
 			_id: id,
@@ -132,7 +125,7 @@ export async function updateMany(
 	patch: unknown,
 ): Promise<number> {
 	requireFilter(ctx, 'updateMany', filter);
-	const patched = toUpdate(ctx, patch);
+	const { update: patched } = toUpdate(ctx, patch, 'updateMany');
 	return run(ctx, async () => {
 		const result = await ctx.collection.updateMany(
 			scoped(ctx, filter),

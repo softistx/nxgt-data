@@ -104,7 +104,7 @@ export interface CollectionConfig<
 	timestamps?: TS;
 	/** `deletedAt`: `delete` then writes it instead of removing the document. */
 	softDelete?: SD;
-	/** `version`: every update raises it, and `expectedVersion` checks it. */
+	/** `version`: every update raises it; one given in the patch is checked. */
 	optimisticLock?: OL;
 	/** `createdBy`, `updatedBy` and `deletedBy`, stamped from `as(actor)`. */
 	actors?: AC;
@@ -154,13 +154,6 @@ export type DocumentOf<Def> = Def extends { schema: infer Schema }
  * the server would match nothing.
  */
 export type ReadDocumentOf<Def> = DocumentOf<Def> & { readonly id: string };
-
-/** What a write takes: the documents before their defaults are filled. */
-export type NewDocumentOf<Def> = Def extends { schema: infer Schema }
-	? Schema extends z.ZodType
-		? z.input<Schema>
-		: never
-	: never;
 
 /** The type of `_id`. */
 export type IdOf<Def> =

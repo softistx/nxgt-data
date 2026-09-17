@@ -1,5 +1,11 @@
 import type { CollectionContext } from './context';
 import { type Fields, isRecord, isUpdateFilter } from './filters';
+import {
+	expectedVersionOf,
+	fillStamps,
+	refuseFixed,
+	refuseKeptOnCreate,
+} from './stamp-writes';
 
 /**
  * `id` on a document a collection gives back: `_id` as a string, computed
@@ -30,6 +36,7 @@ export function withId<T>(ctx: CollectionContext, document: T): T {
 /** The document to insert: checked against the schema, defaults filled. */
 export function toDocument(ctx: CollectionContext, values: unknown): Fields {
 	const stamped: Fields = { ...(values as Fields) };
+	refuseKeptOnCreate(ctx, stamped);
 	// A document that was read carries `id`, which is this collection's view
 	// of `_id` and not a field: writing it back would be refused by the
 	// validator, which allows no property the schema does not declare.
@@ -37,16 +44,12 @@ export function toDocument(ctx: CollectionContext, values: unknown): Fields {
 	if (!ctx.hasOwnId) delete stamped.id;
 	if (ctx.actor !== undefined) {
 		const { createdBy, updatedBy } = ctx.stamps;
-		if (createdBy && stamped[createdBy] === undefined) {
-			stamped[createdBy] = ctx.actor;
-		}
-		if (updatedBy && stamped[updatedBy] === undefined) {
-			stamped[updatedBy] = ctx.actor;
-		}
+		if (createdBy) stamped[createdBy] = ctx.actor;
+		if (updatedBy) stamped[updatedBy] = ctx.actor;
 	}
-	return ctx.parses
-		? (ctx.definition.schema.parse(stamped) as Fields)
-		: stamped;
+	if (ctx.parses) return ctx.definition.schema.parse(stamped) as Fields;
+	fillStamps(ctx, stamped);
+	return stamped;
 }
 
 /** The fields of a patch, checked one by one against the schema. */
@@ -66,36 +69,71 @@ function setFromFields(ctx: CollectionContext, patch: Fields): Fields {
 }
 
 /**
+ * A patch without the values given as `undefined`, at the top and inside each
+ * operator: such a value says nothing, and the driver would send it as `null`.
+ */
+function withoutUndefined(patch: Fields): Fields {
+	const defined: Fields = {};
+	for (const [key, value] of Object.entries(patch)) {
+		if (value === undefined) continue;
+		if (!key.startsWith('$') || !isRecord(value)) {
+			defined[key] = value;
+			continue;
+		}
+		defined[key] = Object.fromEntries(
+			Object.entries(value).filter(([, v]) => v !== undefined),
+		);
+	}
+	return defined;
+}
+
+/** An update, and the version it is conditional on. */
+export interface PreparedUpdate {
+	update: Fields;
+	expectedVersion: number | undefined;
+}
+
+/**
  * The update to send: a patch of fields becomes `$set`, checked field by
  * field against the schema, with the stamps this collection keeps. A patch
  * that already speaks in operators is sent as it is, with the stamps added.
+ * A version in the patch is the one the document must still be at.
  */
-export function toUpdate(ctx: CollectionContext, patch: unknown): Fields {
-	if (!isRecord(patch)) {
+export function toUpdate(
+	ctx: CollectionContext,
+	given: unknown,
+	method: 'update' | 'updateMany' = 'update',
+): PreparedUpdate {
+	if (!isRecord(given)) {
 		throw new TypeError(
-			`update: expected the document's fields or MongoDB's operators, not ${String(patch)}`,
+			`${method}: expected the document's fields or MongoDB's operators, not ${String(given)}`,
 		);
 	}
+	const patch = withoutUndefined(given);
+	const expectedVersion = expectedVersionOf(ctx, method, patch);
+	const written = refuseFixed(ctx, method, patch);
 	const operators = isUpdateFilter(patch);
-	const update: Fields = operators ? { ...patch } : {};
+	const update: Fields = operators ? patch : {};
 	const set: Fields = {
 		...(isRecord(update.$set) ? update.$set : {}),
 		...(operators ? {} : setFromFields(ctx, patch)),
 	};
 
 	const { updatedAt, updatedBy, version } = ctx.stamps;
-	if (ctx.touches && updatedAt && set[updatedAt] === undefined) {
+	// A stamp the patch writes itself, `$currentDate` included, is left to
+	// it: setting it a second time is a conflict the server refuses.
+	if (ctx.touches && updatedAt && !written.has(updatedAt)) {
 		set[updatedAt] = new Date();
 	}
-	if (ctx.actor !== undefined && updatedBy && set[updatedBy] === undefined) {
+	if (ctx.actor !== undefined && updatedBy) {
 		set[updatedBy] = ctx.actor;
 	}
 	if (Object.keys(set).length > 0) update.$set = set;
 
 	if (ctx.locks && version) {
 		const inc = isRecord(update.$inc) ? { ...update.$inc } : {};
-		inc[version] = (inc[version] as number | undefined) ?? 1;
+		inc[version] = 1;
 		update.$inc = inc;
 	}
-	return update;
+	return { update, expectedVersion };
 }

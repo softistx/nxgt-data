@@ -67,8 +67,9 @@ indexes: [
 ```
 
 The schema is the one source of truth. `z.output` is what a read gives back,
-`z.input` what a write takes: a field with a default — `_id`, `createdAt`,
-`version` — is optional to write and always there once read.
+`z.input` what a write takes: a field with a default — `_id`, `createdAt` —
+is optional to write and always there once read. The stamps the collection
+keeps itself are the exception: see [What a write may say](#what-a-write-may-say).
 
 ### Stamps
 
@@ -80,7 +81,7 @@ own is only a field: adding `deletedAt` by hand never made `delete` soft.
 | --- | --- | --- |
 | `timestamps` | `createdAt`, `updatedAt` | sets `updatedAt` on every update |
 | `softDelete` | `deletedAt` | `delete` sets it, reads leave those documents out |
-| `optimisticLock` | `version` | raised on every update; `expectedVersion` checks it |
+| `optimisticLock` | `version` | raised on every update; one given in the patch is checked |
 | `actors` | `createdBy`, `updatedBy`, `deletedBy` | stamped from `collection.as(actor)` |
 
 Each one reads the same way: `true` for its fields under their default names,
@@ -110,6 +111,40 @@ out, which is what makes a rename true rather than cosmetic.
 The single-field builders are still there for a field with **no** behaviour
 attached: `timestampField()`, `deletedAtField()`, `versionField()`,
 `actorFieldOf(type)`, plus `id()` and `objectId()`.
+
+#### What a write may say
+
+The collection writes its stamps; a write says only what a caller can know.
+
+| stamp | `create` | `update` | `updateMany` |
+| --- | --- | --- | --- |
+| `createdAt` | an optional `Date` | refused | refused |
+| `updatedAt` | an optional `Date` | an optional `Date` | an optional `Date` |
+| `version` | refused | the version expected, optional | refused |
+| `deletedAt` | refused | refused | refused |
+| `createdBy`, `updatedBy`, `deletedBy` | refused | refused | refused |
+
+A timestamp left out is `new Date()`; one given — an import, a backfill — is
+kept. The version in an update's patch is **not written**: it is the version
+the document must still be at, under the name the collection gives it, and the
+update raises it as every update does. `delete` and `restore` write
+`deletedAt`, and `collection.as(actor)` the actors.
+
+```ts
+const ticket = await tickets.getById(id);
+await tickets.update(id, { subject: 'b', revision: ticket.revision });
+```
+
+A refusal is a compile error, through any operator too (`$inc: { version: 1 }`,
+`$unset: { deletedAt: '' }`, `$rename: { name: 'deletedAt' }`), and a
+`TypeError` at runtime for a caller the types do not reach, before anything is
+sent. `updatedAt` may be set but not taken away with `$unset` or `$rename`.
+One refusal is runtime only: a version in the patch of a collection opened
+with `optimisticLock: false`, since the types see the definition and not the
+options. `raw` is the way to set a stamp by hand.
+
+`validate: 'off'` does not parse, so the collection fills the stamps it keeps
+itself — the ones a caller can no longer give.
 
 ### MongoDB's own collection options
 
@@ -464,20 +499,25 @@ down.
 
 ## Optimistic locking
 
-With `optimisticLock`, every update raises the version field. Pass the
-version you read and the update only applies while the document is still that
-one:
+With `optimisticLock`, every update raises the version field. Give the
+version you read in the patch, under the version field's own name, and the
+update only applies while the document is still at it:
 
 ```ts
 const user = await repo.getById(id);
 try {
-	await repo.update(id, { name: 'Ada' }, { expectedVersion: user.version });
+	await repo.update(id, { name: 'Ada', version: user.version });
 } catch (error) {
 	if (error instanceof OptimisticLockError) {
 		// error.expectedVersion, error.actualVersion: someone else wrote first
 	}
 }
 ```
+
+It must be a whole number, and it needs the lock: a collection opened with
+`optimisticLock: false` refuses it rather than ignore it — at runtime only, as
+the types do not see that option. `updateMany` takes
+none — one version cannot stand for many documents.
 
 ## Errors
 
@@ -489,7 +529,7 @@ application never reads a numeric code:
 | `NotFoundError` | `NOT_FOUND` | a method by `_id` matched nothing |
 | `ConflictError` | `CONFLICT` | a unique index refused the write (`E11000`) |
 | `ValidationError` | `VALIDATION` | the collection's validator refused it (121) |
-| `OptimisticLockError` | `OPTIMISTIC_LOCK` | `expectedVersion` no longer matches |
+| `OptimisticLockError` | `OPTIMISTIC_LOCK` | the version in the patch no longer matches |
 | `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write |
 | `InvalidIdError` | `INVALID_ID` | a value that is no `ObjectId`, nor the string of one |
 | `DataError` | `DATABASE` | any other server error, with its `serverCode` |
@@ -592,6 +632,7 @@ const withRelations = await members.populate(await members.findMany(), {
 | `toObjectId`, `toObjectIds`, `tryObjectId`, `objectIdParam` | a string from outside as an `ObjectId` |
 | `isValidObjectId`, `isObjectIdString`, `isObjectId` | the checks behind them |
 | `connectMongo(uri, options?)`, `closeMongo()`, `MongoConnection`, `PingResult` | a shared client, closed with its last holder |
+| `NewDocumentOf`, `Patch`, `ManyPatch`, `ExpectedVersion`, `WritableDocumentOf`, `WritableFieldOf`, `WritablePath`, `RemovablePath`, `StampNameOf`, `VersionNameOf`, `SetByCollection`, `FixedOnUpdate` | what a write may say |
 | `DistinctOf`, `Group`, `GroupKeyOf`, `GroupByOptions`, `Measure`, `Measures`, `NumericFieldOf`, `Populated`, `Relations`, `ByRelation`, `OnRelation`, `ReferenceFieldOf`, `RelatedCollection` | what `distinct`, `groupBy` and `populate` take and give |
 | `getCollection(dbOrClient, definition, options?)` | the typed collection, driver methods included |
 | `CollectionHooks<Def>` and its pieces | hooks around the writes |
@@ -624,6 +665,13 @@ await collection.update(id, { $set: { email: 1 } });     // email is a string
 await collection.update(id, { $inc: { email: 1 } });     // not a numeric field
 await collection.update(id, { $push: { title: 'x' } });  // not an array field
 await collection.update(id, { id: 'abc' });              // id is computed
+await collection.create({ email, version: 1 });          // the collection keeps it
+await collection.create({ email, createdAt: '2024' });   // a timestamp is a Date
+await collection.update(id, { createdAt: new Date() });  // fixed once created
+await collection.update(id, { $inc: { version: 1 } });   // not through an operator either
+await collection.update(id, { deletedAt: null });        // `delete` and `restore`
+await tickets.update(id, { version: 3 });                // the version is `revision` there
+await collection.updateMany(filter, { version: 3 });     // no expected version for many
 collection.as('not-an-object-id');                       // the schema types the actor
 posts.as(someone);                                       // posts stamp no actor
 await members.groupBy('level', { measures: { n: { sum: 'name' } } });  // not a number
@@ -632,7 +680,8 @@ await members.populate(found, { team: { from: teams, by: 'name' } });  // not a 
 await members.populate(found, { name: { from: teams, by: 'teamId' } }); // name is a field
 ```
 
-The aggregation cases are in `test/types/aggregation.ts`.
+The aggregation cases are in `test/types/aggregation.ts`, the stamp cases in
+`test/types/stamp-writes.ts`.
 
 What is **not** checked: the tail of a dotted path, and a `filter`, which stays
 the driver's `Filter` — rebuilding it would mean reimplementing every query
@@ -640,6 +689,12 @@ operator, and getting it subtly wrong is worse than being honest about it.
 
 ## Traps
 
+- **A document that was read is not a create.** It carries its version, its
+  `deletedAt` and its actors, which a create refuses. Take the stamps out
+  first, or copy it with `raw`.
+- **A version in an update is a condition, not a value.** `{ version: 3 }`
+  never sets the version to 3: it makes the update fail unless the document is
+  at 3, and the update then leaves it at 4.
 - **There is no ambient session.** An operation inside `withTransaction` that
   was not given the session is not part of the transaction. Use
   `collection.withSession(session)` for every one of them.

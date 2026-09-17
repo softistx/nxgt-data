@@ -67,7 +67,7 @@ await collection.update({} as ObjectId, { name: null });
 // @ts-expect-error email is a string
 await collection.update({} as ObjectId, { email: 1 });
 // MongoDB's operators are the escape hatch.
-await collection.update({} as ObjectId, { $inc: { version: 2 } });
+await collection.update({} as ObjectId, { $inc: { age: 2 } });
 
 // Filters are the driver's, typed by the document.
 await collection.findMany({ filter: { email: 'a', age: { $gt: 3 } } });
