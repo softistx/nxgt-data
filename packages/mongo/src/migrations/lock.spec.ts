@@ -21,8 +21,14 @@ beforeAll(async () => {
 beforeEach(() => t.reset());
 afterAll(() => t.stop());
 
-const lock = () =>
-	t.db.collection<{ _id: string; holder?: string }>('nxgt_migrations_lock');
+interface Lock {
+	_id: string;
+	holder: string;
+	acquiredAt?: Date;
+	expiresAt: Date;
+}
+
+const lock = () => t.db.collection<Lock>('nxgt_migrations_lock');
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const noop = defineMigration({ id: 'noop', up: async () => {} });
 
@@ -55,7 +61,7 @@ describe('the migration lock', () => {
 			holder: 'elsewhere:1',
 			acquiredAt: new Date(),
 			expiresAt,
-		} as never);
+		});
 		const error = await migrate(t.db, [noop]).catch((e) => e);
 		expect(error).toBeInstanceOf(MigrationLockedError);
 		expect(error.code).toBe('MIGRATION_LOCKED');
@@ -74,7 +80,7 @@ describe('the migration lock', () => {
 			holder: 'crashed:1',
 			acquiredAt: new Date(0),
 			expiresAt: new Date(Date.now() - 1),
-		} as never);
+		});
 		expect((await migrate(t.db, [noop])).applied).toHaveLength(1);
 	});
 
@@ -93,7 +99,7 @@ describe('the migration lock', () => {
 			_id: 'lock',
 			holder: 'elsewhere:1',
 			expiresAt: new Date(Date.now() + 60_000),
-		} as never);
+		});
 		await t.failNext(['find'], { errorCode: 13 });
 		const error = await migrate(t.db, [noop]).catch((e) => e);
 		expect(error).toBeInstanceOf(DataError);

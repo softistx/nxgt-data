@@ -22,7 +22,11 @@ beforeAll(async () => {
 beforeEach(() => t.reset());
 afterAll(() => t.stop());
 
-const posts = () => t.db.collection<{ _id: number; slug?: string }>('posts');
+interface Post {
+	_id: number;
+}
+
+const posts = () => t.db.collection<Post>('posts');
 const recordIds = async (name = 'nxgt_migrations') =>
 	(await t.db.collection<{ _id: string }>(name).find().toArray()).map(
 		(r) => r._id,
@@ -34,19 +38,18 @@ function writes(id: string, post: number, transaction = true): Migration {
 		id,
 		transaction,
 		async up({ db, session }) {
-			await db
-				.collection('posts')
-				.insertOne({ _id: post } as never, { session });
+			await db.collection<Post>('posts').insertOne({ _id: post }, { session });
 		},
 		async down({ db, session }) {
-			await db
-				.collection('posts')
-				.deleteOne({ _id: post } as never, { session });
+			await db.collection<Post>('posts').deleteOne({ _id: post }, { session });
 		},
 	});
 }
 
-const list = [writes('one', 1), writes('two', 2), writes('three', 3)];
+const one = writes('one', 1);
+const two = writes('two', 2);
+const three = writes('three', 3);
+const list = [one, two, three];
 
 describe('migrate', () => {
 	test('applies the list in order, and records each one', async () => {
@@ -111,17 +114,11 @@ describe('migrate', () => {
 		const failing = defineMigration({
 			id: 'broken',
 			async up({ db, session }) {
-				await db
-					.collection('posts')
-					.insertOne({ _id: 9 } as never, { session });
+				await db.collection<Post>('posts').insertOne({ _id: 9 }, { session });
 				throw new Error('boom');
 			},
 		});
-		const error = await migrate(t.db, [
-			list[0] as Migration,
-			failing,
-			list[1] as Migration,
-		]).catch((e) => e);
+		const error = await migrate(t.db, [one, failing, two]).catch((e) => e);
 		expect(error).toBeInstanceOf(MigrationError);
 		expect(error.migration).toBe('broken');
 		expect(error.message).toBe(
@@ -138,7 +135,7 @@ describe('migrate', () => {
 			id: 'half',
 			transaction: false,
 			async up({ db }) {
-				await db.collection('posts').insertOne({ _id: 9 } as never);
+				await db.collection<Post>('posts').insertOne({ _id: 9 });
 				throw new Error('boom');
 			},
 		});
@@ -171,9 +168,9 @@ describe('migrate', () => {
 		await expect(migrate(t.db, list.slice(1))).rejects.toThrow(
 			'Migration "one" is recorded as applied and is no longer in the list',
 		);
-		await expect(
-			migrate(t.db, [list[1] as Migration, list[0] as Migration]),
-		).rejects.toThrow('Migration "two" is pending and listed before');
+		await expect(migrate(t.db, [two, one])).rejects.toThrow(
+			'Migration "two" is pending and listed before',
+		);
 		expect(await posts().countDocuments()).toBe(1);
 	});
 
@@ -242,7 +239,7 @@ describe('rollback', () => {
 
 	test('a migration with no down refuses the whole rollback', async () => {
 		const oneWay = defineMigration({ id: 'one-way', up: async () => {} });
-		const mixed = [list[0] as Migration, oneWay, list[1] as Migration];
+		const mixed = [one, oneWay, two];
 		await migrate(t.db, mixed);
 		await expect(rollback(t.db, mixed, { to: 'one' })).rejects.toThrow(
 			'Migration "one-way" has no down',
@@ -256,12 +253,12 @@ describe('rollback', () => {
 			id: 'stuck',
 			up: async () => {},
 			async down({ db, session }) {
-				await db.collection('posts').deleteMany({}, { session });
+				await db.collection<Post>('posts').deleteMany({}, { session });
 				throw new Error('nope');
 			},
 		});
-		await migrate(t.db, [list[0] as Migration, stuck]);
-		await expect(rollback(t.db, [list[0] as Migration, stuck])).rejects.toThrow(
+		await migrate(t.db, [one, stuck]);
+		await expect(rollback(t.db, [one, stuck])).rejects.toThrow(
 			'Migration "stuck" failed down, and nothing it did was kept: nope',
 		);
 		expect(await recordIds()).toEqual(['one', 'stuck']);
@@ -272,10 +269,7 @@ describe('rollback', () => {
 describe('migrationStatus', () => {
 	test('reports rather than refuses', async () => {
 		await migrate(t.db, list.slice(0, 2));
-		const status = await migrationStatus(t.db, [
-			list[1] as Migration,
-			list[2] as Migration,
-		]);
+		const status = await migrationStatus(t.db, [two, three]);
 		expect(status.map(({ id, state }) => ({ id, state }))).toEqual([
 			{ id: 'two', state: 'applied' },
 			{ id: 'three', state: 'pending' },
@@ -285,8 +279,8 @@ describe('migrationStatus', () => {
 	});
 
 	test('a list with an id twice is still refused', async () => {
-		await expect(
-			migrationStatus(t.db, [list[0] as Migration, list[0] as Migration]),
-		).rejects.toThrow('listed twice');
+		await expect(migrationStatus(t.db, [one, one])).rejects.toThrow(
+			'listed twice',
+		);
 	});
 });

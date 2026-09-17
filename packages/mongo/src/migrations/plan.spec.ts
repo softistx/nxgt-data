@@ -29,18 +29,25 @@ describe('defineMigration', () => {
 		).toBe(false);
 	});
 
-	test.each(['', 'has space', 'a/b', '#lock', 3])('refuses the id %p', (id) => {
-		expect(() => defineMigration({ id: id as never, up: noop })).toThrow(
+	test.each(['', 'has space', 'a/b', '#lock'])('refuses the id %p', (id) => {
+		expect(() => defineMigration({ id, up: noop })).toThrow(
+			'is not a migration id',
+		);
+	});
+
+	test('refuses an id that is not a string', () => {
+		// @ts-expect-error an id is a string
+		expect(() => defineMigration({ id: 3, up: noop })).toThrow(
 			'is not a migration id',
 		);
 	});
 
 	test('refuses a missing up, and a down that is not a function', () => {
-		expect(() => defineMigration({ id: 'a' } as never)).toThrow(
-			'"a" has no up',
-		);
+		// @ts-expect-error a migration has an up
+		expect(() => defineMigration({ id: 'a' })).toThrow('"a" has no up');
 		expect(() =>
-			defineMigration({ id: 'a', up: noop, down: 'no' as never }),
+			// @ts-expect-error a down is a function
+			defineMigration({ id: 'a', up: noop, down: 'no' }),
 		).toThrow('"a" has a down that is not a function');
 	});
 });
@@ -70,17 +77,16 @@ describe('the list against the records', () => {
 	});
 
 	test('a recorded migration the list lost is refused', () => {
-		const error = (() => {
-			try {
-				toApply(list, recorded('a', 'gone'), undefined);
-			} catch (e) {
-				return e as MigrationError;
-			}
-		})();
-		expect(error).toBeInstanceOf(MigrationError);
-		expect(error?.code).toBe('MIGRATION');
-		expect(error?.migration).toBe('gone');
-		expect(error?.message).toContain('no longer in the list');
+		let error: unknown;
+		try {
+			toApply(list, recorded('a', 'gone'), undefined);
+		} catch (caught) {
+			error = caught;
+		}
+		if (!(error instanceof MigrationError)) throw error;
+		expect(error.code).toBe('MIGRATION');
+		expect(error.migration).toBe('gone');
+		expect(error.message).toContain('no longer in the list');
 	});
 
 	test('a pending migration listed before an applied one is refused', () => {
