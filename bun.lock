@@ -54,7 +54,7 @@
     },
     "packages/mongo-kit": {
       "name": "@nxgt/mongo-kit",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "@nxgt/mongo": "workspace:^",
         "@types/bun": "^1.4.0",
