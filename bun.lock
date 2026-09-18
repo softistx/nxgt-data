@@ -144,6 +144,16 @@
         "zod": ">=4.6.5 <5",
       },
     },
+    "packages/s3": {
+      "name": "@nxgt/s3",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@types/bun": "^1.4.0",
+      },
+      "peerDependencies": {
+        "typescript": "^6.0.3",
+      },
+    },
   },
   "overrides": {
     "typescript": "~6.0.3",
@@ -238,6 +248,8 @@
     "@nxgt/openapi-hono": ["@nxgt/openapi-hono@0.3.0", "", { "peerDependencies": { "hono": "^4.13.4", "typescript": "^6.0.3" } }, "sha512-FMOJxP/TehtFrmOOYQjKI0+UiXuGn/GTXkhdjj5kzZVBy42fwquQbToeR4cZanfDjAH8SUgx0eQdIBxxyRaNUQ=="],
 
     "@nxgt/redis": ["@nxgt/redis@workspace:packages/redis"],
+
+    "@nxgt/s3": ["@nxgt/s3@workspace:packages/s3"],
 
     "@pkgjs/parseargs": ["@pkgjs/parseargs@0.11.0", "", {}, "sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg=="],
 
