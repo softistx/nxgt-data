@@ -14,6 +14,7 @@ registry:
 | `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection` with its stamps and MongoDB's own collection options, `syncCollection`/`syncAll` applying the `$jsonSchema` validator, the collection options and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, `withTransaction`, and migrations in code under the `./migrations` subpath. Its errors are `DataError` and its subclasses |
 | `@nxgt/mongo-meilisearch` | keeps a Meilisearch index in step with a MongoDB collection: `createSearchSync` with a `transform` typed by both definitions, `reindex`, and `start`, which follows the collection's changes in batches from a resume point kept in MongoDB. Its one error is `SearchSyncError` |
 | `@nxgt/mongo-kit` | an application's MongoDB wiring in one object: `defineConfig` checking a configuration of one or several databases, and `createKit` giving a `db` that is the driver's `Db` with every `@nxgt/mongo` collection typed on it, plus the actor, the session, transactions, `sync` and `close`. `discoverCollections` reads definitions from a glob, for scripts |
+| `@nxgt/mongo-search-kit` | a search kit over the wiring kit: `createSearchKit(kit, config)` takes one entry per collection — an index and a transform, under the key the kit wires that collection under — and gives one `reindexAll`, one `start` and one `close` for all of them. Each entry's sync is `@nxgt/mongo-meilisearch`'s, unchanged |
 
 `examples/` holds applications, not packages: they are `private`, unscoped,
 and the release scripts never see them — `publish.ts` and
@@ -160,6 +161,18 @@ matching key in `exports`.
   that reason — it measures what closing gives back, which only holds when
   nothing else holds the client. `test/models/` and `test/models-clash/` are
   the files `discoverCollections` globs.
+- **`@nxgt/mongo-search-kit`'s specs** hold the fifth mongod copy and a
+  second Meilisearch one (`test/mongo.ts`, `test/meilisearch.ts`), and
+  `test/fixtures.ts` starts one of each plus **one `MongoKit`** per spec
+  file. `beforeEach` drops both databases and then calls `kit.sync()`: the
+  drop takes the collections with it, and `autoSync` runs once per
+  collection per process, so nothing would recreate them. Its `test` script
+  downloads Meilisearch and passes `--timeout 30000`, for the same measured
+  reason as the bridge's. Two of its specs are regression specs with no
+  assertion of their own shape: one fails by **killing the run** if a
+  sync's `closed` stops being taken as it starts, and one pins that
+  `close()` still throws a second sync's failure once `failed` is spent.
+
 - **Type tests** are `test/types/*.ts`, checked by the package's
   `typecheck` (`tsc --noEmit`) and never run. A call that must not compile
   carries `// @ts-expect-error`; if it compiles, tsc fails on the unused
@@ -207,7 +220,7 @@ publishes to npm.
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
 | `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change both when the reason applies to both |
 | `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 87 lines each, ten of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ |
-| `test/server.ts` of `@nxgt/mongo` and of `@nxgt/meilisearch`, as `test/mongo.ts` and `test/meilisearch.ts` in `@nxgt/mongo-meilisearch`, again as `test/server.ts` in `@nxgt/mongo-kit`, and once more in `examples/hono-api/test/kit.ts` | a package reaches no sibling's tests, and an example reaches no package's. Keep `MONGOD_VERSION` equal in all four: CI keys the mongod cache on the hash of the four files |
+| `test/server.ts` of `@nxgt/mongo` and of `@nxgt/meilisearch`, as `test/mongo.ts` and `test/meilisearch.ts` in `@nxgt/mongo-meilisearch` and again in `@nxgt/mongo-search-kit`, as `test/server.ts` in `@nxgt/mongo-kit`, and once more in `examples/hono-api/test/kit.ts` | a package reaches no sibling's tests, and an example reaches no package's. Keep `MONGOD_VERSION` equal in all five mongod copies: CI keys the mongod cache on the hash of those five files |
 
 ## Keeping the code maintainable
 
@@ -321,9 +334,9 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **638 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 361,
-mongo-meilisearch 40, mongo-kit 70, hono-api-example 22, scripts 10. It runs one
-process per package, then the scripts' specs. Treat any failure as yours.
+`bun run test` is **652 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 361,
+mongo-meilisearch 40, mongo-kit 70, mongo-search-kit 14, hono-api-example 22,
+scripts 10. It runs one process per package, then the scripts' specs. Treat any failure as yours.
 
 - **The test mongod runs with `enableTestCommands`**, so a spec can make it
   fail a command on demand with `t.failNext(['getMore', 'aggregate'], …)`.
