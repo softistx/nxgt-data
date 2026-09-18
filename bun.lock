@@ -146,7 +146,7 @@
     },
     "packages/s3": {
       "name": "@nxgt/s3",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "@types/bun": "^1.4.0",
       },
