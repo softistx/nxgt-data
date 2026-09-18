@@ -45,6 +45,16 @@ jobs:
         with:
           path: .cache/meilisearch
           key: meilisearch-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/meilisearch.ts') }}
+      # @nxgt/redis's specs start a real Redis. Nothing publishes a prebuilt
+      # one — redis/redis and valkey both ship source only — so
+      # redis-memory-server compiles it; packages/redis/test/server.ts has
+      # what that costs. scripts/redis.ts does the build before the specs
+      # run, so it never lands inside a test's timeout.
+      - name: Cache the Redis build
+        uses: actions/cache@v4
+        with:
+          path: .cache/redis
+          key: redis-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/redis/test/server.ts', 'scripts/redis.ts') }}
       # @nxgt/mongo's specs start a real mongod, as a single-node replica set,
       # which is what transactions need. mongodb-memory-server downloads it on
       # the first start; the version is pinned in the file this key hashes.

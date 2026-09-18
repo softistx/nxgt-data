@@ -1,0 +1,59 @@
+{
+	"name": "@nxgt/redis",
+	"version": "0.0.0",
+	"description": "Redis on Bun's own client: one connection shared per URI, typed caches, locks, and typed pub/sub",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"README.md",
+		"package.json",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"keywords": [
+		"redis",
+		"bun",
+		"typescript",
+		"cache",
+		"lock",
+		"pubsub"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/softistx/nxgt-data.git",
+		"directory": "packages/redis"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	},
+	"scripts": {
+		"build": "bun run ../../build.ts",
+		"test": "bun run ../../scripts/redis.ts && bun test --timeout 30000 src",
+		"typecheck": "tsc --noEmit"
+	},
+	"nxgt": {
+		"entrypoints": [
+			"src/index.ts"
+		]
+	},
+	"devDependencies": {
+		"@types/bun": "^1.4.0",
+		"redis-memory-server": "0.17.1",
+		"zod": "4.6.5"
+	},
+	"peerDependencies": {
+		"typescript": "^6.0.3",
+		"zod": ">=4.6.5 <5"
+	}
+}
