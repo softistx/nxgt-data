@@ -1,3 +1,4 @@
+import { env } from './env';
 import { createApi } from './generated/hono';
 
 /**
@@ -9,5 +10,5 @@ import { createApi } from './generated/hono';
 export const api = createApi({
 	// Every reply is checked against the spec. It reads each body twice, so
 	// it is for development and tests, never for production.
-	validateResponses: process.env.NODE_ENV !== 'production',
+	validateResponses: env.NODE_ENV !== 'production',
 });

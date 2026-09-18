@@ -1,13 +1,14 @@
 import { defineConfig, type KitOf } from '@nxgt/mongo-kit';
 import * as collections from './collections';
+import { env } from './env';
 
 /**
- * The application's MongoDB, described once. It connects to nothing and
- * reads the environment here, where the application starts, so a missing
- * variable is a startup error rather than a surprise on the first request.
+ * The application's MongoDB, described once. It connects to nothing, and it
+ * reads no variable of its own: `env.MONGO_URI` was parsed and defaulted
+ * before this module was evaluated.
  */
 export const config = defineConfig({
-	uri: process.env.MONGO_URI ?? 'mongodb://127.0.0.1:27017/blog',
+	uri: env.MONGO_URI,
 	collections,
 	options: { maxPageSize: 50 },
 });
