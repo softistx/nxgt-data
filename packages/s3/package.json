@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/s3",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "S3 on Bun's own client: buckets described once, keys built by a typed function, uploads refused before they are sent, and presigned URLs from the same definition",
 	"license": "MIT",
 	"type": "module",
