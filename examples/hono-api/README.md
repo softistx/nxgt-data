@@ -24,9 +24,12 @@ reply the spec does not declare does not compile.
 ```sh
 bun install                      # from the repository root
 bun run --filter hono-api-example generate:api
-MONGO_URI=mongodb://127.0.0.1:27017/blog bun run --filter hono-api-example sync
-MONGO_URI=mongodb://127.0.0.1:27017/blog bun run --filter hono-api-example dev
+bun run --filter hono-api-example sync      # MONGO_URI defaults to localhost
+bun run --filter hono-api-example dev
 ```
+
+`MONGO_URI`, `PORT` and `NODE_ENV` all have defaults, so it starts with none
+of them set; each is declared in `bun.d.ts` and parsed in `src/env.ts`.
 
 ```sh
 curl -X POST localhost:3000/users -H 'x-user-id: 68ca1f0f2b1c4d5e6f7a8b90' \
@@ -39,7 +42,9 @@ starts a mongod in memory, as the packages' specs do.
 ## The layout
 
 ```
+bun.d.ts            the names this app reads from the environment
 src/
+  env.ts            the only file that reads `Bun.env`, parsed with zod
   db.ts             the configuration, and the `Kit` type read from it
   collections.ts    where the modules' models meet the kit
   api.ts            the spec's registry, shared by every module
@@ -62,6 +67,8 @@ module is measured where it is read.
 
 | File | What it shows |
 | --- | --- |
+| `bun.d.ts` | `declare module 'bun'`: what `Bun.env` holds for this app, at the package root so TypeScript sweeps it up |
+| `src/env.ts` | the environment parsed once with zod — enums, `z.coerce.number()`, a default per variable, `safeParse` and a readable refusal. Nothing else reads `Bun.env` |
 | `src/db.ts` | the whole configuration: one `defineConfig`, the collections as a module object, the options every collection gets, and `Kit` derived from it with `KitOf` |
 | `src/collections.ts` | the one module `defineConfig` reads — `db.users` comes from the name a definition is **exported** under, not from its collection name |
 | `src/modules/<name>/<name>.model.ts` | the definitions, each beside the service that uses it |
@@ -133,6 +140,83 @@ Nothing carries a session or a client by hand: `as` gives another kit over
 the same clients, and the transaction's kit puts every collection it touches
 in the session.
 
+## The environment
+
+One module reads it, once, and everything else reads that module:
+
+```ts
+// bun.d.ts — the names, at the package root
+declare module 'bun' {
+	interface Env {
+		/** Server */
+		PORT: string;
+		/** Database */
+		MONGO_URI: string;
+	}
+}
+
+// src/env.ts — the values, parsed
+const envSchema = z.object({
+	NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+	PORT: z.coerce.number().default(3000),
+	MONGO_URI: z.string().default('mongodb://127.0.0.1:27017/blog'),
+});
+
+export type Env = z.infer<typeof envSchema>;
+
+const parseEnv = (value: Record<keyof Env, string | undefined>): Env => {
+	const result = envSchema.safeParse(value);
+	if (!result.success) {
+		console.error('❌ Invalid environment variables:');
+		console.error(z.prettifyError(result.error));
+		throw new Error('Invalid environment variables');
+	}
+	return result.data;
+};
+
+export const env = parseEnv({
+	NODE_ENV: Bun.env.NODE_ENV,
+	PORT: Bun.env.PORT,
+	MONGO_URI: Bun.env.MONGO_URI,
+});
+```
+
+The map is explicit rather than `Bun.env` as a whole, and typed by the
+schema's own keys, so the two ways it can rot are compile errors:
+
+```
+Property 'MONGO_URI' is missing … but required in type
+  'Record<"NODE_ENV" | "PORT" | "MONGO_URI", string | undefined>'
+Object literal may only specify known properties, and 'LOG_LEVEL' does not
+  exist in type 'Record<"NODE_ENV" | "PORT" | "MONGO_URI", string | undefined>'
+```
+
+`PORT=abc bun src/index.ts` stops before it opens a connection:
+
+```
+❌ Invalid environment variables:
+✖ Invalid input: expected number, received NaN
+  → at PORT
+```
+
+## The server
+
+`src/index.ts` opens the kit, hands the app to `Bun.serve`, and gives the
+clients back on a signal:
+
+```ts
+const kit = await createKit(config);
+
+const server = serve({
+	fetch: buildApp(kit).fetch,
+	port: env.PORT,
+	hostname: '0.0.0.0',
+	development: env.NODE_ENV !== 'production' && { hmr: true, console: true },
+});
+
+console.log(`🚀 Server running at ${server.url} ${env.NODE_ENV}`);
+```
+
 ## The spec
 
 `openapi/` is split the way the applications here split it — a root document
@@ -162,6 +246,12 @@ here.
 
 ## Traps this example was written to avoid
 
+- **One module reads the environment.** `Bun.env` appears in `src/env.ts`
+  and nowhere else, so nothing downstream can read a variable that was never
+  declared, never parsed and never defaulted.
+- **The parsed port is the port that binds.** Bun reads `PORT` on its own if
+  `serve()` is not given one, which would make the schema's default a
+  decoration; `port: env.PORT` is what keeps `PORT=abc` a startup error.
 - **The kit is opened once**, not per request. A kit per request would open a
   client per request; `as` is what a request costs.
 - **A handler never sees the root kit.** It cannot write as another user, and
