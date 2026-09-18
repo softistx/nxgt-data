@@ -5,5 +5,5 @@
 		"declaration": false,
 		"declarationMap": false
 	},
-	"include": ["src", "openapi-codegen.config.ts"]
+	"include": ["src", "test", "openapi-codegen.config.ts"]
 }
