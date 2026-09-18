@@ -1,0 +1,22 @@
+type: object
+description: An article, as the API gives it back.
+additionalProperties: false
+required:
+  - id
+  - title
+  - body
+  - authorId
+  - createdAt
+properties:
+  id:
+    type: string
+  title:
+    type: string
+  body:
+    type: string
+  authorId:
+    type: string
+    description: The user the kit stamped as the author.
+  createdAt:
+    type: string
+    format: date-time

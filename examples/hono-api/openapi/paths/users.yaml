@@ -1,0 +1,22 @@
+post:
+  tags:
+    - users
+  summary: Create a user.
+  operationId: createUser
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../components/schemas/NewUser.yaml
+  responses:
+    '201':
+      description: The user, as it was stored.
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/User.yaml
+    '401':
+      $ref: ../components/responses/Unauthorized.yaml
+    '409':
+      $ref: ../components/responses/Conflict.yaml

@@ -1,0 +1,13 @@
+type: object
+description: What a client sends to write an article.
+additionalProperties: false
+required:
+  - title
+  - body
+properties:
+  title:
+    type: string
+    minLength: 1
+  body:
+    type: string
+    minLength: 1

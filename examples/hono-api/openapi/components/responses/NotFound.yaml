@@ -1,0 +1,5 @@
+description: Nothing here answers to that id.
+content:
+  application/json:
+    schema:
+      $ref: ../schemas/Problem.yaml

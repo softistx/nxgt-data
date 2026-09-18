@@ -1,0 +1,15 @@
+extends:
+  - recommended
+
+# Rules at the root, not under the api: the generator lints the spec by its
+# path, and only a named api's rules would be skipped that way.
+rules:
+  no-ambiguous-paths: error
+  # `@nxgt/openapi-codegen` declares the 400 it answers a refused request
+  # with on every operation that takes an input, as `ValidationErrorBody`.
+  # Writing it here too would give each operation two shapes for one reply.
+  operation-4xx-response: off
+
+apis:
+  blog@v1:
+    root: ./openapi/openapi.yaml

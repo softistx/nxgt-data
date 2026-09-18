@@ -1,0 +1,14 @@
+delete:
+  tags:
+    - articles
+  summary: Take an article back. It is kept, with the time it was removed.
+  operationId: deleteArticle
+  parameters:
+    - $ref: ../components/parameters/id.yaml
+  responses:
+    '204':
+      description: Removed.
+    '401':
+      $ref: ../components/responses/Unauthorized.yaml
+    '404':
+      $ref: ../components/responses/NotFound.yaml

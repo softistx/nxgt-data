@@ -1,0 +1,25 @@
+type: object
+description: A user, as the API gives it back.
+additionalProperties: false
+required:
+  - id
+  - email
+  - articles
+  - createdAt
+properties:
+  id:
+    type: string
+    description: The document's `_id`, as a hex string.
+    examples:
+      - 68ca1f0f2b1c4d5e6f7a8b90
+  email:
+    type: string
+    format: email
+  name:
+    type: string
+  articles:
+    type: integer
+    description: How many articles this user has written.
+  createdAt:
+    type: string
+    format: date-time

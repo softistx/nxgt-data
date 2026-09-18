@@ -1,0 +1,22 @@
+type: object
+description: One page of articles, as `paginate` reports it.
+additionalProperties: false
+required:
+  - items
+  - page
+  - pageSize
+  - total
+  - pageCount
+properties:
+  items:
+    type: array
+    items:
+      $ref: ./Article.yaml
+  page:
+    type: integer
+  pageSize:
+    type: integer
+  total:
+    type: integer
+  pageCount:
+    type: integer
