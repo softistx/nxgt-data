@@ -1,0 +1,61 @@
+{
+	"name": "@nxgt/mongo-kit",
+	"version": "0.0.0",
+	"description": "An application's MongoDB wiring in one object: a validated config, the clients it opens from it, and every collection typed on the database it lives in",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"README.md",
+		"package.json",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"keywords": [
+		"mongodb",
+		"typescript",
+		"collections",
+		"configuration",
+		"transactions"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/softistx/nxgt-data.git",
+		"directory": "packages/mongo-kit"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	},
+	"scripts": {
+		"build": "bun run ../../build.ts",
+		"test": "bun test src",
+		"typecheck": "tsc --noEmit"
+	},
+	"nxgt": {
+		"entrypoints": [
+			"src/index.ts"
+		]
+	},
+	"devDependencies": {
+		"@nxgt/mongo": "workspace:^",
+		"@types/bun": "^1.4.0",
+		"mongodb": "7.6.0",
+		"mongodb-memory-server-core": "11.2.0",
+		"zod": "4.6.5"
+	},
+	"peerDependencies": {
+		"@nxgt/mongo": "workspace:^",
+		"mongodb": ">=7.0.0 <8",
+		"typescript": "^6.0.3"
+	}
+}
