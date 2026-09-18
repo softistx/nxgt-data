@@ -10,6 +10,7 @@ Data access for TypeScript apps: the code written around every table, once.
 | [`@nxgt/mongo-meilisearch`](packages/mongo-meilisearch) | keeps a Meilisearch index in step with a MongoDB collection: a transform typed by both definitions, a full reindex, and a change stream that resumes where it stopped | [npm](https://www.npmjs.com/package/@nxgt/mongo-meilisearch) |
 | [`@nxgt/mongo-kit`](packages/mongo-kit) | an application's MongoDB wiring in one object: a configuration checked once, the clients it opens from it, and every collection typed on the driver's own `Db` — `db.users` — with the actor, the session and transactions carried for you | [npm](https://www.npmjs.com/package/@nxgt/mongo-kit) |
 | [`@nxgt/mongo-search-kit`](packages/mongo-search-kit) | a search kit over that wiring: one entry per collection — an index and a transform — and one `reindexAll`, `start` and `close` for all of them | [npm](https://www.npmjs.com/package/@nxgt/mongo-search-kit) |
+| [`@nxgt/redis`](packages/redis) | Redis on Bun's own client: one connection shared per URI, typed caches and channels, and a lock that is safe to release | [npm](https://www.npmjs.com/package/@nxgt/redis) |
 
 Each package's README, its npm page, shows how to use it, then documents
 every function, class and type it exports in its **API** section.
