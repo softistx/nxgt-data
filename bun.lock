@@ -107,6 +107,30 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/mongo-search-kit": {
+      "name": "@nxgt/mongo-search-kit",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@nxgt/meilisearch": "workspace:^",
+        "@nxgt/mongo": "workspace:^",
+        "@nxgt/mongo-kit": "workspace:^",
+        "@nxgt/mongo-meilisearch": "workspace:^",
+        "@types/bun": "^1.4.0",
+        "meilisearch": "0.62.0",
+        "mongodb": "7.6.0",
+        "mongodb-memory-server-core": "11.2.0",
+        "zod": "4.6.5",
+      },
+      "peerDependencies": {
+        "@nxgt/meilisearch": "workspace:^",
+        "@nxgt/mongo": "workspace:^",
+        "@nxgt/mongo-kit": "workspace:^",
+        "@nxgt/mongo-meilisearch": "workspace:^",
+        "meilisearch": ">=0.62.0 <1",
+        "mongodb": ">=7.0.0 <8",
+        "typescript": "^6.0.3",
+      },
+    },
   },
   "overrides": {
     "typescript": "~6.0.3",
@@ -189,6 +213,8 @@
     "@nxgt/mongo-kit": ["@nxgt/mongo-kit@workspace:packages/mongo-kit"],
 
     "@nxgt/mongo-meilisearch": ["@nxgt/mongo-meilisearch@workspace:packages/mongo-meilisearch"],
+
+    "@nxgt/mongo-search-kit": ["@nxgt/mongo-search-kit@workspace:packages/mongo-search-kit"],
 
     "@nxgt/openapi-codegen": ["@nxgt/openapi-codegen@0.4.0", "", { "peerDependencies": { "@redocly/openapi-core": "^2.52.1", "typescript": "^6.0.3", "zod": "^4.5.4" }, "optionalPeers": ["@redocly/openapi-core"], "bin": { "nxgt-openapi": "dist/cli.js" } }, "sha512-gufo2rU7jJWZIWdfft2DJNS4CLfm/2PHt4Q55hbzjzwTPSOLkhVTrD1tlI79qPU0oTtBkIOIZkwoC/LNE6Iq1g=="],
 
