@@ -295,6 +295,17 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   not flat.
 - **A package keeps its own errors.** `@nxgt/drizzle` throws `DataError` and
   its subclasses; it depends on no exception package.
+- **The verb says what the function does.** `define*` describes and touches
+  nothing (`defineCollection`, `defineIndex`, `defineConfig`,
+  `defineMigration`); `get*` and `bind*` attach to a live client without
+  reaching the server (`getCollection`, `bindIndex`); `connect*` opens it
+  (`connectMongo`). `create*` assembles an object and does **no** I/O:
+  `createRepository`, `createSearchSync` and `createContext` are all
+  synchronous. **`createKit` is the one exception** — it is `async` and opens
+  the clients. Steve kept the name on 2026-09-17, against `openMongo` and
+  `connectMongoKit`, because it is the short form of the `MongoKit` it
+  returns in a package called `mongo-kit`. Do not read it as licence for a
+  second async `create*`.
 
 ## Known state
 
