@@ -1,0 +1,51 @@
+get:
+  tags:
+    - articles
+  summary: List articles, most recent first.
+  operationId: listArticles
+  parameters:
+    - name: page
+      in: query
+      required: false
+      description: 1-based. Default 1.
+      schema:
+        type: integer
+        minimum: 1
+    - name: pageSize
+      in: query
+      required: false
+      description: Default 20, at most 50.
+      schema:
+        type: integer
+        minimum: 1
+  responses:
+    '200':
+      description: One page of articles.
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ArticlePage.yaml
+    '401':
+      $ref: ../components/responses/Unauthorized.yaml
+post:
+  tags:
+    - articles
+  summary: Write an article, as the user the request carries.
+  operationId: createArticle
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../components/schemas/NewArticle.yaml
+  responses:
+    '201':
+      description: The article, with its author's count already raised.
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/Article.yaml
+    '401':
+      $ref: ../components/responses/Unauthorized.yaml
+    '404':
+      $ref: ../components/responses/NotFound.yaml

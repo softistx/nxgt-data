@@ -1,0 +1,7 @@
+name: id
+in: path
+required: true
+description: The document's `_id`, as a hex string.
+schema:
+  type: string
+  pattern: '^[0-9a-fA-F]{24}$'

@@ -1,0 +1,41 @@
+openapi: 3.1.0
+info:
+  title: Blog
+  description: |
+    A small blog API, written to show what `@nxgt/mongo-kit` wires: one
+    configuration, a kit per request carrying the author, and the
+    collections typed on the driver's own `Db`.
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+servers:
+  - url: /
+    description: Wherever this API is served from
+tags:
+  - name: users
+    description: The people who write
+  - name: articles
+    description: What they write
+security:
+  - userId: []
+components:
+  securitySchemes:
+    userId:
+      type: apiKey
+      in: header
+      name: x-user-id
+      description: |
+        Who is asking, as a user's `_id`. The example keeps it a bare header
+        so that the wiring stays the subject; a real application puts its
+        session behind this, and the kit takes the actor from there just the
+        same.
+paths:
+  /users:
+    $ref: paths/users.yaml
+  /users/{id}:
+    $ref: paths/users_id.yaml
+  /articles:
+    $ref: paths/articles.yaml
+  /articles/{id}:
+    $ref: paths/articles_id.yaml

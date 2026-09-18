@@ -1,0 +1,5 @@
+description: No `x-user-id`, or one that is no user id.
+content:
+  application/json:
+    schema:
+      $ref: ../schemas/Problem.yaml

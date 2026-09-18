@@ -13,6 +13,10 @@ Data access for TypeScript apps: the code written around every table, once.
 Each package's README, its npm page, shows how to use it, then documents
 every function, class and type it exports in its **API** section.
 
+`examples/` holds applications built on them, which are not published:
+[`examples/hono-api`](examples/hono-api) is a Hono API on `@nxgt/mongo-kit`
+whose routes come from an OpenAPI spec.
+
 ## Development
 
 Bun 1.4.2.

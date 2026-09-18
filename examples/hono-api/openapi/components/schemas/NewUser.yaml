@@ -1,0 +1,11 @@
+type: object
+description: What a client sends to create a user.
+additionalProperties: false
+required:
+  - email
+properties:
+  email:
+    type: string
+    format: email
+  name:
+    type: string

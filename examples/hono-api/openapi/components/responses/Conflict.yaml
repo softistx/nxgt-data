@@ -1,0 +1,5 @@
+description: A unique index already holds that value.
+content:
+  application/json:
+    schema:
+      $ref: ../schemas/Problem.yaml
