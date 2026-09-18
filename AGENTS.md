@@ -13,6 +13,7 @@ registry:
 | `@nxgt/meilisearch` | a typed Meilisearch index on the official SDK: `defineIndex<Doc>()({ uid, primaryKey, settings })`, `syncIndex`/`syncIndexes` applying the settings idempotently, and `bindIndex` for typed documents and searches. Its one error is `SearchIndexError` |
 | `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection` with its stamps and MongoDB's own collection options, `syncCollection`/`syncAll` applying the `$jsonSchema` validator, the collection options and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, `withTransaction`, and migrations in code under the `./migrations` subpath. Its errors are `DataError` and its subclasses |
 | `@nxgt/mongo-meilisearch` | keeps a Meilisearch index in step with a MongoDB collection: `createSearchSync` with a `transform` typed by both definitions, `reindex`, and `start`, which follows the collection's changes in batches from a resume point kept in MongoDB. Its one error is `SearchSyncError` |
+| `@nxgt/mongo-kit` | an application's MongoDB wiring in one object: `defineConfig` checking a configuration of one or several databases, and `createKit` giving a `db` that is the driver's `Db` with every `@nxgt/mongo` collection typed on it, plus the actor, the session, transactions, `sync` and `close`. `discoverCollections` reads definitions from a glob, for scripts |
 
 It was started on 2026-09-15, on the tooling of `softistx/nxgt-http`: the
 same build, artifact check, publish script, CI and conventions. When one of
@@ -54,7 +55,12 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   `mongodb-memory-server-core` is a devDependency, and it depends on
   `mongodb ^7.2.0`: keep the pin inside that range, or the tree carries two
   drivers and two `ObjectId` classes, which no `instanceof` survives.
-- **`@nxgt/mongo-meilisearch` is the one package built on siblings.** It
+- **Two packages are built on siblings**, and both are the same shape: a
+  package over siblings is a package of its own, never an import from one
+  into another. `@nxgt/mongo-kit` has `@nxgt/mongo` as a required peer, by
+  `workspace:^`, and as a devDependency the same way; `mongodb` is a peer
+  with the sibling's range and pin. `@nxgt/mongo` knows nothing of it.
+- **`@nxgt/mongo-meilisearch` is the bridge between two of them.** It
   has `@nxgt/mongo` and `@nxgt/meilisearch` as required peers, by
   `workspace:^`, and as devDependencies, the same way; `mongodb` and
   `meilisearch` are peers with their siblings' ranges and pins. Neither
@@ -135,6 +141,13 @@ matching key in `exports`.
   downloads Meilisearch first, as `@nxgt/meilisearch`'s does, and passes
   `--timeout 30000`: Meilisearch takes about half a second to apply each
   write, measured, so a test that writes a few batches outlasts Bun's 5 s.
+- **`@nxgt/mongo-kit`'s specs** hold the third copy of the mongod server
+  (`test/server.ts`), one per spec file, and `test/fixtures.ts` closes the
+  kits a file opened: `connectMongo` shares a client per URI, so a kit a
+  test left open keeps the server alive. `close.spec.ts` is on its own for
+  that reason — it measures what closing gives back, which only holds when
+  nothing else holds the client. `test/models/` and `test/models-clash/` are
+  the files `discoverCollections` globs.
 - **Type tests** are `test/types/*.ts`, checked by the package's
   `typecheck` (`tsc --noEmit`) and never run. A call that must not compile
   carries `// @ts-expect-error`; if it compiles, tsc fails on the unused
@@ -182,7 +195,7 @@ publishes to npm.
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
 | `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change both when the reason applies to both |
 | `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 87 lines each, ten of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ |
-| `test/server.ts` of `@nxgt/mongo` and of `@nxgt/meilisearch`, as `test/mongo.ts` and `test/meilisearch.ts` in `@nxgt/mongo-meilisearch` | a package reaches no sibling's tests. Keep `MONGOD_VERSION` equal in both mongo copies: CI keys the mongod cache on the hash of both files |
+| `test/server.ts` of `@nxgt/mongo` and of `@nxgt/meilisearch`, as `test/mongo.ts` and `test/meilisearch.ts` in `@nxgt/mongo-meilisearch`, and again as `test/server.ts` in `@nxgt/mongo-kit` | a package reaches no sibling's tests. Keep `MONGOD_VERSION` equal in all three mongo copies: CI keys the mongod cache on the hash of the three files |
 
 ## Keeping the code maintainable
 
@@ -285,8 +298,8 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **546 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 361,
-mongo-meilisearch 40, scripts 10. It runs one
+`bun run test` is **616 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 361,
+mongo-meilisearch 40, mongo-kit 70, scripts 10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
 
 - **The test mongod runs with `enableTestCommands`**, so a spec can make it

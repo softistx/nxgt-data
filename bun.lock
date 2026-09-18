@@ -52,6 +52,22 @@
         "zod": ">=4.6.5 <5",
       },
     },
+    "packages/mongo-kit": {
+      "name": "@nxgt/mongo-kit",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@nxgt/mongo": "workspace:^",
+        "@types/bun": "^1.4.0",
+        "mongodb": "7.6.0",
+        "mongodb-memory-server-core": "11.2.0",
+        "zod": "4.6.5",
+      },
+      "peerDependencies": {
+        "@nxgt/mongo": "workspace:^",
+        "mongodb": ">=7.0.0 <8",
+        "typescript": "^6.0.3",
+      },
+    },
     "packages/mongo-meilisearch": {
       "name": "@nxgt/mongo-meilisearch",
       "version": "0.1.1",
@@ -148,6 +164,8 @@
     "@nxgt/meilisearch": ["@nxgt/meilisearch@workspace:packages/meilisearch"],
 
     "@nxgt/mongo": ["@nxgt/mongo@workspace:packages/mongo"],
+
+    "@nxgt/mongo-kit": ["@nxgt/mongo-kit@workspace:packages/mongo-kit"],
 
     "@nxgt/mongo-meilisearch": ["@nxgt/mongo-meilisearch@workspace:packages/mongo-meilisearch"],
 

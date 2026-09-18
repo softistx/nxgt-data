@@ -8,6 +8,7 @@ Data access for TypeScript apps: the code written around every table, once.
 | [`@nxgt/meilisearch`](packages/meilisearch) | a typed Meilisearch index on the official SDK: one definition for its uid, primary key and settings, settings synced idempotently, and documents and searches typed by it | [npm](https://www.npmjs.com/package/@nxgt/meilisearch) |
 | [`@nxgt/mongo`](packages/mongo) | a typed MongoDB collection from one Zod schema: the same schema types the documents and becomes the collection's `$jsonSchema` validator, synced with its indexes and MongoDB's own collection options, plus a collection that carries the driver's own methods, with pagination, soft delete, optimistic locking and transactions | [npm](https://www.npmjs.com/package/@nxgt/mongo) |
 | [`@nxgt/mongo-meilisearch`](packages/mongo-meilisearch) | keeps a Meilisearch index in step with a MongoDB collection: a transform typed by both definitions, a full reindex, and a change stream that resumes where it stopped | [npm](https://www.npmjs.com/package/@nxgt/mongo-meilisearch) |
+| [`@nxgt/mongo-kit`](packages/mongo-kit) | an application's MongoDB wiring in one object: a configuration checked once, the clients it opens from it, and every collection typed on the driver's own `Db` — `db.users` — with the actor, the session and transactions carried for you | [npm](https://www.npmjs.com/package/@nxgt/mongo-kit) |
 
 Each package's README, its npm page, shows how to use it, then documents
 every function, class and type it exports in its **API** section.
