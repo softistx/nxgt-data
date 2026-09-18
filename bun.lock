@@ -109,7 +109,7 @@
     },
     "packages/mongo-search-kit": {
       "name": "@nxgt/mongo-search-kit",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "@nxgt/meilisearch": "workspace:^",
         "@nxgt/mongo": "workspace:^",
