@@ -1,0 +1,55 @@
+{
+	"name": "@nxgt/s3",
+	"version": "0.0.0",
+	"description": "S3 on Bun's own client: buckets described once, keys built by a typed function, uploads refused before they are sent, and presigned URLs from the same definition",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"README.md",
+		"package.json",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"keywords": [
+		"s3",
+		"bun",
+		"typescript",
+		"storage",
+		"presigned-url"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/softistx/nxgt-data.git",
+		"directory": "packages/s3"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	},
+	"scripts": {
+		"build": "bun run ../../build.ts",
+		"test": "bun run ../../scripts/seaweedfs.ts && bun test --timeout 30000 src",
+		"typecheck": "tsc --noEmit"
+	},
+	"nxgt": {
+		"entrypoints": [
+			"src/index.ts"
+		]
+	},
+	"devDependencies": {
+		"@types/bun": "^1.4.0"
+	},
+	"peerDependencies": {
+		"typescript": "^6.0.3"
+	}
+}

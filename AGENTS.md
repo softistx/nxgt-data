@@ -16,6 +16,7 @@ registry:
 | `@nxgt/mongo-kit` | an application's MongoDB wiring in one object: `defineConfig` checking a configuration of one or several databases, and `createKit` giving a `db` that is the driver's `Db` with every `@nxgt/mongo` collection typed on it, plus the actor, the session, transactions, `sync` and `close`. `discoverCollections` reads definitions from a glob, for scripts |
 | `@nxgt/mongo-search-kit` | a search kit over the wiring kit: `createSearchKit(kit, config)` takes one entry per collection — an index and a transform, under the key the kit wires that collection under — and gives one `reindexAll`, one `start` and one `close` for all of them. Each entry's sync is `@nxgt/mongo-meilisearch`'s, unchanged |
 | `@nxgt/redis` | Redis on Bun's own `RedisClient`, with no third-party driver: `connectRedis`/`closeRedis` sharing one client per URI, `defineCache`/`bindCache` with the key built by a typed function and the value checked by its schema both ways, `withLock` over `SET NX PX` released by a compare-and-delete script, and `defineChannel`/`publish`/`subscribe` typed the same way. Its one error is `RedisError` |
+| `@nxgt/s3` | S3 on Bun's own `S3Client`, with no AWS SDK: `defineBucket` naming the bucket, the key-building function, the content types and the maximum size, and `bindBucket` giving `put`/`bytes`/`text`/`exists`/`stat`/`delete`, a `list` in this repository's cursor shape, and `presignGet`/`presignPut` from the same definition. The content type and the size are refused **before** the request goes out. Its one error is `S3Error` |
 
 `examples/` holds applications, not packages: they are `private`, unscoped,
 and the release scripts never see them — `publish.ts` and
@@ -197,6 +198,26 @@ matching key in `exports`.
   because `connectRedis` shares a client per URI and a connection a test left
   open would outlive it.
 
+- **`@nxgt/s3`'s specs run against a real S3 API**, one SeaweedFS per spec
+  file: `weed server -s3`, from the binary `scripts/seaweedfs.ts` downloads
+  into `.cache/seaweedfs`. **Not MinIO** — measured 2026-09-18, `dl.min.io`
+  answers `410 Gone` and the project is archived, so nothing in any repository
+  should plan around it. Four things about SeaweedFS were measured here and
+  every one of them is a line in `test/server.ts`: `-dir` must already exist,
+  or it dies; 4.47 starts an **Iceberg** catalog on a fixed 8181 and a
+  **Lance** namespace on a fixed 9101, either of which kills the process when
+  a second spec file starts, so both are `=0`; each service listens **twice**,
+  and its gRPC port defaults to its own `+10000`, so either name it —
+  `-master.port.grpc` and the three others, which is what `test/server.ts`
+  does — or keep that neighbour free; and each bucket is a *collection*
+  needing a volume,
+  which the production defaults (8 volumes of 30 GB) cannot allocate — hence
+  `-master.volumeSizeLimitMB=64 -volume.max=100`. **Its log goes to a file,
+  never a pipe**: SeaweedFS fills a 64 KB pipe buffer in under a minute, and a
+  pipe nobody drains blocks the process writing to it. `weed` also leaves a
+  unix socket in the temp directory per port it bound, so `stop()` removes the
+  eight it knows.
+
 - **Type tests** are `test/types/*.ts`, checked by the package's
   `typecheck` (`tsc --noEmit`) and never run. A call that must not compile
   carries `// @ts-expect-error`; if it compiles, tsc fails on the unused
@@ -243,7 +264,7 @@ publishes to npm.
 | --- | --- |
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
 | `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change both when the reason applies to both |
-| `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 87 lines each, ten of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ |
+| `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 87 lines each, ten of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ. `@nxgt/s3`'s `ObjectPage` is **not** a copy either — four lines agreeing with `CursorPage`'s shape so a caller pages the same way, with no logic to keep in step |
 | `connection/connect.ts`, in `@nxgt/mongo` and `@nxgt/redis` | reference-counted client sharing per URI, copied rather than factored: a shared `@nxgt/connection` would make both depend on a sibling for one function, and layering comes first. **107 of 167 lines are identical**, comments included — closer than `page.ts` — so **a fix in one is a fix to make in the other**, and a spec added to one belongs in the other. What deliberately differs: `@nxgt/redis` has no `db`, holds the `RedisClient` itself rather than a `Promise<MongoClient>`, closes synchronously, closes sequentially in `closeRedis` where `closeMongo` uses `Promise.all`, and compares options with `Bun.deepEquals` in place of a hand-written `sameValue` |
 | `test/server.ts` of `@nxgt/mongo` and of `@nxgt/meilisearch`, as `test/mongo.ts` and `test/meilisearch.ts` in `@nxgt/mongo-meilisearch` and again in `@nxgt/mongo-search-kit`, as `test/server.ts` in `@nxgt/mongo-kit`, and once more in `examples/hono-api/test/kit.ts` | a package reaches no sibling's tests, and an example reaches no package's. Keep `MONGOD_VERSION` equal in all five mongod copies: CI keys the mongod cache on the hash of those five files |
 
@@ -359,9 +380,9 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **699 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 361,
-mongo-meilisearch 40, mongo-kit 70, mongo-search-kit 14, redis 44,
-hono-api-example 22, scripts 13. It runs one process per package, then the
+`bun run test` is **740 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 361,
+mongo-meilisearch 40, mongo-kit 70, mongo-search-kit 14, redis 44, s3 36,
+hono-api-example 22, scripts 18. It runs one process per package, then the
 scripts' specs. Treat any failure as yours.
 
 - **The test mongod runs with `enableTestCommands`**, so a spec can make it
