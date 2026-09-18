@@ -25,7 +25,7 @@ keeping them in the workspace.
 
 | example | what it shows |
 | --- | --- |
-| `examples/hono-api` | a Hono API on `@nxgt/mongo-kit`, its routes generated from an OpenAPI spec by `@nxgt/openapi-codegen` (nxgt-http) and bound by `@nxgt/openapi-hono`: one `defineConfig`, `kit.as(actor)` per request on the Hono context, a transaction across two collections, `sync()` as a deployment step, and a spec that calls the app over a mongod in memory |
+| `examples/hono-api` | a Hono API on `@nxgt/mongo-kit`, its routes generated from an OpenAPI spec by `@nxgt/openapi-codegen` (nxgt-http) and bound by `@nxgt/openapi-hono`. Laid out **by module**, not by layer: `src/modules/users/` holds `users.model.ts`, `users.service.ts` and `users.route.ts`, and a module **exports** its own `Hono` rather than being handed one — `src/api.ts` is the shared registry, `tag` bounds each module to its own operations, and `app.ts` only mounts. A service takes the **kit first**, the middleware binds them to `kit.as(actor)` and puts them on the context, so a handler never reaches the kit. A transaction across two collections, `sync()` as a deployment step, and a spec beside each file it measures: every module has both a service spec, with no HTTP at all, and a route spec over a mongod in memory, and `app.spec.ts` keeps only what is left — the middleware, and that the mounted modules serve the whole spec |
 
 It was started on 2026-09-15, on the tooling of `softistx/nxgt-http`: the
 same build, artifact check, publish script, CI and conventions. When one of
@@ -207,7 +207,7 @@ publishes to npm.
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
 | `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change both when the reason applies to both |
 | `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 87 lines each, ten of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ |
-| `test/server.ts` of `@nxgt/mongo` and of `@nxgt/meilisearch`, as `test/mongo.ts` and `test/meilisearch.ts` in `@nxgt/mongo-meilisearch`, again as `test/server.ts` in `@nxgt/mongo-kit`, and once more inline in `examples/hono-api/src/app.spec.ts` | a package reaches no sibling's tests, and an example reaches no package's. Keep `MONGOD_VERSION` equal in all four: CI keys the mongod cache on the hash of the four files |
+| `test/server.ts` of `@nxgt/mongo` and of `@nxgt/meilisearch`, as `test/mongo.ts` and `test/meilisearch.ts` in `@nxgt/mongo-meilisearch`, again as `test/server.ts` in `@nxgt/mongo-kit`, and once more in `examples/hono-api/test/kit.ts` | a package reaches no sibling's tests, and an example reaches no package's. Keep `MONGOD_VERSION` equal in all four: CI keys the mongod cache on the hash of the four files |
 
 ## Keeping the code maintainable
 
@@ -321,8 +321,8 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **626 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 361,
-mongo-meilisearch 40, mongo-kit 70, hono-api-example 10, scripts 10. It runs one
+`bun run test` is **638 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 361,
+mongo-meilisearch 40, mongo-kit 70, hono-api-example 22, scripts 10. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
 
 - **The test mongod runs with `enableTestCommands`**, so a spec can make it

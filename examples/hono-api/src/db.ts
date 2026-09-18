@@ -1,5 +1,5 @@
-import { defineConfig } from '@nxgt/mongo-kit';
-import * as collections from './models';
+import { defineConfig, type KitOf } from '@nxgt/mongo-kit';
+import * as collections from './collections';
 
 /**
  * The application's MongoDB, described once. It connects to nothing and
@@ -11,3 +11,6 @@ export const config = defineConfig({
 	collections,
 	options: { maxPageSize: 50 },
 });
+
+/** This application's kit, read from the configuration rather than written twice. */
+export type Kit = KitOf<typeof config>;

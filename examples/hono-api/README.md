@@ -2,7 +2,12 @@
 
 A small blog — users and articles — written to show what the kit wires in a
 real application: one configuration, a **kit per request** carrying the
-author, and the collections typed on the driver's own `Db`.
+author, services that take that kit, and the collections typed on the
+driver's own `Db`.
+
+It is laid out **by module**, not by layer: everything about users sits in
+`src/modules/users/`, and a module exports its own Hono app rather than
+being handed one.
 
 The OpenAPI spec is the source of the routes:
 [`@nxgt/openapi-codegen`](https://www.npmjs.com/package/@nxgt/openapi-codegen)
@@ -31,18 +36,48 @@ curl -X POST localhost:3000/users -H 'x-user-id: 68ca1f0f2b1c4d5e6f7a8b90' \
 `bun run --filter hono-api-example test` needs no server of its own: the spec
 starts a mongod in memory, as the packages' specs do.
 
+## The layout
+
+```
+src/
+  db.ts             the configuration, and the `Kit` type read from it
+  collections.ts    where the modules' models meet the kit
+  api.ts            the spec's registry, shared by every module
+  context.ts        what a request carries: the modules' services, composed
+  app.ts            the middleware, and the modules mounted
+  modules/
+    users/          users.model.ts · users.service.ts · users.route.ts (+ .spec.ts)
+    articles/       articles.model.ts · articles.service.ts · articles.route.ts (+ .spec.ts)
+test/
+  kit.ts            a mongod and a kit per spec file
+  api.ts            the same, plus the built app
+  types/routes.ts   what the types refuse, never run
+```
+
+A subject is one folder, and the three files are always the same three: what
+is stored, what is done, what is served — each with its spec beside it, so a
+module is measured where it is read.
+
 ## What to look at
 
 | File | What it shows |
 | --- | --- |
-| `src/db.ts` | the whole configuration: one `defineConfig`, the collections as a module object, the options every collection gets |
-| `src/models/*.model.ts` | the definitions, and the module that gathers them — `db.users` comes from the name a definition is **exported** under, not from its collection name |
-| `src/app.ts` | `kit.as(actor)` once per request, put on the context. A handler gets the collections already stamping this user, and never the root kit — so it cannot write as anyone else, nor close it |
-| `src/routes/articles.ts` | `paginate` behind a paged reply, a **transaction** across two collections, and a soft delete |
-| `src/routes/users.ts` | the boundary between the stored document and the API document, written once |
+| `src/db.ts` | the whole configuration: one `defineConfig`, the collections as a module object, the options every collection gets, and `Kit` derived from it with `KitOf` |
+| `src/collections.ts` | the one module `defineConfig` reads — `db.users` comes from the name a definition is **exported** under, not from its collection name |
+| `src/modules/<name>/<name>.model.ts` | the definitions, each beside the service that uses it |
+| `src/modules/<name>/<name>.service.ts` | the work: every function takes the **kit first**, so the same service runs from a request, a script or a test. `paginate`, a **transaction** across two collections, a soft delete |
+| `src/modules/<name>/<name>.route.ts` | the controllers, on the module's **own** `Hono`, exported: validated input in, a reply the spec declares out, and the boundary between the stored document and the API document |
+| `src/api.ts` | one registry for the spec, imported by each module — `tag: 'users'` bounds a module to its own operations, and `api.assertComplete()` refuses to start with one nobody serves |
+| `src/context.ts` | `Env`, and `buildServices(kit)` — it only **composes** the slices each module declares, so a new module is one line here and nothing else |
+| `src/app.ts` | `kit.as(actor)` once per request, bound into the services and put on the context, then the modules mounted. A handler never reaches the kit itself, so it cannot write as anyone else, nor close it. `assertServed` reads the assembled app, so a module nobody mounted is a startup error |
 | `src/index.ts` | the kit opened **once** for the process, closed on `SIGINT`/`SIGTERM` |
 | `src/sync.ts` | `kit.sync()` as a deployment step, with `--dry-run` |
-| `src/app.spec.ts` | the whole thing over a mongod in memory, called as a client would |
+| `src/modules/<name>/<name>.service.spec.ts` | the module's services with no HTTP at all — that is what the layer buys |
+| `src/modules/<name>/<name>.route.spec.ts` | the module's routes over HTTP, called as a client would, over a mongod in memory |
+| `src/app.spec.ts` | what is left over: the middleware every request goes through, and that the mounted modules serve the whole spec |
+| `test/kit.ts` | one mongod and one kit per spec file, the database emptied and synced before each test |
+| `test/api.ts` | the same, plus the built app: `call(path, { as })` and a user to send requests as |
+| `test/types/routes.ts` | one `@ts-expect-error`: the users module cannot register `/articles`. Nothing imports it — `tsc --noEmit` reading it is the test |
 
 ## The wiring, in one page
 
@@ -50,28 +85,48 @@ starts a mongod in memory, as the packages' specs do.
 // src/db.ts — the application's MongoDB, described once
 export const config = defineConfig({
 	uri: process.env.MONGO_URI!,
-	collections,                       // import * as collections from './models'
+	collections,                       // import * as collections from './collections'
 	options: { maxPageSize: 50 },
 });
+export type Kit = KitOf<typeof config>;
 
-// src/app.ts — one kit per request, carrying who is writing
+// src/modules/articles/articles.route.ts — the module's own app, exported
+export const articlesApp = new Hono<Env>();
+const routes = api.routes(articlesApp, { tag: 'articles' });
+
+routes.post('/articles', async (c) => {
+	// The transaction is the service's; the controller decides what
+	// `undefined` means over HTTP.
+	const written = await c.get('services').articles.write(c.req.valid('json'));
+	if (!written) return c.json({ message: 'errors.no-such-author' }, 404);
+	return c.json(toArticle(written), 201);
+});
+
+// src/app.ts — one kit per request, bound into the services, then the modules
 app.use('*', async (c, next) => {
 	const actor = tryObjectId(c.req.header('x-user-id'));
 	if (!actor) return c.json({ message: 'errors.unauthenticated' }, 401);
-	const asUser = kit.as(actor);
-	c.set('kit', asUser);
-	c.set('db', asUser.db);
+	c.set('services', buildServices(kit.as(actor)));
 	await next();
 });
 
-// src/routes/articles.ts — two collections, one transaction
-const written = await c.get('kit').transaction(async (tx) => {
-	const author = await tx.db.users.findById(c.get('actor'));
-	if (!author) return null;
-	const article = await tx.db.articles.create(body);
-	await tx.db.users.update(author._id, { articles: author.articles + 1 });
-	return article;
-});
+app.route('/', usersApp);
+app.route('/', articlesApp);
+api.assertComplete();   // every operation has a handler
+assertServed(app);      // and every handler is actually mounted
+
+// src/modules/articles/articles.service.ts — the kit first, two collections, one transaction
+export async function writeArticle(kit: Kit, values: NewDocumentOf<typeof articles>) {
+	const author = kit.actor;                       // the kit carries who writes
+	if (!author) throw new TypeError('writeArticle: this kit stamps nobody');
+	return kit.transaction(async (tx) => {
+		const user = await tx.db.users.findById(author);
+		if (!user) return undefined;
+		const article = await tx.db.articles.create(values);
+		await tx.db.users.update(user._id, { articles: user.articles + 1 });
+		return article;
+	});
+}
 ```
 
 Nothing carries a session or a client by hand: `as` gives another kit over
@@ -92,6 +147,9 @@ bun run --filter hono-api-example check:api      # writes nothing, exits 1 if st
 `src/generated/` is **git-ignored** and rebuilt before every typecheck and
 test run, so the spec is the only source in the repository.
 
+The spec's `tags` are the modules' names, which is what lets each module take
+`{ tag: 'users' }` and be bounded to its own operations.
+
 Two rules are set in `redocly.yaml`, and both are worth reading: the actor is
 declared as a `securityScheme` rather than a header parameter, because it is
 the credential; and `operation-4xx-response` is off, because the generator
@@ -108,6 +166,16 @@ here.
   client per request; `as` is what a request costs.
 - **A handler never sees the root kit.** It cannot write as another user, and
   `close()` on a derived kit throws.
+- **A module exports its app; it is not handed one.** `api` is a module of
+  its own, so a route file is the whole of what its module serves, and
+  `app.ts` only mounts. `tag` is what keeps it honest: registering
+  `/articles` from the users module does not compile, which
+  `test/types/routes.ts` measures.
+- **Registering is not mounting.** A module registers its routes as it is
+  imported, so `api.assertComplete()` passes the moment the file is loaded —
+  even under a wrong prefix, or with nothing mounted at all. `assertServed`
+  reads the assembled app for that, and mount order is what decides between
+  two modules that could match one path.
 - **The transaction body may run twice.** The driver retries it, so the
   article count is read *inside* the transaction, never from something the
   handler kept.
@@ -115,5 +183,12 @@ here.
   and per process, so the specs call `kit.sync()` after they drop the
   database; production runs `bun run sync`.
 - **The stored document is not the API document.** `_id` is an `ObjectId`
-  and the stamps are `Date`s; the mapping to what the spec declares is
-  written once per collection.
+  and the stamps are `Date`s; the mapping to what the spec declares is the
+  controller's, written once per collection.
+- **A service takes the kit, it does not hold one.** `buildServices(kit)`
+  binds them for one request and nothing more; the work stays in functions
+  whose first argument is the kit, which is what keeps them callable from a
+  script and testable without a server.
+- **A service that announces a promise rejects**, never throws at the call
+  site: `writeArticle` is `async` for that reason alone, and its spec
+  measures it.

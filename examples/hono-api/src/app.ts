@@ -1,60 +1,64 @@
 import { tryObjectId } from '@nxgt/mongo';
-import type { KitOf } from '@nxgt/mongo-kit';
 import { Hono } from 'hono';
-import type { ObjectId } from 'mongodb';
-import type { config } from './db';
-import { createApi } from './generated/hono';
-import { articleRoutes } from './routes/articles';
-import { userRoutes } from './routes/users';
-
-/** This application's kit, read from the configuration rather than written twice. */
-export type Kit = KitOf<typeof config>;
+import { api } from './api';
+import { buildServices, type Env } from './context';
+import type { Kit } from './db';
+import { operations } from './generated/operations';
+import { articlesApp } from './modules/articles/articles.route';
+import { usersApp } from './modules/users/users.route';
 
 /**
- * What a handler finds on the context: the collections, already carrying the
- * user of this request. A handler never sees the kit itself, so it cannot
- * write as anyone else — and cannot close it.
+ * Throws unless the assembled app answers at every path the spec declares.
+ *
+ * `api.assertComplete()` is not enough on its own: a module registers its
+ * routes as it is imported, so the registry is complete the moment the file
+ * is loaded — whatever `buildApp` then does with the module's app. This
+ * reads the app itself, so a module mounted under the wrong prefix, or not
+ * mounted at all, is a startup error rather than a 404 in production.
  */
-export interface Env {
-	Variables: {
-		actor: ObjectId;
-		/** The collections, as this user. What a handler reads and writes. */
-		db: Kit['db'];
-		/** The same kit, for the one thing a scope cannot do: a transaction. */
-		kit: Kit;
-	};
+export function assertServed(app: Hono<Env>): void {
+	const served = new Set(
+		app.routes.map((route) => `${route.method.toLowerCase()} ${route.path}`),
+	);
+	const missing = Object.entries(operations)
+		.filter(
+			([, operation]) =>
+				!served.has(`${operation.method} ${operation.honoPath}`),
+		)
+		.map(([id]) => id);
+	if (missing.length > 0) {
+		throw new Error(`The app serves no route for: ${missing.join(', ')}`);
+	}
 }
 
 /**
- * The application, over a kit the caller opened. Taking the kit as an
- * argument is what lets the specs run it against a server of their own.
+ * The application, over a kit the caller opened. The kit is still an
+ * argument — that is what lets the specs run it against a server of their
+ * own — but no module is handed anything: each exports its own app, and
+ * this file only mounts them and says what every request carries.
  */
 export function buildApp(kit: Kit): Hono<Env> {
 	const app = new Hono<Env>();
 
 	// One kit per request: `as` gives another kit over the same clients, so
-	// every collection this request touches stamps this user, and the kit the
+	// every collection a service touches stamps this user, and the kit the
 	// application opened is left as it was.
 	app.use('*', async (c, next) => {
 		const actor = tryObjectId(c.req.header('x-user-id'));
 		if (!actor) return c.json({ message: 'errors.unauthenticated' }, 401);
-		const asUser = kit.as(actor);
-		c.set('actor', actor);
-		c.set('kit', asUser);
-		c.set('db', asUser.db);
+		c.set('services', buildServices(kit.as(actor)));
 		await next();
 	});
 
-	// One registry for the whole spec: each module registers its own routes,
-	// and `assertComplete` refuses to start with an operation nobody serves.
-	const api = createApi({
-		// Every reply is checked against the spec. It reads each body twice, so
-		// it is for development and tests, never for production.
-		validateResponses: process.env.NODE_ENV !== 'production',
-	});
-	userRoutes(app, api);
-	articleRoutes(app, api);
+	// Mount order decides which module answers a path two of them could
+	// match; today no path of the spec shadows another.
+	app.route('/', usersApp);
+	app.route('/', articlesApp);
+
+	// One operation nobody wrote a handler for, then one module nobody
+	// mounted: the two ways the spec and the app can drift apart.
 	api.assertComplete();
+	assertServed(app);
 
 	return app;
 }

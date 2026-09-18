@@ -52,7 +52,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/mongodb
-          key: mongod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/mongo/test/server.ts', 'packages/mongo-meilisearch/test/mongo.ts', 'packages/mongo-kit/test/server.ts', 'examples/hono-api/src/app.spec.ts') }}
+          key: mongod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/mongo/test/server.ts', 'packages/mongo-meilisearch/test/mongo.ts', 'packages/mongo-kit/test/server.ts', 'examples/hono-api/test/kit.ts') }}
       - name: Run tests
         run: bun run test
       # The build exits 0 on packages that throw the instant they are imported —
