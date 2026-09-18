@@ -133,7 +133,7 @@
     },
     "packages/redis": {
       "name": "@nxgt/redis",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "@types/bun": "^1.4.0",
         "redis-memory-server": "0.17.1",
