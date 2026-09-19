@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { avatars, bytes, reports, uploads, useS3 } from '../../test/fixtures';
 import { S3Error } from '../errors/s3-error';
 import { bindBucket } from './bind-bucket';
+import type { PresignOptions } from './operations/presign';
+import type { PutOptions } from './types';
 
 const servers = useS3();
 const store = () => bindBucket(avatars, servers.s3.options);
@@ -105,9 +109,27 @@ describe('the write guards', () => {
 		expect((await bucket.stat({ userId: 'u1' }))?.type).toContain('image/png');
 	});
 
+	test('the types `Bun.file` reports, which the README rests on', async () => {
+		// The essence comparison exists because these differ. Asserted rather
+		// than left in a comment: a bun release that changes one has to fail
+		// here, or the README goes stale exactly as it did once already.
+		const dir = `${tmpdir()}/nxgt-s3-${Bun.randomUUIDv7()}`;
+		await Bun.write(`${dir}/a.csv`, 'a,b\n');
+		await Bun.write(`${dir}/a.txt`, 'x');
+		await Bun.write(`${dir}/a.json`, '{}');
+		expect(Bun.file(`${dir}/a.csv`).type).toBe('text/csv');
+		expect(Bun.file(`${dir}/a.txt`).type).toBe('text/plain;charset=utf-8');
+		expect(Bun.file(`${dir}/a.json`).type).toBe(
+			'application/json;charset=utf-8',
+		);
+		await rm(dir, { recursive: true, force: true });
+	});
+
 	test('accept a type whose parameters or case differ from the definition’s', async () => {
-		// `Bun.file('a.csv').type` is `text/csv;charset=utf-8` — measured on
-		// bun 1.4.2 — and a definition names the bare type. Comparing the two
+		// Measured on bun 1.4.2: `Bun.file` puts a charset on some types and
+		// not others — `.txt` is `text/plain;charset=utf-8` and `.json` is
+		// `application/json;charset=utf-8`, while `.csv` is the bare
+		// `text/csv`. A definition names the bare type, so comparing the two
 		// as written would refuse a file this bucket exists for.
 		const bucket = csv();
 		await bucket.put('q1', 'a,b\n', { type: 'text/csv;charset=utf-8' });
@@ -182,6 +204,129 @@ describe('the write guards', () => {
 	});
 });
 
+describe('the type a source carries by itself', () => {
+	test('is read off a `Bun.file`, guarded, and stored — with no option', async () => {
+		const dir = `${tmpdir()}/nxgt-s3-${Bun.randomUUIDv7()}`;
+		const path = `${dir}/q1.csv`;
+		await Bun.write(path, 'a,b\n1,2\n');
+		// Measured on bun 1.4.2: `Bun.file('…​.csv').type` is `text/csv`. The
+		// bucket accepts `text/csv` and nothing else, so this write passing at
+		// all is the guard reading the file's own type — and the stored object
+		// carrying it is the same type reaching the service.
+		expect(Bun.file(path).type).toBe('text/csv');
+		const bucket = csv();
+		await bucket.put('q1', Bun.file(path));
+		expect(await bucket.text('q1')).toBe('a,b\n1,2\n');
+		expect((await bucket.stat('q1'))?.type).toContain('text/csv');
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test('is refused when the file is not what the bucket accepts', async () => {
+		const dir = `${tmpdir()}/nxgt-s3-${Bun.randomUUIDv7()}`;
+		const path = `${dir}/note.txt`;
+		await Bun.write(path, 'not a csv');
+		const bucket = csv();
+		// `text/plain;charset=utf-8` against a bucket that accepts `text/csv`:
+		// refused before anything is sent, on a type nobody typed out.
+		expect(bucket.put('q1', Bun.file(path))).rejects.toBeInstanceOf(S3Error);
+		expect(await bucket.text('q1')).toBeUndefined();
+		await rm(dir, { recursive: true, force: true });
+	});
+});
+
+describe('what a single write may say about the object', () => {
+	test('carries `contentDisposition` and `contentEncoding` back to a reader', async () => {
+		const bucket = anything();
+		await bucket.put({ folder: 'a', name: 'report.csv' }, 'a,b\n', {
+			type: 'text/csv',
+			contentDisposition: 'attachment; filename="report.csv"',
+			contentEncoding: 'identity',
+		});
+		const answer = await fetch(
+			bucket.presignGet({ folder: 'a', name: 'report.csv' }),
+		);
+		expect(answer.headers.get('content-disposition')).toBe(
+			'attachment; filename="report.csv"',
+		);
+		expect(answer.headers.get('content-encoding')).toBe('identity');
+	});
+
+	test('carries a storage class', async () => {
+		const bucket = anything();
+		await bucket.put({ folder: 'a', name: 'cold.txt' }, 'x', {
+			type: 'text/plain',
+			storageClass: 'STANDARD_IA',
+		});
+		const answer = await fetch(
+			bucket.presignGet({ folder: 'a', name: 'cold.txt' }),
+		);
+		expect(answer.headers.get('x-amz-storage-class')).toBe('STANDARD_IA');
+	});
+
+	test('takes an acl without refusing the write', async () => {
+		// What the service *does* with an ACL is the service's business — this
+		// pins only that the option reaches it and the object is still stored.
+		const bucket = anything();
+		await bucket.put({ folder: 'a', name: 'open.txt' }, 'x', {
+			type: 'text/plain',
+			acl: 'public-read',
+		});
+		expect(await bucket.text({ folder: 'a', name: 'open.txt' })).toBe('x');
+	});
+
+	test('does not let an option through that would change the bucket', async () => {
+		// The credentials, the endpoint and the bucket belong to the bound
+		// bucket. Measured: spreading the caller's options straight through
+		// let a `bucket` key redirect the write — the object landed in
+		// `somewhere-else` and the call reported success. The type refuses it,
+		// and options that arrive from a request body are not typed.
+		const bucket = anything();
+		// The types refuse these — `test/types/s3.ts` holds those cases. This
+		// is the other half: a bag that never met the types, as one off a
+		// request body has not.
+		const smuggled = {
+			type: 'text/plain',
+			bucket: 'somewhere-else',
+			accessKeyId: 'someone-else',
+			endpoint: 'http://127.0.0.1:1',
+		} as PutOptions;
+		await bucket.put({ folder: 'a', name: 'b.txt' }, 'x', smuggled);
+		expect(await bucket.text({ folder: 'a', name: 'b.txt' })).toBe('x');
+	});
+
+	test('leaves an option’s own value to Bun, which throws its own error', async () => {
+		// The guards own the content type and the size, and raise `S3Error`.
+		// A value outside one of Bun's unions is Bun's to refuse, and it
+		// refuses with a `TypeError` before anything is sent — a different
+		// class for a handler to catch. `contentDisposition` has no union, so
+		// there is nothing there to refuse.
+		const bucket = anything();
+		// `as unknown` because the types do refuse this one outright, where a
+		// bag with an extra `bucket` key still overlaps `PutOptions`.
+		const bad = {
+			type: 'text/plain',
+			storageClass: 'NOPE',
+		} as unknown as PutOptions;
+		const error = (await bucket
+			.put({ folder: 'a', name: 'bad.txt' }, 'x', bad)
+			.catch((reason: unknown) => reason)) as Error;
+		expect(error).toBeInstanceOf(TypeError);
+		expect(error).not.toBeInstanceOf(S3Error);
+		expect(await bucket.exists({ folder: 'a', name: 'bad.txt' })).toBe(false);
+	});
+
+	test('still guards the type when other options are given', async () => {
+		const bucket = store();
+		expect(
+			bucket.put({ userId: 'u1' }, bytes(8), {
+				type: 'application/pdf',
+				storageClass: 'STANDARD_IA',
+			}),
+		).rejects.toBeInstanceOf(S3Error);
+		expect(await bucket.exists({ userId: 'u1' })).toBe(false);
+	});
+});
+
 describe('listing', () => {
 	test('gives the repository’s cursor page, and pages with it', async () => {
 		const bucket = anything();
@@ -233,6 +378,46 @@ describe('presigned URLs', () => {
 		});
 		expect(answer.status).toBe(200);
 		expect(await bucket.text('q1')).toBe('a,b\n1,2\n');
+	});
+
+	test('is signed for the bound bucket, whatever the options bag carries', async () => {
+		const bucket = anything();
+		const honest = bucket.presignGet(
+			{ folder: 'a', name: 'b.txt' },
+			{
+				expiresIn: 60,
+			},
+		);
+		// The types refuse these; `test/types/s3.ts` holds that half. A bag off
+		// a request body never met the types, which is what this measures.
+		const bag = {
+			expiresIn: 60,
+			bucket: 'somewhere-else',
+			accessKeyId: 'someone-else',
+		} as PresignOptions;
+		const smuggled = bucket.presignGet({ folder: 'a', name: 'b.txt' }, bag);
+		// Measured before the filter: the bag redirected the URL — `bucket`
+		// signed it for another bucket, a credential signed it against another
+		// endpoint. `presignPut` is a write, so the same promise has to hold.
+		expect(smuggled).toContain('/uploads/a/b.txt');
+		expect(smuggled).not.toContain('somewhere-else');
+		expect(smuggled).not.toContain('someone-else');
+		expect(new URL(smuggled).host).toBe(new URL(honest).host);
+	});
+
+	test('a signed PUT is for the bound bucket too', async () => {
+		const bucket = csv();
+		const url = bucket.presignPut('q1', {
+			expiresIn: 60,
+			bucket: 'somewhere-else',
+		} as PresignOptions);
+		const answer = await fetch(url, {
+			method: 'PUT',
+			body: 'a,b\n',
+			headers: { 'content-type': 'text/csv' },
+		});
+		expect(answer.status).toBe(200);
+		expect(await bucket.text('q1')).toBe('a,b\n');
 	});
 
 	test('a signed PUT constrains the key and the deadline, and nothing else', async () => {

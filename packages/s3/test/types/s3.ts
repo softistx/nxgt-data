@@ -35,6 +35,33 @@ store.put(
 	{ contentType: 'image/png' },
 );
 
+// A write says what the object **is**, never where it goes: the bucket, the
+// endpoint, the region and the credentials belong to the bound bucket.
+store.put({ userId: 'u1' }, 'body', { type: 'image/png' });
+store.put({ userId: 'u1' }, 'body', {
+	type: 'image/png',
+	contentDisposition: 'inline',
+	storageClass: 'STANDARD_IA',
+});
+// @ts-expect-error a write does not choose its bucket
+store.put({ userId: 'u1' }, 'body', { bucket: 'somewhere-else' });
+// @ts-expect-error nor where it is sent
+store.put({ userId: 'u1' }, 'body', { endpoint: 'http://127.0.0.1:1' });
+// @ts-expect-error nor whose credentials it is sent with
+store.put({ userId: 'u1' }, 'body', { accessKeyId: 'someone-else' });
+// @ts-expect-error nor which region answers for it
+store.put({ userId: 'u1' }, 'body', { region: 'eu-west-3' });
+// @ts-expect-error `partSize` is the client's, not a write's — a put is one PUT
+store.put({ userId: 'u1' }, 'body', { partSize: 5 * 1024 * 1024 });
+// @ts-expect-error `queueSize` is the client's too, and one PUT has no queue
+store.put({ userId: 'u1' }, 'body', { queueSize: 2 });
+// @ts-expect-error `retry` is the client's, given once to `bindBucket`
+store.put({ userId: 'u1' }, 'body', { retry: 5 });
+// @ts-expect-error a signed URL is for the bucket it was bound to
+store.presignGet({ userId: 'u1' }, { bucket: 'somewhere-else' });
+// @ts-expect-error a signed PUT does not choose its bucket either
+store.presignPut({ userId: 'u1' }, { bucket: 'somewhere-else' });
+
 // @ts-expect-error a read is for an object this bucket can name
 void store.bytes({ id: 'u1' });
 

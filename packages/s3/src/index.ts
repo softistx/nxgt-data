@@ -6,6 +6,7 @@ export type {
 	ObjectPage,
 	ParamsOf,
 	PutBody,
+	PutOptions,
 	StoredObject,
 } from './bucket/types';
 export type { S3ErrorCode } from './errors/s3-error';
