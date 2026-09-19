@@ -330,8 +330,12 @@ ordinary enumerable property, so `JSON.stringify` and a spread carry it and a
 handler can return the document as it is.
 
 Because it is not a stored field, nothing can be filtered or patched on it: the
-server would match nothing, and TypeScript refuses it. To go the other way,
-from a string that arrived over HTTP:
+server would match nothing, and TypeScript refuses it.
+
+To go the other way, from a string that arrived over HTTP, the collection reads
+it for you — see [Strings from outside](#strings-from-outside). These are for
+when you want the refusal **explicit**, so that a malformed id is a 400 of its
+own rather than the 404 an id that matches nothing gives:
 
 ```ts
 import { toObjectId, tryObjectId, isValidObjectId, objectIdParam } from '@nxgt/mongo';
@@ -351,6 +355,68 @@ const { id } = route.parse(params);          // ObjectId
 parameter that never arrived becomes a perfectly valid id that matches nothing.
 `toObjectId` throws `InvalidIdError`, which a handler can turn into a 400 or a
 404.
+
+## Strings from outside
+
+A collection converts the strings that arrive from outside on its own, so a
+handler parses no ids and no dates before a query. **Which** fields it converts
+is read from the schema and never guessed at; **whether** a given string is one
+is a shape it checks, and one it does not recognise is handed on untouched:
+
+```ts
+await repo.getById(params.id);                    // a 24-hex string is enough
+await repo.update(params.id, { title: 'a' });     // so is an id to patch on
+await repo.findMany({ filter: { authorId: query.author } });
+await repo.findMany({ filter: { createdAt: { $gte: '2026-01-01' } } });
+await repo.create({ authorId: body.authorId });   // stored as an ObjectId
+await repo.update(id, { $set: { authorId: body.authorId } });
+```
+
+The types say the same thing the runtime does: an `ObjectId` field takes
+`ObjectId | string`, a `Date` field takes `Date | string`, and every other
+field is typed exactly as the schema declares it. `filter: { authorId: 42 }`
+is still a compile error, and so is `{ $gte: 1 }` on a date.
+
+| where | from | to |
+| --- | --- | --- |
+| a field whose schema says `bsonType: 'objectId'` — `objectId()`, `id()`, or your own `.meta()` | a 24-hex string | `ObjectId` |
+| a field the schema declares with `z.date()` | `YYYY-MM-DD`, or that with a time **and a zone** | `Date` |
+| `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$in`, `$nin`, `$all`, `$each`, and `$not` over any of them | each value, each element | the same |
+| `$and`, `$or`, `$nor`, a nested path (`author.id`) and the `$elemMatch` that names the same thing | | the same |
+| the id argument of `findById`, `getById`, `update`, `delete`, `hardDelete`, `restore` | | the same |
+| a patch of fields, a patch in operators (`$set`, `$push`, `$min`…), and `onChange`'s filter | | the same |
+
+`optional()`, `nullable()`, `default()` and an array of either are unwrapped to
+find the field's kind, so `z.array(objectId()).optional()` converts too.
+
+It is deliberately conservative, because a wrong guess is a query that silently
+matches nothing. An id is 24 hexadecimal characters and nothing else. A date is
+`2026-01-01`, or `2026-01-01T12:30:00Z` with a zone on it, and nothing else —
+`new Date` would read `'5'` as the first of May 2001 in the server's own zone,
+`'2026'` as a new year, `'2026-02-31'` as the third of March and
+`'2026-01-01T00:00'` as a different instant on every machine. A **number** is
+never a date either: `1` would otherwise be 1970. And a field the schema does
+not describe is passed on exactly as it came, which leaves `$exists`, `$type`,
+`$size`, `$mod`, `$regex` and anything only the driver knows about alone.
+
+**Nothing throws.** A string the collection cannot read is handed on as it is,
+so the schema refuses it on a write with its own message, and a read matches
+nothing — `getById('nope')` is a `NotFoundError`, not an `InvalidIdError`. A
+handler that wants to tell a malformed id from a missing document apart, and
+answer 400 rather than 404, still calls `toObjectId` or `objectIdParam` itself.
+
+Three surfaces convert nothing, on purpose: `raw` and the driver's own methods,
+which this package does not touch; `collection.as(actor)`, whose actor is
+stamped as given — check it with `tryObjectId` where it arrives; and an
+aggregation pipeline you write yourself.
+
+`coerce: false` turns it off for one collection, and a string is then sent to
+the server as a string, as it was before. The types stay as wide, so with it
+off it is on you to pass what the field holds:
+
+```ts
+const repo = getCollection(db, users, { coerce: false });
+```
 
 ## Hooks
 
@@ -545,7 +611,7 @@ application never reads a numeric code:
 | `ValidationError` | `VALIDATION` | the collection's validator refused it (121) |
 | `OptimisticLockError` | `OPTIMISTIC_LOCK` | the version in the patch no longer matches |
 | `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write |
-| `InvalidIdError` | `INVALID_ID` | a value that is no `ObjectId`, nor the string of one |
+| `InvalidIdError` | `INVALID_ID` | a value that is no `ObjectId`, nor the string of one — raised by `toObjectId`, `toObjectIds` and `objectIdParam`, and by nothing else: the collection's own reading of a string never throws |
 | `MigrationError` | `MIGRATION` | a migration failed, or the list does not match the records — from `@nxgt/mongo/migrations` |
 | `MigrationLockedError` | `MIGRATION_LOCKED` | another run holds the migration lock, or this one lost it — from `@nxgt/mongo/migrations` |
 | `DataError` | `DATABASE` | any other server error, with its `serverCode` |
@@ -732,6 +798,7 @@ const withRelations = await members.populate(await members.findMany(), {
 | `toObjectId`, `toObjectIds`, `tryObjectId`, `objectIdParam` | a string from outside as an `ObjectId` |
 | `isValidObjectId`, `isObjectIdString`, `isObjectId` | the checks behind them |
 | `connectMongo(uri, options?)`, `closeMongo()`, `MongoConnection`, `PingResult` | a shared client, closed with its last holder |
+| `FilterOf`, `NewOf` | a filter and a create, with the strings the collection reads allowed in them |
 | `NewDocumentOf`, `Patch`, `ManyPatch`, `ExpectedVersion`, `WritableDocumentOf`, `WritableFieldOf`, `WritablePath`, `RemovablePath`, `StampNameOf`, `VersionNameOf`, `SetByCollection`, `FixedOnUpdate` | what a write may say |
 | `DistinctOf`, `Group`, `GroupKeyOf`, `GroupByOptions`, `Measure`, `Measures`, `NumericFieldOf`, `Populated`, `Relations`, `ByRelation`, `OnRelation`, `ReferenceFieldOf`, `RelatedCollection` | what `distinct`, `groupBy` and `populate` take and give |
 | `getCollection(dbOrClient, definition, options?)` | the typed collection, driver methods included |
@@ -748,8 +815,9 @@ const withRelations = await members.populate(await members.findMany(), {
 | `diffIndexes`, `normalizeIndex`, `validationMatches`, `diffCollectionOptions` | what `sync` compares with |
 
 `CollectionOptions` turns the behaviours off one by one: `softDelete`,
-`touchUpdatedAt`, `optimisticLock`, `validate: 'off'`, `maxPageSize`,
-`autoSync`, `hooks`, and it names the database with `db` when you pass a client.
+`touchUpdatedAt`, `optimisticLock`, `validate: 'off'`, `coerce: false`,
+`maxPageSize`, `autoSync`, `hooks`, and it names the database with `db` when
+you pass a client.
 
 ## What does not compile
 
@@ -900,6 +968,27 @@ operator, and getting it subtly wrong is worse than being honest about it.
 - **Rebuilding an index drops it first.** MongoDB cannot alter an index in
   place, so `sync` drops and recreates one whose options changed: there is a
   window with no index, and on a large collection the rebuild is not free.
+- **Coercion reads the schema, not the value.** A field the schema does not
+  declare an `ObjectId` or a `Date` keeps whatever you sent, so a string on a
+  field typed `z.string()` that happens to hold 24 hexadecimal characters stays
+  a string — and a filter on a field the schema does not mention at all is
+  passed to the server untouched. It also never guesses: a number is not a
+  date, a string of any other length is not an id, and a date is only
+  `2026-01-01` or a time with a zone on it — `'5'`, `'2026'`, `'2026-02-31'`
+  and `'2026-01-01T00:00'` are all things `new Date` reads and none of them
+  means one instant, so all four are left as the strings they are.
+- **Coercion never throws, so a malformed id is a 404 and not a 400.**
+  `getById('nope')` hands the string on, matches nothing and raises
+  `NotFoundError`. Call `toObjectId` or `objectIdParam` where you want the
+  refusal to be its own answer.
+- **`coerce: false` does not narrow the types.** An `ObjectId` field still
+  takes a string at compile time, because the option is read at runtime and
+  the definition alone decides the types. With it off, passing one sends a
+  string to the server, which matches nothing.
+- **A `before` hook sees the caller's input, not the read form.** It runs
+  before the collection converts anything, so `args.id` is the string the
+  caller passed when that is what they passed — its type says so. A hook that
+  needs the stored form calls `toObjectId` itself.
 - **`new ObjectId(undefined)` is a fresh id, not an error.** So is
   `new ObjectId(null)`. A missing route parameter turns into a valid id that
   matches nothing, and the bug surfaces as an empty result rather than as a

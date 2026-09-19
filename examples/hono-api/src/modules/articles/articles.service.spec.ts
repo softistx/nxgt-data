@@ -28,7 +28,7 @@ describe('the article service', () => {
 		const { author, kit, articles } = await asNewUser();
 		const article = await articles.write({ title: 'a', body: 'b' });
 		expect(article?.createdBy).toEqual(author._id);
-		expect(await new UserService(kit).find(author._id)).toMatchObject({
+		expect(await new UserService(kit).find(author.id)).toMatchObject({
 			articles: 1,
 		});
 	});
@@ -75,7 +75,7 @@ describe('the article service', () => {
 		const { articles } = await asNewUser();
 		const article = await articles.write({ title: 'a', body: 'b' });
 		if (!article) throw new Error('the article was not written');
-		expect(await articles.remove(article._id)).toBe(true);
+		expect(await articles.remove(article.id)).toBe(true);
 		expect(await articles.list()).toMatchObject({ total: 0 });
 		// Soft delete: the document is still there, with the time it went.
 		expect(await state.kit.db.articles.raw.countDocuments()).toBe(1);

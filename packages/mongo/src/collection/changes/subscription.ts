@@ -154,7 +154,7 @@ export function subscribe(
 	options: ChangeOptions<never> = {},
 ): ChangeSubscription {
 	// Checked before anything is opened, so a bad filter throws here.
-	const pipeline = pipelineOf(options);
+	const pipeline = pipelineOf(ctx, options);
 	const retries = retriesOf(options);
 	// Not `Promise.withResolvers`: the driver runs on Node 20, which lacks it.
 	let markReady: () => void = () => undefined;

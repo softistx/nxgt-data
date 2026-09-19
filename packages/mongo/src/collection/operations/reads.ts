@@ -1,3 +1,4 @@
+import { coerceId } from '../coerce';
 import { type CollectionContext, notFound, run } from '../context';
 import { withId } from '../documents';
 import { type Fields, scoped } from '../filters';
@@ -31,6 +32,9 @@ export async function getById(
 	id: unknown,
 	opts: { withDeleted?: boolean } = {},
 ): Promise<Fields> {
+	// Not for the query — `findById` scopes and coerces the filter itself —
+	// but for `notFound`, whose message would otherwise name the raw string.
+	id = coerceId(ctx, id);
 	const found = await findById(ctx, id, opts);
 	if (!found) throw notFound(ctx, id);
 	return found;

@@ -1,3 +1,4 @@
+import { coerceFilter } from './coerce';
 import type { CollectionContext } from './context';
 
 /** A document as this package handles one internally: keys it cannot know. */
@@ -37,16 +38,27 @@ export function live(
 	return { [field]: null };
 }
 
+/**
+ * A caller's filter, with the strings in it read as the fields they are on.
+ *
+ * Every filter this package sends goes through here — `scoped` is the one
+ * that also narrows, and a hard delete, which is scoped to nothing on
+ * purpose, still has to be coerced or the same call would convert or not
+ * depending on whether the collection soft-deletes.
+ */
+export function coerced(ctx: CollectionContext, filter: unknown): Fields {
+	const given = isRecord(filter) ? filter : {};
+	return ctx.coerces ? coerceFilter(ctx.kinds, given) : given;
+}
+
 /** A caller's filter, narrowed to the documents this collection shows. */
 export function scoped(
 	ctx: CollectionContext,
 	filter: unknown,
 	withDeleted?: boolean,
 ): Fields {
-	return mergeFilters(
-		isRecord(filter) ? filter : undefined,
-		live(ctx, withDeleted),
-	);
+	const given = isRecord(filter) ? coerced(ctx, filter) : undefined;
+	return mergeFilters(given, live(ctx, withDeleted));
 }
 
 /** Refuses a call that would otherwise run on the whole collection. */

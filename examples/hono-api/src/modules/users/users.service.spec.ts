@@ -16,14 +16,14 @@ describe('the user service', () => {
 		});
 		expect(author.articles).toBe(0);
 		const asAuthor = new UserService(state.kit.as(author._id));
-		expect(await asAuthor.find(author._id)).toMatchObject({
+		expect(await asAuthor.find(author.id)).toMatchObject({
 			email: 'ada@example.com',
 		});
 	});
 
 	test('answers undefined for a user that is not there', async () => {
 		expect(
-			await new UserService(state.kit).find(new ObjectId()),
+			await new UserService(state.kit).find(new ObjectId().toHexString()),
 		).toBeUndefined();
 	});
 });

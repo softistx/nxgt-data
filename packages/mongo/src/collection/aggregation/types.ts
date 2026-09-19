@@ -1,11 +1,10 @@
-import type { Filter } from 'mongodb';
 import type {
 	DocumentOf,
 	FieldOf,
 	IdOf,
 	ReadDocumentOf,
 } from '../../definition/define-collection';
-import type { ReadOptions } from '../types';
+import type { FilterOf, ReadOptions } from '../types';
 
 /** An array's element, or the value itself. */
 type ElementOf<T> = T extends readonly (infer E)[] ? E : T;
@@ -84,7 +83,7 @@ export type Group<Def, K extends FieldOf<Def>, M> = {
 } & { [N in keyof M]: MeasureValue<Def, M[N]> };
 
 export interface GroupByOptions<Def, M> extends ReadOptions {
-	filter?: Filter<DocumentOf<Def>>;
+	filter?: FilterOf<Def>;
 	measures?: M & NamedMeasures<M>;
 	/** `'count'` (default): the largest groups first. `'key'`: by key. */
 	sort?: 'count' | 'key';
@@ -95,7 +94,7 @@ export interface GroupByOptions<Def, M> extends ReadOptions {
 export interface RelatedCollection<F> {
 	readonly definition: F;
 	findMany(options: {
-		filter: Filter<DocumentOf<F>>;
+		filter: FilterOf<F>;
 		sort: { _id: 1 };
 		withDeleted?: boolean;
 	}): Promise<ReadDocumentOf<F>[]>;

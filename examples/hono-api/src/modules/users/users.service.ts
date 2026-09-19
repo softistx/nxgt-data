@@ -26,8 +26,16 @@ export class UserService {
 		return this.kit.db.users.create(values);
 	}
 
-	/** `undefined` when there is no such user, as `@nxgt/mongo` answers it. */
-	find(id: ObjectId): Promise<User | undefined> {
+	/**
+	 * `undefined` when there is no such user, as `@nxgt/mongo` answers it.
+	 *
+	 * It takes an id in either form — what the collection takes. A path
+	 * parameter carries the **string**, and `@nxgt/mongo` reads it as the
+	 * `ObjectId` the collection stores, so nothing here converts by hand; a
+	 * string that is no id matches nothing, which is the 404 the handler
+	 * wanted anyway. A caller that already holds the `ObjectId` passes that.
+	 */
+	find(id: ObjectId | string): Promise<User | undefined> {
 		return this.kit.db.users.findById(id);
 	}
 }

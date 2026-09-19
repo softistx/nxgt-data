@@ -1,4 +1,4 @@
-import { ConflictError, tryObjectId } from '@nxgt/mongo';
+import { ConflictError } from '@nxgt/mongo';
 import { Hono } from 'hono';
 import { api } from '../../api';
 import type { Env } from '../../context';
@@ -48,8 +48,9 @@ routes.post('/users', async (c) => {
 });
 
 routes.get('/users/{id}', async (c) => {
-	const id = tryObjectId(c.req.valid('param').id);
-	const user = id ? await c.get('services').users.find(id) : undefined;
+	// The id goes as it came: `@nxgt/mongo` reads the string form, and one
+	// that is no id matches nothing — which is this 404.
+	const user = await c.get('services').users.find(c.req.valid('param').id);
 	if (!user) return c.json({ message: 'errors.not-found' }, 404);
 	return c.json(toUser(user), 200);
 });

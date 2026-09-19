@@ -1,10 +1,9 @@
-import type { Filter } from 'mongodb';
 import type {
 	DocumentOf,
 	IdOf,
 	ReadDocumentOf,
 } from '../../definition/define-collection';
-import type { IfStamp } from '../types';
+import type { FilterOf, IfStamp } from '../types';
 
 /**
  * What happened to a document, in this package's words rather than the
@@ -131,7 +130,7 @@ export interface ChangeOptions<Def> {
 	 * against the one before when the collection keeps pre-images, and
 	 * delivered whatever the filter says when it does not.
 	 */
-	filter?: Filter<DocumentOf<Def>> & NoEventOperators;
+	filter?: FilterOf<Def> & NoEventOperators;
 	/**
 	 * Hear about updates to soft-deleted documents too. Default `false`, as
 	 * for every read: the soft delete itself, and the restore, are always

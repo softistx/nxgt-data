@@ -1,5 +1,6 @@
+import { coercedValues, coerceId } from '../coerce';
 import type { CollectionContext } from '../context';
-import { type Fields, requireFilter } from '../filters';
+import { coerced, type Fields, requireFilter } from '../filters';
 import {
 	create,
 	createMany,
@@ -71,7 +72,12 @@ export async function hookedCreate(
 	values: unknown,
 ): Promise<Fields> {
 	const context = contextOf(ctx, self, 'create');
-	const args = await before(ctx, 'beforeCreate', { values }, context);
+	const args = await before(
+		ctx,
+		'beforeCreate',
+		{ values: coercedValues(ctx, values) },
+		context,
+	);
 	const document = await create(ctx, args.values);
 	await after(ctx, 'afterCreate', document, context, args);
 	return document;
@@ -87,7 +93,12 @@ export async function hookedCreateMany(
 	const argsList: { values: unknown }[] = [];
 	for (const value of values) {
 		argsList.push(
-			await before(ctx, 'beforeCreate', { values: value }, context),
+			await before(
+				ctx,
+				'beforeCreate',
+				{ values: coercedValues(ctx, value) },
+				context,
+			),
 		);
 	}
 	const documents = await createMany(
@@ -107,7 +118,12 @@ export async function hookedUpdate(
 	patch: unknown,
 ): Promise<Fields> {
 	const context = contextOf(ctx, self, 'update');
-	const args = await before(ctx, 'beforeUpdate', { id, patch }, context);
+	const args = await before(
+		ctx,
+		'beforeUpdate',
+		{ id: coerceId(ctx, id), patch },
+		context,
+	);
 	const document = await update(ctx, args.id, args.patch);
 	await after(ctx, 'afterUpdate', document, context, args);
 	return document;
@@ -127,7 +143,7 @@ export async function hookedUpdateMany(
 	const args = await before(
 		ctx,
 		'beforeUpdateMany',
-		{ filter, patch },
+		{ filter: coerced(ctx, filter), patch },
 		context,
 	);
 	const count = await updateMany(ctx, args.filter, args.patch);
@@ -146,7 +162,12 @@ export async function hookedDelete(
 	const context = contextOf(ctx, self, hard ? 'hardDelete' : 'delete', {
 		hard: goesForGood,
 	});
-	const args = await before(ctx, 'beforeDelete', { id }, context);
+	const args = await before(
+		ctx,
+		'beforeDelete',
+		{ id: coerceId(ctx, id) },
+		context,
+	);
 	const document = hard
 		? await hardDelete(ctx, args.id)
 		: await deleteOne(ctx, args.id);
@@ -166,7 +187,12 @@ export async function hookedDeleteMany(
 	requireFilter(ctx, method, filter);
 	const goesForGood = hard || !ctx.softDeletes;
 	const context = contextOf(ctx, self, method, { hard: goesForGood });
-	const args = await before(ctx, 'beforeDeleteMany', { filter }, context);
+	const args = await before(
+		ctx,
+		'beforeDeleteMany',
+		{ filter: coerced(ctx, filter) },
+		context,
+	);
 	const count = hard
 		? await hardDeleteMany(ctx, args.filter)
 		: await deleteMany(ctx, args.filter);
@@ -180,7 +206,12 @@ export async function hookedRestore(
 	id: unknown,
 ): Promise<Fields> {
 	const context = contextOf(ctx, self, 'restore');
-	const args = await before(ctx, 'beforeRestore', { id }, context);
+	const args = await before(
+		ctx,
+		'beforeRestore',
+		{ id: coerceId(ctx, id) },
+		context,
+	);
 	const document = await restore(ctx, args.id);
 	await after(ctx, 'afterRestore', document, context, args);
 	return document;

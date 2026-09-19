@@ -1,8 +1,10 @@
 import type { Document } from 'mongodb';
 import { OptimisticLockError } from '../../errors/data-error';
+import { coerceId } from '../coerce';
 import { type CollectionContext, notFound, run } from '../context';
 import { toDocument, toUpdate, withId } from '../documents';
 import {
+	coerced,
 	type Fields,
 	live,
 	mergeFilters,
@@ -105,6 +107,7 @@ export async function update(
 	id: unknown,
 	patch: unknown,
 ): Promise<Fields> {
+	id = coerceId(ctx, id);
 	const versionField = ctx.stamps.version;
 	const { update: patched, expectedVersion } = toUpdate(ctx, patch);
 	const filter = mergeFilters(
@@ -140,6 +143,7 @@ export async function hardDelete(
 	ctx: CollectionContext,
 	id: unknown,
 ): Promise<Fields> {
+	id = coerceId(ctx, id);
 	const deleted = await run(ctx, async () =>
 		ctx.collection.findOneAndDelete({ _id: id }, { ...ctx.sessionOption }),
 	);
@@ -153,7 +157,7 @@ export async function hardDeleteMany(
 ): Promise<number> {
 	requireFilter(ctx, 'hardDeleteMany', filter);
 	return run(ctx, async () => {
-		const result = await ctx.collection.deleteMany(filter as Fields, {
+		const result = await ctx.collection.deleteMany(coerced(ctx, filter), {
 			...ctx.sessionOption,
 		});
 		return result.deletedCount;
@@ -164,6 +168,7 @@ export async function deleteOne(
 	ctx: CollectionContext,
 	id: unknown,
 ): Promise<Fields> {
+	id = coerceId(ctx, id);
 	if (!ctx.softDeletes) return hardDelete(ctx, id);
 	return updatedOrThrow(
 		ctx,
@@ -194,6 +199,7 @@ export async function restore(
 	ctx: CollectionContext,
 	id: unknown,
 ): Promise<Fields> {
+	id = coerceId(ctx, id);
 	const { deletedAt, deletedBy, updatedAt, version } = ctx.stamps;
 	if (!deletedAt) {
 		throw new TypeError(`restore: "${ctx.name}" has no soft delete`);

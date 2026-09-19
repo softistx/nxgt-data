@@ -31,6 +31,7 @@ import type {
 	ChangeOptions,
 	ChangeSubscription,
 } from './changes/types';
+import type { AsGiven } from './coerce';
 import type { CollectionHooks } from './hooks/types';
 
 export type OrderDirection = 'asc' | 'desc';
@@ -122,7 +123,7 @@ export type RemovablePath<Def> =
 /** What `$set` takes: a field's own type, or anything under a path. */
 export type SetOf<Def> = {
 	[Field in WritablePath<Def>]?: Field extends keyof DocumentOf<Def>
-		? DocumentOf<Def>[Field]
+		? AsGiven<DocumentOf<Def>[Field]>
 		: unknown;
 };
 
@@ -166,9 +167,9 @@ export interface UpdateOperators<Def> {
 /** What `$push` and `$addToSet` take: an element of the array, or `$each`. */
 export type PushOf<Def> = {
 	[Field in Exclude<ArrayFieldsOf<DocumentOf<Def>>, FixedOnUpdate<Def>>]?:
-		| ElementOf<DocumentOf<Def>[Field]>
+		| AsGiven<ElementOf<DocumentOf<Def>[Field]>>
 		| {
-				$each: readonly ElementOf<DocumentOf<Def>[Field]>[];
+				$each: readonly AsGiven<ElementOf<DocumentOf<Def>[Field]>>[];
 				$position?: number;
 				$slice?: number;
 				$sort?: 1 | -1 | Record<string, 1 | -1>;
@@ -177,7 +178,10 @@ export type PushOf<Def> = {
 } & { [Path in `${WritableFieldOf<Def>}.${string}`]?: unknown };
 
 /** The document's fields an update may write. */
-export type WritableDocumentOf<Def> = Omit<DocumentOf<Def>, FixedOnUpdate<Def>>;
+export type WritableDocumentOf<Def> = Omit<
+	AsGiven<DocumentOf<Def>>,
+	FixedOnUpdate<Def>
+>;
 
 /**
  * The version the document must still be at, under the version field's own
@@ -238,14 +242,31 @@ export interface FindFirstOptions<Def> extends ReadOptions {
 	projection?: ProjectionOf<Def>;
 }
 
+/**
+ * A filter, with the strings the collection reads for you allowed in it.
+ *
+ * `AsGiven` widens exactly two field types — an `ObjectId` also takes its
+ * 24-hex string, a `Date` also takes a date string — so this says what the
+ * collection accepts rather than what it stores. Every method that takes one
+ * of these coerces it; `onChange` and `raw` do not, and take the driver's
+ * `Filter` unchanged.
+ */
+export type FilterOf<Def> = Filter<AsGiven<DocumentOf<Def>>>;
+
+/**
+ * What a create takes, with the same two widenings as `FilterOf`: the
+ * schema's own input type, and a string wherever the collection reads one.
+ */
+export type NewOf<Def> = AsGiven<NewDocumentOf<Def>>;
+
 export interface FindManyOptions<Def> extends FindFirstOptions<Def> {
-	filter?: Filter<DocumentOf<Def>>;
+	filter?: FilterOf<Def>;
 	limit?: number;
 	skip?: number;
 }
 
 export interface PaginateOptions<Def> extends PageOptions, ReadOptions {
-	filter?: Filter<DocumentOf<Def>>;
+	filter?: FilterOf<Def>;
 	/** Default `{ _id: 1 }`, so that pages are stable. */
 	sort?: SortOf<Def>;
 }
@@ -255,7 +276,7 @@ export interface CursorPaginateOptions<Def> extends ReadOptions {
 	after?: string | null | undefined;
 	/** Documents per page. Default `20`, at most `maxPageSize`. */
 	limit?: number;
-	filter?: Filter<DocumentOf<Def>>;
+	filter?: FilterOf<Def>;
 	/**
 	 * The field to page along. Default `_id`. Any other is followed by `_id`,
 	 * which breaks its ties, and must be set on every document.
@@ -305,6 +326,18 @@ export interface CollectionOptions<Def> {
 	 * are — and then nothing fills `_id`, `createdAt` or `version`.
 	 */
 	validate?: 'parse' | 'off';
+	/**
+	 * Read a string as the `ObjectId` or `Date` its field holds, in filters
+	 * and in writes alike. Default `true`.
+	 *
+	 * A 24-character hex string becomes an `ObjectId`, a date a `Date` can
+	 * parse becomes a `Date`, and anything else is handed on untouched for the
+	 * schema to refuse with its own message. It is on by default because a
+	 * string is never a valid value for either field: `false` only turns a
+	 * `find({ _id: '507f…' })` that finds the document back into one that
+	 * silently matches nothing.
+	 */
+	coerce?: boolean;
 	/** The largest `pageSize` or `limit` a page may ask for. Default `100`. */
 	maxPageSize?: number;
 	/** The session every operation runs in. `withSession` is how it is set. */
@@ -366,49 +399,53 @@ export interface CollectionApi<Def> {
 	/** Creates the collection, its validator and its indexes. See `syncCollection`. */
 	sync(options?: SyncOptions): Promise<SyncReport>;
 
-	/** The document with this `_id`, or `undefined`. */
+	/**
+	 * The document with this `_id`, or `undefined`. The id may be the string
+	 * a route parameter carries, unless `coerce` is off.
+	 */
 	findById(
-		id: IdOf<Def>,
+		id: IdOf<Def> | string,
 		options?: ReadOptions,
 	): Promise<ReadDocumentOf<Def> | undefined>;
 	/** The document with this `_id`. Throws `NotFoundError`. */
-	getById(id: IdOf<Def>, options?: ReadOptions): Promise<ReadDocumentOf<Def>>;
+	getById(
+		id: IdOf<Def> | string,
+		options?: ReadOptions,
+	): Promise<ReadDocumentOf<Def>>;
 	/** The first document that matches, or `undefined`. */
 	findFirst(
-		filter?: Filter<DocumentOf<Def>>,
+		filter?: FilterOf<Def>,
 		options?: FindFirstOptions<Def>,
 	): Promise<ReadDocumentOf<Def> | undefined>;
 	/** Every document that matches. */
 	findMany(options?: FindManyOptions<Def>): Promise<ReadDocumentOf<Def>[]>;
 
 	/** Checks the document against the schema, fills its defaults, inserts it. */
-	create(values: NewDocumentOf<Def>): Promise<ReadDocumentOf<Def>>;
+	create(values: NewOf<Def>): Promise<ReadDocumentOf<Def>>;
 	/** The same, in one insert. `[]` sends nothing. */
-	createMany(
-		values: readonly NewDocumentOf<Def>[],
-	): Promise<ReadDocumentOf<Def>[]>;
+	createMany(values: readonly NewOf<Def>[]): Promise<ReadDocumentOf<Def>[]>;
 	/** Updates the document with this `_id` and returns it. Throws `NotFoundError`. */
-	update(id: IdOf<Def>, patch: Patch<Def>): Promise<ReadDocumentOf<Def>>;
+	update(
+		id: IdOf<Def> | string,
+		patch: Patch<Def>,
+	): Promise<ReadDocumentOf<Def>>;
 	/**
 	 * Updates every document that matches, and returns how many changed. The
 	 * driver's own `updateMany`, which returns an `UpdateResult` and takes no
 	 * filter for granted, is `raw.updateMany`.
 	 */
-	updateMany(
-		filter: Filter<DocumentOf<Def>>,
-		patch: ManyPatch<Def>,
-	): Promise<number>;
+	updateMany(filter: FilterOf<Def>, patch: ManyPatch<Def>): Promise<number>;
 	/**
 	 * Deletes the document with this `_id` and returns it: a soft delete on a
 	 * collection with `deletedAt`. Throws `NotFoundError`.
 	 */
-	delete(id: IdOf<Def>): Promise<ReadDocumentOf<Def>>;
+	delete(id: IdOf<Def> | string): Promise<ReadDocumentOf<Def>>;
 	/** Deletes every document that matches, and returns how many. `raw.deleteMany` is the driver's. */
-	deleteMany(filter: Filter<DocumentOf<Def>>): Promise<number>;
+	deleteMany(filter: FilterOf<Def>): Promise<number>;
 	/** A real delete, of a live or a soft-deleted document. */
-	hardDelete(id: IdOf<Def>): Promise<ReadDocumentOf<Def>>;
+	hardDelete(id: IdOf<Def> | string): Promise<ReadDocumentOf<Def>>;
 	/** A real delete of every document that matches, soft-deleted ones included. */
-	hardDeleteMany(filter: Filter<DocumentOf<Def>>): Promise<number>;
+	hardDeleteMany(filter: FilterOf<Def>): Promise<number>;
 	/**
 	 * Clears the soft-delete field and returns the document. Throws
 	 * `NotFoundError`. A collection with no soft delete has nothing to restore,
@@ -417,7 +454,7 @@ export interface CollectionApi<Def> {
 	restore: IfStamp<
 		Def,
 		'deletedAt',
-		(id: IdOf<Def>) => Promise<ReadDocumentOf<Def>>,
+		(id: IdOf<Def> | string) => Promise<ReadDocumentOf<Def>>,
 		never
 	>;
 
@@ -444,15 +481,9 @@ export interface CollectionApi<Def> {
 	 * `count` is `raw.count`, and `estimatedDocumentCount` is on this
 	 * collection directly.
 	 */
-	count(
-		filter?: Filter<DocumentOf<Def>>,
-		options?: ReadOptions,
-	): Promise<number>;
+	count(filter?: FilterOf<Def>, options?: ReadOptions): Promise<number>;
 	/** Whether any document matches. */
-	exists(
-		filter: Filter<DocumentOf<Def>>,
-		options?: ReadOptions,
-	): Promise<boolean>;
+	exists(filter: FilterOf<Def>, options?: ReadOptions): Promise<boolean>;
 	/** One page of the documents that match, and how many there are. */
 	paginate(options?: PaginateOptions<Def>): Promise<Page<ReadDocumentOf<Def>>>;
 	/** One page of the documents that match, after a cursor. */
@@ -467,7 +498,7 @@ export interface CollectionApi<Def> {
 	 */
 	distinct<K extends FieldOf<Def>>(
 		field: K,
-		filter?: Filter<DocumentOf<Def>>,
+		filter?: FilterOf<Def>,
 		options?: ReadOptions,
 	): Promise<DistinctOf<Def, K>[]>;
 

@@ -85,3 +85,31 @@ const counted: number = await collection.count();
 void changed;
 void removed;
 void counted;
+
+// --- what coercion widens, and what it does not -------------------------
+// The collection reads a string on an `ObjectId` or a `Date` field, so the
+// types take one there — and nowhere else.
+await collection.findById('68ca1f0f2b1c4d5e6f7a8b90');
+await collection.findMany({ filter: { teamId: '68ca1f0f2b1c4d5e6f7a8b90' } });
+await collection.findMany({
+	filter: { teamId: { $in: ['68ca1f0f2b1c4d5e6f7a8b90'] } },
+});
+await collection.findMany({ filter: { createdAt: { $gte: '2026-01-01' } } });
+await collection.create({
+	email: 'a@example.com',
+	teamId: '68ca1f0f2b1c4d5e6f7a8b90',
+});
+await collection.update('68ca1f0f2b1c4d5e6f7a8b90', {
+	teamId: '68ca1f0f2b1c4d5e6f7a8b90',
+});
+await collection.update(id, { $set: { teamId: '68ca1f0f2b1c4d5e6f7a8b90' } });
+// @ts-expect-error a number is not an id, and never becomes one
+await collection.findById(42);
+// @ts-expect-error nor in a filter
+await collection.findMany({ filter: { teamId: 42 } });
+// @ts-expect-error nor is a number a date: '1' would be 1970
+await collection.findMany({ filter: { createdAt: { $gte: 1 } } });
+// @ts-expect-error email is a string field, so it is widened by nothing
+await collection.findMany({ filter: { email: id } });
+// @ts-expect-error and a string field still refuses a number
+await collection.create({ email: 42 });

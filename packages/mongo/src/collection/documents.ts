@@ -1,3 +1,4 @@
+import { coerceFields, coerceValue } from './coerce';
 import type { CollectionContext } from './context';
 import { type Fields, isRecord, isUpdateFilter } from './filters';
 import {
@@ -35,7 +36,12 @@ export function withId<T>(ctx: CollectionContext, document: T): T {
 
 /** The document to insert: checked against the schema, defaults filled. */
 export function toDocument(ctx: CollectionContext, values: unknown): Fields {
-	const stamped: Fields = { ...(values as Fields) };
+	// Before `parse`, never after: the schema refuses a string where it wants
+	// an `ObjectId`, so a coercion that ran later would never be reached.
+	const given = values as Fields;
+	const stamped: Fields = ctx.coerces
+		? coerceFields(ctx.kinds, given)
+		: { ...given };
 	refuseKeptOnCreate(ctx, stamped);
 	// A document that was read carries `id`, which is this collection's view
 	// of `_id` and not a field: writing it back would be refused by the
@@ -58,12 +64,14 @@ function setFromFields(ctx: CollectionContext, patch: Fields): Fields {
 	for (const [field, value] of Object.entries(patch)) {
 		if (value === undefined) continue;
 		const schema = ctx.shape[field];
+		const kind = ctx.kinds[field];
 		if (!schema) {
 			throw new TypeError(
 				`update: "${ctx.name}" has no field "${field}" in its schema`,
 			);
 		}
-		set[field] = ctx.parses ? schema.parse(value) : value;
+		const given = ctx.coerces && kind ? coerceValue(kind, value) : value;
+		set[field] = ctx.parses ? schema.parse(given) : given;
 	}
 	return set;
 }
@@ -113,7 +121,17 @@ export function toUpdate(
 	const expectedVersion = expectedVersionOf(ctx, method, patch);
 	const written = refuseFixed(ctx, method, patch);
 	const operators = isUpdateFilter(patch);
-	const update: Fields = operators ? patch : {};
+	// A patch written in operators is coerced whole — `$set`, `$push` and the
+	// rest hold the field's own values, so a string id in one has to be read
+	// exactly as it is in `{ teamId: '507f…' }`, which `setFromFields` does
+	// below for the other branch.
+	// Either way a copy, so the stamps below are added to this package's
+	// object and not to the one the caller still holds.
+	const update: Fields = !operators
+		? {}
+		: ctx.coerces
+			? coerceFields(ctx.kinds, patch)
+			: { ...patch };
 	const set: Fields = {
 		...(isRecord(update.$set) ? update.$set : {}),
 		...(operators ? {} : setFromFields(ctx, patch)),
