@@ -126,13 +126,22 @@ export class FileHandle<Def = unknown> {
 	 * `openDownloadStream` reads it.
 	 */
 	response(init: ResponseInit & { range?: ByteRange } = {}): Response {
-		const { range } = init;
-		const start = range?.start ?? 0;
-		const end = Math.min(range?.end ?? this.size, this.size);
-		const partial = range !== undefined && (start > 0 || end < this.size);
 		const headers = new Headers(init.headers);
+		const wanted = init.range ? satisfiable(init.range, this.size) : undefined;
+		if (init.range && !wanted) {
+			// A range naming bytes this file does not have. Serving it as a
+			// `206` produces `content-range: bytes 200-69/70` and a body of
+			// nothing — a header no client can read. `416` is the answer the
+			// specification has for exactly this.
+			headers.set('content-range', `bytes */${this.size}`);
+			headers.set('accept-ranges', 'bytes');
+			return new Response(null, { status: 416, headers });
+		}
+		const start = wanted?.start ?? 0;
+		const end = wanted?.end ?? this.size;
+		const partial = wanted !== undefined && (start > 0 || end < this.size);
 		if (this.type) headers.set('content-type', this.type);
-		headers.set('content-length', String(Math.max(0, end - start)));
+		headers.set('content-length', String(end - start));
 		headers.set('accept-ranges', 'bytes');
 		if (this.sha256) headers.set('etag', `"${this.sha256}"`);
 		headers.set('last-modified', this.uploadDate.toUTCString());
@@ -144,11 +153,26 @@ export class FileHandle<Def = unknown> {
 				typeof init.download === 'string' ? init.download : this.filename;
 			headers.set('content-disposition', disposition(name));
 		}
-		return new Response(this.stream(range), {
+		return new Response(this.stream(wanted), {
 			status: init.status ?? (partial ? 206 : 200),
 			headers,
 		});
 	}
+}
+
+/**
+ * The range as bytes this file actually has, or nothing when it has none of
+ * them.
+ *
+ * `serveFile` never hands over an impossible range, because `parseRange`
+ * guards it — but `response({ range })` is public and takes whatever it is
+ * given, so it is checked here rather than trusted.
+ */
+function satisfiable(range: ByteRange, size: number): ByteRange | undefined {
+	const start = range.start ?? 0;
+	const end = Math.min(range.end ?? size, size);
+	if (start < 0 || start >= size || end <= start) return undefined;
+	return { start, end };
 }
 
 /**

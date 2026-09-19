@@ -24,6 +24,16 @@ export interface BucketOptions {
 	hash?: boolean;
 	/** The session every read and write of this bucket runs in. */
 	session?: ClientSession;
+	/**
+	 * Creates the bucket's indexes before the first call that needs them, once
+	 * per database for the life of the process. Off by default, as it is on a
+	 * collection: a process that shares a database with a migration should not
+	 * be building indexes on the side.
+	 *
+	 * Without it — and without a `syncIndexes()` at start-up — every read is a
+	 * scan of the whole chunks collection.
+	 */
+	autoSync?: boolean;
 }
 
 /** Everything a bucket operation needs, and nothing it does. */
@@ -75,15 +85,22 @@ export function bucketContext(
 	});
 }
 
-/** Every call to the driver goes through here, so every failure is ours. */
+/**
+ * Every call to the driver goes through here, so every failure is ours.
+ *
+ * `collection` is the one the call was made against: a bucket is two
+ * collections, and an error that says `.files` when the write failed on
+ * `.chunks` sends whoever greps for it to the wrong place.
+ */
 export async function run<T>(
 	ctx: BucketContext,
 	fn: () => Promise<T>,
+	collection: string = ctx.definition.collections.files,
 ): Promise<T> {
 	try {
 		return await fn();
 	} catch (error) {
-		throw toDataError(error, { collection: ctx.definition.collections.files });
+		throw toDataError(error, { collection });
 	}
 }
 

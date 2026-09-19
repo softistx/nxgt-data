@@ -25,7 +25,10 @@ export function parseRange(
 		// `bytes=-500`: the last 500 bytes, and the whole file when it is
 		// shorter than that.
 		const wanted = Number(to);
-		if (wanted === 0) return 'unsatisfiable';
+		// A file of no bytes has no last 500 of them — and `bytes=0-` on the
+		// same file is already unsatisfiable below, so anything else would have
+		// the two branches disagree.
+		if (wanted === 0 || size === 0) return 'unsatisfiable';
 		return { start: Math.max(0, size - wanted), end: size };
 	}
 	const start = Number(from);
@@ -52,21 +55,21 @@ export function serveFile(
 ): Response {
 	// A conditional request that already has the bytes: nothing to send.
 	const etag = file.sha256 ? `"${file.sha256}"` : undefined;
+	// The caller's own headers belong on every answer, not only on the two
+	// that carry a body: a `Cache-Control` a handler sets is most wanted on
+	// exactly the `304` a caching client gets back.
 	if (etag && matchesEtag(request.headers.get('if-none-match'), etag)) {
-		return new Response(null, {
-			status: 304,
-			headers: { etag, 'accept-ranges': 'bytes' },
-		});
+		const headers = new Headers(init.headers);
+		headers.set('etag', etag);
+		headers.set('accept-ranges', 'bytes');
+		return new Response(null, { status: 304, headers });
 	}
 	const range = parseRange(request.headers.get('range'), file.size);
 	if (range === 'unsatisfiable') {
-		return new Response(null, {
-			status: 416,
-			headers: {
-				'content-range': `bytes */${file.size}`,
-				'accept-ranges': 'bytes',
-			},
-		});
+		const headers = new Headers(init.headers);
+		headers.set('content-range', `bytes */${file.size}`);
+		headers.set('accept-ranges', 'bytes');
+		return new Response(null, { status: 416, headers });
 	}
 	return file.response({ ...init, ...(range ? { range } : {}) });
 }

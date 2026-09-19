@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
 import { ObjectId } from 'mongodb';
 import { toObjectId } from '../../definition/object-id';
+import { ConflictError } from '../../errors/data-error';
 import { DEFAULT_CHUNK_SIZE, dropChunks, writeChunks } from '../chunks';
 import { type BucketContext, noSuchFile, run } from '../context';
 import { FileHandle, HASH_KEY, type StoredFile } from '../handle';
 import { metadataFor } from '../metadata';
 import { type FileSource, readSource } from '../source';
 import type { FileId } from '../types';
-import { findFile } from './reads';
+import { fileExists, findFile } from './reads';
 
 export interface PutOptions {
 	/** The name to store. Defaults to the one the source carries, else `''`. */
@@ -44,20 +45,44 @@ export async function putFile(
 		options.chunkSize ?? ctx.definition.chunkSize ?? DEFAULT_CHUNK_SIZE;
 	const _id =
 		options.id === undefined ? new ObjectId() : toObjectId(options.id);
+	// An id the caller chose may already be taken, and a write onto a taken id
+	// cannot be allowed to start: it would fail on the `files` document at the
+	// very end, after the stored file's bytes had already been written over.
+	// The unique `{ files_id, n }` index is what settles the race that is left;
+	// this is what turns the common case into an error rather than a loss.
+	if (options.id !== undefined && (await fileExists(ctx, _id))) {
+		throw new ConflictError(
+			`put: "${ctx.name}" already has a file with _id ${String(_id)}. ` +
+				'Delete it first, or let the bucket give the file an id.',
+			{ collection: ctx.definition.collections.files, id: _id },
+		);
+	}
 	const hash = ctx.hashes ? createHash('sha256') : undefined;
+	// The chunk documents this call wrote, so that a failure removes its own
+	// and only its own.
+	const written: ObjectId[] = [];
 
-	const length = await run(ctx, async () => {
-		try {
-			return await writeChunks(ctx, _id, chunkSize, read.chunks, (bytes) =>
-				hash?.update(bytes),
-			);
-		} catch (error) {
-			// A write that failed must leave nothing behind. Inside a
-			// transaction the rollback does it; outside one, this does.
-			await dropChunks(ctx, _id).catch(() => undefined);
-			throw error;
-		}
-	});
+	const length = await run(
+		ctx,
+		async () => {
+			try {
+				return await writeChunks(
+					ctx,
+					_id,
+					chunkSize,
+					read.chunks,
+					(bytes) => hash?.update(bytes),
+					written,
+				);
+			} catch (error) {
+				// A write that failed must leave nothing behind. Inside a
+				// transaction the rollback does it; outside one, this does.
+				await dropChunks(ctx, written).catch(() => undefined);
+				throw error;
+			}
+		},
+		ctx.definition.collections.chunks,
+	);
 
 	const document: StoredFile = {
 		_id,
@@ -70,7 +95,7 @@ export async function putFile(
 	try {
 		await run(ctx, () => ctx.files.insertOne(document, ctx.sessionOption));
 	} catch (error) {
-		await dropChunks(ctx, _id).catch(() => undefined);
+		await dropChunks(ctx, written).catch(() => undefined);
 		throw error;
 	}
 	return new FileHandle(ctx, document);
@@ -88,8 +113,11 @@ export interface PutOnceResult {
  * A `Blob` — `Bun.file` included — can be streamed more than once, so its
  * digest is taken first and nothing is uploaded when the bucket already has
  * it. Anything else is read once by definition, so it is uploaded and then
- * compared: the duplicate is removed, and the file that was already there is
- * the one given back.
+ * compared.
+ *
+ * Either way the write ends in `keepOne`, which is what makes two callers
+ * storing the same bytes **at the same time** safe: the check above cannot
+ * see a file whose `files` document has not been written yet.
  */
 export async function putFileOnce(
 	ctx: BucketContext,
@@ -106,13 +134,43 @@ export async function putFileOnce(
 		const digest = await digestOf(source);
 		const already = await fileWithHash(ctx, digest);
 		if (already) return { file: already, stored: false };
-		return { file: await putFile(ctx, source, options), stored: true };
 	}
-	const written = await putFile(ctx, source, options);
+	return await keepOne(ctx, await putFile(ctx, source, options));
+}
+
+/**
+ * Of the copies carrying these bytes, the first one wins — and it is the same
+ * one whoever asks.
+ *
+ * Removing "the copy that is not mine" is what a first reading suggests, and
+ * it loses the file outright: run twice at once, each call finds the other,
+ * each removes itself, and the bucket ends up empty while both callers are
+ * told the bytes were already safely stored. So the rule is one every caller
+ * computes the same way — the copy that comes **first** in the order
+ * `putOnce` reads by, `(uploadDate, _id)`, is the one kept — and a caller
+ * removes only **itself**, and only when it is not that one. Exactly one copy
+ * survives, whatever the order the calls happen to run in.
+ */
+async function keepOne(
+	ctx: BucketContext,
+	written: FileHandle,
+): Promise<PutOnceResult> {
 	const already = await fileWithHash(ctx, written.sha256 ?? '', written._id);
-	if (!already) return { file: written, stored: true };
+	if (!already || !precedes(already, written)) {
+		return { file: written, stored: true };
+	}
 	await removeFile(ctx, written._id);
 	return { file: already, stored: false };
+}
+
+/** `(uploadDate, _id)`, which is the order `fileWithHash` sorts by. */
+function precedes(one: FileHandle, other: FileHandle): boolean {
+	const mine = one.uploadDate.getTime();
+	const theirs = other.uploadDate.getTime();
+	if (mine !== theirs) return mine < theirs;
+	// An `ObjectId`'s hex string compares as its bytes do, which is how the
+	// server ordered the two in the sort above.
+	return String(one._id) < String(other._id);
 }
 
 async function digestOf(blob: Blob): Promise<string> {

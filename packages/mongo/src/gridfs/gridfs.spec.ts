@@ -8,19 +8,29 @@ import {
 } from 'bun:test';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { ObjectId } from 'mongodb';
+import { Binary, GridFSBucket, ObjectId } from 'mongodb';
 import { avatars, clips, uploads } from '../../test/buckets';
 import { startMongo, type TestServer } from '../../test/server';
-import { CorruptFileError, NotFoundError } from '../errors/data-error';
+import {
+	ConflictError,
+	CorruptFileError,
+	NotFoundError,
+} from '../errors/data-error';
 import { withTransaction } from '../transaction/with-transaction';
 import { getFiles } from './get-files';
+import { resetBucketSync } from './indexes';
 
 let t: TestServer;
 
 beforeAll(async () => {
 	t = await startMongo();
 }, 120_000);
-beforeEach(() => t.reset());
+beforeEach(async () => {
+	// The database goes, so the memo of what `autoSync` has already created
+	// has to go with it.
+	resetBucketSync();
+	await t.reset();
+});
 afterAll(() => t.stop());
 
 const bytes = (n: number, fill = 7) => new Uint8Array(n).fill(fill);
@@ -575,5 +585,304 @@ describe('the edges the mutants found', () => {
 			after = page.nextCursor;
 		} while (after);
 		expect(seen.sort()).toEqual(['f0', 'f1', 'f2']);
+	});
+});
+
+describe('a file written under an id that is already taken', () => {
+	test('is refused, and the stored file keeps its bytes', async () => {
+		const files = anything();
+		const first = await files.put(bytes(70, 1), { chunkSize: 7 });
+		const failed = await files
+			.put(bytes(70, 2), { id: first._id, chunkSize: 7 })
+			.catch((error: unknown) => error);
+		expect(failed).toBeInstanceOf(ConflictError);
+		expect((failed as Error).message).toMatch(/already has a file with _id/);
+		// The point of the refusal: before it, the second write laid its ten
+		// chunks down, failed on the `files` document, and then cleaned up by
+		// `files_id` — taking the **first** file's bytes with it. The file was
+		// still found, and read as a `CorruptFileError`.
+		expect(await (await files.get(first.id)).bytes()).toEqual(bytes(70, 1));
+	});
+
+	test('a write that fails removes its own chunks and no others', async () => {
+		const files = anything();
+		const kept = await files.put(bytes(70, 1), { chunkSize: 7 });
+		// A chunk of a file that does not exist, under an id nothing claims:
+		// the unique `{ files_id, n }` index makes the write fail partway.
+		await files.syncIndexes();
+		const id = new ObjectId();
+		await t.db
+			.collection('uploads.chunks')
+			.insertOne({ files_id: id, n: 3, data: new Binary(bytes(7)) });
+		await expect(files.put(bytes(70, 2), { id, chunkSize: 7 })).rejects.toThrow(
+			ConflictError,
+		);
+		expect(await (await files.get(kept.id)).bytes()).toEqual(bytes(70, 1));
+		// Its own chunks are gone; the one that was there before it is not.
+		expect(
+			await t.db.collection('uploads.chunks').countDocuments({ files_id: id }),
+		).toBe(1);
+	});
+
+	test('names the collection the failure actually happened on', async () => {
+		const files = anything();
+		await files.syncIndexes();
+		const id = new ObjectId();
+		await t.db
+			.collection('uploads.chunks')
+			.insertOne({ files_id: id, n: 0, data: new Binary(bytes(7)) });
+		const failed = await files
+			.put(bytes(70), { id, chunkSize: 7 })
+			.catch((error: unknown) => error);
+		// A bucket is two collections, and an error that says `.files` when the
+		// write failed on `.chunks` sends whoever greps for it to the wrong one.
+		expect((failed as ConflictError).collection).toBe('uploads.chunks');
+	});
+});
+
+describe('two callers storing the same bytes at once', () => {
+	test('keep exactly one copy, and agree on which', async () => {
+		const files = anything();
+		// A `Uint8Array` is read once, so both calls upload and then reconcile
+		// — the path where "remove the copy that is not mine" loses the file
+		// outright: each call found the other, each removed itself, and the
+		// bucket ended up empty while both were told the bytes were safe.
+		const [one, other] = await Promise.all([
+			files.putOnce(bytes(4096)),
+			files.putOnce(bytes(4096)),
+		]);
+		expect(one.file.id).toBe(other.file.id);
+		expect([one.stored, other.stored].filter(Boolean)).toHaveLength(1);
+		expect((await files.paginate()).items).toHaveLength(1);
+		expect(await (await files.get(one.file.id)).bytes()).toEqual(bytes(4096));
+	});
+
+	test('a `Blob` reconciles too, rather than storing twice', async () => {
+		const files = anything();
+		// The check-then-write path cannot see a file whose `files` document
+		// has not been written yet, so it ends in the same reconciliation.
+		const [one, other] = await Promise.all([
+			files.putOnce(new Blob([bytes(2048) as BlobPart])),
+			files.putOnce(new Blob([bytes(2048) as BlobPart])),
+		]);
+		expect(one.file.id).toBe(other.file.id);
+		expect((await files.paginate()).items).toHaveLength(1);
+	});
+
+	test('three at once leave one, not none', async () => {
+		const files = anything();
+		const all = await Promise.all([
+			files.putOnce(bytes(3000)),
+			files.putOnce(bytes(3000)),
+			files.putOnce(bytes(3000)),
+		]);
+		expect(new Set(all.map((r) => r.file.id)).size).toBe(1);
+		expect((await files.paginate()).items).toHaveLength(1);
+	});
+});
+
+describe('a chunk that is there but short', () => {
+	test('reads as a `CorruptFileError`, not as a short file', async () => {
+		const files = anything();
+		const file = await files.put(bytes(70), { chunkSize: 7 });
+		await t.db
+			.collection('uploads.chunks')
+			.updateOne(
+				{ files_id: file._id, n: 5 },
+				{ $set: { data: new Binary(bytes(3)) } },
+			);
+		// Chunk numbers alone cannot catch this: nothing is missing, so there
+		// is no gap. Without counting the bytes the read came back quietly
+		// four bytes short, which is a truncated image the caller never hears
+		// about.
+		const found = await files.get(file.id);
+		await expect(found.bytes()).rejects.toBeInstanceOf(CorruptFileError);
+		await expect(found.bytes()).rejects.toThrow(/reads 66 bytes where/);
+	});
+
+	test('a truncated last chunk is caught too', async () => {
+		const files = anything();
+		const file = await files.put(bytes(70), { chunkSize: 7 });
+		await t.db
+			.collection('uploads.chunks')
+			.updateOne(
+				{ files_id: file._id, n: 9 },
+				{ $set: { data: new Binary(bytes(3)) } },
+			);
+		await expect((await files.get(file.id)).bytes()).rejects.toBeInstanceOf(
+			CorruptFileError,
+		);
+	});
+});
+
+describe('the indexes, and the session they run in', () => {
+	test('`autoSync` creates them before the first call that needs them', async () => {
+		const files = getFiles(t.db, uploads, { autoSync: true });
+		await files.put(bytes(16));
+		// Nothing else creates these: the driver made two of them on its first
+		// upload, and this package stopped uploading through the driver.
+		const chunks = (await t.db.collection('uploads.chunks').indexes()).map(
+			(index) => index.name,
+		);
+		expect(chunks).toContain('files_id_1_n_1');
+		const stored = (await t.db.collection('uploads.files').indexes()).map(
+			(index) => index.name,
+		);
+		expect(stored).toContain('nxgt_uploadDate_id');
+	});
+
+	test('without it, nothing creates them', async () => {
+		await anything().put(bytes(16));
+		const chunks = (await t.db.collection('uploads.chunks').indexes()).map(
+			(index) => index.name,
+		);
+		expect(chunks).toEqual(['_id_']);
+	});
+
+	test('a bucket bound to a session stays an `autoSync` one', async () => {
+		const files = getFiles(t.db, uploads, { autoSync: true });
+		await withTransaction(t.client, async (session) => {
+			await files.withSession(session).put(bytes(16));
+		});
+		const chunks = (await t.db.collection('uploads.chunks').indexes()).map(
+			(index) => index.name,
+		);
+		expect(chunks).toContain('files_id_1_n_1');
+	});
+
+	test('`syncIndexes` runs in the session, so a transaction refuses it', async () => {
+		const files = anything();
+		// Measured: mongod will not create a namespace inside a transaction.
+		// That refusal is the point — without the session the call escaped the
+		// transaction silently and built the indexes anyway.
+		const failed = await withTransaction(t.client, async (session) => {
+			await files.withSession(session).syncIndexes();
+		}).catch((error: unknown) => error);
+		expect(failed).toBeInstanceOf(Error);
+		expect(
+			await t.db.listCollections({ name: 'uploads.files' }).toArray(),
+		).toEqual([]);
+	});
+
+	test('and refuses it on collections that already exist too', async () => {
+		const files = anything();
+		await files.put(bytes(16));
+		// Measured: "Cannot create new indexes on existing collection … in a
+		// multi-document transaction" — so there is no case where this quietly
+		// works, which is why `autoSync` drops the session before it runs.
+		const failed = await withTransaction(t.client, async (session) => {
+			await files.withSession(session).syncIndexes();
+		}).catch((error: unknown) => error);
+		expect(failed).toBeInstanceOf(Error);
+		const stored = (await t.db.collection('uploads.files').indexes()).map(
+			(index) => index.name,
+		);
+		expect(stored).toEqual(['_id_']);
+	});
+});
+
+describe('dropping a bucket', () => {
+	test('removes both collections', async () => {
+		const files = anything();
+		await files.put(bytes(2048));
+		await files.drop();
+		expect(await t.db.collection('uploads.files').countDocuments()).toBe(0);
+		expect(await t.db.collection('uploads.chunks').countDocuments()).toBe(0);
+	});
+
+	test('a bucket that was never written to is not an error', async () => {
+		await anything().drop();
+	});
+
+	test('a drop the server refuses is raised, not swallowed', async () => {
+		const files = anything();
+		await files.put(bytes(2048));
+		// mongod refuses a `drop` inside a transaction. Catching every error
+		// made a refused drop indistinguishable from one that worked — and the
+		// files are still there either way.
+		await expect(
+			withTransaction(t.client, async (session) => {
+				await files.withSession(session).drop();
+			}),
+		).rejects.toThrow();
+		expect(await t.db.collection('uploads.files').countDocuments()).toBe(1);
+	});
+});
+
+describe('an id that could not name a file', () => {
+	test('is a 404 and not a 500, as it is on a collection', async () => {
+		const files = anything();
+		// The README offers `files.serve(c.req.raw, c.req.param('id'))` as a
+		// route: a junk path parameter must not be a 500 on an unauthenticated
+		// request. The rule across this package is that reading a string never
+		// throws.
+		const answer = await files.serve(
+			new Request('http://x/files/nope'),
+			'not-an-id',
+		);
+		expect(answer.status).toBe(404);
+		expect(await files.find('not-an-id')).toBeUndefined();
+		expect(await files.exists('not-an-id')).toBe(false);
+		await expect(files.get('not-an-id')).rejects.toBeInstanceOf(NotFoundError);
+		await expect(files.delete('not-an-id')).rejects.toBeInstanceOf(
+			NotFoundError,
+		);
+	});
+});
+
+describe('a range a file cannot satisfy', () => {
+	test('is a 416, not a `Content-Range` no client can read', async () => {
+		const file = await anything().put(bytes(70));
+		// `parseRange` guards `serve`, but `response({ range })` is public and
+		// took whatever it was given: past the end it answered `206` with
+		// `content-range: bytes 200-69/70` and a body of nothing.
+		const past = file.response({ range: { start: 200, end: 300 } });
+		expect(past.status).toBe(416);
+		expect(past.headers.get('content-range')).toBe('bytes */70');
+		const backwards = file.response({ range: { start: 50, end: 10 } });
+		expect(backwards.status).toBe(416);
+	});
+
+	test('a range that ends past the end is clamped, not refused', async () => {
+		const file = await anything().put(bytes(70));
+		const answer = file.response({ range: { start: 60, end: 400 } });
+		expect(answer.status).toBe(206);
+		expect(answer.headers.get('content-range')).toBe('bytes 60-69/70');
+		expect(answer.headers.get('content-length')).toBe('10');
+	});
+});
+
+describe('files this package and the driver both read', () => {
+	test("a file written here is read by the driver's own bucket", async () => {
+		const files = anything();
+		const payload = new Uint8Array(600 * 1024).map((_, i) => i % 251);
+		const file = await files.put(payload, { filename: 'clip.bin' });
+		const driver = new GridFSBucket(t.db, { bucketName: 'uploads' });
+		const read = await new Response(
+			driver.openDownloadStream(file._id) as unknown as ReadableStream,
+		).bytes();
+		expect(read).toEqual(payload);
+	});
+
+	test('a file written by the driver is read here', async () => {
+		const driver = new GridFSBucket(t.db, { bucketName: 'uploads' });
+		const payload = new Uint8Array(5000).map((_, i) => i % 251);
+		const upload = driver.openUploadStream('from-the-driver', {
+			metadata: { note: 'written by the driver' },
+		});
+		await new Promise<void>((resolve, reject) => {
+			upload.on('finish', () => resolve());
+			upload.on('error', reject);
+			upload.end(payload);
+		});
+		const file = await anything().get(upload.id as ObjectId);
+		expect(file.filename).toBe('from-the-driver');
+		expect(file.size).toBe(5000);
+		expect(file.metadata as unknown).toEqual({
+			note: 'written by the driver',
+		});
+		expect(await file.bytes()).toEqual(payload);
+		// It carries no digest, so it has no `ETag` — and `serve` still works.
+		expect(file.sha256).toBeUndefined();
 	});
 });

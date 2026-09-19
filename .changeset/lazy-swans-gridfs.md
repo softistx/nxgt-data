@@ -30,12 +30,15 @@ metadata come from the one `files` document that finding it cost, and
 
 `serve(request, id)` answers the whole file, the range the request asked for
 as a `206`, `304` when the caller already has the bytes, `416` when the range
-cannot be met, and `404` when there is no such file — with `Content-Type`,
-`Content-Length`, `Accept-Ranges`, `Last-Modified`, an `ETag` built from the
-digest and a `Content-Disposition` that carries a non-ASCII filename intact.
-`putOnce` stores the same bytes once. `paginate` is this package's cursor
-pagination, ordered on `uploadDate` **and** `_id`, filtering on the metadata
-with the same string coercion as everywhere else.
+cannot be met, and `404` when there is no such file — an id that could not
+name one included, so a junk path parameter is never a `500`. It always sets
+`Content-Length`, `Accept-Ranges` and `Last-Modified`; `Content-Type` when the
+file carries one, an `ETag` when the bucket hashes, and a
+`Content-Disposition` that carries a non-ASCII filename intact when you ask
+for a download. `putOnce` stores the same bytes once, two callers at once
+included. `paginate` is this package's cursor pagination, ordered on
+`uploadDate` **and** `_id`, filtering on the metadata with the same string
+coercion as everywhere else.
 
 It runs in a transaction, which the driver's own GridFS cannot: measured on
 mongodb 7.6.0, **no** GridFS call takes a session — not the upload, not the
@@ -43,5 +46,11 @@ download, not `delete`, not `rename` — so a write through `GridFSBucket`
 leaves the transaction it was asked to run in without a word. This package
 writes and reads the chunk documents itself.
 
-Also new: `CorruptFileError`, raised while reading a file whose chunks are
-not all there, naming the chunk that is missing.
+`syncIndexes()` creates the four indexes a bucket needs, and `autoSync` does
+it before the first call that needs one. Call one or the other: nothing else
+creates them, because the driver built two of them on its first upload and
+this package no longer uploads through the driver.
+
+Also new: `CorruptFileError`, raised while reading a file whose bytes are not
+all there — naming the chunk when one is missing, and the file and both counts
+when one is merely short. A read never comes back quietly truncated.

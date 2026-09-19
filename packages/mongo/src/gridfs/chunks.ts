@@ -1,4 +1,4 @@
-import { Binary, type ObjectId } from 'mongodb';
+import { Binary, ObjectId } from 'mongodb';
 import { CorruptFileError } from '../errors/data-error';
 import type { BucketContext } from './context';
 
@@ -42,20 +42,35 @@ export async function writeChunks(
 	chunkSize: number,
 	source: AsyncIterable<Uint8Array>,
 	onBytes?: (bytes: Uint8Array) => void,
+	written?: ObjectId[],
 ): Promise<number> {
 	let length = 0;
 	let n = 0;
 	let held = new Uint8Array(chunkSize);
 	let filled = 0;
-	let batch: { files_id: ObjectId; n: number; data: Binary }[] = [];
+	let batch: { _id: ObjectId; files_id: ObjectId; n: number; data: Binary }[] =
+		[];
 
 	const flushBatch = async () => {
 		if (batch.length === 0) return;
-		await ctx.chunks.insertMany(batch, { ...ctx.sessionOption, ordered: true });
+		const going = batch;
 		batch = [];
+		// Recorded **before** the insert, not after: a batch that fails partway
+		// has landed some of its documents, and an id this call never records
+		// is an orphan chunk nothing will clean up.
+		if (written) for (const one of going) written.push(one._id);
+		await ctx.chunks.insertMany(going, {
+			...ctx.sessionOption,
+			ordered: true,
+		});
 	};
 	const emit = async () => {
 		batch.push({
+			// The id is this package's rather than the driver's, so that a write
+			// that fails can remove exactly the chunks **it** wrote. Deleting by
+			// `files_id` would take the chunks of whatever else is stored under
+			// that id with it.
+			_id: new ObjectId(),
 			files_id: filesId,
 			n: n++,
 			// A copy, because `held` is reused for the chunk that follows.
@@ -88,12 +103,18 @@ export async function writeChunks(
 	return length;
 }
 
-/** Removes every chunk of a file. */
+/**
+ * Removes the chunk documents this call wrote, and nothing else.
+ *
+ * By `_id` rather than by `files_id`: a write onto an id that is already
+ * taken must not take the stored file's bytes down with it.
+ */
 export async function dropChunks(
 	ctx: BucketContext,
-	filesId: ObjectId,
+	ids: readonly ObjectId[],
 ): Promise<void> {
-	await ctx.chunks.deleteMany({ files_id: filesId }, ctx.sessionOption);
+	if (ids.length === 0) return;
+	await ctx.chunks.deleteMany({ _id: { $in: [...ids] } }, ctx.sessionOption);
 }
 
 /**
@@ -124,12 +145,22 @@ export function readChunks(
 		.sort({ n: 1 });
 
 	let expected = firstChunk;
+	let sent = 0;
 	return new ReadableStream<Uint8Array>({
 		async pull(controller) {
 			const chunk = await cursor.next();
 			if (!chunk) {
 				if (expected <= lastChunk) {
 					controller.error(missingChunk(ctx, filesId, expected));
+					return;
+				}
+				// Every chunk was there and the bytes still do not add up: one
+				// of them holds fewer than it should. Counting the numbers is
+				// not enough — a chunk truncated in place leaves no gap, and
+				// without this the read comes back quietly short, which is the
+				// corruption that costs something.
+				if (sent !== end - start) {
+					controller.error(shortFile(ctx, filesId, end - start, sent));
 					return;
 				}
 				controller.close();
@@ -146,10 +177,27 @@ export function readChunks(
 			const from = Math.max(0, start - at);
 			const to = Math.min(bytes.byteLength, end - at);
 			expected += 1;
-			if (to > from) controller.enqueue(bytes.subarray(from, to));
+			if (to > from) {
+				sent += to - from;
+				controller.enqueue(bytes.subarray(from, to));
+			}
 		},
 		cancel: () => cursor.close(),
 	});
+}
+
+/** Every chunk was present, and together they hold fewer bytes than promised. */
+function shortFile(
+	ctx: BucketContext,
+	filesId: ObjectId,
+	wanted: number,
+	got: number,
+): CorruptFileError {
+	return new CorruptFileError(
+		`File ${String(filesId)} in "${ctx.name}" reads ${got} bytes where its ` +
+			`chunks should hold ${wanted}: a chunk of it was truncated`,
+		{ collection: ctx.definition.collections.chunks, id: filesId },
+	);
 }
 
 function missingChunk(

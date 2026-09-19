@@ -51,7 +51,7 @@ const db = client.db('app');
 | --- | --- |
 | `@nxgt/mongo` | everything below, but migrations |
 | `@nxgt/mongo/migrations` | [migrations](#migrations): `defineMigration`, `migrate`, `rollback`, `migrationStatus`, `MigrationError`, `MigrationLockedError` |
-| `@nxgt/mongo/gridfs` | [files](#files): `defineBucket`, `getFiles`, `FileHandle`, `parseRange` |
+| `@nxgt/mongo/gridfs` | [files](#files): `defineBucket`, `getFiles`, `FileHandle`, `parseRange`, `resetBucketSync` |
 
 ## Definition
 
@@ -721,12 +721,12 @@ application never reads a numeric code:
 | error | `code` | when |
 | --- | --- | --- |
 | `NotFoundError` | `NOT_FOUND` | a method by `_id` matched nothing |
-| `ConflictError` | `CONFLICT` | a unique index refused the write (`E11000`) |
+| `ConflictError` | `CONFLICT` | a unique index refused the write (`E11000`), or `put({ id })` named a file the bucket already has |
 | `ValidationError` | `VALIDATION` | the collection's validator refused it (121) |
 | `OptimisticLockError` | `OPTIMISTIC_LOCK` | the version in the patch no longer matches |
 | `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write |
-| `InvalidIdError` | `INVALID_ID` | a value that is no `ObjectId`, nor the string of one — raised by `toObjectId`, `toObjectIds` and `objectIdParam`, and by nothing else: the collection's own reading of a string never throws |
-| `CorruptFileError` | `CORRUPT_FILE` | a stored file is missing chunks — raised while its bytes are read, not when it is found |
+| `InvalidIdError` | `INVALID_ID` | a value that is no `ObjectId`, nor the string of one — raised by `toObjectId`, `toObjectIds` and `objectIdParam`, and by `put({ id })`, where the id is the caller's own. Reading a string never throws: a malformed id on `findById`, `get`, `serve` or any other read matches nothing |
+| `CorruptFileError` | `CORRUPT_FILE` | a stored file is missing chunks, or one of them is short — raised while its bytes are read, not when it is found |
 | `MigrationError` | `MIGRATION` | a migration failed, or the list does not match the records — from `@nxgt/mongo/migrations` |
 | `MigrationLockedError` | `MIGRATION_LOCKED` | another run holds the migration lock, or this one lost it — from `@nxgt/mongo/migrations` |
 | `DataError` | `DATABASE` | any other server error, with its `serverCode` |
@@ -892,11 +892,26 @@ there before a single byte is fetched.
 
 ```ts
 const file = await files.get(id);        // NotFoundError if it is not there
+file.id;         // 24 hex characters; `file._id` is the ObjectId
+file.filename;
+file.size;       // `file.length` is the same number, GridFS's own name for it
+file.type;       // undefined when the source carried none
+file.sha256;     // undefined on a bucket bound with `hash: false`
+file.uploadDate;
+file.metadata;   // typed by the bucket's schema
+
 await file.text();
 await file.bytes({ start: 0, end: 1024 });   // end exclusive, as everywhere here
+await file.json();
 file.stream();                               // a web ReadableStream
 await file.blob();                           // carrying the stored type
 ```
+
+An id that could not name a file — anything that is not 24 hex characters —
+finds nothing rather than throwing, exactly as it does on a collection. `find`
+answers `undefined`, `exists` answers `false`, and `get`, `delete` and
+`rename` raise `NotFoundError`. A junk path parameter is a `404`, never a
+`500`.
 
 **Serving one is a line.** `serve` answers the whole file, the range the
 request asked for, `304` when the caller already has the bytes, `416` when
@@ -909,10 +924,12 @@ app.get('/files/:id/download', async (c) =>
 );
 ```
 
-`Content-Type`, `Content-Length`, `Accept-Ranges`, `Last-Modified`, an `ETag`
-built from the digest, and `Content-Disposition` with the filename given both
-plainly and as UTF-8, are all set for you. A `206` reads only the chunks the
-range spans.
+`Content-Length`, `Accept-Ranges` and `Last-Modified` are always set.
+`Content-Type` is set when the file carries one, an `ETag` built from the
+digest when the bucket hashes, and `Content-Disposition` — with the filename
+given both plainly and as UTF-8 — only when you pass `download`. A `206` reads
+only the chunks the range spans; a range naming bytes the file does not have
+is a `416`, from `response` as much as from `serve`.
 
 **The same bytes are stored once.** `putOnce` compares digests:
 
@@ -922,8 +939,15 @@ stored;   // false when the bucket already had these very bytes
 ```
 
 A `Blob` — `Bun.file` included — can be streamed twice, so its digest is
-taken first and nothing is uploaded. Anything else is read once by
-definition, so it is written and then compared, and the copy is removed.
+taken first and nothing is uploaded when the bucket already has those bytes.
+Anything else is read once by definition, so it is written and then compared.
+
+Either way the write ends in the same reconciliation, which is what makes two
+callers storing the same bytes **at the same time** safe: neither check can
+see a file whose `files` document has not been written yet, so both may write
+— and then the copy that comes first in `(uploadDate, _id)` is the one kept,
+by a rule every caller computes the same way. Exactly one copy survives, and
+both callers are given it.
 
 **Listing is the package's own cursor pagination**, newest first, ordered on
 `uploadDate` and `_id` together so that two files uploaded in the same
@@ -950,16 +974,48 @@ await withTransaction(client, async (session) => {
 });
 ```
 
-The rest: `find` (or `undefined`), `exists`, `delete`, `rename`, `drop`, and
-`syncIndexes()`, which creates the two indexes this package reads through and
-the two GridFS itself needs.
+The rest: `find` (or `undefined`), `exists`, `delete`, `rename`, and `drop`,
+which removes both of the bucket's collections — a bucket that was never
+written to is not an error, anything the server refuses is.
+
+**Create the indexes.** Nothing else does:
+
+```ts
+await files.syncIndexes();               // at start-up
+const files = getFiles(db, avatars, { autoSync: true });   // or before the first call
+```
+
+This is not an optimisation. MongoDB's own driver builds two of these on its
+first upload, but this package does not upload through it — `GridFSBucket`
+takes no session — so until `syncIndexes` has run, **every read scans the
+whole chunks collection**, and what it examines grows with the size of the
+bucket rather than of the file. It creates four: the pagination order, the
+digest `putOnce` looks up by, GridFS's own `filename_1_uploadDate_1`, and the
+unique `{ files_id, n }` that stops two writers landing two chunk 3s under one
+file. It runs in the bucket's session like everything else, which means mongod
+refuses it inside a transaction — so call it at start-up, or use `autoSync`,
+which drops the session for exactly that reason.
+
+| option of `put` | what it does |
+| --- | --- |
+| `filename` | the name to store. Defaults to the source's own, else `''` |
+| `type` | the content type. Defaults to the one the source carries |
+| `metadata` | this file's metadata, as the bucket's schema describes it |
+| `id` | the `_id` to give it. `ConflictError` when the bucket already has that file |
+| `chunkSize` | overrides the bucket's chunk size for this file alone |
 
 | option of `getFiles` | what it does |
 | --- | --- |
 | `validate` | `'parse'` checks the metadata against the schema, `'off'` sends it as given |
 | `coerce` | reads the strings that arrive from outside as ids and dates. Default on |
 | `hash` | hashes every upload and stores the digest. Default on; `putOnce` and the `ETag` need it |
+| `autoSync` | creates the bucket's indexes before the first call that needs them. Default off |
 | `session` | the session every call runs in — `withSession` is the same thing, later |
+
+`@nxgt/mongo/gridfs` re-exports the errors it raises — `NotFoundError`,
+`ConflictError`, `ValidationError`, `CorruptFileError`, `InvalidIdError`,
+`InvalidCursorError` — so catching one does not mean importing the root
+package beside it. They are the very same classes.
 
 ## Aggregation
 
@@ -1036,7 +1092,10 @@ const withRelations = await members.populate(await members.findMany(), {
 | `encodeCursor`, `decodeCursor`, `pageWindow`, `toPage` | the pagination pieces |
 | `DataError` and its subclasses, `toDataError` | the errors |
 | `defineMigration`, `migrate`, `rollback`, `migrationStatus`, `MigrationError`, `MigrationLockedError` | from `@nxgt/mongo/migrations`: migrations, in code |
-| `defineBucket`, `getFiles`, `FileHandle`, `parseRange` | from `@nxgt/mongo/gridfs`: files, with typed metadata |
+| `defineBucket`, `getFiles` | from `@nxgt/mongo/gridfs`: a bucket, described once and bound to a database |
+| `FileHandle` | a file that has been found, not read: `bytes`, `text`, `json`, `blob`, `stream`, `response` |
+| `parseRange` | a `Range` header read against a known size, for a handler that serves bytes itself |
+| `resetBucketSync` | forgets what `autoSync` has already created, for a test that drops its database |
 | `diffIndexes`, `normalizeIndex`, `validationMatches`, `diffCollectionOptions` | what `sync` compares with |
 
 `CollectionOptions` turns the behaviours off one by one: `softDelete`,
@@ -1284,11 +1343,22 @@ operator, and getting it subtly wrong is worse than being honest about it.
   This package keeps the type, and the digest, in `metadata.contentType` and
   `metadata.sha256`, which is why a bucket's schema may not declare either
   name.
-- **A file is found whole and can still read short.** Nothing in MongoDB ties
-  the `files` document to its chunks, so a chunk removed by hand or an
-  interrupted write from another client leaves a file whose `length` promises
-  bytes that are not there. `get` still answers; reading raises
-  `CorruptFileError`, naming the chunk.
+- **A file is found whole, and only reading it says otherwise.** Nothing in
+  MongoDB ties the `files` document to its chunks, so a chunk removed by hand
+  or an interrupted write from another client leaves a file whose `length`
+  promises bytes that are not there. `get` still answers, and `size` is
+  whatever the document claims; the failure comes when the bytes are read.
+  A chunk that is absent raises `CorruptFileError` naming its number, and one
+  that is present but **short** — which leaves no gap to notice — raises it
+  naming the file and both counts. Neither ever reads quietly short.
+- **Nothing creates a bucket's indexes on its own.** The driver builds two of
+  them on its first upload, and this package does not upload through the
+  driver — see the session trap above — so that safety net went with it.
+  Without `syncIndexes()` at start-up or `autoSync` on the bucket, every read
+  is a scan of the whole chunks collection, and the documents examined grow
+  with the size of the bucket rather than of the file. `syncIndexes` runs in
+  the bucket's session, so mongod refuses it inside a transaction; `autoSync`
+  drops the session for that reason.
 - **`uploadDate` is not unique.** Two files written in the same millisecond
   share it, so the listing orders on `uploadDate` **and** `_id`. A cursor
   written for one order is refused by the other.

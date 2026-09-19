@@ -1,12 +1,23 @@
-import type { ClientSession, Db, GridFSBucket } from 'mongodb';
+import type {
+	ClientSession,
+	Collection,
+	Db,
+	Document,
+	GridFSBucket,
+} from 'mongodb';
 import type { CursorPage } from '../pagination/page';
 import {
 	type BucketContext,
 	type BucketOptions,
 	bucketContext,
+	run,
 } from './context';
 import type { FileHandle, ResponseInit } from './handle';
-import { type BucketIndexReport, syncBucketIndexes } from './indexes';
+import {
+	type BucketIndexReport,
+	syncBucketIndexes,
+	syncBucketIndexesOnce,
+} from './indexes';
 import { type FilePageOptions, paginateFiles } from './operations/paginate';
 import { fileExists, findFile, getFile } from './operations/reads';
 import {
@@ -66,9 +77,19 @@ export interface TypedBucket<Def extends BucketDefinition> {
 	 */
 	serve(request: Request, id: FileId, init?: ResponseInit): Promise<Response>;
 
-	/** Creates the indexes this bucket reads through, if they are not there. */
+	/**
+	 * Creates the four indexes this bucket needs, if they are not there.
+	 *
+	 * Nothing else creates any of them, so until this has run every read is a
+	 * scan. Call it at start-up, or bind the bucket with `autoSync`. It runs
+	 * in the bucket's session like every other call, which means mongod
+	 * refuses it inside a transaction.
+	 */
 	syncIndexes(): Promise<BucketIndexReport[]>;
-	/** Removes every file in the bucket, and both its collections. */
+	/**
+	 * Removes every file in the bucket, and both its collections. A bucket
+	 * that is not there is not an error; anything else is.
+	 */
 	drop(): Promise<void>;
 
 	/** The same bucket, every call of it running in this session. */
@@ -91,7 +112,42 @@ export function getFiles<Def extends BucketDefinition>(
 	definition: Def,
 	options: BucketOptions = {},
 ): TypedBucket<Def> {
-	return bound(bucketContext(db, definition, options), definition, db, options);
+	const ctx = bucketContext(db, definition, options);
+	const api = bound(ctx, definition, db, options);
+	return options.autoSync === true ? gated(ctx, api) : api;
+}
+
+/**
+ * What does not wait for `autoSync`: the properties, the one that builds
+ * another bucket, and the two that are about the indexes themselves.
+ */
+const UNGATED = new Set([
+	'name',
+	'definition',
+	'raw',
+	'session',
+	'withSession',
+	'syncIndexes',
+	'drop',
+]);
+
+/** Every call of the bucket, made to create the indexes first. */
+function gated<Def extends BucketDefinition>(
+	ctx: BucketContext,
+	api: TypedBucket<Def>,
+): TypedBucket<Def> {
+	// A `Proxy`, as `get-collection.ts` gates a collection: it keeps the type
+	// and needs no cast to put it back.
+	return new Proxy(api, {
+		get(target, key, receiver) {
+			const own = Reflect.get(target, key, receiver);
+			if (typeof own !== 'function' || UNGATED.has(key as string)) return own;
+			return (...args: unknown[]) =>
+				syncBucketIndexesOnce(ctx).then(() =>
+					(own as (...a: unknown[]) => unknown)(...args),
+				);
+		},
+	});
 }
 
 function bound<Def extends BucketDefinition>(
@@ -134,16 +190,38 @@ function bound<Def extends BucketDefinition>(
 
 		syncIndexes: () => syncBucketIndexes(ctx),
 		drop: async () => {
-			await ctx.files.drop().catch(() => undefined);
-			await ctx.chunks.drop().catch(() => undefined);
+			await dropCollection(ctx, ctx.files, ctx.definition.collections.files);
+			await dropCollection(ctx, ctx.chunks, ctx.definition.collections.chunks);
 		},
 
-		withSession: (session) =>
-			bound(
-				bucketContext(db, definition, { ...options, session }),
-				definition,
-				db,
-				{ ...options, session },
-			),
+		// Through `getFiles`, so that an `autoSync` bucket stays one: a session
+		// is not a reason to stop creating the indexes.
+		withSession: (session) => getFiles(db, definition, { ...options, session }),
 	};
+}
+
+/**
+ * Drops one of the bucket's two collections.
+ *
+ * Only "there is no such collection" is swallowed: catching everything made a
+ * drop the server **refused** — inside a transaction, or without the right —
+ * indistinguishable from one that worked.
+ */
+async function dropCollection(
+	ctx: BucketContext,
+	collection: Collection<Document>,
+	name: string,
+): Promise<void> {
+	await run(
+		ctx,
+		async () => {
+			try {
+				await collection.drop(ctx.sessionOption);
+			} catch (error) {
+				// 26 is `NamespaceNotFound`.
+				if ((error as { code?: unknown }).code !== 26) throw error;
+			}
+		},
+		name,
+	);
 }

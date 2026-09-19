@@ -56,3 +56,23 @@ await anything.get('68ca1f0f2b1c4d5e6f7a8b90');
 await anything.delete(id);
 // @ts-expect-error a number is not an id
 await anything.get(42);
+
+// --- the options a bucket and a write take -------------------------------
+getFiles(db, uploads, { autoSync: true, hash: false, validate: 'off' });
+// @ts-expect-error there is no such option, and a typo must not be ignored
+getFiles(db, uploads, { autosync: true });
+await anything.put('a', {
+	id,
+	chunkSize: 1024,
+	filename: 'a.txt',
+	type: 'text/plain',
+});
+await anything.put('a', { id: '68ca1f0f2b1c4d5e6f7a8b90' });
+// @ts-expect-error a chunk size is a number of bytes
+await anything.put('a', { chunkSize: '1kb' });
+
+// --- what a range is -----------------------------------------------------
+await file.bytes({ start: 0, end: 10 });
+file.response({ range: { start: 0 }, download: 'ada.png' });
+// @ts-expect-error a range is bytes, not a string
+await file.bytes({ start: '0' });

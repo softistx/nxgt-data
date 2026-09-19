@@ -32,6 +32,15 @@ describe('parseRange', () => {
 		expect(parseRange('bytes=-0', 1000)).toBe('unsatisfiable');
 	});
 
+	test('a file of no bytes satisfies no range at all', () => {
+		// The two branches have to agree: `bytes=0-` on an empty file was
+		// already unsatisfiable, and `bytes=-100` answered the whole of
+		// nothing with a `200`.
+		expect(parseRange('bytes=-100', 0)).toBe('unsatisfiable');
+		expect(parseRange('bytes=0-', 0)).toBe('unsatisfiable');
+		expect(parseRange('bytes=0-10', 0)).toBe('unsatisfiable');
+	});
+
 	test('ignores what it will not honour, rather than failing the request', () => {
 		expect(parseRange(null, 1000)).toBeUndefined();
 		expect(parseRange('bytes=0-99, 200-299', 1000)).toBeUndefined();
