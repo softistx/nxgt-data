@@ -51,7 +51,7 @@ const db = client.db('app');
 | --- | --- |
 | `@nxgt/mongo` | everything below, but migrations |
 | `@nxgt/mongo/migrations` | [migrations](#migrations): `defineMigration`, `migrate`, `rollback`, `migrationStatus`, `MigrationError`, `MigrationLockedError` |
-| `@nxgt/mongo/gridfs` | [files](#files): `defineBucket`, `getFiles`, `FileHandle`, `parseRange`, `resetBucketSync`, and the errors it raises |
+| `@nxgt/mongo/gridfs` | [files](#files): `defineBucket`, `getFiles`, `FileHandle`, `parseRange`, `resetBucketSync`, the option types `TypedPutOptions` and `PutOnceOptions`, and the errors it raises |
 
 ## Definition
 
@@ -721,7 +721,7 @@ application never reads a numeric code:
 | error | `code` | when |
 | --- | --- | --- |
 | `NotFoundError` | `NOT_FOUND` | a method by `_id` matched nothing |
-| `ConflictError` | `CONFLICT` | a unique index refused the write (`E11000`), or `put({ id })` named a file the bucket already has |
+| `ConflictError` | `CONFLICT` | a unique index refused the write (`E11000`); `put({ id })` named a file the bucket already has; or `putOnce` found the id its bytes decide held by a write that never finished, claimed and let go twice under it, blocked by a chunk an interrupted write left where this file's own would go, or holding a file whose digest is not the one asked for |
 | `ValidationError` | `VALIDATION` | the collection's validator refused it (121) |
 | `OptimisticLockError` | `OPTIMISTIC_LOCK` | the version in the patch no longer matches |
 | `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write |
@@ -956,23 +956,75 @@ conditional request is `If-None-Match` only: `If-Modified-Since` is not read,
 and a bucket bound `hash: false` stores no digest, so it has no `ETag` and can
 never answer `304`.
 
-**The same bytes are stored once.** `putOnce` compares digests:
+**The same bytes are stored once**, and they decide where:
 
 ```ts
 const { file, stored } = await files.putOnce(Bun.file('ada.png'));
-stored;   // false when the bucket already had these very bytes
+stored;            // false when the bucket already had these very bytes
+String(file._id);  // when this call stored it: twelve bytes of its sha256
 ```
 
 A `Blob` — `Bun.file` included — can be streamed twice, so its digest is
 taken first and nothing is uploaded when the bucket already has those bytes.
 Anything else is read once by definition, so it is written and then compared.
+A copy that `put` wrote is found and given back too — under **its** id, not
+the one the digest decides. `putOnce` takes no `id` of its own: passing one
+does not compile, and an options bag that never met the types is a
+`TypeError`.
 
-Either way the write ends in the same reconciliation, which is what makes two
-callers storing the same bytes **at the same time** safe: neither check can
-see a file whose `files` document has not been written yet, so both may write
-— and then the copy that comes first in `(uploadDate, _id)` is the one kept,
-by a rule every caller computes the same way. Exactly one copy survives, and
-both callers are given it.
+Neither of those checks is what makes two callers storing the same bytes **at
+the same time** safe: a check cannot see a file whose `files` document has not
+been written yet. What settles it is that the bytes decide the id, so the two
+copies collide **on the server** — on the unique `{ files_id, n }` index, and
+then on `_id`, which is unique in every collection there is. The caller that
+loses the collision has written nothing that survives, removes only the chunks
+it wrote itself and is given the copy that won — **`putOnce` never deletes a
+file that is stored**, its own included. A rule each caller works out on its
+own cannot do this: before this release the winner was the copy first in
+`(uploadDate, _id)`, a key that says nothing about the order the documents
+become visible, so the call that finished last could be the one every other
+call was waiting to see, and two copies survived under two different ids.
+
+What follows from that:
+
+- **The date in one of these ids is not a date.** An `ObjectId` normally
+  opens with a timestamp; here those bytes are digest. `uploadDate` is the
+  date.
+- **`putOnce` creates the bucket's indexes** once per process if they are not
+  there, whatever `autoSync` says, because the unique `{ files_id, n }` index
+  is half of the election. It is GridFS's own required index, and it is
+  created outside the bucket's session — so `putOnce` may be a bucket's first
+  call inside a transaction, where `syncIndexes` may not, and the indexes
+  survive a rollback the write does not.
+- **The caller that loses waits** for the winner's `files` document, which is
+  one round trip away: the call that took the id has already written every
+  byte. The wait is bounded at ten seconds, and what it runs out on is a
+  write that claimed the id and never finished — `ConflictError`, naming the
+  id, saying its chunks are still there and its file is not. If that claim is
+  let go instead, the waiting call asks once more whether those bytes have
+  turned up in the meantime — a plain `put` takes no part in the election —
+  and then **takes the id over** rather than waiting the rest out: it is
+  holding every byte the id needs. It takes over once; an id claimed and let
+  go again under it is a `ConflictError` saying so, and the answer is to
+  retry.
+- **A chunk left under that id where this file's own would go is a refusal**,
+  not a file stored short. A write killed between its first chunk and the
+  rest leaves chunk 0 free and a later one taken; the next call finds that
+  when it moves its own chunks over, removes what it wrote and raises
+  `ConflictError` rather than store a file that reads short for ever. One
+  sitting **past** this file's last chunk collides with nothing, so it is
+  left where it is and goes when the file is deleted.
+- **A file already stored under that id whose digest is not the one asked
+  for** is a `ConflictError` too, rather than bytes that are not yours. Two
+  digests sharing their first twelve bytes is not something anyone has
+  produced; this is what it would look like.
+- **Inside a transaction, a collision is the transaction's to lose.**
+  Measured: the duplicate key aborts it on the server, so what comes back is
+  the driver's abort and not this package's `ConflictError`. There is nothing
+  to wait for in one either — another transaction's document is not in this
+  one's snapshot.
+- **Files stored by an earlier release keep their own ids.** They are still
+  found by digest and given back, so nothing needs moving.
 
 **Listing is the package's own cursor pagination**, ordered on `uploadDate`
 and `_id` together so that two files uploaded in the same millisecond cannot
@@ -1007,7 +1059,8 @@ The rest: `find` (or `undefined`), `exists`, `delete`, `rename`, and `drop`,
 which removes both of the bucket's collections — a bucket that was never
 written to is not an error, anything the server refuses is.
 
-**Create the indexes.** Nothing else does:
+**Create the indexes.** Only `putOnce` does it for you, and only because its
+election depends on one of them:
 
 ```ts
 await files.syncIndexes();   // at start-up — or, before the first call:
@@ -1021,16 +1074,17 @@ whole chunks collection**, and what it examines grows with the size of the
 bucket rather than of the file. It creates four: the pagination order, the
 digest `putOnce` looks up by, GridFS's own `filename_1_uploadDate_1`, and the
 unique `{ files_id, n }` that stops two writers landing two chunk 3s under one
-file. It runs in the bucket's session like everything else, which means mongod
-refuses it inside a transaction — so call it at start-up, or use `autoSync`,
-which drops the session for exactly that reason.
+file — the one `putOnce` will not do without, and creates for itself. It runs
+in the bucket's session like everything else, which means mongod refuses it
+inside a transaction — so call it at start-up, or use `autoSync`, which drops
+the session for exactly that reason, as `putOnce` does.
 
 | option of `put` | what it does |
 | --- | --- |
 | `filename` | the name to store. Defaults to the source's own, else `''` |
 | `type` | the content type. Defaults to the one the source carries |
 | `metadata` | this file's metadata, as the bucket's schema describes it |
-| `id` | the `_id` to give it. `ConflictError` when the bucket already has that file |
+| `id` | the `_id` to give it. `ConflictError` when the bucket already has that file. `putOnce` takes none: the bytes decide, so passing one does not compile and is a `TypeError` at run time |
 | `chunkSize` | overrides the bucket's chunk size for this file alone |
 
 | option of `getFiles` | what it does |
@@ -1122,9 +1176,10 @@ const withRelations = await members.populate(await members.findMany(), {
 | `DataError` and its subclasses, `toDataError` | the errors |
 | `defineMigration`, `migrate`, `rollback`, `migrationStatus`, `MigrationError`, `MigrationLockedError` | from `@nxgt/mongo/migrations`: migrations, in code |
 | `defineBucket`, `getFiles` | from `@nxgt/mongo/gridfs`: a bucket, described once and bound to a database |
+| `TypedBucket`, `TypedPutOptions`, `PutOnceOptions` | what a bound bucket is, and what its writes take. `PutOnceOptions` is the same without `id` |
 | `FileHandle` | a file that has been found, not read: `bytes`, `text`, `json`, `blob`, `stream`, `response` |
 | `parseRange` | a `Range` header read against a known size, for a handler that serves bytes itself |
-| `resetBucketSync` | forgets what `autoSync` has already created, for a test that drops its database |
+| `resetBucketSync` | forgets what `autoSync` and `putOnce` have already created, per database. `drop()` calls it; call it yourself when an index goes from outside this process |
 | `diffIndexes`, `normalizeIndex`, `validationMatches`, `diffCollectionOptions` | what `sync` compares with |
 
 `CollectionOptions` turns the behaviours off one by one: `softDelete`,
@@ -1276,10 +1331,14 @@ operator, and getting it subtly wrong is worse than being honest about it.
   `onError`, or await `closed`.
 - **`autoSync` remembers across a dropped database.** The memo is what makes it
   sync once rather than before every call, and `dropDatabase` does not clear
-  it. `resetAutoSync(db)` does. A bucket keeps a memo of its own, which
-  `drop()` does not clear either: `resetBucketSync(db)`, from
-  `@nxgt/mongo/gridfs`, is the one that forgets it. A test that empties its
-  database between cases calls both.
+  it. `resetAutoSync(db)` does. A bucket keeps a memo of its own, and
+  `resetBucketSync(db)` — from `@nxgt/mongo/gridfs` — is what forgets it. A
+  bucket's own `drop()` calls it, for the whole **database**, since the memo
+  is kept per database: dropping one bucket forgets every bucket of it. What
+  is left is an index taken away from outside this process — by hand, by
+  another process, by `dropDatabase` — after which `putOnce` believes it has
+  the index it elects on. Call `resetBucketSync(db)` when that happens. A
+  test that empties its database between cases calls both.
 - **A duplicate key from a bulk write carries no values.** MongoDB puts
   `keyPattern` and `keyValue` on a single write's error only; for
   `createMany`, `ConflictError.keys` is parsed out of the message and `values`
@@ -1386,9 +1445,55 @@ operator, and getting it subtly wrong is worse than being honest about it.
   A chunk that is absent raises `CorruptFileError` naming its number, and one
   that is present but **short** — which leaves no gap to notice — raises it
   naming the file and both counts. Neither ever reads quietly short.
-- **Nothing creates a bucket's indexes on its own.** The driver builds two of
-  them on its first upload, and this package does not upload through the
-  driver — see the session trap above — so that safety net went with it.
+- **Chunks with no file are nothing's to clean up.** `delete` works from a
+  `files` document, so chunks an interrupted write left behind have to be
+  removed from the chunks collection directly. That is a maintenance pass
+  over a bucket nothing is writing, **not** a `catch`:
+
+  ```ts
+  import type { ObjectId } from 'mongodb';
+
+  // GridFS allows any `_id`; widen this if the bucket holds another kind.
+  type FilesId = ObjectId | string | number;
+  const collections = files.definition.collections;
+  const stored = db.collection<{ _id: FilesId }>(collections.files);
+  const chunks = db.collection<{ files_id: FilesId }>(collections.chunks);
+
+  // A cursor, not `distinct`: a bucket big enough to accumulate leftovers
+  // is big enough for `distinct`'s 16 MB cap — measured, it fails outright
+  // at 900 000 ids rather than doing less.
+  for await (const { _id } of chunks.aggregate<{ _id: FilesId }>([
+  	{ $group: { _id: '$files_id' } },
+  ])) {
+  	// The files collection, not `files.exists`: that one answers `false`
+  	// for an id it cannot read as an `ObjectId`, which is right for a
+  	// route and fatal here — another client's file, stored under an id of
+  	// its own, would have its bytes swept out from under it.
+  	if (await stored.findOne({ _id }, { projection: { _id: 1 } })) continue;
+  	await chunks.deleteMany({ files_id: _id });
+  }
+  ```
+
+  It assumes nothing is writing to the bucket while it runs, and the same
+  check inside a `catch` would be a guess. The errors that report
+  leftover chunks name the id, and by the time anything acts on it a writer
+  that was only slow can have landed its document, or another caller can have
+  stored a whole file there — and one of the four `ConflictError`s `putOnce`
+  raises, the digest-mismatch one, is raised **because** a file holds that id.
+  Deleting on it destroys bytes somebody can still read, and leaves a file
+  `get` answers for that no read can satisfy. `files.delete(id)` is the only
+  thing that should ever take a stored file's chunks.
+
+  A `putOnce` error is not how leftovers arise, only how someone finds out: a
+  `put` killed mid-upload leaves chunks under an id nothing will ever claim,
+  and both cleanup paths are best-effort by design — a chunk left behind
+  costs a little space, where a failed delete that threw would cost the
+  caller its answer.
+- **Nothing creates a bucket's indexes on its own, except `putOnce`.** The
+  driver builds two of them on its first upload, and this package does not
+  upload through the driver — see the session trap above — so that safety net
+  went with it. `putOnce` is the one call that puts it back, because the
+  unique `{ files_id, n }` index is half of how it elects between two callers.
   Without `syncIndexes()` at start-up or `autoSync` on the bucket, every read
   is a scan of the whole chunks collection, and the documents examined grow
   with the size of the bucket rather than of the file. `syncIndexes` runs in

@@ -6,8 +6,10 @@ import {
 	expect,
 	test,
 } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import type { Collection, Db } from 'mongodb';
 import { Binary, GridFSBucket, ObjectId } from 'mongodb';
 import { avatars, clips, uploads } from '../../test/buckets';
 import { startMongo, type TestServer } from '../../test/server';
@@ -18,7 +20,7 @@ import {
 } from '../errors/data-error';
 import { withTransaction } from '../transaction/with-transaction';
 import { defineBucket } from './define-bucket';
-import { getFiles } from './get-files';
+import { getFiles, type PutOnceOptions } from './get-files';
 import { resetBucketSync } from './indexes';
 
 let t: TestServer;
@@ -35,6 +37,48 @@ beforeEach(async () => {
 afterAll(() => t.stop());
 
 const bytes = (n: number, fill = 7) => new Uint8Array(n).fill(fill);
+
+/** What a `files` document's `_id` may be: GridFS does not say `ObjectId`. */
+type FilesId = ObjectId | string | number;
+
+/**
+ * The same database, with the first `files` insert made against it held open.
+ *
+ * Nothing else is changed: the delay is the latency a loaded machine hands
+ * out for free, made to happen on purpose so that a test can depend on it.
+ * It lands between a call's last chunk and its document, which is the one
+ * window where a second caller can see neither.
+ */
+function held(db: Db, ms: number): Db {
+	let first = true;
+	return new Proxy(db, {
+		get(target, key, receiver) {
+			if (key !== 'collection') return Reflect.get(target, key, receiver);
+			return (name: string, ...rest: unknown[]) => {
+				const real = (
+					target.collection as (n: string, ...r: unknown[]) => Collection
+				)(name, ...rest);
+				if (!name.endsWith('.files')) return real;
+				return new Proxy(real, {
+					get(collection, member, from) {
+						if (member !== 'insertOne') {
+							return Reflect.get(collection, member, from);
+						}
+						return async (...args: unknown[]) => {
+							if (first) {
+								first = false;
+								await Bun.sleep(ms);
+							}
+							return (collection.insertOne as (...a: unknown[]) => unknown)(
+								...args,
+							);
+						};
+					},
+				});
+			};
+		},
+	});
+}
 const photos = () => getFiles(t.db, avatars);
 const anything = () => getFiles(t.db, uploads);
 
@@ -315,6 +359,117 @@ describe('writing a file only once', () => {
 	test('refuses to guess when the bucket keeps no digest', async () => {
 		const files = getFiles(t.db, uploads, { hash: false });
 		await expect(files.putOnce(bytes(8))).rejects.toThrow(/nothing to compare/);
+	});
+
+	test('stores it under the id its bytes decide', async () => {
+		const files = anything();
+		const { file } = await files.putOnce(bytes(2048));
+		const digest = createHash('sha256').update(bytes(2048)).digest('hex');
+		// Not a resemblance: the id is the first twelve bytes of the digest,
+		// which is what lets the server elect between two callers.
+		expect(String(file._id)).toBe(digest.slice(0, 24));
+		expect(file.sha256).toBe(digest);
+	});
+
+	test('refuses an id, because the bytes are what decides it', async () => {
+		const files = anything();
+		// The types refuse this — `test/types/gridfs.ts` holds that case. This
+		// is the other half: an options bag that never met them.
+		const given = { id: new ObjectId() } as PutOnceOptions<typeof uploads>;
+		await expect(files.putOnce(bytes(8), given)).rejects.toThrow(
+			/the bytes decide the id/,
+		);
+		expect((await files.paginate()).items).toHaveLength(0);
+	});
+
+	test('refuses to answer with a file whose bytes are not these', async () => {
+		const files = anything();
+		const mine = bytes(64, 1);
+		const digest = createHash('sha256').update(mine).digest('hex');
+		// Two digests that share their first twelve bytes are what no one has
+		// ever produced. This is what it would look like if someone did: some
+		// other file, stored under the id these bytes decide. `put` takes an
+		// id, so the collision can be built rather than waited for.
+		await files.put(bytes(64, 2), { id: digest.slice(0, 24) });
+		await expect(files.putOnce(mine)).rejects.toThrow(
+			/already has a different file under _id/,
+		);
+		// And the file that was there is untouched: a call that cannot store
+		// its bytes does not take someone else's with it.
+		expect(await (await files.get(digest.slice(0, 24))).bytes()).toEqual(
+			bytes(64, 2),
+		);
+		expect((await files.paginate()).items).toHaveLength(1);
+		expect(await t.db.collection('uploads.chunks').countDocuments()).toBe(1);
+	});
+
+	test('a sweep of chunks with no file leaves the files alone', async () => {
+		// The recipe the README gives for leftover chunks, run over the state
+		// that catches a careless one out: an id that a stored file holds,
+		// which is exactly what the digest-mismatch error is raised about.
+		// Deleting there destroys bytes somebody can still read.
+		const files = anything();
+		const mine = bytes(64, 1);
+		const digest = createHash('sha256').update(mine).digest('hex');
+		const theirs = await files.put(bytes(64, 2), { id: digest.slice(0, 24) });
+		await files.put(bytes(700));
+		const orphan = new ObjectId();
+		await t.db
+			.collection('uploads.chunks')
+			.insertOne({ files_id: orphan, n: 0, data: mine });
+
+		// And a file some other client wrote under an id of its own: GridFS
+		// allows any `_id`, and a guard built for a route — where an id that
+		// is not 24 hex must read as "not found" — answers `false` for it.
+		// Written as documents rather than through `GridFSBucket`, whose own
+		// types are narrower than GridFS is: `openUploadStreamWithId` asks
+		// for an `ObjectId` the format does not require.
+		await t.db
+			.collection<{
+				_id: FilesId;
+				length: number;
+				chunkSize: number;
+				uploadDate: Date;
+				filename: string;
+			}>('uploads.files')
+			.insertOne({
+				_id: 'kept-by-hand',
+				length: 64,
+				chunkSize: 255 * 1024,
+				uploadDate: new Date(),
+				filename: 'x.bin',
+			});
+		await t.db
+			.collection<{ files_id: FilesId; n: number; data: Uint8Array }>(
+				'uploads.chunks',
+			)
+			.insertOne({ files_id: 'kept-by-hand', n: 0, data: bytes(64, 3) });
+
+		const collections = files.definition.collections;
+		const stored = t.db.collection<{ _id: FilesId }>(collections.files);
+		const chunks = t.db.collection<{ files_id: FilesId }>(collections.chunks);
+		for await (const { _id } of chunks.aggregate<{ _id: FilesId }>([
+			{ $group: { _id: '$files_id' } },
+		])) {
+			if (await stored.findOne({ _id }, { projection: { _id: 1 } })) continue;
+			await chunks.deleteMany({ files_id: _id });
+		}
+
+		expect(await chunks.countDocuments({ files_id: orphan })).toBe(0);
+		expect(await (await files.get(theirs._id)).bytes()).toEqual(bytes(64, 2));
+		expect(await chunks.countDocuments({ files_id: 'kept-by-hand' })).toBe(1);
+		expect((await files.paginate()).items).toHaveLength(3);
+	});
+
+	test('gives back a copy `put` wrote, rather than storing a second', async () => {
+		const files = anything();
+		// `put` chooses no id from the bytes, so this copy is nowhere near
+		// where `putOnce` would store one. It is still the same bytes.
+		const there = await files.put(bytes(700));
+		const again = await files.putOnce(bytes(700));
+		expect(again.stored).toBe(false);
+		expect(again.file._id).toEqual(there._id);
+		expect((await files.paginate()).items).toHaveLength(1);
 	});
 });
 
@@ -668,10 +823,11 @@ describe('a file written under an id that is already taken', () => {
 describe('two callers storing the same bytes at once', () => {
 	test('keep exactly one copy, and agree on which', async () => {
 		const files = anything();
-		// A `Uint8Array` is read once, so both calls upload and then reconcile
-		// — the path where "remove the copy that is not mine" loses the file
-		// outright: each call found the other, each removed itself, and the
-		// bucket ended up empty while both were told the bytes were safe.
+		// A `Uint8Array` is read once, so both calls upload, and neither
+		// check can see a file whose `files` document is not in yet. What
+		// settles it is that the bytes decide the id, so the two copies
+		// collide on the server rather than on a rule each call works out
+		// for itself.
 		const [one, other] = await Promise.all([
 			files.putOnce(bytes(4096)),
 			files.putOnce(bytes(4096)),
@@ -682,10 +838,10 @@ describe('two callers storing the same bytes at once', () => {
 		expect(await (await files.get(one.file.id)).bytes()).toEqual(bytes(4096));
 	});
 
-	test('a `Blob` reconciles too, rather than storing twice', async () => {
+	test('a `Blob` collides too, rather than storing twice', async () => {
 		const files = anything();
 		// The check-then-write path cannot see a file whose `files` document
-		// has not been written yet, so it ends in the same reconciliation.
+		// has not been written yet, so it ends in the same collision.
 		const [one, other] = await Promise.all([
 			files.putOnce(new Blob([bytes(2048) as BlobPart])),
 			files.putOnce(new Blob([bytes(2048) as BlobPart])),
@@ -703,6 +859,154 @@ describe('two callers storing the same bytes at once', () => {
 		]);
 		expect(new Set(all.map((r) => r.file.id)).size).toBe(1);
 		expect((await files.paginate()).items).toHaveLength(1);
+	});
+
+	test('waits for the winner, and says so when it never comes', async () => {
+		const files = anything();
+		const mine = bytes(1024, 3);
+		const digest = createHash('sha256').update(mine).digest('hex');
+		// What a write that claimed the id and then died leaves behind: the
+		// first chunk under it, and no file. A caller cannot tell that from a
+		// winner that is one round trip away, so it waits, and then says which
+		// of the two it is looking at.
+		await files.putOnce(bytes(16));
+		await t.db.collection('uploads.chunks').insertOne({
+			files_id: new ObjectId(digest.slice(0, 24)),
+			n: 0,
+			data: mine,
+		});
+		const began = Date.now();
+		await expect(files.putOnce(mine)).rejects.toThrow(
+			/another write holds _id .* and has not finished/,
+		);
+		// Bounded, and long enough that a winner on a loaded machine is not
+		// declared dead: ten seconds.
+		expect(Date.now() - began).toBeGreaterThan(9_000);
+		expect((await files.paginate()).items).toHaveLength(1);
+	}, 30_000);
+
+	test('refuses rather than store a file a stray chunk cuts short', async () => {
+		const files = anything();
+		const mine = bytes(3000, 5);
+		const digest = createHash('sha256').update(mine).digest('hex');
+		await files.putOnce(bytes(16));
+		// Chunk 0 free and a later one taken: what a write killed between its
+		// two moves leaves behind. Claiming 0 and then quietly failing to
+		// move the rest would store a file that reads short for ever — the
+		// same lie this call exists to stop telling.
+		await t.db.collection('uploads.chunks').insertOne({
+			files_id: new ObjectId(digest.slice(0, 24)),
+			n: 1,
+			data: mine,
+		});
+		await expect(files.putOnce(mine, { chunkSize: 1024 })).rejects.toThrow(
+			/chunk 0 was free and a later one was not/,
+		);
+		expect((await files.paginate()).items).toHaveLength(1);
+		// Its own chunks are back out, the stray one is untouched.
+		expect(
+			await t.db
+				.collection('uploads.chunks')
+				.countDocuments({ files_id: new ObjectId(digest.slice(0, 24)) }),
+		).toBe(1);
+	});
+
+	test('takes over an id whose claim was let go, rather than waiting it out', async () => {
+		const files = anything();
+		const mine = bytes(1024, 6);
+		const digest = createHash('sha256').update(mine).digest('hex');
+		const _id = new ObjectId(digest.slice(0, 24));
+		await files.putOnce(bytes(16));
+		await t.db
+			.collection('uploads.chunks')
+			.insertOne({ files_id: _id, n: 0, data: mine });
+		// The write that held the id gives up without ever writing its
+		// document. Nobody is coming, and this call is holding every byte the
+		// id needs, so waiting the full ten seconds would be waiting for
+		// nothing.
+		const began = Date.now();
+		const taking = files.putOnce(mine);
+		setTimeout(() => {
+			void t.db.collection('uploads.chunks').deleteOne({ files_id: _id, n: 0 });
+		}, 200);
+		const { file, stored } = await taking;
+		expect(stored).toBe(true);
+		expect(String(file._id)).toBe(digest.slice(0, 24));
+		expect(Date.now() - began).toBeLessThan(5_000);
+		expect(await (await files.get(_id)).bytes()).toEqual(mine);
+	}, 30_000);
+
+	test('asks again before taking over: the wait is long enough to be wrong', async () => {
+		const files = anything();
+		const mine = bytes(1024, 7);
+		const digest = createHash('sha256').update(mine).digest('hex');
+		const _id = new ObjectId(digest.slice(0, 24));
+		await files.putOnce(bytes(16));
+		await t.db
+			.collection('uploads.chunks')
+			.insertOne({ files_id: _id, n: 0, data: mine });
+		// The check that found nothing is as old as the wait is long, and a
+		// plain `put` takes no part in the election. Taking the id over on
+		// that stale answer stores the same bytes a second time.
+		const taking = files.putOnce(mine);
+		const put = await files.put(mine);
+		await t.db.collection('uploads.chunks').deleteOne({ files_id: _id, n: 0 });
+		const { file, stored } = await taking;
+		expect(stored).toBe(false);
+		expect(file._id).toEqual(put._id);
+		expect(
+			await t.db
+				.collection('uploads.files')
+				.countDocuments({ 'metadata.sha256': digest }),
+		).toBe(1);
+	}, 30_000);
+
+	test('inside a transaction, a collision is the transaction’s to lose', async () => {
+		const files = anything();
+		const mine = bytes(1024, 4);
+		const digest = createHash('sha256').update(mine).digest('hex');
+		await files.putOnce(bytes(16));
+		await t.db.collection('uploads.chunks').insertOne({
+			files_id: new ObjectId(digest.slice(0, 24)),
+			n: 0,
+			data: mine,
+		});
+		// Measured: the duplicate key aborts the transaction on the server, so
+		// what comes back is the abort and not this package's `ConflictError`.
+		// There is nothing to wait for either — a document another transaction
+		// wrote is not in this one's snapshot however long it waits.
+		await expect(
+			withTransaction(t.client, async (session) => {
+				await files.withSession(session).putOnce(mine);
+			}),
+		).rejects.toThrow(/aborted/);
+	}, 30_000);
+
+	test('one of them finishing last changes nothing', async () => {
+		// Left to chance, three calls on one machine interleave the same way
+		// almost every time, and the order they happen to run in is exactly
+		// what this has to not depend on. So one call is held open between
+		// its last chunk and its document, long enough for the other two to
+		// arrive and find neither: it is last to the server while it was
+		// first to start, and it carries the earliest `uploadDate` of the
+		// three.
+		//
+		// This is the interleaving that a contended CI machine handed out on
+		// its own, and it used to leave two files and two different ids —
+		// each caller had found itself first in `(uploadDate, _id)`, a key
+		// that says nothing about the order the documents become visible.
+		const files = getFiles(held(t.db, 200), uploads);
+		const all = await Promise.all([
+			files.putOnce(bytes(3000)),
+			files.putOnce(bytes(3000)),
+			files.putOnce(bytes(3000)),
+		]);
+		expect(new Set(all.map((r) => r.file.id)).size).toBe(1);
+		expect(all.filter((r) => r.stored)).toHaveLength(1);
+		expect((await files.paginate()).items).toHaveLength(1);
+		const [kept] = all;
+		if (!kept) throw new Error('unreachable');
+		expect(await (await files.get(kept.file.id)).bytes()).toEqual(bytes(3000));
 	});
 });
 
@@ -762,6 +1066,31 @@ describe('the indexes, and the session they run in', () => {
 			(index) => index.name,
 		);
 		expect(chunks).toEqual(['_id_']);
+	});
+
+	test('a `drop()` makes `putOnce` create them again', async () => {
+		const files = anything();
+		await files.putOnce(bytes(16));
+		await files.drop();
+		// The memo of what this process has created outlives the collections
+		// it created them in. Left alone, the next `putOnce` would elect on
+		// an index that is no longer there.
+		await files.putOnce(bytes(16));
+		const chunks = (await t.db.collection('uploads.chunks').indexes()).map(
+			(index) => index.name,
+		);
+		expect(chunks).toContain('files_id_1_n_1');
+	});
+
+	test('`putOnce` creates them whatever `autoSync` says', async () => {
+		// Not a convenience. The unique `{ files_id, n }` index is what one of
+		// two callers collides with, so without it `putOnce` has half an
+		// election and both callers' chunks land under the same file.
+		await anything().putOnce(bytes(16));
+		const chunks = (await t.db.collection('uploads.chunks').indexes()).map(
+			(index) => index.name,
+		);
+		expect(chunks).toContain('files_id_1_n_1');
 	});
 
 	test('a bucket bound to a session stays an `autoSync` one', async () => {

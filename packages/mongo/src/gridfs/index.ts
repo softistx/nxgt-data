@@ -13,7 +13,12 @@ export {
 } from '../errors/data-error';
 export type { BucketOptions } from './context';
 export { defineBucket } from './define-bucket';
-export { getFiles, type TypedBucket, type TypedPutOptions } from './get-files';
+export {
+	getFiles,
+	type PutOnceOptions,
+	type TypedBucket,
+	type TypedPutOptions,
+} from './get-files';
 export {
 	type ByteRange,
 	FileHandle,
@@ -22,7 +27,8 @@ export {
 } from './handle';
 export { type BucketIndexReport, resetBucketSync } from './indexes';
 export type { FilePageOptions } from './operations/paginate';
-export type { PutOnceResult, PutOptions } from './operations/writes';
+export type { PutOnceResult } from './operations/put-once';
+export type { PutOptions } from './operations/writes';
 export { parseRange } from './serve';
 export type { FileSource } from './source';
 export type {

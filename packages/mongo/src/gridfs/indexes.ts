@@ -1,4 +1,5 @@
 import type { Db } from 'mongodb';
+import { CHUNK_INDEX } from './chunks';
 import type { BucketContext } from './context';
 import { run } from './context';
 import { HASH_KEY } from './handle';
@@ -23,7 +24,10 @@ export interface BucketIndexReport {
  *
  * It runs in the bucket's session like everything else, which means mongod
  * refuses it inside a transaction — loudly, which is the point. Create the
- * indexes at start-up, or bind with `autoSync`.
+ * indexes at start-up, or bind with `autoSync`. `putOnce` is the exception
+ * that creates them for itself, session dropped: the unique
+ * `{ files_id, n }` index is half of how it elects between two callers, so
+ * it is not a bucket option's to withhold.
  */
 export async function syncBucketIndexes(
 	ctx: BucketContext,
@@ -43,7 +47,7 @@ export async function syncBucketIndexes(
 		await ensure(ctx, ctx.definition.collections.chunks, [
 			// Unique, as the GridFS specification asks: it is what stops two
 			// writers landing two chunk 3s under one file.
-			{ key: { files_id: 1, n: 1 }, name: 'files_id_1_n_1', unique: true },
+			{ key: { files_id: 1, n: 1 }, name: CHUNK_INDEX, unique: true },
 		]),
 	];
 }
@@ -61,16 +65,22 @@ let syncs = new WeakMap<Db, Map<string, Promise<unknown>>>();
  * Forgets the index syncs `autoSync` has already run, for one database or for
  * all.
  *
- * The memo outlives the bucket itself — a `drop()` leaves this package
- * thinking indexes it no longer has are in place — so a test that empties its
- * database between cases calls this alongside `resetAutoSync`.
+ * The memo outlives the bucket itself, so `drop()` calls this for the
+ * database it emptied: what a process remembers creating has to stop being
+ * true when the collections go, or `putOnce` elects on an index that is no
+ * longer there. A test that empties its database another way — dropping it
+ * outright — calls this itself, alongside `resetAutoSync`.
  */
 export function resetBucketSync(db?: Db): void {
 	if (db) syncs.delete(db);
 	else syncs = new WeakMap();
 }
 
-/** The indexes, created once per database and bucket for the life of the process. */
+/**
+ * The indexes, created once per database and bucket for the life of the
+ * process — by `autoSync`, and by `putOnce`, which needs one of them to
+ * elect between two callers and so does not leave it to a bucket option.
+ */
 export function syncBucketIndexesOnce(ctx: BucketContext): Promise<unknown> {
 	let byName = syncs.get(ctx.db);
 	if (!byName) {

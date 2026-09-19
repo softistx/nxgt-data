@@ -9,6 +9,15 @@ export const DEFAULT_CHUNK_SIZE = 255 * 1024;
 const BATCH = 16;
 
 /**
+ * The unique index GridFS requires, by the name the server reports it under.
+ *
+ * Named here because it is not only an index: it is what refuses the second
+ * of two writers reaching for the same chunk of the same file, which is half
+ * of how `putOnce` elects between them.
+ */
+export const CHUNK_INDEX = 'files_id_1_n_1';
+
+/**
  * The bytes of a chunk document.
  *
  * The driver gives `data` back as a `Binary`, whose bytes are on `.buffer`.

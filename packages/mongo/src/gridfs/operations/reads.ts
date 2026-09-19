@@ -1,6 +1,6 @@
 import { tryObjectId } from '../../definition/object-id';
 import { type BucketContext, noSuchFile, run } from '../context';
-import { FileHandle, type StoredFile } from '../handle';
+import { FileHandle, HASH_KEY, type StoredFile } from '../handle';
 import type { FileId } from '../types';
 
 /**
@@ -45,4 +45,19 @@ export async function fileExists(
 		),
 	);
 	return found !== null;
+}
+
+/** The oldest file this bucket holds carrying this digest, if it holds one. */
+export async function fileWithDigest(
+	ctx: BucketContext,
+	digest: string,
+): Promise<FileHandle | undefined> {
+	if (!digest) return undefined;
+	const stored = await run(ctx, () =>
+		ctx.files.findOne<StoredFile>(
+			{ [`metadata.${HASH_KEY}`]: digest },
+			{ ...ctx.sessionOption, sort: { uploadDate: 1, _id: 1 } },
+		),
+	);
+	return stored ? new FileHandle(ctx, stored) : undefined;
 }

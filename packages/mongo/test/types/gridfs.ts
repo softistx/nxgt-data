@@ -76,3 +76,8 @@ await file.bytes({ start: 0, end: 10 });
 file.response({ range: { start: 0 }, download: 'ada.png' });
 // @ts-expect-error a range is bytes, not a string
 await file.bytes({ start: '0' });
+
+// --- what `putOnce` decides for itself -----------------------------------
+await anything.putOnce('a', { filename: 'a.txt', type: 'text/plain' });
+// @ts-expect-error the bytes decide the id of a file stored once
+await anything.putOnce('a', { id });

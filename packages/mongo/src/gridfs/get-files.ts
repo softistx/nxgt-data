@@ -15,17 +15,17 @@ import {
 import type { FileHandle, ResponseInit } from './handle';
 import {
 	type BucketIndexReport,
+	resetBucketSync,
 	syncBucketIndexes,
 	syncBucketIndexesOnce,
 } from './indexes';
 import { type FilePageOptions, paginateFiles } from './operations/paginate';
+import { type PutOnceResult, putFileOnce } from './operations/put-once';
 import { fileExists, findFile, getFile } from './operations/reads';
 import {
 	deleteFile,
-	type PutOnceResult,
 	type PutOptions,
 	putFile,
-	putFileOnce,
 	renameFile,
 } from './operations/writes';
 import { serveFile } from './serve';
@@ -36,6 +36,12 @@ import type { BucketDefinition, FileId, MetadataAsGiven } from './types';
 export interface TypedPutOptions<Def> extends Omit<PutOptions, 'metadata'> {
 	metadata?: MetadataAsGiven<Def>;
 }
+
+/**
+ * The same, without an `id`: a file stored once is stored under the id its
+ * bytes decide, so there is none to give.
+ */
+export type PutOnceOptions<Def> = Omit<TypedPutOptions<Def>, 'id'>;
 
 /** A bucket, bound to a database. */
 export interface TypedBucket<Def extends BucketDefinition> {
@@ -56,7 +62,7 @@ export interface TypedBucket<Def extends BucketDefinition> {
 	 */
 	putOnce(
 		source: FileSource,
-		options?: TypedPutOptions<Def>,
+		options?: PutOnceOptions<Def>,
 	): Promise<PutOnceResult & { file: FileHandle<Def> }>;
 
 	/** The file, or `NotFoundError`. Nothing is read until you ask for bytes. */
@@ -198,6 +204,12 @@ function bound<Def extends BucketDefinition>(
 		drop: async () => {
 			await dropCollection(ctx, ctx.files, ctx.definition.collections.files);
 			await dropCollection(ctx, ctx.chunks, ctx.definition.collections.chunks);
+			// The indexes went with the collections, so what this process
+			// remembers creating is no longer true. It is not only a cost:
+			// `putOnce` elects on the unique `{ files_id, n }` index, and a
+			// memo that says it is there when it is not takes half the
+			// election away without saying so.
+			resetBucketSync(ctx.db);
 		},
 
 		// Through `getFiles`, so that an `autoSync` bucket stays one: a session

@@ -31,7 +31,9 @@ export interface BucketOptions {
 	 * be building indexes on the side.
 	 *
 	 * Without it — and without a `syncIndexes()` at start-up — every read is a
-	 * scan of the whole chunks collection.
+	 * scan of the whole chunks collection. One call does not wait for it:
+	 * `putOnce` creates them whatever this says, because it elects between
+	 * two callers on the unique `{ files_id, n }` index.
 	 */
 	autoSync?: boolean;
 }

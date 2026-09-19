@@ -6,7 +6,7 @@ import { DEFAULT_CHUNK_SIZE, dropChunks, writeChunks } from '../chunks';
 import { type BucketContext, noSuchFile, run } from '../context';
 import { FileHandle, HASH_KEY, type StoredFile } from '../handle';
 import { metadataFor } from '../metadata';
-import { type FileSource, readSource } from '../source';
+import { type FileSource, type ReadSource, readSource } from '../source';
 import type { FileId } from '../types';
 import { fileExists, findFile } from './reads';
 
@@ -38,11 +38,6 @@ export async function putFile(
 	options: PutOptions = {},
 ): Promise<FileHandle> {
 	const read = readSource(source);
-	const type = options.type ?? read.type;
-	const metadata = metadataFor(ctx, options.metadata, type);
-	const filename = options.filename ?? read.filename ?? '';
-	const chunkSize =
-		options.chunkSize ?? ctx.definition.chunkSize ?? DEFAULT_CHUNK_SIZE;
 	const _id =
 		options.id === undefined ? new ObjectId() : toObjectId(options.id);
 	// An id the caller chose may already be taken, and a write onto a taken id
@@ -57,11 +52,69 @@ export async function putFile(
 			{ collection: ctx.definition.collections.files, id: _id },
 		);
 	}
-	const hash = ctx.hashes ? createHash('sha256') : undefined;
-	// The chunk documents this call wrote, so that a failure removes its own
-	// and only its own.
-	const written: ObjectId[] = [];
+	const body = await writeBody(
+		ctx,
+		read,
+		putOptionsFor(ctx, read, options),
+		_id,
+	);
+	await insertDocument(ctx, body);
+	return new FileHandle(ctx, body.document);
+}
 
+/**
+ * What a write stores about the file, once the source has had its say.
+ *
+ * Resolved here rather than at each call site: the metadata is checked
+ * against the bucket's schema on the way through, so a write that names an
+ * unknown field fails before a single byte goes over.
+ */
+export function putOptionsFor(
+	ctx: BucketContext,
+	read: ReadSource,
+	options: PutOptions,
+): BodyOptions {
+	return {
+		chunkSize:
+			options.chunkSize ?? ctx.definition.chunkSize ?? DEFAULT_CHUNK_SIZE,
+		filename: options.filename ?? read.filename ?? '',
+		metadata: metadataFor(ctx, options.metadata, options.type ?? read.type),
+	};
+}
+
+interface BodyOptions {
+	chunkSize: number;
+	filename: string;
+	metadata: ReturnType<typeof metadataFor>;
+}
+
+/** A file's bytes, written, and the document that has not been inserted yet. */
+export interface WrittenBody {
+	document: StoredFile;
+	/**
+	 * The chunk documents this call wrote, in the order it wrote them, so
+	 * that a failure removes its own and only its own — and so that the first
+	 * of them is chunk `n: 0`.
+	 */
+	written: ObjectId[];
+	/** The digest of what was written, or `''` on a bucket that keeps none. */
+	digest: string;
+}
+
+/**
+ * Writes the chunks, and builds the `files` document without inserting it.
+ *
+ * The document comes back rather than going in, because what `putOnce` does
+ * between the last chunk and that insert is the whole of its election.
+ */
+export async function writeBody(
+	ctx: BucketContext,
+	read: ReadSource,
+	of: BodyOptions,
+	_id: ObjectId,
+): Promise<WrittenBody> {
+	const hash = ctx.hashes ? createHash('sha256') : undefined;
+	const written: ObjectId[] = [];
 	const length = await run(
 		ctx,
 		async () => {
@@ -69,7 +122,7 @@ export async function putFile(
 				return await writeChunks(
 					ctx,
 					_id,
-					chunkSize,
+					of.chunkSize,
 					read.chunks,
 					(bytes) => hash?.update(bytes),
 					written,
@@ -83,125 +136,32 @@ export async function putFile(
 		},
 		ctx.definition.collections.chunks,
 	);
-
-	const document: StoredFile = {
-		_id,
-		length,
-		chunkSize,
-		uploadDate: new Date(),
-		filename,
-		metadata: hash ? { ...metadata, [HASH_KEY]: hash.digest('hex') } : metadata,
+	const digest = hash ? hash.digest('hex') : '';
+	return {
+		document: {
+			_id,
+			length,
+			chunkSize: of.chunkSize,
+			uploadDate: new Date(),
+			filename: of.filename,
+			metadata: hash ? { ...of.metadata, [HASH_KEY]: digest } : of.metadata,
+		},
+		written,
+		digest,
 	};
+}
+
+/** Inserts the `files` document, and takes the chunks down with it if it fails. */
+async function insertDocument(
+	ctx: BucketContext,
+	body: WrittenBody,
+): Promise<void> {
 	try {
-		await run(ctx, () => ctx.files.insertOne(document, ctx.sessionOption));
+		await run(ctx, () => ctx.files.insertOne(body.document, ctx.sessionOption));
 	} catch (error) {
-		await dropChunks(ctx, written).catch(() => undefined);
+		await dropChunks(ctx, body.written).catch(() => undefined);
 		throw error;
 	}
-	return new FileHandle(ctx, document);
-}
-
-/** What `putOnce` answers: the file, and whether this call is what wrote it. */
-export interface PutOnceResult {
-	file: FileHandle;
-	stored: boolean;
-}
-
-/**
- * The file with these bytes, written only if the bucket does not have it.
- *
- * A `Blob` — `Bun.file` included — can be streamed more than once, so its
- * digest is taken first and nothing is uploaded when the bucket already has
- * it. Anything else is read once by definition, so it is uploaded and then
- * compared.
- *
- * Either way the write ends in `keepOne`, which is what makes two callers
- * storing the same bytes **at the same time** safe: the check above cannot
- * see a file whose `files` document has not been written yet.
- */
-export async function putFileOnce(
-	ctx: BucketContext,
-	source: FileSource,
-	options: PutOptions = {},
-): Promise<PutOnceResult> {
-	if (!ctx.hashes) {
-		throw new TypeError(
-			`putOnce: "${ctx.name}" is bound with \`hash: false\`, and without a ` +
-				'digest there is nothing to compare. Leave `hash` alone, or use `put`.',
-		);
-	}
-	if (source instanceof Blob) {
-		const digest = await digestOf(source);
-		const already = await fileWithHash(ctx, digest);
-		if (already) return { file: already, stored: false };
-	}
-	return await keepOne(ctx, await putFile(ctx, source, options));
-}
-
-/**
- * Of the copies carrying these bytes, the first one wins — and it is the same
- * one whoever asks.
- *
- * Removing "the copy that is not mine" is what a first reading suggests, and
- * it loses the file outright: run twice at once, each call finds the other,
- * each removes itself, and the bucket ends up empty while both callers are
- * told the bytes were already safely stored. So the rule is one every caller
- * computes the same way — the copy that comes **first** in the order
- * `putOnce` reads by, `(uploadDate, _id)`, is the one kept — and a caller
- * removes only **itself**, and only when it is not that one. Exactly one copy
- * survives, whatever the order the calls happen to run in.
- */
-async function keepOne(
-	ctx: BucketContext,
-	written: FileHandle,
-): Promise<PutOnceResult> {
-	const digest = written.sha256 ?? '';
-	const already = await fileWithHash(ctx, digest, written._id);
-	if (!already || !precedes(already, written)) {
-		return { file: written, stored: true };
-	}
-	await removeFile(ctx, written._id);
-	// Read again rather than hand back `already`: the copy this call saw may
-	// itself be removing itself against an older one it could see and this
-	// call could not, and a handle to a document that is gone reads as a
-	// `CorruptFileError`. The copy that is there now is the one to give.
-	const survivor = await fileWithHash(ctx, digest);
-	return { file: survivor ?? already, stored: false };
-}
-
-/** `(uploadDate, _id)`, which is the order `fileWithHash` sorts by. */
-function precedes(one: FileHandle, other: FileHandle): boolean {
-	const mine = one.uploadDate.getTime();
-	const theirs = other.uploadDate.getTime();
-	if (mine !== theirs) return mine < theirs;
-	// An `ObjectId`'s hex string compares as its bytes do, which is how the
-	// server ordered the two in the sort above.
-	return String(one._id) < String(other._id);
-}
-
-async function digestOf(blob: Blob): Promise<string> {
-	const hash = createHash('sha256');
-	for await (const chunk of blob.stream()) hash.update(chunk);
-	return hash.digest('hex');
-}
-
-/** The oldest file carrying this digest, which is the one to keep. */
-async function fileWithHash(
-	ctx: BucketContext,
-	digest: string,
-	besides?: ObjectId,
-): Promise<FileHandle | undefined> {
-	if (!digest) return undefined;
-	const stored = await run(ctx, () =>
-		ctx.files.findOne<StoredFile>(
-			{
-				[`metadata.${HASH_KEY}`]: digest,
-				...(besides ? { _id: { $ne: besides } } : {}),
-			},
-			{ ...ctx.sessionOption, sort: { uploadDate: 1, _id: 1 } },
-		),
-	);
-	return stored ? new FileHandle(ctx, stored) : undefined;
 }
 
 /**
