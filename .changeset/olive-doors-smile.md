@@ -4,7 +4,7 @@
 '@nxgt/mongo-meilisearch': patch
 ---
 
-Three things these packages do that their documentation did not say, each one
+Four things these packages do that their documentation did not say, each one
 measured, and recorded rather than changed.
 
 - **`@nxgt/mongo`: a read is never checked against the schema.** `validate` is
@@ -14,6 +14,8 @@ measured, and recorded rather than changed.
 - **`@nxgt/drizzle`: `findById` with a value the column's type refuses throws.**
   On a `uuid` primary key, `findById('nope')` is a `DataError` with
   `code: 'DATABASE'`, not an empty read.
+- **`@nxgt/mongo`: `$setOnInsert` does nothing.** No write this package makes
+  is an upsert, so there is no insert for it to apply to.
 - **`@nxgt/mongo-meilisearch`: a reindex holds one id per live document in
   memory** and pages the whole index. It is a deployment step.
 
