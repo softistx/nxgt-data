@@ -25,12 +25,12 @@ function toUser(user: StoredUser): User {
  * taken as an argument, so this file is the whole of what the module serves
  * and nothing has to be handed to it.
  */
-export const usersApp = new Hono<Env>();
+export const router = new Hono<Env>();
 
 // `tag: 'users'` bounds the registry to this module's operations: a route of
 // another module does not compile here, and `api.missing('users')` names
 // what this file still owes the spec.
-const routes = api.routes(usersApp, { tag: 'users' });
+const routes = api.routes(router, { tag: 'users' });
 
 routes.post('/users', async (c) => {
 	try {

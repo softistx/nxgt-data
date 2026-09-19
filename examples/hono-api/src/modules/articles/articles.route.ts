@@ -18,9 +18,9 @@ function toArticle(article: StoredArticle): Article {
 }
 
 /** This module's app, as `users.route.ts` exports its own. */
-export const articlesApp = new Hono<Env>();
+export const router = new Hono<Env>();
 
-const routes = api.routes(articlesApp, { tag: 'articles' });
+const routes = api.routes(router, { tag: 'articles' });
 
 routes.get('/articles', async (c) => {
 	const found = await c.get('services').articles.list(c.req.valid('query'));

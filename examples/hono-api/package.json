@@ -10,7 +10,9 @@
 		"dev": "bun --watch src/index.ts",
 		"sync": "bun src/sync.ts",
 		"typecheck": "bun run generate:api && tsc --noEmit",
-		"test": "bun run generate:api && bun test src"
+		"test": "bun run generate:api && bun test src",
+		"lint": "biome lint",
+		"check": "biome check --write"
 	},
 	"dependencies": {
 		"@nxgt/mongo": "workspace:^",

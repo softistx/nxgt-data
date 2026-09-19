@@ -49,8 +49,10 @@ src/
   collections.ts    where the modules' models meet the kit
   api.ts            the spec's registry, shared by every module
   context.ts        what a request carries: the modules' services, composed
-  app.ts            the middleware, and the modules mounted
+  app.ts            the middlewares, and the modules mounted
+  middlewares/      what every request goes through, one file per concern
   modules/
+    index.ts        the one list of mounted modules
     users/          users.model.ts · users.service.ts · users.route.ts (+ .spec.ts)
     articles/       articles.model.ts · articles.service.ts · articles.route.ts (+ .spec.ts)
 test/
@@ -73,10 +75,13 @@ module is measured where it is read.
 | `src/collections.ts` | the one module `defineConfig` reads — `db.users` comes from the name a definition is **exported** under, not from its collection name |
 | `src/modules/<name>/<name>.model.ts` | the definitions, each beside the service that uses it |
 | `src/modules/<name>/<name>.service.ts` | the work: every function takes the **kit first**, so the same service runs from a request, a script or a test. `paginate`, a **transaction** across two collections, a soft delete |
-| `src/modules/<name>/<name>.route.ts` | the controllers, on the module's **own** `Hono`, exported: validated input in, a reply the spec declares out, and the boundary between the stored document and the API document |
+| `src/modules/<name>/<name>.route.ts` | the controllers, on the module's **own** `Hono`, exported as `router`: validated input in, a reply the spec declares out, and the boundary between the stored document and the API document |
+| `src/modules/<name>/index.ts` | what the module offers the rest of the app, its `router` included |
+| `src/modules/index.ts` | the one list of mounted modules. Adding a module is a line here, and forgetting it is a **startup** error, not a 404 |
+| `src/middlewares/` | what every request goes through, one file per concern — `provideServices(kit)` is the only one today |
 | `src/api.ts` | one registry for the spec, imported by each module — `tag: 'users'` bounds a module to its own operations, and `api.assertComplete()` refuses to start with one nobody serves |
 | `src/context.ts` | `Env`, and `buildServices(kit)` — it only **composes** the slices each module declares, so a new module is one line here and nothing else |
-| `src/app.ts` | `kit.as(actor)` once per request, bound into the services and put on the context, then the modules mounted. A handler never reaches the kit itself, so it cannot write as anyone else, nor close it. `assertServed` reads the assembled app, so a module nobody mounted is a startup error |
+| `src/app.ts` | the middlewares, then every module in `src/modules/index.ts` mounted. It holds no middleware and no route of its own. `assertServed` reads the assembled app, so a module left out of that list is a startup error |
 | `src/index.ts` | the kit opened **once** for the process, closed on `SIGINT`/`SIGTERM` |
 | `src/sync.ts` | `kit.sync()` as a deployment step, with `--dry-run` |
 | `src/modules/<name>/<name>.service.spec.ts` | the module's services with no HTTP at all — that is what the layer buys |
@@ -98,8 +103,8 @@ export const config = defineConfig({
 export type Kit = KitOf<typeof config>;
 
 // src/modules/articles/articles.route.ts — the module's own app, exported
-export const articlesApp = new Hono<Env>();
-const routes = api.routes(articlesApp, { tag: 'articles' });
+export const router = new Hono<Env>();
+const routes = api.routes(router, { tag: 'articles' });
 
 routes.post('/articles', async (c) => {
 	// The transaction is the service's; the controller decides what
@@ -109,16 +114,21 @@ routes.post('/articles', async (c) => {
 	return c.json(toArticle(written), 201);
 });
 
-// src/app.ts — one kit per request, bound into the services, then the modules
-app.use('*', async (c, next) => {
-	const actor = tryObjectId(c.req.header('x-user-id'));
-	if (!actor) return c.json({ message: 'errors.unauthenticated' }, 401);
-	c.set('services', buildServices(kit.as(actor)));
-	await next();
-});
+// src/middlewares/services.ts — one kit per request, bound into the services
+export const provideServices = (kit: Kit) =>
+	createMiddleware(async (c, next) => {
+		const actor = tryObjectId(c.req.header('x-user-id'));
+		if (!actor) return c.json({ message: 'errors.unauthenticated' }, 401);
+		c.set('services', buildServices(kit.as(actor)));
+		await next();
+	});
 
-app.route('/', usersApp);
-app.route('/', articlesApp);
+// src/modules/index.ts — the one list of what is mounted
+export const routes = { articles, users };
+
+// src/app.ts — the middlewares, then every module in that list
+app.use(provideServices(kit));
+for (const router of Object.values(routes)) app.route('/', router);
 api.assertComplete();   // every operation has a handler
 assertServed(app);      // and every handler is actually mounted
 
@@ -264,8 +274,9 @@ here.
 - **Registering is not mounting.** A module registers its routes as it is
   imported, so `api.assertComplete()` passes the moment the file is loaded —
   even under a wrong prefix, or with nothing mounted at all. `assertServed`
-  reads the assembled app for that, and mount order is what decides between
-  two modules that could match one path.
+  reads the assembled app for that. Mount order is what decides between two
+  modules that could match one path, and `src/modules/index.ts` is an object
+  literal precisely so that order is the one it is written in.
 - **The transaction body may run twice.** The driver retries it, so the
   article count is read *inside* the transaction, never from something the
   handler kept.

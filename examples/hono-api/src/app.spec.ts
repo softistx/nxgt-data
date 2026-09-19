@@ -25,8 +25,8 @@ describe('the application', () => {
 
 	test('refuses to start when a module is not mounted', () => {
 		// `buildApp` ran this over the real app in `beforeAll`; here it is
-		// given an app with nothing mounted, which is what a forgotten
-		// `app.route(...)` leaves behind.
+		// given an app with nothing mounted, which is what a module left out
+		// of `src/modules/index.ts` leaves behind.
 		expect(() => assertServed(new Hono<Env>())).toThrow(
 			'The app serves no route for: createUser',
 		);
