@@ -1,5 +1,12 @@
 # @nxgt/mongo-kit
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [[`a6cac9b`](https://github.com/softistx/nxgt-data/commit/a6cac9bf5f22c44c9b6e1b211ae8946e4658cad3)]:
+  - @nxgt/mongo@0.14.0
+
 ## 0.1.2
 
 ### Patch Changes
