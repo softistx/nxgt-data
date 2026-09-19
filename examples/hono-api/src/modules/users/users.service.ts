@@ -1,41 +1,33 @@
-import type { NewDocumentOf, ReadDocumentOf } from '@nxgt/mongo';
+import type { ReadDocumentOf } from '@nxgt/mongo';
 import type { ObjectId } from 'mongodb';
 import type { Kit } from '../../db';
+import type { NewUser } from '../../generated/types';
 import type { users } from './users.model';
 
 export type User = ReadDocumentOf<typeof users>;
 
 /**
- * The kit comes first, as `@nxgt/mongo`'s own functions take their context
- * first: a service holds nothing of its own, so it can be called with the
- * kit of a request, of a script, or of a test, and reads the same.
+ * The users' work, over one kit.
  *
- * It is the **request's** kit, so every write here stamps that user without
- * the service having to say so.
+ * The kit is the **constructor's**, and it is the kit of whatever asked —
+ * a request, a script, a test. When it comes from a request it is
+ * `kit.as(actor)`, so every write here stamps that user without a method
+ * having to say so.
+ *
+ * `create` takes `NewUser`, the body the spec describes and the router has
+ * already validated — not the stored document. A field the API does not
+ * offer, `articles` among them, therefore cannot reach a write from a
+ * handler: it is the collection's default or the transaction's doing.
  */
-export function createUser(
-	kit: Kit,
-	values: NewDocumentOf<typeof users>,
-): Promise<User> {
-	return kit.db.users.create(values);
-}
+export class UserService {
+	constructor(private readonly kit: Kit) {}
 
-/** `undefined` when there is no such user, as `@nxgt/mongo` answers it. */
-export function findUser(kit: Kit, id: ObjectId): Promise<User | undefined> {
-	return kit.db.users.findById(id);
-}
+	create(values: NewUser): Promise<User> {
+		return this.kit.db.users.create(values);
+	}
 
-/**
- * This module's slice of what a handler is given, bound to one request's
- * kit. The module declares it, so adding a service here is one edit and
- * `context.ts` never learns what a module does.
- */
-export function buildUserServices(kit: Kit) {
-	return {
-		create: (values: NewDocumentOf<typeof users>) => createUser(kit, values),
-		find: (id: ObjectId) => findUser(kit, id),
-	};
+	/** `undefined` when there is no such user, as `@nxgt/mongo` answers it. */
+	find(id: ObjectId): Promise<User | undefined> {
+		return this.kit.db.users.findById(id);
+	}
 }
-
-/** Read off the builder, so the signatures are never written twice. */
-export type UserServices = ReturnType<typeof buildUserServices>;
