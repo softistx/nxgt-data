@@ -143,9 +143,19 @@ describe('closeMongo', () => {
 	});
 
 	test('a connect it interrupts fails rather than hand a closed client', async () => {
-		const pending = connectMongo(t.uri);
+		// Held from here: `closeMongo` is what rejects it, so between the two
+		// lines below the rejection would have nobody waiting on it.
+		const pending = connectMongo(t.uri).then(
+			() => {
+				throw new Error('it connected, and should not have');
+			},
+			(error: unknown) => error,
+		);
 		await closeMongo();
-		await expect(pending).rejects.toThrow('closed while this one');
+		expect(await pending).toHaveProperty(
+			'message',
+			expect.stringContaining('closed while this one'),
+		);
 		const after = await connectMongo(t.uri);
 		expect((await after.ping()).ok).toBe(true);
 	});

@@ -33,9 +33,44 @@ afterAll(async () => {
 	await t.stop();
 });
 
+/**
+ * Closes this subscription after the test, and takes the rejection `closed`
+ * would end with if it ever failed: nobody is waiting for it in a test that
+ * expects it to resolve, and Bun counts an unhandled rejection as an error —
+ * so a regression would print a raw `error:` line instead of failing the
+ * assertion that came to catch it.
+ */
 function track<S extends ChangeSubscription>(subscription: S): S {
 	open.push(subscription);
+	subscription.closed.catch(() => undefined);
 	return subscription;
+}
+
+/**
+ * The reason this promise rejects, taken up before the failure that rejects
+ * it.
+ *
+ * `closed` has to be held from the moment the subscription is made, and not
+ * after the change that makes it fail: it can already have rejected while
+ * that line is still awaiting, and a rejection nothing is yet waiting for is
+ * an unhandled one — the spec then fails with the very error it came to
+ * assert. Measured: a 500 ms gap before the assertion made the unfixed spec
+ * fail every time, and a loaded CI runner was gap enough.
+ *
+ * Resolving is a failure too, and named: an assertion on the rejection would
+ * otherwise read `Received: undefined` and say nothing about what happened.
+ *
+ * Not `expect(promise).rejects`: measured on bun 1.4.2, holding that
+ * assertion across an `await` and finishing it later never returns — the file
+ * runs out of time instead of failing, and the per-test timeout never fires.
+ */
+function rejection(promise: Promise<unknown>): Promise<unknown> {
+	return promise.then(
+		(value) => {
+			throw new Error(`it resolved, with ${String(value)}`);
+		},
+		(error: unknown) => error,
+	);
 }
 
 /**
@@ -101,9 +136,10 @@ describe('the handler', () => {
 				},
 			},
 		);
+		const closed = rejection(subscription.closed);
 		await subscription.ready;
 		await collection.create({ title: 'a', rank: 1 });
-		await expect(subscription.closed).rejects.toThrow('second');
+		expect(await closed).toHaveProperty('message', 'second');
 		expect(calls).toBe(1);
 	});
 
@@ -112,9 +148,10 @@ describe('the handler', () => {
 		const subscription = collection.onChange(() => {
 			throw new Error('nope');
 		});
+		const closed = rejection(subscription.closed);
 		await subscription.ready;
 		await collection.create({ title: 'a', rank: 1 });
-		await expect(subscription.closed).rejects.toThrow('nope');
+		expect(await closed).toHaveProperty('message', 'nope');
 	});
 
 	test('can close its own subscription', async () => {
@@ -139,11 +176,12 @@ describe('the handler', () => {
 			await sleep(100);
 			throw new Error('late');
 		});
+		const closed = rejection(subscription.closed);
 		await subscription.ready;
 		await collection.create({ title: 'a', rank: 1 });
 		await until(() => entered, 'the handler');
 		await subscription.close();
-		await expect(subscription.closed).rejects.toThrow('late');
+		expect(await closed).toHaveProperty('message', 'late');
 	});
 });
 
@@ -175,7 +213,8 @@ describe('when the stream fails', () => {
 		const failure = await subscription.closed.catch((error) => error);
 		expect(failure).toBeInstanceOf(DataError);
 		expect(failure).toMatchObject({ serverCode: 43, collection: 'posts' });
-		// It never opened, so `ready` says so too.
+		// It never opened, so `ready` says so too. `ready` needs no holding of
+		// its own: the package takes its rejection when it makes it.
 		await expect(subscription.ready).rejects.toBe(failure);
 	});
 
@@ -236,10 +275,11 @@ describe('when the stream fails', () => {
 		await client.connect();
 		const collection = getCollection(client, posts);
 		const subscription = collection.onChange(() => {});
+		const closed = rejection(subscription.closed);
 		await subscription.ready;
 		const started = Date.now();
 		await client.close();
-		await expect(subscription.closed).rejects.toThrow();
+		expect(await closed).toBeInstanceOf(Error);
 		// Five retries would pause 3.1 seconds in all.
 		expect(Date.now() - started).toBeLessThan(1_000);
 	});
