@@ -1,6 +1,6 @@
 import { type BucketContext, keyOf } from '../context';
 import { checkSize, checkType, effectiveType } from '../guards';
-import type { PutBody } from '../types';
+import type { PutBody, PutOptions } from '../types';
 
 /**
  * Writes it, once the bucket's content type and size have accepted it. Both
@@ -10,14 +10,58 @@ export async function putObject<P>(
 	context: BucketContext<P>,
 	params: P,
 	body: PutBody,
-	options?: { type?: string },
+	options: PutOptions = {},
 ): Promise<void> {
 	const key = keyOf(context, params);
-	const type = effectiveType(body, options?.type);
+	const type = effectiveType(body, options.type);
 	checkType(context, key, type);
 	checkSize(context, key, body);
-	// The very type `checkType` approved, and nothing else.
-	await context.client.write(key, body, type ? { type } : undefined);
+	// The very type `checkType` approved, and nothing else: `type` is not one
+	// of the keys `passed` forwards, so no option can carry a second one in
+	// beside it.
+	await context.client.write(key, body, {
+		...passed(options),
+		...(type ? { type } : {}),
+	});
+}
+
+/**
+ * The options this package forwards, and only those.
+ *
+ * `PutOptions` refuses the rest at compile time, and that is not enough:
+ * measured, spreading the caller's object straight through let a `bucket`
+ * key **redirect the write to another bucket** — the object was stored
+ * somewhere the definition never described, and the call reported success.
+ * Options that arrive from outside a handler are not typed, so the list is
+ * applied at run time as well. A key that is not here is dropped, never sent.
+ */
+type Forwardable = Exclude<keyof PutOptions, 'type'>;
+
+const PASSED = [
+	'acl',
+	'storageClass',
+	'contentDisposition',
+	'contentEncoding',
+] as const satisfies readonly Forwardable[];
+
+/**
+ * `satisfies` proves every key listed is real; it proves nothing about one
+ * that is **missing**. Widen `PutOptions` and forget to list the new key
+ * here, and the type would advertise an option the run time silently drops —
+ * which is the failure this allowlist exists to prevent, in the other
+ * direction. This line is what fails the build instead.
+ */
+type Unforwarded = Exclude<Forwardable, (typeof PASSED)[number]>;
+const _nothingForgotten: [Unforwarded] extends [never] ? true : Unforwarded =
+	true;
+void _nothingForgotten;
+
+function passed(options: PutOptions): PutOptions {
+	const forwarded: Record<string, unknown> = {};
+	for (const key of PASSED) {
+		if (options[key] !== undefined) forwarded[key] = options[key];
+	}
+	return forwarded as PutOptions;
 }
 
 /** Removes it. S3 does not say whether anything was there, and nor does this. */

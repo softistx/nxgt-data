@@ -9,13 +9,39 @@ export interface PresignOptions {
 	acl?: S3Options['acl'];
 }
 
+/**
+ * The options this package signs with, and only those.
+ *
+ * The same rule as a write's, for the same measured reason: Bun's second
+ * parameter extends `S3Options`, so a value carrying extra keys at run time —
+ * an options bag off a request body, anything that is not a fresh object
+ * literal — **redirects the signed URL**. Measured: a `bucket` key signs a
+ * URL for another bucket, and a credential key signs it against another
+ * endpoint entirely. The types refuse both; a value that never met the types
+ * does not.
+ */
+const SIGNED = ['expiresIn', 'acl'] as const satisfies readonly Signable[];
+
+type Signable = keyof PresignOptions;
+type Unsigned = Exclude<Signable, (typeof SIGNED)[number]>;
+const _nothingForgotten: [Unsigned] extends [never] ? true : Unsigned = true;
+void _nothingForgotten;
+
+function signed(options: PresignOptions | undefined): PresignOptions {
+	const forwarded: Record<string, unknown> = {};
+	for (const key of SIGNED) {
+		if (options?.[key] !== undefined) forwarded[key] = options[key];
+	}
+	return forwarded as PresignOptions;
+}
+
 export function presignGetUrl<P>(
 	context: BucketContext<P>,
 	params: P,
 	options?: PresignOptions,
 ): string {
 	return context.client.presign(keyOf(context, params), {
-		...options,
+		...signed(options),
 		method: 'GET',
 	});
 }
@@ -37,7 +63,7 @@ export function presignPutUrl<P>(
 	options?: PresignOptions,
 ): string {
 	return context.client.presign(keyOf(context, params), {
-		...options,
+		...signed(options),
 		method: 'PUT',
 	});
 }
