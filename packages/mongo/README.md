@@ -998,6 +998,13 @@ operator, and getting it subtly wrong is worse than being honest about it.
   returns, and on none in the collection: a filter or a patch keyed on it would
   match nothing, so both are compile errors. Query on `_id`. A schema that
   declares an `id` field of its own keeps it, untouched.
+- **A read is never checked against the schema.** `validate` is about writes:
+  `findOne` and the rest return the driver's document with `id` added on
+  (`collection/operations/reads.ts`), and nothing parses it. So a document
+  written by `raw`, by a migration, or before a field was added comes back
+  typed as if the field were there and is `undefined` at run time, and the
+  failure surfaces wherever the handler reads it rather than at the read. If
+  that matters, parse what you read: `users.schema.parse(document)`.
 - **`validate: 'off'` also turns the schema's defaults off.** Filling them is
   what parsing does: a field like `name: z.string().default('')` stays absent.
   The stamps the collection keeps are still filled, and the driver still

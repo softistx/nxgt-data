@@ -303,6 +303,10 @@ Each is a `@ts-expect-error` case in this package's type tests.
 - **The sync owns its index.** A reindex removes every document the
   collection does not give it, whoever wrote it. Do not point two
   collections, or another writer, at one index.
+- **A reindex holds one id per live document in memory**, and then pages the
+  whole index to find what to remove (`reindex.ts`). On a collection of
+  millions that is hundreds of megabytes and a full index scan, so a reindex
+  is a deployment step and not something to run per request.
 - **A change may be applied twice.** Changes after the last recorded point
   are sent again after a restart or a failure. Keep the transform a function
   of the document alone.

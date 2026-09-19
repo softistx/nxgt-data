@@ -126,6 +126,23 @@ describe('create and read', () => {
 	});
 });
 
+describe('what a read does not do', () => {
+	test('gives back what the server holds, unchecked', async () => {
+		const collection = getCollection(t.db, logs);
+		await collection.sync();
+		// Written past this package: a migration, another service, or a
+		// document from before a field existed. `logs` has no validator, so
+		// the server takes it.
+		await collection.raw.insertOne({ message: 42 } as never);
+		const read = await collection.findFirst();
+		// `validate` is about writes: nothing parses a read, so the document
+		// comes back typed as the schema says and is not what it says.
+		expect(typeof read?.message).toBe('number');
+		// What to do about it, when it matters.
+		expect(() => logs.schema.parse(read)).toThrow();
+	});
+});
+
 describe('update', () => {
 	test('updates by id, touches updatedAt and raises the version', async () => {
 		const { users: collection } = await collections();
