@@ -587,11 +587,10 @@ describe('the edges an upsert answers for', () => {
 		).rejects.toThrow(/upsert: expected the document's fields, not null/);
 	});
 
-	test('stamps the current actor on a document that has no `createdBy`', async () => {
-		// The price of having no insert/update signal in the pipeline: an
-		// absent `createdBy` is filled from **the actor upserting now**, not
-		// from the schema's `null`. Only a document written outside this
-		// package can be in that state; the Traps say so.
+	test('does not credit itself with a document it did not create', async () => {
+		// `$_id` is missing on an insert and there on an update — measured —
+		// so an absent `createdBy` is left absent rather than filled with
+		// whoever happened to match the document.
 		const loose = defineCollection({
 			name: 'loose-actors',
 			validation: { level: 'off' },
@@ -603,6 +602,60 @@ describe('the edges an upsert answers for', () => {
 		await t.db.collection('loose-actors').insertOne({ slug: 'a' });
 		const actor = new ObjectId();
 		const upserted = await collection.as(actor).upsert({ slug: 'a' }, {});
+		expect(upserted.createdBy).toBeUndefined();
+		expect(upserted.updatedBy).toEqual(actor);
+		// And it still stamps the one it does create.
+		const made = await collection.as(actor).upsert({ slug: 'b' }, {});
+		expect(made.createdBy).toEqual(actor);
+	});
+
+	test('leaves a field the stored document is missing alone', async () => {
+		const defaulted = defineCollection({
+			name: 'holes',
+			validation: { level: 'off' },
+			schema: z.object({
+				_id: id(),
+				slug: z.string(),
+				tags: z.array(z.string()).default([]),
+			}),
+		});
+		const collection = getCollection(t.db, defaulted);
+		await collection.sync();
+		await t.db.collection('holes').insertOne({ slug: 'a' });
+		const upserted = await collection.upsert({ slug: 'a' }, {});
+		// `update` fills no default, and neither does this half.
+		expect(upserted.tags).toBeUndefined();
+		// The insert still lands the default, as `create` does.
+		expect((await collection.upsert({ slug: 'b' }, {})).tags).toEqual([]);
+	});
+
+	test('falls back to the field itself when the filter names `_id`', async () => {
+		// The one case with no signal: the server seeds `_id` from the filter,
+		// so `$_id` is there on both halves. A collection keyed by a string
+		// `_id` has to name it, and pays the fallback the Traps describe.
+		const keyed = defineCollection({
+			name: 'keyed',
+			validation: { level: 'off' },
+			schema: z.object({
+				_id: z.string(),
+				slug: z.string(),
+				status: z.string().nullable().default('new'),
+			}),
+			actors: true,
+		});
+		const collection = getCollection(t.db, keyed);
+		await collection.sync();
+		await t.db
+			.collection<{ _id: string; slug: string; status: string | null }>('keyed')
+			.insertOne({ _id: 'k', slug: 'a', status: null });
+		const actor = new ObjectId();
+		const upserted = await collection
+			.as(actor)
+			.upsert({ _id: 'k' } as never, { slug: 'b' });
+		expect(upserted.slug).toBe('b');
+		// The fallback fills what is **absent** — here, `createdBy`…
 		expect(upserted.createdBy).toEqual(actor);
+		// …and still never mistakes a stored `null` for an absence.
+		expect(upserted.status).toBe(null);
 	});
 });

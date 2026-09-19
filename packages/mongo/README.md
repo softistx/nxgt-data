@@ -404,13 +404,16 @@ for the id rather than landing a document `create` would not have landed.
 In the **values**, `_id` compiles — as it does in a patch — and the server
 refuses it on the update half as an immutable field. Put it in the filter.
 
+Naming `_id` in the filter has one cost, in the Traps: it is what tells an
+insert from an update, so an upsert that names it fills a matched document's
+holes instead of leaving them.
+
 **An insert lands what `create` would have landed**: the schema's defaults,
 `createdAt`, `createdBy`, and version 0 — and under `validate: 'off'`, the
 stamps alone, exactly as `create` lands them there. **An update does what
 `update` does**: `updatedAt`, `updatedBy`, and the version raised by one.
-`createdAt` and `createdBy` are never moved by an update — with one edge, in
-the Traps: a document that has **no** `createdBy` at all is credited to the
-actor upserting it. An `updatedAt` you write yourself is left alone.
+`createdAt` and `createdBy` are never moved by an update, and an `updatedAt`
+you write yourself is left alone.
 
 **An upsert must always be able to insert.** Before the server is asked, the
 filter's seeds plus the values plus the schema's defaults are parsed as a
@@ -1135,15 +1138,16 @@ operator, and getting it subtly wrong is worse than being honest about it.
   has no default, `upsert({ email }, {})` is a `ZodError` naming that field
   even though the document exists. `findFirst` and `update` are the pair to
   reach for there.
-- **An upsert fills a hole; `update` leaves it.** `update` writes the fields
-  the patch names and nothing else. An upsert asks, field by field, whether
-  the stored document *has* the field: a value stored as `null` is left
-  alone, but a field the document is **missing** is filled — from the
-  schema's default, and for `createdBy` from **the actor upserting now**. So
-  a document written before a field existed, or written by `raw`, is
-  completed by an upsert that touched something else entirely, and can be
-  credited to whoever happened to upsert it. There is no signal in the
-  pipeline that tells the two halves apart, which is what this buys.
+- **An upsert filtered on `_id` fills holes the other one leaves.** The
+  server seeds an inserted document from the filter, so `$_id` is missing
+  during an insert — and that is how an upsert tells its two halves apart.
+  A filter that names `_id` takes the signal away, and each field then falls
+  back to its own absence: on the half that matched, a field the stored
+  document is **missing** is filled from the schema's default, and an absent
+  `createdBy` from the actor upserting now. A value stored as `null` is left
+  alone either way. Only a collection keyed by something the server cannot
+  generate — a string `_id` — has to filter that way; everywhere else the
+  update half writes exactly what it was asked to write.
 - **An upsert cannot see a soft-deleted document.** It is scoped to the live
   ones like every other write, so an upsert on a deleted document's key
   inserts a new one, and a unique index answers `ConflictError`.
