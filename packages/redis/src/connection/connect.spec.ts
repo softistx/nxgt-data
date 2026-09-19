@@ -97,10 +97,18 @@ describe('connectRedis', () => {
 	});
 
 	test('a connect closeRedis interrupts fails rather than hand a closed client', async () => {
-		const connecting = connectRedis(servers.redis.uri);
+		// Held from here: `closeRedis` is what rejects it, so between the two
+		// lines below the rejection would have nobody waiting on it.
+		const connecting = connectRedis(servers.redis.uri).then(
+			() => {
+				throw new Error('it connected, and should not have');
+			},
+			(error: unknown) => error,
+		);
 		await closeRedis();
-		await expect(connecting).rejects.toThrow(
-			'closed while this one was connecting',
+		expect(await connecting).toHaveProperty(
+			'message',
+			expect.stringContaining('closed while this one was connecting'),
 		);
 	});
 

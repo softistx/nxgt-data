@@ -224,6 +224,20 @@ matching key in `exports`.
   carries `// @ts-expect-error`; if it compiles, tsc fails on the unused
   directive.
 
+- **A spec that watches a promise reject takes the rejection where the
+  promise is made**, not after the line that causes it. In that window
+  nobody is waiting, Bun counts the rejection as unhandled, and the test
+  fails with the very error it came to assert — a loaded CI runner fails
+  where an idle laptop passes, which is exactly how this was found. Hold it
+  with a plain `.then(onResolved, onRejected)` whose resolved arm throws
+  (`rejection` in `packages/mongo/src/collection/changes/subscription.spec.ts`),
+  and assert on `expect(await held)`. **Not** `expect(promise).rejects`:
+  measured on bun 1.4.2, holding that assertion across an `await` and
+  finishing it later never returns — the whole file runs out of time and the
+  per-test timeout does not fire. A fixture that hands back something
+  long-lived takes its `closed` at hand-over, the way `track()` does here and
+  in `packages/mongo-meilisearch/test/fixtures.ts`.
+
 ## Releasing
 
 Changesets, with independent versions. `bun changeset` describes a change.
@@ -231,7 +245,12 @@ Merging to `develop` opens a "Version packages" PR, and merging that PR
 publishes to npm.
 
 - **A change under `packages/` needs a changeset.** CI runs
-  `changeset:status`, except on `changeset-release/develop`.
+  `changeset:status`, except on `changeset-release/develop`. A change that
+  reaches a consumer takes one naming the package; a change that cannot —
+  a spec, a comment, anything `tsconfig.build.json` excludes and `files`
+  does not ship — takes `bun changeset --empty`, which says in words why
+  nothing is published. Measured on changesets 3.0.3: the gate is that *some*
+  changeset was added on the branch, not that one names the changed package.
 - **`bun publish`, not `changeset publish`.** `scripts/publish.ts` publishes in
   dependency order and skips versions already on the registry. It writes the
   `git-tag` events `changesets/action@v2` reads from `$CHANGESETS_OUTPUT`.
