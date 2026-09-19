@@ -34,6 +34,10 @@ of them set; each is declared in `bun.d.ts` and parsed in `src/env.ts`.
 ```sh
 curl -X POST localhost:3000/users -H 'x-user-id: 68ca1f0f2b1c4d5e6f7a8b90' \
   -H 'content-type: application/json' -d '{"email":"ada@example.com"}'
+
+# The id comes back as a string, and goes back as one: nothing parses it.
+curl -X PATCH localhost:3000/users/<id> -H 'x-user-id: <id>' \
+  -H 'content-type: application/json' -d '{"name":"Ada Lovelace"}'
 ```
 
 `bun run --filter hono-api-example test` needs no server of its own: the spec
@@ -74,7 +78,7 @@ module is measured where it is read.
 | `src/db.ts` | the whole configuration: one `defineConfig`, the collections as a module object, the options every collection gets, and `Kit` derived from it with `KitOf` |
 | `src/collections.ts` | the one module `defineConfig` reads — `db.users` comes from the name a definition is **exported** under, not from its collection name |
 | `src/modules/<name>/<name>.model.ts` | the definitions, each beside the service that uses it |
-| `src/modules/<name>/<name>.service.ts` | the work, as a **class whose constructor takes the kit**, so the same service is built from a request, a script or a test. Its writes take the **validated body** (`NewUser`, `NewArticle`), never the stored document. `paginate`, a **transaction** across two collections, a soft delete |
+| `src/modules/<name>/<name>.service.ts` | the work, as a **class whose constructor takes the kit**, so the same service is built from a request, a script or a test. Its writes take the **validated body** (`NewUser`, `NewArticle`, `UserPatch`, `ArticlePatch`), never the stored document. `paginate`, a **transaction** across two collections, an `update` that stamps `updatedAt` and `updatedBy` on its own, a soft delete |
 | `src/modules/<name>/<name>.route.ts` | the controllers, on the module's **own** `Hono`, exported as `router`: validated input in, a reply the spec declares out, and the boundary between the stored document and the API document |
 | `src/modules/<name>/index.ts` | what the module offers the rest of the app, its `router` included |
 | `src/modules/index.ts` | the one list of mounted modules. Adding a module is a line here, and forgetting it is a **startup** error, not a 404 |
@@ -291,6 +295,13 @@ here.
 - **The stored document is not the API document.** `_id` is an `ObjectId`
   and the stamps are `Date`s; the mapping to what the spec declares is the
   controller's, written once per collection.
+- **A patch names the fields it moves, and the collection stamps the rest.**
+  `PATCH /users/{id}` takes `UserPatch`, whose properties are the ones the API
+  offers; `updatedAt` and `updatedBy` are written by `@nxgt/mongo` from the
+  kit's actor, so no handler and no service spells them, and `createdAt` never
+  moves. A body that names no field is allowed and changes only `updatedAt` —
+  the spec says `minProperties: 1` nowhere, because the generator does not
+  enforce it and a README that claimed it would be wrong.
 - **A path id goes to the collection as the string it arrived as.**
   `@nxgt/mongo` reads its schema and converts it, so nothing in a handler
   parses an id; one that is no id matches nothing, which is the same 404 as

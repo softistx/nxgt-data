@@ -43,6 +43,14 @@ routes.post('/articles', async (c) => {
 	return c.json(toArticle(written), 201);
 });
 
+routes.patch('/articles/{id}', async (c) => {
+	const written = await c
+		.get('services')
+		.articles.edit(c.req.valid('param').id, c.req.valid('json'));
+	if (!written) return c.json({ message: 'errors.not-found' }, 404);
+	return c.json(toArticle(written), 200);
+});
+
 routes.delete('/articles/{id}', async (c) => {
 	const removed = await c
 		.get('services')

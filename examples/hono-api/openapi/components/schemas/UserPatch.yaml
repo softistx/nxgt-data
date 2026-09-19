@@ -1,0 +1,12 @@
+type: object
+description: |
+  What a client sends to change a user: the fields it wants moved, and no
+  others. A body that names none of them is allowed and changes nothing but
+  the `updatedAt` stamp.
+additionalProperties: false
+properties:
+  email:
+    type: string
+    format: email
+  name:
+    type: string

@@ -69,8 +69,45 @@ describe('the article routes', () => {
 		expect(await list.json()).toMatchObject({ total: 0 });
 	});
 
+	test('changes one, and leaves what the patch does not name', async () => {
+		const userId = await newUser();
+		const written = await call('/articles', {
+			method: 'POST',
+			as: userId,
+			body: JSON.stringify({ title: 'a', body: 'b' }),
+		});
+		const { id, createdAt } = (await written.json()) as {
+			id: string;
+			createdAt: string;
+		};
+
+		const patched = await call(`/articles/${id}`, {
+			method: 'PATCH',
+			as: userId,
+			body: JSON.stringify({ title: 'A better title' }),
+		});
+		expect(patched.status).toBe(200);
+		expect(await patched.json()).toMatchObject({
+			id,
+			title: 'A better title',
+			body: 'b',
+			// `createdAt` never moves: only `updatedAt` does, and the spec
+			// does not publish it.
+			createdAt,
+			authorId: userId,
+		});
+	});
+
 	test('answers 404 for an article that is already gone', async () => {
 		const answer = await call(`/articles/${stranger}`, { method: 'DELETE' });
+		expect(answer.status).toBe(404);
+	});
+
+	test('patches no article that is not there', async () => {
+		const answer = await call(`/articles/${stranger}`, {
+			method: 'PATCH',
+			body: JSON.stringify({ title: 'nobody' }),
+		});
 		expect(answer.status).toBe(404);
 	});
 });

@@ -85,4 +85,23 @@ describe('the article service', () => {
 		const { articles } = await asNewUser();
 		expect(await articles.remove(new ObjectId())).toBe(false);
 	});
+
+	test('changes an article and leaves the rest of it alone', async () => {
+		const { articles } = await asNewUser();
+		const article = await articles.write({ title: 'a', body: 'b' });
+		if (!article) throw new Error('the article was not written');
+		const changed = await articles.edit(article._id, { title: 'A' });
+		expect(changed).toMatchObject({ title: 'A', body: 'b' });
+		// `createdAt` never moves; `updatedAt` does, and neither is written
+		// by a handler.
+		expect(changed?.createdAt).toEqual(article.createdAt);
+		expect(changed?.updatedAt.getTime()).toBeGreaterThanOrEqual(
+			article.updatedAt.getTime(),
+		);
+	});
+
+	test('answers undefined for an article that is not there', async () => {
+		const { articles } = await asNewUser();
+		expect(await articles.edit(new ObjectId(), { title: 'x' })).toBeUndefined();
+	});
 });
