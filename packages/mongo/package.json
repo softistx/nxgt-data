@@ -23,6 +23,11 @@
 			"import": "./dist/migrations/index.js",
 			"default": "./dist/migrations/index.js"
 		},
+		"./gridfs": {
+			"types": "./dist/gridfs/index.d.ts",
+			"import": "./dist/gridfs/index.js",
+			"default": "./dist/gridfs/index.js"
+		},
 		"./package.json": "./package.json"
 	},
 	"keywords": [
@@ -51,7 +56,8 @@
 	"nxgt": {
 		"entrypoints": [
 			"src/index.ts",
-			"src/migrations/index.ts"
+			"src/migrations/index.ts",
+			"src/gridfs/index.ts"
 		]
 	},
 	"devDependencies": {
