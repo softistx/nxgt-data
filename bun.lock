@@ -33,7 +33,7 @@
     },
     "packages/drizzle": {
       "name": "@nxgt/drizzle",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@electric-sql/pglite": "0.5.8",
         "@types/bun": "^1.4.0",
@@ -58,7 +58,7 @@
     },
     "packages/mongo": {
       "name": "@nxgt/mongo",
-      "version": "0.12.0",
+      "version": "0.12.1",
       "devDependencies": {
         "@types/bun": "^1.4.0",
         "mongodb": "7.6.0",
@@ -89,7 +89,7 @@
     },
     "packages/mongo-meilisearch": {
       "name": "@nxgt/mongo-meilisearch",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "devDependencies": {
         "@nxgt/meilisearch": "workspace:^",
         "@nxgt/mongo": "workspace:^",
