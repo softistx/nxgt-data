@@ -1,6 +1,6 @@
 import { Binary, ObjectId } from 'mongodb';
 import { CorruptFileError } from '../errors/data-error';
-import type { BucketContext } from './context';
+import { type BucketContext, run } from './context';
 
 /** MongoDB's own default, and the one a bucket takes when it names none. */
 export const DEFAULT_CHUNK_SIZE = 255 * 1024;
@@ -148,38 +148,49 @@ export function readChunks(
 	let sent = 0;
 	return new ReadableStream<Uint8Array>({
 		async pull(controller) {
-			const chunk = await cursor.next();
-			if (!chunk) {
-				if (expected <= lastChunk) {
-					controller.error(missingChunk(ctx, filesId, expected));
+			try {
+				// Through `run` like every other call to the driver, so that a
+				// failure while reading bytes is this package's error and not a
+				// raw `MongoError`. The cursor is closed on the way out as
+				// well: measured, the driver closes it itself when a read
+				// fails, so this leaks nothing either way — but `cancel` is not
+				// called when a stream errors from inside `pull`, and this is
+				// the only place left that could close it.
+				const chunk = await run(
+					ctx,
+					() => cursor.next(),
+					ctx.definition.collections.chunks,
+				);
+				if (!chunk) {
+					if (expected <= lastChunk) {
+						throw missingChunk(ctx, filesId, expected);
+					}
+					// Every chunk was there and the bytes still do not add up:
+					// one of them holds fewer than it should. Counting the
+					// numbers is not enough — a chunk truncated in place leaves
+					// no gap, and without this the read comes back quietly
+					// short, which is the corruption that costs something.
+					if (sent !== end - start) {
+						throw shortFile(ctx, filesId, end - start, sent);
+					}
+					controller.close();
+					await cursor.close();
 					return;
 				}
-				// Every chunk was there and the bytes still do not add up: one
-				// of them holds fewer than it should. Counting the numbers is
-				// not enough — a chunk truncated in place leaves no gap, and
-				// without this the read comes back quietly short, which is the
-				// corruption that costs something.
-				if (sent !== end - start) {
-					controller.error(shortFile(ctx, filesId, end - start, sent));
-					return;
+				if (chunk.n !== expected) throw missingChunk(ctx, filesId, expected);
+				const bytes = bytesOf(chunk.data);
+				const at = expected * chunkSize;
+				// Only the first and the last chunk are ever cut.
+				const from = Math.max(0, start - at);
+				const to = Math.min(bytes.byteLength, end - at);
+				expected += 1;
+				if (to > from) {
+					sent += to - from;
+					controller.enqueue(bytes.subarray(from, to));
 				}
-				controller.close();
-				await cursor.close();
-				return;
-			}
-			if (chunk.n !== expected) {
-				controller.error(missingChunk(ctx, filesId, expected));
-				return;
-			}
-			const bytes = bytesOf(chunk.data);
-			const at = expected * chunkSize;
-			// Only the first and the last chunk are ever cut.
-			const from = Math.max(0, start - at);
-			const to = Math.min(bytes.byteLength, end - at);
-			expected += 1;
-			if (to > from) {
-				sent += to - from;
-				controller.enqueue(bytes.subarray(from, to));
+			} catch (error) {
+				await cursor.close().catch(() => undefined);
+				controller.error(error);
 			}
 		},
 		cancel: () => cursor.close(),

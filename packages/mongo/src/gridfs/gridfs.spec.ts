@@ -17,6 +17,7 @@ import {
 	NotFoundError,
 } from '../errors/data-error';
 import { withTransaction } from '../transaction/with-transaction';
+import { defineBucket } from './define-bucket';
 import { getFiles } from './get-files';
 import { resetBucketSync } from './indexes';
 
@@ -631,6 +632,23 @@ describe('a file written under an id that is already taken', () => {
 		).toBe(1);
 	});
 
+	test('a failed chunk delete names the chunks collection too', async () => {
+		const files = anything();
+		const file = await files.put(bytes(70), { chunkSize: 7 });
+		await t.db.collection('uploads.chunks').drop();
+		await t.db.collection('source').insertOne({ a: 1 });
+		// A view refuses a delete, so the second of `removeFile`'s two deletes
+		// fails while the first has already worked.
+		await t.db.createCollection('uploads.chunks', {
+			viewOn: 'source',
+			pipeline: [],
+		});
+		const failed = await files.delete(file.id).catch((error: unknown) => error);
+		expect((failed as { collection?: string }).collection).toBe(
+			'uploads.chunks',
+		);
+	});
+
 	test('names the collection the failure actually happened on', async () => {
 		const files = anything();
 		await files.syncIndexes();
@@ -755,6 +773,20 @@ describe('the indexes, and the session they run in', () => {
 			(index) => index.name,
 		);
 		expect(chunks).toContain('files_id_1_n_1');
+	});
+
+	test('a failure that is not "no such collection" is raised', async () => {
+		await t.db.collection('source').insertOne({ a: 1 });
+		// A view answers `listIndexes` with code 166, not 26. Swallowing every
+		// error read that as "this bucket has no indexes" and went on to try to
+		// build all four — the same shape as the `drop()` catch-all.
+		await t.db.createCollection('viewed.files', {
+			viewOn: 'source',
+			pipeline: [],
+		});
+		await expect(
+			getFiles(t.db, defineBucket({ name: 'viewed' })).syncIndexes(),
+		).rejects.toThrow(/is a view, not a collection/);
 	});
 
 	test('`syncIndexes` runs in the session, so a transaction refuses it', async () => {

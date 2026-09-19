@@ -155,12 +155,18 @@ async function keepOne(
 	ctx: BucketContext,
 	written: FileHandle,
 ): Promise<PutOnceResult> {
-	const already = await fileWithHash(ctx, written.sha256 ?? '', written._id);
+	const digest = written.sha256 ?? '';
+	const already = await fileWithHash(ctx, digest, written._id);
 	if (!already || !precedes(already, written)) {
 		return { file: written, stored: true };
 	}
 	await removeFile(ctx, written._id);
-	return { file: already, stored: false };
+	// Read again rather than hand back `already`: the copy this call saw may
+	// itself be removing itself against an older one it could see and this
+	// call could not, and a handle to a document that is gone reads as a
+	// `CorruptFileError`. The copy that is there now is the one to give.
+	const survivor = await fileWithHash(ctx, digest);
+	return { file: survivor ?? already, stored: false };
 }
 
 /** `(uploadDate, _id)`, which is the order `fileWithHash` sorts by. */
@@ -208,10 +214,19 @@ async function fileWithHash(
  * in between finds nothing rather than a file with no bytes.
  */
 async function removeFile(ctx: BucketContext, _id: ObjectId): Promise<void> {
-	await run(ctx, async () => {
-		await ctx.files.deleteOne({ _id }, ctx.sessionOption);
-		await ctx.chunks.deleteMany({ files_id: _id }, ctx.sessionOption);
-	});
+	// One `run` per collection: a failure on the second of the two is a
+	// failure on `.chunks`, and an error that names `.files` sends whoever
+	// greps for it to the wrong one.
+	await run(
+		ctx,
+		() => ctx.files.deleteOne({ _id }, ctx.sessionOption),
+		ctx.definition.collections.files,
+	);
+	await run(
+		ctx,
+		() => ctx.chunks.deleteMany({ files_id: _id }, ctx.sessionOption),
+		ctx.definition.collections.chunks,
+	);
 }
 
 /** Removes the file and its chunks. A file that is not there is a `NotFoundError`. */

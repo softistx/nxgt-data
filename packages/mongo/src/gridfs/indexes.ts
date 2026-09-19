@@ -107,9 +107,12 @@ async function ensure(
 				return (await target.indexes(ctx.sessionOption)).map(
 					(index) => index.name,
 				);
-			} catch {
+			} catch (error) {
 				// The collection is not there yet, which is not a failure: an
-				// index on a collection that does not exist creates it.
+				// index on a collection that does not exist creates it. 26 is
+				// `NamespaceNotFound`, and nothing else is swallowed — an auth
+				// failure read as "no indexes" would try to build all four.
+				if ((error as { code?: unknown }).code !== 26) throw error;
 				return [];
 			}
 		},
