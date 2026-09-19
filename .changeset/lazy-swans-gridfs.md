@@ -36,7 +36,9 @@ the `init` you pass ride on every answer, the ones with no body included; an
 answer that carries bytes adds `Content-Length`, `Accept-Ranges` and
 `Last-Modified`, plus `Content-Type` when the file carries one, an `ETag` when
 the bucket hashes, and a `Content-Disposition` that carries a non-ASCII
-filename intact when you ask for a download. `putOnce` stores the same bytes once, two callers at once
+filename intact when you ask for a download. The conditional request is
+`If-None-Match` only, so a bucket bound `hash: false` has no `ETag` and never
+answers `304`. `putOnce` stores the same bytes once, two callers at once
 included. `paginate` is this package's cursor pagination, ordered on
 `uploadDate` **and** `_id`, filtering on the metadata with the same string
 coercion as everywhere else.

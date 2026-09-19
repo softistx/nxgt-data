@@ -946,7 +946,9 @@ with no body. The rest belong to the answers that carry bytes: a `200` or a
 `Content-Type` when the file carries one, an `ETag` when the bucket hashes,
 and `Content-Disposition` — the filename given both plainly and as UTF-8 —
 when you pass `download`. A `304` carries the `ETag`, a `416` a
-`Content-Range`, and a `404` nothing of its own.
+`Content-Range`, both of them `Accept-Ranges`, and a `404` nothing of its own.
+`init.status` is honoured on the answers that carry bytes; the other three
+have a status of their own.
 
 A `206` reads only the chunks the range spans, and a range naming bytes the
 file does not have is a `416`, from `response` as much as from `serve`. The
