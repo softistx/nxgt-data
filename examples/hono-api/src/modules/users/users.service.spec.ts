@@ -1,24 +1,29 @@
 import { describe, expect, test } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { useKit } from '../../../test/kit';
-import { createUser, findUser } from './users.service';
+import { UserService } from './users.service';
 
 /**
- * The services take the kit, so they are called here as a script or a job
- * would call them — no HTTP, no Hono, no spec. That is what the layer buys.
+ * A service is built on a kit, so it is built here as a script or a job
+ * would build it — no HTTP, no Hono, no spec. That is what the layer buys.
  */
 const state = useKit('blog-users');
 
 describe('the user service', () => {
 	test('creates one and reads it back', async () => {
-		const author = await createUser(state.kit, { email: 'ada@example.com' });
+		const author = await new UserService(state.kit).create({
+			email: 'ada@example.com',
+		});
 		expect(author.articles).toBe(0);
-		expect(await findUser(state.kit.as(author._id), author._id)).toMatchObject({
+		const asAuthor = new UserService(state.kit.as(author._id));
+		expect(await asAuthor.find(author._id)).toMatchObject({
 			email: 'ada@example.com',
 		});
 	});
 
 	test('answers undefined for a user that is not there', async () => {
-		expect(await findUser(state.kit, new ObjectId())).toBeUndefined();
+		expect(
+			await new UserService(state.kit).find(new ObjectId()),
+		).toBeUndefined();
 	});
 });

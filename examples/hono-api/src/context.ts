@@ -1,24 +1,19 @@
 import type { Kit } from './db';
-import {
-	type ArticleServices,
-	buildArticleServices,
-} from './modules/articles/articles.service';
-import {
-	buildUserServices,
-	type UserServices,
-} from './modules/users/users.service';
+import { ArticleService } from './modules/articles/articles.service';
+import { UserService } from './modules/users/users.service';
 
 /**
- * What a handler is given: the services of this request, already bound to
- * the kit that stamps its user. A handler never reaches the kit itself, so
- * it cannot write as somebody else, and cannot close it.
+ * What a handler is given: the services of this request, each built on the
+ * kit that stamps its user. A handler never reaches the kit itself, so it
+ * cannot write as somebody else, and cannot close it.
  *
- * Each module declares its own slice; this file only composes them, the way
+ * The services are the classes themselves, so a module adding a method is
+ * one edit in that module and none here — this file only composes, the way
  * `collections.ts` only gathers the models.
  */
 export interface Services {
-	readonly users: UserServices;
-	readonly articles: ArticleServices;
+	readonly users: UserService;
+	readonly articles: ArticleService;
 }
 
 /** What every module's handlers read off the Hono context. */
@@ -28,10 +23,10 @@ export interface Env {
 	};
 }
 
-/** Binds one request's kit to every module's services, once. */
+/** Builds one request's services on its kit, once. */
 export function buildServices(kit: Kit): Services {
 	return {
-		users: buildUserServices(kit),
-		articles: buildArticleServices(kit),
+		users: new UserService(kit),
+		articles: new ArticleService(kit),
 	};
 }
