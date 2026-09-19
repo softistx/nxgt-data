@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /**
  * What a write may be given.
  *
@@ -166,4 +167,16 @@ export function readSource(source: FileSource): ReadSource {
 	throw new TypeError(
 		`put: expected a file, a blob, a response, a stream or bytes, not ${String(source)}`,
 	);
+}
+
+/**
+ * The sha256 of a `Blob`, read without keeping it.
+ *
+ * A `Blob` — `Bun.file` included — can be streamed more than once, which is
+ * what lets `putOnce` know what it is holding before it uploads anything.
+ */
+export async function digestOf(blob: Blob): Promise<string> {
+	const hash = createHash('sha256');
+	for await (const chunk of blob.stream()) hash.update(chunk);
+	return hash.digest('hex');
 }

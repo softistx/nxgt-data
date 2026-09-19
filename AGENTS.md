@@ -330,6 +330,19 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   `gridfs/` has three: `define-bucket` and `serve` (no server) and `gridfs`
   (everything against one). A refactor that moves code must leave them untouched —
   if a spec has to change, the refactor changed behaviour.
+- **A deduplicating write elects on the server, never on a rule each caller
+  works out for itself.** `putOnce` in `@nxgt/mongo/gridfs` is the worked
+  example, and the reason is measured: the copies collide on the unique
+  `{ files_id, n }` index and then on `_id`, because the bytes decide the id.
+  An order every caller computes the same way — `(uploadDate, _id)` — cannot
+  do it, whatever the key: a document is not visible when it is written but
+  when it is committed, so the copy that is first by any client-side key can
+  be the last one anybody can see, and every caller then finds itself first.
+  That was a released defect, not a theory. It follows that `putOnce` creates
+  the bucket's indexes itself whatever `autoSync` says, that `drop()` forgets
+  the memo of having created them, and that **no call removes a `files`
+  document it did not write** — a caller takes back only the chunks whose
+  `_id` it wrote.
 - **A public method that refuses something must have a `@ts-expect-error`
   case** in `test/types/`. Type safety is what the compiler rejects, not what
   the README claims: when this was last measured on `@nxgt/mongo`, **seven of
@@ -384,7 +397,7 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **900 pass, 0 fail**: drizzle 94, meilisearch 42, mongo 511,
+`bun run test` is **913 pass, 0 fail**: drizzle 94, meilisearch 42, mongo 524,
 mongo-meilisearch 40, mongo-kit 70, mongo-search-kit 14, redis 44, s3 36,
 hono-api-example 31, scripts 18. It runs one process per package, then the
 scripts' specs. Treat any failure as yours.
