@@ -53,7 +53,8 @@ bun add @nxgt/s3 typescript
 - **No copy or move.** `store.client` is where those live when Bun grows them.
 - **It adds no retry and no cache of its own.** A failed request comes back
   with S3's own error. Bun's client does retry — `retry`, three attempts by
-  default — and that option is passed through like the rest.
+  default — and that option is passed through to `bindBucket` like the rest;
+  a `put` does not take it.
 
 ## API
 
@@ -84,7 +85,7 @@ stateless HTTP, so there is no connection to share and nothing to close.
 | `client` | the `S3Client` this holds |
 | `keyFor(params)` | the key it would use |
 | `file(params)` | Bun's lazy `S3File`: `.stream()`, `.slice()`, `.writer()` |
-| `put(params, body, options?)` | writes it, once the content type and size have accepted it. `options.type` names the body's content type; a `Blob` is asked for its own when none is given |
+| `put(params, body, options?)` | writes it, once the content type and size have accepted it. See `PutOptions` below |
 | `bytes(params)` | the bytes, or `undefined` when there is no such object |
 | `text(params)` | the body as text, or `undefined` |
 | `exists(params)` | |
@@ -93,6 +94,33 @@ stateless HTTP, so there is no connection to share and nothing to close.
 | `list({ prefix, limit, cursor })` | one `ObjectPage` |
 | `presignGet(params, { expiresIn, acl })` | a signed URL that reads it |
 | `presignPut(params, { expiresIn, acl })` | a signed URL that writes it. It takes no `type` — see the Traps |
+
+### What a write may say
+
+```ts
+await store.put({ userId: 'u1' }, Bun.file('ada.png'));   // the type comes from the file
+await store.put({ userId: 'u1' }, png, {
+	type: 'image/png',
+	contentDisposition: 'attachment; filename="ada.png"',
+	storageClass: 'STANDARD_IA',
+});
+```
+
+| `PutOptions` | |
+| --- | --- |
+| `type` | the body's content type. A `Blob` — `Bun.file` included — is asked for its own when none is given, and *that* is the type the guard checks and the service receives |
+| `contentDisposition` | how a reader should present it: measured, it comes back on a `GET` |
+| `contentEncoding` | how the body is encoded, likewise returned on a read |
+| `acl` | who may read it, where the service implements ACLs |
+| `storageClass` | what it costs to keep, returned as `x-amz-storage-class` |
+
+These are Bun's own names, picked out of its `S3Options`, so a Bun release
+that changes one is a compile error here rather than a silent drift. Every
+one of them describes the **object**; a write says nothing about where it
+goes, or how it gets there — see the Traps.
+
+Given both here and to `bindBucket`, the one on the write wins: it is the
+last thing handed to the client.
 
 ### Listing
 
@@ -121,6 +149,7 @@ it carries.
 | `PresignOptions` | `{ expiresIn?: number; acl?: … }` |
 | `ParamsOf<D>` | what a definition's `key` takes, for a caller writing its own helper |
 | `PutBody` | everything Bun's `write` takes |
+| `PutOptions` | what one write may say about the object — see above |
 
 `stat` gives back Bun's own `S3Stats`, which this package does not re-export;
 import it from `bun` where you need to name it.
@@ -156,6 +185,10 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
 
 - An object read, written, deleted or signed for with the wrong key
   parameters, and a `put` given a misspelt option.
+- A `put` or a presigned URL naming a `bucket`, an `endpoint`, a `region` or
+  a credential: a write says what the object is, never where it goes.
+- A `put` given `partSize`, `queueSize` or `retry`: those are the client's,
+  and a `put` is one PUT.
 - A `presignPut` given a `type`: a presigned PUT constrains no content type,
   so it takes none.
 - A definition with no `bucket`, no `key`, a `key` that gives something other
@@ -188,9 +221,33 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   memory first, or leave `maxSize` out and let the service refuse it.
 - **A content type is compared on its essence.** `text/csv` accepts
   `text/csv;charset=utf-8` and `TEXT/CSV`, because that is what real bodies
-  carry: `Bun.file('a.csv').type` is `text/csv;charset=utf-8`, and a text
-  `Blob` adds the charset by itself. Parameters and case are ignored; nothing
-  else is.
+  carry. Measured on bun 1.4.2, `Bun.file` puts a charset on some types and
+  not others — `.txt` is `text/plain;charset=utf-8` and `.json` is
+  `application/json;charset=utf-8`, while `.csv` is the bare `text/csv` — so
+  a definition that named either form would refuse half the files it exists
+  for. Parameters and case are ignored; nothing else is.
+- **A write names the object, never where it goes.** `PutOptions` and
+  `PresignOptions` carry no `bucket`, `endpoint`, `region` or credential, and
+  the run time forwards only the keys they list. The types are not enough on
+  their own: a bag that arrives in a request body never met them. Measured,
+  spreading it straight through let a `bucket` key store the object in
+  **another bucket** and report success, and sign a URL for that bucket —
+  a credential key signed one against another endpoint entirely.
+- **A `put` is one PUT, so it takes no upload tuning.** `partSize`,
+  `queueSize` and `retry` belong to `bindBucket`, where they are the client's
+  own. Measured on bun 1.4.2 against a 12 MiB body: a `put` with `partSize`
+  set and one without come back with the **same** ETag, and neither carries
+  the `-<parts>` suffix a multipart upload leaves. Use `file(params).writer()`
+  for a body that wants parts.
+- **An option's *value* is Bun's to check, and it throws Bun's error.** The
+  guards refuse a content type and a size before anything is sent, and raise
+  `S3Error`. An `acl` or a `storageClass` outside what Bun accepts raises
+  Bun's own `TypeError` instead — measured:
+  `storageClass: 'NOPE'` gives `TypeError: storageClass must be one of …`, and
+  `instanceof S3Error` is false. `contentDisposition` and `contentEncoding`
+  are plain strings to Bun and accept anything. Nothing is sent either way; it
+  is the class a handler catches that differs, so validate a bag from a
+  request body before passing it on.
 - **A string body is measured in bytes, not in characters**, and `maxSize` is
   inclusive: 1024 passes, 1025 does not.
 - **`expiresIn` is seconds, and Bun's default is a day.** Always pass one.
