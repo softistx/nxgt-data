@@ -12,7 +12,7 @@ import { type Fields, isRecord } from './filters';
  * The stamps only the collection writes, by their names here: the
  * soft-delete field, the version and the actors.
  */
-function setByCollection(ctx: CollectionContext): string[] {
+export function keptByCollection(ctx: CollectionContext): string[] {
 	const { deletedAt, version, createdBy, updatedBy, deletedBy } = ctx.stamps;
 	return [deletedAt, version, createdBy, updatedBy, deletedBy].filter(
 		(name): name is string => name !== false,
@@ -31,7 +31,7 @@ export function refuseKeptOnCreate(
 	ctx: CollectionContext,
 	document: Fields,
 ): void {
-	for (const name of setByCollection(ctx)) {
+	for (const name of keptByCollection(ctx)) {
 		if (document[name] !== undefined) throw refused(ctx, 'create', name);
 	}
 }
@@ -127,7 +127,7 @@ export function refuseFixed(
 	patch: Fields,
 ): Set<string> {
 	const { written, removed } = touchedBy(patch);
-	const fixed = [...setByCollection(ctx), ctx.stamps.createdAt];
+	const fixed = [...keptByCollection(ctx), ctx.stamps.createdAt];
 	for (const name of fixed) {
 		if (name && written.has(name)) throw refused(ctx, method, name);
 	}

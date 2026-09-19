@@ -59,7 +59,11 @@ export function toDocument(ctx: CollectionContext, values: unknown): Fields {
 }
 
 /** The fields of a patch, checked one by one against the schema. */
-function setFromFields(ctx: CollectionContext, patch: Fields): Fields {
+export function setFromFields(
+	ctx: CollectionContext,
+	patch: Fields,
+	method = 'update',
+): Fields {
 	const set: Fields = {};
 	for (const [field, value] of Object.entries(patch)) {
 		if (value === undefined) continue;
@@ -67,7 +71,7 @@ function setFromFields(ctx: CollectionContext, patch: Fields): Fields {
 		const kind = ctx.kinds[field];
 		if (!schema) {
 			throw new TypeError(
-				`update: "${ctx.name}" has no field "${field}" in its schema`,
+				`${method}: "${ctx.name}" has no field "${field}" in its schema`,
 			);
 		}
 		const given = ctx.coerces && kind ? coerceValue(kind, value) : value;
@@ -80,7 +84,7 @@ function setFromFields(ctx: CollectionContext, patch: Fields): Fields {
  * A patch without the values given as `undefined`, at the top and inside each
  * operator: such a value says nothing, and the driver would send it as `null`.
  */
-function withoutUndefined(patch: Fields): Fields {
+export function withoutUndefined(patch: Fields): Fields {
 	const defined: Fields = {};
 	for (const [key, value] of Object.entries(patch)) {
 		if (value === undefined) continue;

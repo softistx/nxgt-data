@@ -1,6 +1,7 @@
 import { coercedValues, coerceId } from '../coerce';
 import type { CollectionContext } from '../context';
 import { coerced, type Fields, requireFilter } from '../filters';
+import { upsert } from '../operations/upsert';
 import {
 	create,
 	createMany,
@@ -12,6 +13,7 @@ import {
 	update,
 	updateMany,
 } from '../operations/writes';
+import { keptByCollection } from '../stamp-writes';
 import type { WriteOperation } from './types';
 
 /**
@@ -109,6 +111,53 @@ export async function hookedCreateMany(
 		await after(ctx, 'afterCreate', document, context, argsList[index] ?? {});
 	}
 	return documents;
+}
+
+/**
+ * The document an insert landed, as the write that landed it.
+ *
+ * `afterCreate` is told what was created, and what was created is the
+ * document less the fields the collection keeps for itself — the ones a
+ * `create` may not be given either. Built from the document rather than from
+ * the caller's values, which are partial and would not be a create.
+ */
+function createdValues(ctx: CollectionContext, document: Fields): Fields {
+	const kept = new Set(keptByCollection(ctx));
+	const values: Fields = {};
+	for (const [field, value] of Object.entries(document)) {
+		if (field === 'id' || kept.has(field)) continue;
+		values[field] = value;
+	}
+	return values;
+}
+
+export async function hookedUpsert(
+	ctx: CollectionContext,
+	self: Self,
+	filter: unknown,
+	values: unknown,
+): Promise<Fields> {
+	const context = contextOf(ctx, self, 'upsert');
+	const args = await before(
+		ctx,
+		'beforeUpsert',
+		{ filter: coerced(ctx, filter), values: coercedValues(ctx, values) },
+		context,
+	);
+	const { document, inserted } = await upsert(ctx, args.filter, args.values);
+	// Which half ran is known only now, so this is where the pair is told
+	// apart. The context still says `upsert`: that is what was called.
+	if (inserted) {
+		await after(ctx, 'afterCreate', document, context, {
+			values: createdValues(ctx, document),
+		});
+	} else {
+		await after(ctx, 'afterUpdate', document, context, {
+			id: document._id,
+			patch: args.values,
+		});
+	}
+	return document;
 }
 
 export async function hookedUpdate(

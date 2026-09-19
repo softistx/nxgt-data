@@ -42,6 +42,7 @@ export type {
 	HookContext,
 	UpdateArgs,
 	UpdateManyArgs,
+	UpsertArgs,
 	WriteOperation,
 } from './collection/hooks/types';
 export type {
@@ -69,6 +70,7 @@ export type {
 	SortOf,
 	TypedCollection,
 	UpdateOperators,
+	UpsertOf,
 	WritableDocumentOf,
 	WritableFieldOf,
 	WritablePath,
