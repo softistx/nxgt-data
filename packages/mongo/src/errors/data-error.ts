@@ -7,6 +7,7 @@ export type DataErrorCode =
 	| 'OPTIMISTIC_LOCK'
 	| 'INVALID_CURSOR'
 	| 'INVALID_ID'
+	| 'CORRUPT_FILE'
 	| 'MIGRATION'
 	| 'MIGRATION_LOCKED';
 
@@ -83,6 +84,20 @@ export class DataError extends Error {
 		this.expectedVersion = options.expectedVersion;
 		this.actualVersion = options.actualVersion;
 	}
+}
+
+/**
+ * A stored file is missing chunks.
+ *
+ * GridFS keeps a file's bytes in a second collection, and nothing in MongoDB
+ * ties the two together: a chunk removed by hand, an interrupted write from
+ * another client, or a restore of one collection without the other leaves a
+ * file whose `length` promises bytes that are not there. It is raised while
+ * the bytes are being read, not when the file is found.
+ */
+export class CorruptFileError extends DataError {
+	override name = 'CorruptFileError';
+	override readonly code: DataErrorCode = 'CORRUPT_FILE';
 }
 
 /** No document matched, where one was required. */

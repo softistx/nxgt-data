@@ -11,7 +11,7 @@ registry:
 | --- | --- |
 | `@nxgt/drizzle` | an SDK over Drizzle ORM: typed repositories (`createRepository`), offset and cursor pagination, `withTransaction`, its own errors with `toDataError`, and the `id()`, `timestamps()`, `softDelete()` columns. PostgreSQL first |
 | `@nxgt/meilisearch` | a typed Meilisearch index on the official SDK: `defineIndex<Doc>()({ uid, primaryKey, settings })`, `syncIndex`/`syncIndexes` applying the settings idempotently, and `bindIndex` for typed documents and searches. Its one error is `SearchIndexError` |
-| `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection` with its stamps and MongoDB's own collection options, `syncCollection`/`syncAll` applying the `$jsonSchema` validator, the collection options and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, `withTransaction`, `upsert` as one atomic pipeline update, and migrations in code under the `./migrations` subpath. A string that arrives from outside is converted from the **schema** — a 24-hex string to `ObjectId` where the schema says `objectId()`, a date string to `Date` where it says `z.date()`, in ids, filters and writes alike — unless `coerce: false`. Its errors are `DataError` and its subclasses |
+| `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection` with its stamps and MongoDB's own collection options, `syncCollection`/`syncAll` applying the `$jsonSchema` validator, the collection options and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, `withTransaction`, `upsert` as one atomic pipeline update, migrations in code under the `./migrations` subpath, and files under `./gridfs` — a bucket described once, typed metadata, `Range`-aware serving, and chunk documents written by the package itself so that a file write can run in a transaction, which the driver's GridFS cannot. A string that arrives from outside is converted from the **schema** — a 24-hex string to `ObjectId` where the schema says `objectId()`, a date string to `Date` where it says `z.date()`, in ids, filters and writes alike — unless `coerce: false`. Its errors are `DataError` and its subclasses |
 | `@nxgt/mongo-meilisearch` | keeps a Meilisearch index in step with a MongoDB collection: `createSearchSync` with a `transform` typed by both definitions, `reindex`, and `start`, which follows the collection's changes in batches from a resume point kept in MongoDB. Its one error is `SearchSyncError` |
 | `@nxgt/mongo-kit` | an application's MongoDB wiring in one object: `defineConfig` checking a configuration of one or several databases, and `createKit` giving a `db` that is the driver's `Db` with every `@nxgt/mongo` collection typed on it, plus the actor, the session, transactions, `sync` and `close`. `discoverCollections` reads definitions from a glob, for scripts |
 | `@nxgt/mongo-search-kit` | a search kit over the wiring kit: `createSearchKit(kit, config)` takes one entry per collection — an index and a transform, under the key the kit wires that collection under — and gives one `reindexAll`, one `start` and one `close` for all of them. Each entry's sync is `@nxgt/mongo-meilisearch`'s, unchanged |
@@ -54,9 +54,10 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   `indexes.d.ts` and `types/types.d.ts`, where `Settings` and `SearchParams`
   live. The SDK's errors reach the caller as they are; the package's only
   error of its own is `SearchIndexError`.
-- **`@nxgt/mongo/migrations` is a subpath** of `@nxgt/mongo`, not a package:
-  migrations reuse its `withTransaction` and its errors, and version with it.
-  `src/migrations/` imports the rest of the package; nothing else imports it.
+- **`@nxgt/mongo/migrations` and `@nxgt/mongo/gridfs` are subpaths** of
+  `@nxgt/mongo`, not packages: both reuse its coercion, its `withTransaction`
+  and its errors, and version with it. `src/migrations/` and `src/gridfs/`
+  import the rest of the package; nothing else imports either.
 - **A dialect is a subpath**, not a package: `@nxgt/drizzle/pg` today,
   `./mysql` and `./sqlite` later. What does not depend on a dialect, the
   errors, the cursor and the page shapes, is in `@nxgt/drizzle` itself, and
@@ -324,8 +325,10 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   `auto-sync` and the general one at the root,
   `operations/paginate`, `hooks/hooks`, `changes/changes`,
   `changes/subscription` and `aggregation/aggregation`. Beside `collection/`,
-  `connection/connect` covers `connectMongo`, and `migrations/` has three:
-  `plan` (the list against the records, no server), `migrate` and `lock`. A refactor that moves code must leave them untouched —
+  `connection/connect` covers `connectMongo`, `migrations/` has three:
+  `plan` (the list against the records, no server), `migrate` and `lock`, and
+  `gridfs/` has three: `define-bucket` and `serve` (no server) and `gridfs`
+  (everything against one). A refactor that moves code must leave them untouched —
   if a spec has to change, the refactor changed behaviour.
 - **A public method that refuses something must have a `@ts-expect-error`
   case** in `test/types/`. Type safety is what the compiler rejects, not what
@@ -381,7 +384,7 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **815 pass, 0 fail**: drizzle 94, meilisearch 42, mongo 426,
+`bun run test` is **875 pass, 0 fail**: drizzle 94, meilisearch 42, mongo 486,
 mongo-meilisearch 40, mongo-kit 70, mongo-search-kit 14, redis 44, s3 36,
 hono-api-example 31, scripts 18. It runs one process per package, then the
 scripts' specs. Treat any failure as yours.
