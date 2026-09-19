@@ -147,6 +147,13 @@ describe('the metadata a bucket describes', () => {
 		await expect(
 			anything().put(bytes(8), { metadata: { contentType: 'text/plain' } }),
 		).rejects.toThrow(/kept by "uploads" itself/);
+		// `validate: 'off'` is about the schema, and these two are not the
+		// schema's: the refusal comes before anything is parsed.
+		await expect(
+			getFiles(t.db, uploads, { validate: 'off' }).put(bytes(8), {
+				metadata: { sha256: 'deadbeef' },
+			}),
+		).rejects.toThrow(/kept by "uploads" itself/);
 	});
 
 	test('lets anything through when the bucket describes nothing', async () => {
@@ -827,6 +834,37 @@ describe('an id that could not name a file', () => {
 		await expect(files.delete('not-an-id')).rejects.toBeInstanceOf(
 			NotFoundError,
 		);
+	});
+});
+
+describe('the headers a handler of its own puts on an answer', () => {
+	test('ride on every status, not only on the ones with a body', async () => {
+		const files = anything();
+		const file = await files.put(bytes(70));
+		const init = { headers: { 'cache-control': 'private, max-age=60' } };
+		const cached = await files.serve(
+			new Request('http://x/f', {
+				headers: { 'if-none-match': `"${file.sha256}"` },
+			}),
+			file.id,
+			init,
+		);
+		expect(cached.status).toBe(304);
+		expect(cached.headers.get('cache-control')).toBe('private, max-age=60');
+		const refused = await files.serve(
+			new Request('http://x/f', { headers: { range: 'bytes=900-' } }),
+			file.id,
+			init,
+		);
+		expect(refused.status).toBe(416);
+		expect(refused.headers.get('cache-control')).toBe('private, max-age=60');
+		const missing = await files.serve(
+			new Request('http://x/f'),
+			new ObjectId(),
+			init,
+		);
+		expect(missing.status).toBe(404);
+		expect(missing.headers.get('cache-control')).toBe('private, max-age=60');
 	});
 });
 

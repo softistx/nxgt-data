@@ -39,8 +39,8 @@ export interface ResponseInit {
  *
  * Everything on it but the bodies comes from the one `files` document that
  * finding it already cost: the size, the type, the digest and the metadata
- * are there before a single chunk is fetched. `stream`, `bytes`, `text` and
- * `response` are what actually read.
+ * are there before a single chunk is fetched. `stream`, `bytes`, `text`,
+ * `json`, `blob` and `response` are what actually read.
  */
 export class FileHandle<Def = unknown> {
 	constructor(

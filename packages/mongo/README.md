@@ -51,7 +51,7 @@ const db = client.db('app');
 | --- | --- |
 | `@nxgt/mongo` | everything below, but migrations |
 | `@nxgt/mongo/migrations` | [migrations](#migrations): `defineMigration`, `migrate`, `rollback`, `migrationStatus`, `MigrationError`, `MigrationLockedError` |
-| `@nxgt/mongo/gridfs` | [files](#files): `defineBucket`, `getFiles`, `FileHandle`, `parseRange`, `resetBucketSync` |
+| `@nxgt/mongo/gridfs` | [files](#files): `defineBucket`, `getFiles`, `FileHandle`, `parseRange`, `resetBucketSync`, and the errors it raises |
 
 ## Definition
 
@@ -879,6 +879,12 @@ saved.size;      // in bytes
 saved.sha256;    // the digest of the bytes
 ```
 
+| option of `defineBucket` | what it does |
+| --- | --- |
+| `name` | the bucket's name, which is `<name>.files` and `<name>.chunks`. Non-empty, no `.` and no `$`, each a `TypeError` where the bucket is defined |
+| `metadata` | a Zod object describing this bucket's metadata. It may not declare `contentType` or `sha256`, which are the package's own |
+| `chunkSize` | the bytes per chunk. 255 KiB by default, as GridFS has it; a whole number of at least 1 |
+
 **A write takes what Bun gives it.** `Bun.file(path)`, a `Blob`, a `File`, a
 `Response`, a `ReadableStream`, an `ArrayBuffer`, a typed array, a string, or
 anything async-iterable over bytes. The content type and the filename come
@@ -898,13 +904,16 @@ file.size;       // `file.length` is the same number, GridFS's own name for it
 file.type;       // undefined when the source carried none
 file.sha256;     // undefined on a bucket bound with `hash: false`
 file.uploadDate;
+file.chunkSize;  // the bytes per chunk this file was written with
 file.metadata;   // typed by the bucket's schema
+file.stored;     // the `files` document itself, for whatever this does not cover
 
 await file.text();
 await file.bytes({ start: 0, end: 1024 });   // end exclusive, as everywhere here
 await file.json();
 file.stream();                               // a web ReadableStream
 await file.blob();                           // carrying the stored type
+file.response({ download: true });           // a whole HTTP answer
 ```
 
 An id that could not name a file — anything that is not 24 hex characters —
@@ -922,14 +931,28 @@ app.get('/files/:id', (c) => files.serve(c.req.raw, c.req.param('id')));
 app.get('/files/:id/download', async (c) =>
 	(await files.get(c.req.param('id'))).response({ download: true }),
 );
+// The third argument is a `ResponseInit`: `headers`, `download` and `status`.
+app.get('/avatars/:id', (c) =>
+	files.serve(c.req.raw, c.req.param('id'), {
+		headers: { 'cache-control': 'public, max-age=31536000, immutable' },
+	}),
+);
 ```
 
-`Content-Length`, `Accept-Ranges` and `Last-Modified` are always set.
-`Content-Type` is set when the file carries one, an `ETag` built from the
-digest when the bucket hashes, and `Content-Disposition` — with the filename
-given both plainly and as UTF-8 — only when you pass `download`. A `206` reads
-only the chunks the range spans; a range naming bytes the file does not have
-is a `416`, from `response` as much as from `serve`.
+Headers your own `init` carries ride on **every** answer, the `304`, the `416`
+and the `404` included — a `Cache-Control` is most wanted on exactly the ones
+with no body. The rest belong to the answers that carry bytes: a `200` or a
+`206` sets `Content-Length`, `Accept-Ranges` and `Last-Modified`, plus
+`Content-Type` when the file carries one, an `ETag` when the bucket hashes,
+and `Content-Disposition` — the filename given both plainly and as UTF-8 —
+when you pass `download`. A `304` carries the `ETag`, a `416` a
+`Content-Range`, and a `404` nothing of its own.
+
+A `206` reads only the chunks the range spans, and a range naming bytes the
+file does not have is a `416`, from `response` as much as from `serve`. The
+conditional request is `If-None-Match` only: `If-Modified-Since` is not read,
+and a bucket bound `hash: false` stores no digest, so it has no `ETag` and can
+never answer `304`.
 
 **The same bytes are stored once.** `putOnce` compares digests:
 
@@ -949,18 +972,22 @@ see a file whose `files` document has not been written yet, so both may write
 by a rule every caller computes the same way. Exactly one copy survives, and
 both callers are given it.
 
-**Listing is the package's own cursor pagination**, newest first, ordered on
-`uploadDate` and `_id` together so that two files uploaded in the same
-millisecond cannot hide each other:
+**Listing is the package's own cursor pagination**, ordered on `uploadDate`
+and `_id` together so that two files uploaded in the same millisecond cannot
+hide each other:
 
 ```ts
 const page = await files.paginate({
 	filter: { 'metadata.userId': userId },   // strings read as ids here too
-	limit: 20,
+	order: 'oldest',   // 'newest' by default
+	limit: 20,         // 20 by default; below 1 is a RangeError
+	after: cursor,     // page.nextCursor from the page before
 });
 page.items;        // FileHandle[]
-page.nextCursor;   // pass as `after`
+page.nextCursor;   // null on the last page
 ```
+
+A cursor written for one order is refused by the other.
 
 **It runs in a transaction.** `files.withSession(session)` scopes every read
 and every write, `put` included — which the driver's own `GridFSBucket`
@@ -981,8 +1008,8 @@ written to is not an error, anything the server refuses is.
 **Create the indexes.** Nothing else does:
 
 ```ts
-await files.syncIndexes();               // at start-up
-const files = getFiles(db, avatars, { autoSync: true });   // or before the first call
+await files.syncIndexes();   // at start-up — or, before the first call:
+const avatarFiles = getFiles(db, avatars, { autoSync: true });
 ```
 
 This is not an optimisation. MongoDB's own driver builds two of these on its
@@ -1008,7 +1035,7 @@ which drops the session for exactly that reason.
 | --- | --- |
 | `validate` | `'parse'` checks the metadata against the schema, `'off'` sends it as given |
 | `coerce` | reads the strings that arrive from outside as ids and dates. Default on |
-| `hash` | hashes every upload and stores the digest. Default on; `putOnce` and the `ETag` need it |
+| `hash` | hashes every upload and stores the digest. Default on. With it off there is no `ETag`, so no `304`, and `putOnce` is a `TypeError`: there is nothing to compare |
 | `autoSync` | creates the bucket's indexes before the first call that needs them. Default off |
 | `session` | the session every call runs in — `withSession` is the same thing, later |
 
@@ -1247,7 +1274,10 @@ operator, and getting it subtly wrong is worse than being honest about it.
   `onError`, or await `closed`.
 - **`autoSync` remembers across a dropped database.** The memo is what makes it
   sync once rather than before every call, and `dropDatabase` does not clear
-  it. `resetAutoSync(db)` does.
+  it. `resetAutoSync(db)` does. A bucket keeps a memo of its own, which
+  `drop()` does not clear either: `resetBucketSync(db)`, from
+  `@nxgt/mongo/gridfs`, is the one that forgets it. A test that empties its
+  database between cases calls both.
 - **A duplicate key from a bulk write carries no values.** MongoDB puts
   `keyPattern` and `keyValue` on a single write's error only; for
   `createMany`, `ConflictError.keys` is parsed out of the message and `values`
@@ -1342,7 +1372,10 @@ operator, and getting it subtly wrong is worse than being honest about it.
   measured: `openUploadStream(name, { contentType })` writes no such field.
   This package keeps the type, and the digest, in `metadata.contentType` and
   `metadata.sha256`, which is why a bucket's schema may not declare either
-  name.
+  name — and why writing either one through `put({ metadata })` is a
+  `TypeError`, on a bucket that describes no metadata at all and on one bound
+  `validate: 'off'` as much as on any other. Pass the type as `type`, and let
+  the digest be taken.
 - **A file is found whole, and only reading it says otherwise.** Nothing in
   MongoDB ties the `files` document to its chunks, so a chunk removed by hand
   or an interrupted write from another client leaves a file whose `length`

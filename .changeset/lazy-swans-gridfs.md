@@ -26,16 +26,17 @@ A write takes what Bun gives it — `Bun.file`, a `Blob`, a `File`, a
 reads the type and the filename off the source when it knows them. A read is
 a handle that has read nothing: the size, the type, the digest and the
 metadata come from the one `files` document that finding it cost, and
-`stream`, `bytes`, `text`, `blob` and `response` are what fetch.
+`stream`, `bytes`, `text`, `json`, `blob` and `response` are what fetch.
 
 `serve(request, id)` answers the whole file, the range the request asked for
 as a `206`, `304` when the caller already has the bytes, `416` when the range
 cannot be met, and `404` when there is no such file — an id that could not
-name one included, so a junk path parameter is never a `500`. It always sets
-`Content-Length`, `Accept-Ranges` and `Last-Modified`; `Content-Type` when the
-file carries one, an `ETag` when the bucket hashes, and a
-`Content-Disposition` that carries a non-ASCII filename intact when you ask
-for a download. `putOnce` stores the same bytes once, two callers at once
+name one included, so a junk path parameter is never a `500`. The headers of
+the `init` you pass ride on every answer, the ones with no body included; an
+answer that carries bytes adds `Content-Length`, `Accept-Ranges` and
+`Last-Modified`, plus `Content-Type` when the file carries one, an `ETag` when
+the bucket hashes, and a `Content-Disposition` that carries a non-ASCII
+filename intact when you ask for a download. `putOnce` stores the same bytes once, two callers at once
 included. `paginate` is this package's cursor pagination, ordered on
 `uploadDate` **and** `_id`, filtering on the metadata with the same string
 coercion as everywhere else.

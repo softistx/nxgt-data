@@ -183,7 +183,13 @@ function bound<Def extends BucketDefinition>(
 		serve: async (request, id, init) => {
 			const file = await findFile(ctx, id);
 			if (!file) {
-				return new Response(null, { status: 404 });
+				// The caller's headers ride on this answer too, as they do on
+				// the `304` and the `416`: a `Cache-Control` a handler sets is
+				// no less wanted on the answer that says there is nothing.
+				return new Response(null, {
+					status: 404,
+					headers: new Headers(init?.headers),
+				});
 			}
 			return serveFile(file, request, init);
 		},
