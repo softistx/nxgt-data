@@ -46,7 +46,7 @@ export interface ObjectPage {
 /** What a definition's `key` takes, so a caller can write its own helper. */
 export type ParamsOf<D> = D extends BucketDefinition<infer P> ? P : never;
 
-import type { S3Client } from 'bun';
+import type { S3Client, S3Options } from 'bun';
 
 /**
  * Everything Bun's own `write` takes — a string, bytes, a `Blob`, a stream, a
@@ -54,3 +54,28 @@ import type { S3Client } from 'bun';
  * known before sending; one without accepts them all.
  */
 export type PutBody = Parameters<S3Client['write']>[1];
+
+/**
+ * What a single write may say about **the object it stores**.
+ *
+ * Picked out of Bun's own `S3Options` rather than written again here, so a
+ * Bun release that changes one of these is a compile error instead of a
+ * silent drift.
+ *
+ * Only what describes the object is here. The credentials, the endpoint, the
+ * bucket and the region belong to the bound bucket — naming them per write
+ * would let one call store the object somewhere the definition never
+ * described. `partSize`, `queueSize` and `retry` are not here either:
+ * measured on bun 1.4.2 against a 12 MiB body, a `put` with `partSize` set
+ * and one without produce the **same** ETag, with no `-<parts>` suffix — so
+ * a single PUT either way, and offering them would promise a multipart
+ * upload this package does not do. `bindBucket` still takes them, where they
+ * are the client's own.
+ *
+ * `type` is the one the guards read — see `effectiveType`. The rest reach
+ * the service untouched.
+ */
+export type PutOptions = Pick<
+	S3Options,
+	'type' | 'acl' | 'storageClass' | 'contentDisposition' | 'contentEncoding'
+>;
