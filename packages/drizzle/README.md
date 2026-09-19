@@ -482,11 +482,18 @@ function withTransaction<TDb extends PgDatabase, T>(
   themselves name the constraint and table only.
 - **`updateMany` and `deleteMany` return every row they touch**, through
   `RETURNING *`. For a million rows, write the query with Drizzle.
-- **`paginate` counts, then reads.** The two queries are not one snapshot:
-  under concurrent writes, `total` can be off by the rows written in
-  between. Run it in a `repeatable read` transaction when it must be exact.
+- **`paginate` counts and reads in two queries.** They go together, not one
+  after the other, but they are still two: under concurrent writes, `total`
+  can be off by the rows written in between. Run it in a `repeatable read` transaction when it must be exact.
   And a subquery refuses two columns with one name: in a join, select the
   columns you need, under distinct keys, not `select()`.
+- **`findById` with a value the column's type refuses is an error, not
+  `undefined`.** The value reaches PostgreSQL, which answers `22P02`, and
+  `toDataError` has no case for it — measured on PGlite:
+  `findById('nope')` on a `uuid` primary key throws `DataError` with
+  `code: 'DATABASE'` and the message `invalid input syntax for type uuid`.
+  A route parameter goes through a check of its own, or through a `try`, if a
+  malformed id is to be a 404 rather than a 500.
 - **A cursor is encoded, not signed.** A client can read the values of the
   last row's ordering columns in it, and forge one. It can only ask for rows
   its `where` already allows.

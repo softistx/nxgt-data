@@ -126,6 +126,43 @@ describe('create and read', () => {
 	});
 });
 
+describe('what a read does not do', () => {
+	test('applies no $setOnInsert, because no write is an upsert', async () => {
+		const collection = getCollection(t.db, posts);
+		await collection.sync();
+		const post = await collection.create({ title: 'a', rank: 1 });
+		await collection.update(post._id, {
+			$set: { rank: 2 },
+			$setOnInsert: { title: 'never' },
+		});
+		expect(await collection.getById(post._id)).toMatchObject({
+			title: 'a',
+			rank: 2,
+		});
+		// And there is no insert for it to apply to: an id that matches
+		// nothing is a `NotFoundError`, never a new document.
+		await expect(
+			collection.update(new ObjectId(), { $setOnInsert: { title: 'x' } }),
+		).rejects.toBeInstanceOf(NotFoundError);
+		expect(await collection.count()).toBe(1);
+	});
+
+	test('gives back what the server holds, unchecked', async () => {
+		const collection = getCollection(t.db, logs);
+		await collection.sync();
+		// Written past this package: a migration, another service, or a
+		// document from before a field existed. `logs` has no validator, so
+		// the server takes it.
+		await collection.raw.insertOne({ message: 42 } as never);
+		const read = await collection.findFirst();
+		// `validate` is about writes: nothing parses a read, so the document
+		// comes back typed as the schema says and is not what it says.
+		expect(typeof read?.message).toBe('number');
+		// What to do about it, when it matters.
+		expect(() => logs.schema.parse(read)).toThrow();
+	});
+});
+
 describe('update', () => {
 	test('updates by id, touches updatedAt and raises the version', async () => {
 		const { users: collection } = await collections();

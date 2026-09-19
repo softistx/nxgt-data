@@ -305,6 +305,17 @@ describe('database errors', () => {
 			ForeignKeyError,
 		);
 	});
+
+	test("an id the column's type refuses is an error, not an empty read", () => {
+		const { users } = repos();
+		// Recorded rather than fixed: `22P02` has no case in `toDataError`, so
+		// this is a `DataError`, and a route that hands a URL parameter
+		// straight to `findById` answers 500 where it meant 404. The Traps
+		// section says so; this is what it says it about.
+		return expect(users.findById('nope' as never)).rejects.toMatchObject({
+			code: 'DATABASE',
+		});
+	});
 });
 
 describe('primary keys', () => {
