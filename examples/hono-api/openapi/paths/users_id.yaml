@@ -16,3 +16,29 @@ get:
       $ref: ../components/responses/Unauthorized.yaml
     '404':
       $ref: ../components/responses/NotFound.yaml
+patch:
+  tags:
+    - users
+  summary: Change a user.
+  operationId: updateUser
+  parameters:
+    - $ref: ../components/parameters/id.yaml
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../components/schemas/UserPatch.yaml
+  responses:
+    '200':
+      description: The user, as it is now.
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/User.yaml
+    '401':
+      $ref: ../components/responses/Unauthorized.yaml
+    '404':
+      $ref: ../components/responses/NotFound.yaml
+    '409':
+      $ref: ../components/responses/Conflict.yaml

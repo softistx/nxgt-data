@@ -40,3 +40,18 @@ articles.write({
 
 // @ts-expect-error the kit is the constructor's; a method never takes one
 void articles.list({} as Kit);
+
+// A patch is the API's too, and an id goes in either form — what the
+// collection takes.
+users.change('68ca1f0f2b1c4d5e6f7a8b90', { name: 'Ada Lovelace' });
+articles.edit('68ca1f0f2b1c4d5e6f7a8b90', { title: 'a' });
+
+users.change('68ca1f0f2b1c4d5e6f7a8b90', {
+	// @ts-expect-error the count is raised by the transaction, never patched
+	articles: 7,
+});
+
+articles.edit('68ca1f0f2b1c4d5e6f7a8b90', {
+	// @ts-expect-error `updatedBy` is stamped from the kit's actor
+	updatedBy: 'someone',
+});

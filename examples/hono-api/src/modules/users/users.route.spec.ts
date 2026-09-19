@@ -42,6 +42,55 @@ describe('the user routes', () => {
 		});
 	});
 
+	test('changes only the fields the patch names', async () => {
+		const created = await call('/users', {
+			method: 'POST',
+			body: JSON.stringify({ email: 'ada@example.com', name: 'Ada' }),
+		});
+		const user = (await created.json()) as { id: string };
+
+		const patched = await call(`/users/${user.id}`, {
+			method: 'PATCH',
+			body: JSON.stringify({ name: 'Ada Lovelace' }),
+		});
+		expect(patched.status).toBe(200);
+		// The email it did not name is still there, and so is the count the
+		// API never writes.
+		expect(await patched.json()).toMatchObject({
+			id: user.id,
+			email: 'ada@example.com',
+			name: 'Ada Lovelace',
+			articles: 0,
+		});
+	});
+
+	test('refuses a patch onto an email that is taken', async () => {
+		await call('/users', {
+			method: 'POST',
+			body: JSON.stringify({ email: 'ada@example.com' }),
+		});
+		const second = await call('/users', {
+			method: 'POST',
+			body: JSON.stringify({ email: 'grace@example.com' }),
+		});
+		const grace = (await second.json()) as { id: string };
+
+		const answer = await call(`/users/${grace.id}`, {
+			method: 'PATCH',
+			body: JSON.stringify({ email: 'ada@example.com' }),
+		});
+		expect(answer.status).toBe(409);
+		expect(await answer.json()).toEqual({ message: 'errors.email-taken' });
+	});
+
+	test('patches no user that does not exist', async () => {
+		const answer = await call(`/users/${stranger}`, {
+			method: 'PATCH',
+			body: JSON.stringify({ name: 'nobody' }),
+		});
+		expect(answer.status).toBe(404);
+	});
+
 	test('reads no user that does not exist', async () => {
 		const answer = await call(`/users/${stranger}`);
 		expect(answer.status).toBe(404);

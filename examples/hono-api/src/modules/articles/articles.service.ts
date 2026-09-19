@@ -1,7 +1,7 @@
 import { NotFoundError, type Page, type ReadDocumentOf } from '@nxgt/mongo';
 import type { ObjectId } from 'mongodb';
 import type { Kit } from '../../db';
-import type { NewArticle } from '../../generated/types';
+import type { ArticlePatch, NewArticle } from '../../generated/types';
 import type { articles } from './articles.model';
 
 export type Article = ReadDocumentOf<typeof articles>;
@@ -50,6 +50,27 @@ export class ArticleService {
 			await tx.db.users.update(user._id, { articles: user.articles + 1 });
 			return article;
 		});
+	}
+
+	/**
+	 * The fields the patch names, and no others — `undefined` when there is
+	 * no such article.
+	 *
+	 * `values` is `ArticlePatch`, so a field the API does not offer cannot
+	 * reach the write from a handler. The collection stamps `updatedAt` and
+	 * `updatedBy` on its own, from the kit's actor, which is why neither is
+	 * spelled here.
+	 */
+	async edit(
+		id: ObjectId | string,
+		values: ArticlePatch,
+	): Promise<Article | undefined> {
+		try {
+			return await this.kit.db.articles.update(id, values);
+		} catch (error) {
+			if (error instanceof NotFoundError) return undefined;
+			throw error;
+		}
 	}
 
 	/**

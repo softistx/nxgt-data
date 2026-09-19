@@ -1,7 +1,7 @@
-import type { ReadDocumentOf } from '@nxgt/mongo';
+import { NotFoundError, type ReadDocumentOf } from '@nxgt/mongo';
 import type { ObjectId } from 'mongodb';
 import type { Kit } from '../../db';
-import type { NewUser } from '../../generated/types';
+import type { NewUser, UserPatch } from '../../generated/types';
 import type { users } from './users.model';
 
 export type User = ReadDocumentOf<typeof users>;
@@ -37,5 +37,25 @@ export class UserService {
 	 */
 	find(id: ObjectId | string): Promise<User | undefined> {
 		return this.kit.db.users.findById(id);
+	}
+
+	/**
+	 * The fields the patch names, and no others — `undefined` when there is
+	 * no such user.
+	 *
+	 * `ConflictError` is left to travel: a second user on one email is the
+	 * unique index's answer, and the handler turns it into a 409, exactly as
+	 * it does for a create.
+	 */
+	async change(
+		id: ObjectId | string,
+		values: UserPatch,
+	): Promise<User | undefined> {
+		try {
+			return await this.kit.db.users.update(id, values);
+		} catch (error) {
+			if (error instanceof NotFoundError) return undefined;
+			throw error;
+		}
 	}
 }

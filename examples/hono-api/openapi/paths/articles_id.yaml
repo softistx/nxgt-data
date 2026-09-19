@@ -12,3 +12,27 @@ delete:
       $ref: ../components/responses/Unauthorized.yaml
     '404':
       $ref: ../components/responses/NotFound.yaml
+patch:
+  tags:
+    - articles
+  summary: Change an article.
+  operationId: updateArticle
+  parameters:
+    - $ref: ../components/parameters/id.yaml
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../components/schemas/ArticlePatch.yaml
+  responses:
+    '200':
+      description: The article, as it is now.
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/Article.yaml
+    '401':
+      $ref: ../components/responses/Unauthorized.yaml
+    '404':
+      $ref: ../components/responses/NotFound.yaml

@@ -47,6 +47,22 @@ routes.post('/users', async (c) => {
 	}
 });
 
+routes.patch('/users/{id}', async (c) => {
+	try {
+		const user = await c
+			.get('services')
+			.users.change(c.req.valid('param').id, c.req.valid('json'));
+		if (!user) return c.json({ message: 'errors.not-found' }, 404);
+		return c.json(toUser(user), 200);
+	} catch (error) {
+		// The same index, and so the same answer, as a create that collides.
+		if (error instanceof ConflictError) {
+			return c.json({ message: 'errors.email-taken' }, 409);
+		}
+		throw error;
+	}
+});
+
 routes.get('/users/{id}', async (c) => {
 	// The id goes as it came: `@nxgt/mongo` reads the string form, and one
 	// that is no id matches nothing — which is this 404.

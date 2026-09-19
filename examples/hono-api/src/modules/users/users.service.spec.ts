@@ -26,4 +26,26 @@ describe('the user service', () => {
 			await new UserService(state.kit).find(new ObjectId().toHexString()),
 		).toBeUndefined();
 	});
+
+	test('changes the fields it is given, and stamps the rest', async () => {
+		const kit = state.kit;
+		const created = await new UserService(kit).create({
+			email: 'grace@example.com',
+		});
+		const asSelf = new UserService(kit.as(created._id));
+		const changed = await asSelf.change(created.id, { name: 'Grace' });
+		expect(changed).toMatchObject({
+			email: 'grace@example.com',
+			name: 'Grace',
+		});
+		// `updatedBy` is the kit's actor, written by the collection: nothing
+		// in the service or the handler names it.
+		expect(changed?.updatedBy).toEqual(created._id);
+	});
+
+	test('answers undefined for a user that is not there', async () => {
+		expect(
+			await new UserService(state.kit).change(new ObjectId(), { name: 'x' }),
+		).toBeUndefined();
+	});
 });
