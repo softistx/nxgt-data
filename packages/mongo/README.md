@@ -123,13 +123,18 @@ attached: `timestampField()`, `deletedAtField()`, `versionField()`,
 
 The collection writes its stamps; a write says only what a caller can know.
 
-| stamp | `create` | `update` | `updateMany` |
-| --- | --- | --- | --- |
-| `createdAt` | an optional `Date` | refused | refused |
-| `updatedAt` | an optional `Date` | an optional `Date` | an optional `Date` |
-| `version` | refused | the version expected, optional | refused |
-| `deletedAt` | refused | refused | refused |
-| `createdBy`, `updatedBy`, `deletedBy` | refused | refused | refused |
+| stamp | `create` | `update` | `updateMany` | `upsert` |
+| --- | --- | --- | --- | --- |
+| `createdAt` | an optional `Date` | refused | refused | refused |
+| `updatedAt` | an optional `Date` | an optional `Date` | an optional `Date` | an optional `Date` |
+| `version` | refused | the version expected, optional | refused | refused |
+| `deletedAt` | refused | refused | refused | refused |
+| `createdBy`, `updatedBy`, `deletedBy` | refused | refused | refused | refused |
+
+`upsert`'s column is `update`'s: it is the one write that may insert and
+still may not say `createdAt`, because nothing in it can know which half will
+run. An import or a backfill that has to carry its own `createdAt` wants
+`create`.
 
 A timestamp left out is `new Date()`; one given — an import, a backfill — is
 kept. The version in an update's patch is **not written**: it is the version
@@ -287,6 +292,7 @@ await collection.exists({ email: 'ada@example.com' });
 await collection.update(ada._id, { name: 'Ada' });             // checked field by field
 await collection.update(ada._id, { $inc: { loginCount: 1 } }); // MongoDB's operators too
 await collection.updateMany({ name: null }, { name: 'unknown' });
+await collection.upsert({ email: 'ada@example.com' }, { name: 'Ada' }); // or insert — see Upsert
 
 await collection.delete(ada._id);       // soft, on a schema with deletedAt
 await collection.restore(ada._id);
@@ -355,6 +361,98 @@ const { id } = route.parse(params);          // ObjectId
 parameter that never arrived becomes a perfectly valid id that matches nothing.
 `toObjectId` throws `InvalidIdError`, which a handler can turn into a 400 or a
 404.
+
+## Upsert
+
+`upsert(filter, values)` changes the live document that matches, or writes a
+new one, in **one** round trip — there is no read to go stale between the
+look-up and the write. Two requests racing on the same key give one document
+and not two **when a unique index covers that key**; without one, MongoDB can
+insert twice, so the index is part of the guarantee and not an optimisation.
+The index is also what the loser of the race meets: its call rejects with
+`ConflictError`, and nothing here retries it.
+
+```ts
+const user = await users.upsert(
+	{ email: 'ada@example.com' },   // what identifies it
+	{ name: 'Ada' },                // what to write, either way
+);
+```
+
+**The filter seeds an insert.** MongoDB builds a new document out of the
+filter's equality conditions, so the one above lands with its `email`. That
+makes an upsert's filter unlike every other filter in this package — it is
+**written**, not only matched — so it is held to what a write is held to, and
+each of these is a `TypeError` naming the field:
+
+| the filter | why it cannot stand |
+| --- | --- |
+| `{ rank: { $gt: 5 } }` | a condition seeds nothing; the new document would have no `rank` |
+| `{ email: /ada/ }` | the same: measured, a regular expression seeds nothing |
+| `{ $or: [{ tier: 'gold' }, …] }` | the server seeds from inside `$and` and `$or` too, and a choice cannot say what it would insert |
+| `{ 'profile.name': 'Ada' }` | a seed is a whole field value, not a part of one |
+| `{ nope: 1 }` | the schema has no such field, and the server would **store** it |
+| `{ version: 0 }` | the collection keeps that stamp itself |
+| `{}` | nothing to seed, and nothing to identify |
+
+`_id` is allowed in the filter, and an upsert filtered by one inserts a
+document with the id you chose. It is **required** there when the schema
+fills `_id` with something that is not an `ObjectId`: the server generates
+one before the pipeline runs, so an upsert cannot apply that default and asks
+for the id rather than landing a document `create` would not have landed.
+
+In the **values**, `_id` compiles — as it does in a patch — and the server
+refuses it on the update half as an immutable field. Put it in the filter.
+
+**An insert lands what `create` would have landed**: the schema's defaults,
+`createdAt`, `createdBy`, and version 0 — and under `validate: 'off'`, the
+stamps alone, exactly as `create` lands them there. **An update does what
+`update` does**: `updatedAt`, `updatedBy`, and the version raised by one.
+`createdAt` and `createdBy` are never moved by an update — with one edge, in
+the Traps: a document that has **no** `createdBy` at all is credited to the
+actor upserting it. An `updatedAt` you write yourself is left alone.
+
+**An upsert must always be able to insert.** Before the server is asked, the
+filter's seeds plus the values plus the schema's defaults are parsed as a
+whole document, so a missing required field is the `ZodError` `create` would
+have raised, naming the same field — and not a server `ValidationError` on
+the day the document happened not to be there. The cost is the other half of
+that: a required field with no default has to be named on **every** upsert,
+matching or not, because nothing here can know which half will run. A
+collection where that reads badly wants `findFirst` and `update`.
+
+The values are the document's own fields, each optional — **no operators**.
+An upsert is sent as an aggregation pipeline, where `$set` and `$inc` have no
+meaning, and two ways of writing the same thing that did not behave the same
+would be worse than one.
+
+Which half ran is told to the hooks, not to the caller: `upsert` gives back
+the document either way, and `afterCreate` or `afterUpdate` runs according to
+what the server actually did. The one hook that runs **before** is
+`beforeUpsert`, because until the server has answered, nobody knows which of
+the two it will be:
+
+```ts
+const users = getCollection(db, usersDefinition, {
+	hooks: {
+		beforeUpsert: ({ filter, values }) => ({
+			filter: { ...filter, teamId },   // the rule holds here too
+			values,
+		}),
+		afterCreate: (document) => audit('created', document),
+		afterUpdate: (document) => audit('changed', document),
+	},
+});
+```
+
+It is scoped to the live documents, as every other write is. So a
+soft-deleted document does not match, and an upsert on its key inserts a new
+one — which a unique index will refuse with `ConflictError`. Restore it, or
+hard-delete it, before writing over its key.
+
+An expected version is refused: a document that may not exist has no version
+to be at. For a conditional write on a document you know is there, use
+`update`.
 
 ## Strings from outside
 
@@ -439,12 +537,13 @@ const collection = getCollection(db, users, {
 
 | hooks | around | `before` gets and may return | `after` gets |
 | --- | --- | --- | --- |
-| `beforeCreate`, `afterCreate` | `create`, and each document of `createMany` | `{ values }` | the document |
-| `beforeUpdate`, `afterUpdate` | `update` | `{ id, patch }` | the document |
+| `beforeCreate`, `afterCreate` | `create`, each document of `createMany`, and an `upsert` that inserted | `{ values }` | the document |
+| `beforeUpdate`, `afterUpdate` | `update`, and an `upsert` that matched | `{ id, patch }` | the document |
 | `beforeUpdateMany`, `afterUpdateMany` | `updateMany` | `{ filter, patch }` | the count |
 | `beforeDelete`, `afterDelete` | `delete`, `hardDelete` | `{ id }` | the document |
 | `beforeDeleteMany`, `afterDeleteMany` | `deleteMany`, `hardDeleteMany` | `{ filter }` | the count |
 | `beforeRestore`, `afterRestore` | `restore`, on a collection that soft deletes | `{ id }` | the document |
+| `beforeUpsert` | `upsert` | `{ filter, values }` | — |
 
 - A `before` hook that returns a value of the same shape **replaces** what is
   written — a filled field, a narrower filter. Returning nothing keeps it.
@@ -452,10 +551,20 @@ const collection = getCollection(db, users, {
 - An `after` hook gets the result, with the arguments beside the context. The
   write has happened: throwing rejects the call and undoes nothing, unless the
   write ran in a transaction.
+- After an **upsert** those arguments are rebuilt, because the write that ran
+  was neither a `create` nor an `update`: `afterCreate` gets `values` read
+  back off the stored document, less the stamps the collection keeps, and
+  `afterUpdate` gets `{ id, patch }` where the patch is what the upsert was
+  given. Neither is given the filter. A hook that must tell them apart reads
+  `context.operation`, which is `'upsert'`.
 - Every hook gets `operation`, `collection` — the one the write runs on,
   session and actor included — `session` and `actor`. The delete hooks also
   get `hard`, which is `true` for a hard delete and for a `delete` on a
   collection that does not soft delete.
+- `upsert` has one `before` hook and no `after` of its own: until the server
+  answers, which half will run is not known. Afterwards `afterCreate` or
+  `afterUpdate` runs according to what the server actually did, and gets
+  `operation: 'upsert'` in its context.
 - `hooks` takes an array too: each set runs in order, and every `before` sees
   what the previous one returned. A set typed as `CollectionHooks<typeof users>`
   can be written once and shared.
@@ -579,9 +688,10 @@ down.
 
 ## Optimistic locking
 
-With `optimisticLock`, every update raises the version field. Give the
-version you read in the patch, under the version field's own name, and the
-update only applies while the document is still at it:
+With `optimisticLock`, every update raises the version field — an `upsert`
+too, which starts an inserted document at 0 and raises a matched one by one.
+Give the version you read in the patch, under the version field's own name,
+and the update only applies while the document is still at it:
 
 ```ts
 const user = await repo.getById(id);
@@ -802,6 +912,7 @@ const withRelations = await members.populate(await members.findMany(), {
 | `NewDocumentOf`, `Patch`, `ManyPatch`, `ExpectedVersion`, `WritableDocumentOf`, `WritableFieldOf`, `WritablePath`, `RemovablePath`, `StampNameOf`, `VersionNameOf`, `SetByCollection`, `FixedOnUpdate` | what a write may say |
 | `DistinctOf`, `Group`, `GroupKeyOf`, `GroupByOptions`, `Measure`, `Measures`, `NumericFieldOf`, `Populated`, `Relations`, `ByRelation`, `OnRelation`, `ReferenceFieldOf`, `RelatedCollection` | what `distinct`, `groupBy` and `populate` take and give |
 | `getCollection(dbOrClient, definition, options?)` | the typed collection, driver methods included |
+| `UpsertOf`, `UpsertArgs` | what `upsert` writes, and what `beforeUpsert` is given |
 | `CollectionHooks<Def>` and its pieces | hooks around the writes |
 | `ChangeOf<Def>`, `ChangeOptions<Def>`, `ChangeSubscription` (`ready`, `closed`, `resumeToken`, `position`, `close`), `ResumeToken` | what `onChange` hands over and takes |
 | `syncCollection`, `syncCollections`, `syncAll` | create and bring in line, with `dryRun` |
@@ -839,6 +950,12 @@ await collection.create({ email, createdAt: '2024' });   // a timestamp is a Dat
 await collection.update(id, { createdAt: new Date() });  // fixed once created
 await collection.update(id, { $inc: { version: 1 } });   // not through an operator either
 await collection.update(id, { deletedAt: null });        // `delete` and `restore`
+await collection.upsert({ email }, { nope: 1 });         // no such field to write
+await collection.upsert({ email }, { version: 1 });      // the collection keeps it
+await collection.upsert({ email }, { createdAt: date }); // a create's to give, not this
+await collection.upsert({ email }, { createdBy: id });   // and the actor
+await collection.upsert({ email }, { $set: { … } });     // an upsert is a pipeline
+await collection.upsert({ email }, { id: 'x' });         // id is computed here too
 await tickets.update(id, { version: 3 });                // the version is `revision` there
 await collection.updateMany(filter, { version: 3 });     // no expected version for many
 collection.as('not-an-object-id');                       // the schema types the actor
@@ -985,10 +1102,13 @@ operator, and getting it subtly wrong is worse than being honest about it.
   takes a string at compile time, because the option is read at runtime and
   the definition alone decides the types. With it off, passing one sends a
   string to the server, which matches nothing.
-- **A `before` hook sees the caller's input, not the read form.** It runs
-  before the collection converts anything, so `args.id` is the string the
-  caller passed when that is what they passed — its type says so. A hook that
-  needs the stored form calls `toObjectId` itself.
+- **A `before` hook sees an id, a filter and `values` already converted, and
+  a `patch` not.** The conversion runs first for `args.id`, `args.filter` and
+  `args.values`, so a 24-hex string reaches the hook as an `ObjectId` — which
+  is what the hook types promise. `args.patch` is the caller's object as they
+  wrote it, converted after the hook has had it, so a hook reading a field
+  out of a patch may find a string where the same field in `values` would be
+  an `ObjectId`. `toObjectId` is the way to be sure.
 - **`new ObjectId(undefined)` is a fresh id, not an error.** So is
   `new ObjectId(null)`. A missing route parameter turns into a valid id that
   matches nothing, and the bug surfaces as an empty result rather than as a
@@ -998,12 +1118,43 @@ operator, and getting it subtly wrong is worse than being honest about it.
   returns, and on none in the collection: a filter or a patch keyed on it would
   match nothing, so both are compile errors. Query on `_id`. A schema that
   declares an `id` field of its own keeps it, untouched.
-- **`$setOnInsert` does nothing.** It is in the update operators, because it
-  is one of MongoDB's, but no write this package makes is an upsert — nothing
-  passes `upsert: true` to the driver — so an insert it could apply to never
-  happens: `update` on a document that is not there throws `NotFoundError`
-  instead. For an upsert, use `raw.updateOne(filter, update, { upsert: true })`
-  and fill the stamps yourself.
+- **`$setOnInsert` does nothing in a patch.** It is in the update operators,
+  because it is one of MongoDB's, but `update` never inserts: on a document
+  that is not there it throws `NotFoundError`. Use `upsert`, which is built
+  for that and fills the stamps.
+- **An upsert's filter is written, not only matched.** MongoDB seeds an
+  inserted document from the filter's equality conditions — from inside
+  `$and` and `$or` as well, measured — so `{ rank: { $gt: 5 } }` would insert
+  a document with no `rank` at all, and `{ nope: 1 }` a document with a
+  `nope`. Each of those is a `TypeError` here rather than a document the
+  validator then refuses — or, with no validator, keeps. The whole list is in
+  [Upsert](#upsert).
+- **An upsert needs every required field, even when it matched.** The check
+  that an insert *could* happen runs before the server is asked, and nothing
+  here knows which half will run. On a collection with a required field that
+  has no default, `upsert({ email }, {})` is a `ZodError` naming that field
+  even though the document exists. `findFirst` and `update` are the pair to
+  reach for there.
+- **An upsert fills a hole; `update` leaves it.** `update` writes the fields
+  the patch names and nothing else. An upsert asks, field by field, whether
+  the stored document *has* the field: a value stored as `null` is left
+  alone, but a field the document is **missing** is filled — from the
+  schema's default, and for `createdBy` from **the actor upserting now**. So
+  a document written before a field existed, or written by `raw`, is
+  completed by an upsert that touched something else entirely, and can be
+  credited to whoever happened to upsert it. There is no signal in the
+  pipeline that tells the two halves apart, which is what this buys.
+- **An upsert cannot see a soft-deleted document.** It is scoped to the live
+  ones like every other write, so an upsert on a deleted document's key
+  inserts a new one, and a unique index answers `ConflictError`.
+- **A filter does not refuse a field the schema has no idea about**, except in
+  an upsert. `findMany({ filter: { nope: 1 } })` compiles and matches nothing:
+  the driver's `Filter<T>` is intersected with `Document`, whose index
+  signature takes every key, and omitting a key from an index signature leaves
+  the index signature. Sorting, projecting and patching **are** checked —
+  those types are written here — so a misspelt field is caught everywhere but
+  in a filter. `upsert` checks its filter at run time, because it would
+  otherwise store the misspelling.
 - **A read is never checked against the schema.** `validate` is about writes:
   `findOne` and the rest return the driver's document with `id` added on
   (`collection/operations/reads.ts`), and nothing parses it. So a document

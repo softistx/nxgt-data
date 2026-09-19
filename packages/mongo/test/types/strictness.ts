@@ -113,3 +113,36 @@ await collection.findMany({ filter: { createdAt: { $gte: 1 } } });
 await collection.findMany({ filter: { email: id } });
 // @ts-expect-error and a string field still refuses a number
 await collection.create({ email: 42 });
+
+// --- upsert --------------------------------------------------------------
+// It takes a filter and the document's own fields, each optional, and reads
+// the strings the collection reads everywhere else.
+await collection.upsert({ email: 'ada@example.com' }, { name: 'Ada' });
+await collection.upsert(
+	{ teamId: '68ca1f0f2b1c4d5e6f7a8b90' },
+	{ age: 36, teamId: '68ca1f0f2b1c4d5e6f7a8b90' },
+);
+// A filter does **not** refuse a field the schema has no idea about, here or
+// anywhere else: the driver's `Filter<T>` is intersected with `Document`,
+// whose index signature takes every key, and an `Omit` cannot take that back
+// — the same reason `UpdateOperators` is written out by hand. Measured, and
+// recorded in the README's Traps.
+// `upsert` is the one that cannot live with it: its filter is written into
+// the document an insert creates, so it checks the filter's fields against
+// the schema at run time and throws. Nothing here can make that a compile
+// error, which is why the run-time check exists.
+await collection.upsert({ nope: 1 }, { name: 'Ada' });
+await collection.findMany({ filter: { nope: 1 } });
+// @ts-expect-error no such field to write
+await collection.upsert({ email: 'a@b.c' }, { nope: 1 });
+// @ts-expect-error the version is the collection's, in an upsert as in a patch
+await collection.upsert({ email: 'a@b.c' }, { version: 1 });
+// @ts-expect-error `createdAt` is a create's to give, and an upsert may insert
+// — but nothing in it knows which half will run, so it is refused like a patch
+await collection.upsert({ email: 'a@b.c' }, { createdAt: new Date() });
+// @ts-expect-error and so is the actor
+await collection.upsert({ email: 'a@b.c' }, { createdBy: id });
+// @ts-expect-error an upsert is a pipeline: MongoDB's operators mean nothing
+await collection.upsert({ email: 'a@b.c' }, { $set: { name: 'Ada' } });
+// @ts-expect-error `id` is computed, in an upsert too
+await collection.upsert({ email: 'a@b.c' }, { id: 'x' });

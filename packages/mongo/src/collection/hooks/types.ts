@@ -7,10 +7,12 @@ import type {
 import type { NewDocumentOf } from '../../definition/writable';
 import type {
 	ActorOf,
+	FilterOf,
 	IfStamp,
 	ManyPatch,
 	Patch,
 	TypedCollection,
+	UpsertOf,
 } from '../types';
 
 /** The write a hook is running for. */
@@ -19,6 +21,7 @@ export type WriteOperation =
 	| 'createMany'
 	| 'update'
 	| 'updateMany'
+	| 'upsert'
 	| 'delete'
 	| 'hardDelete'
 	| 'deleteMany'
@@ -53,6 +56,12 @@ export interface DeleteHookContext<Def> extends HookContext<Def> {
 /** What `create` writes, and `createMany` writes once per document. */
 export interface CreateArgs<Def> {
 	values: NewDocumentOf<Def>;
+}
+
+/** What `upsert` matches on, and what it writes. */
+export interface UpsertArgs<Def> {
+	filter: FilterOf<Def>;
+	values: UpsertOf<Def>;
 }
 
 export interface UpdateArgs<Def> {
@@ -122,6 +131,15 @@ export interface CollectionHooks<Def> {
 		CreateArgs<Def>,
 		HookContext<Def>
 	>;
+
+	/**
+	 * The one hook an upsert runs before it writes. There is no
+	 * `beforeCreate`/`beforeUpdate` pair here: an upsert is one atomic
+	 * operation, so which half will run is not known until the server has
+	 * run it. Afterwards it **is** known, and `afterCreate` or `afterUpdate`
+	 * runs accordingly, with `context.operation` still `'upsert'`.
+	 */
+	beforeUpsert?: BeforeHook<UpsertArgs<Def>, HookContext<Def>>;
 
 	beforeUpdate?: BeforeHook<UpdateArgs<Def>, HookContext<Def>>;
 	afterUpdate?: AfterHook<

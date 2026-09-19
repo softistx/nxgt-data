@@ -195,6 +195,18 @@ type FixedFields<Def> = {
 };
 
 /**
+ * What an upsert writes: the document's own fields, each optional.
+ *
+ * Fields only — no operators. An upsert is sent as an aggregation pipeline,
+ * where MongoDB's update operators have no meaning, and the two ways of
+ * saying a write would not read the same. The stamps the collection keeps
+ * are refused here as they are in a patch.
+ */
+export type UpsertOf<Def> = Partial<WritableDocumentOf<Def>> & {
+	[K in FixedOnUpdate<Def>]?: never;
+};
+
+/**
  * What an update writes: the document's own fields, checked against the
  * schema, or MongoDB's operators for what they cannot say — and, either way,
  * the version it expects, when the collection keeps one.
@@ -422,6 +434,30 @@ export interface CollectionApi<Def> {
 
 	/** Checks the document against the schema, fills its defaults, inserts it. */
 	create(values: NewOf<Def>): Promise<ReadDocumentOf<Def>>;
+	/**
+	 * The live document that matches, changed — or a new one, in one round
+	 * trip, with no read to go stale in between. Two callers racing on the
+	 * same key give one document and not two **when a unique index covers
+	 * that key**; without one, MongoDB may insert twice.
+	 *
+	 * The filter's fields seed an insert, so it is checked as a write is:
+	 * `upsert({ email }, { name })` gives a new document that `email`, and an
+	 * existing one that `name`. A condition rather than a value, a field the
+	 * schema does not have, a stamp the collection keeps, `$and`/`$or`, and a
+	 * dotted path are each a `TypeError` naming the field.
+	 *
+	 * An insert lands what `create` would have landed — the schema's
+	 * defaults, `createdAt`, `createdBy` and version 0 — and an update
+	 * touches `updatedAt`, `updatedBy` and raises the version. Which of the
+	 * two happened is told to `afterCreate` or `afterUpdate`.
+	 *
+	 * Because it must always be able to insert, a required field with no
+	 * default has to be named on every call, matching or not.
+	 */
+	upsert(
+		filter: FilterOf<Def>,
+		values: UpsertOf<Def>,
+	): Promise<ReadDocumentOf<Def>>;
 	/** The same, in one insert. `[]` sends nothing. */
 	createMany(values: readonly NewOf<Def>[]): Promise<ReadDocumentOf<Def>[]>;
 	/** Updates the document with this `_id` and returns it. Throws `NotFoundError`. */

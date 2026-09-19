@@ -22,6 +22,7 @@ import {
 	hookedRestore,
 	hookedUpdate,
 	hookedUpdateMany,
+	hookedUpsert,
 	type Self,
 } from './hooks/hooked';
 import { paginate, paginateByCursor } from './operations/paginate';
@@ -120,6 +121,8 @@ function apiOf(ctx: CollectionContext, rebuild: Rebuild, self: Self) {
 		createMany: (values: readonly unknown[]) =>
 			hookedCreateMany(ctx, self, values),
 		update: (id: unknown, patch: unknown) => hookedUpdate(ctx, self, id, patch),
+		upsert: (filter: unknown, values: unknown) =>
+			hookedUpsert(ctx, self, filter, values),
 		updateMany: (filter: unknown, patch: unknown) =>
 			hookedUpdateMany(ctx, self, filter, patch),
 
