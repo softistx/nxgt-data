@@ -44,6 +44,36 @@ function unlessStored(field: string, fallback: Document | unknown): Document {
 }
 
 /**
+ * How the stage asks whether it is **inserting**, when it can ask at all.
+ *
+ * The server seeds an inserted document from the filter before the pipeline
+ * runs, so `$_id` is there when — and only when — the filter named it.
+ * Measured: `$type` of `$_id` is `missing` on an insert whose filter did not
+ * name it, and `objectId` on the update that follows. `seedsOf` refuses the
+ * `$and`/`$or` that could hide an `_id`, so the seeds are the whole filter
+ * and this is sound whenever they carry none.
+ *
+ * With the signal, the update half writes only what it was asked to write.
+ * Without it — a collection keyed by a string `_id`, which has to name it in
+ * the filter — each field falls back to its own absence, which is the
+ * closest true thing and the one place an upsert writes more than `update`.
+ */
+function insertingWhen(seeds: Fields): Document | undefined {
+	if (seeds._id !== undefined) return undefined;
+	return { $eq: [{ $type: '$_id' }, 'missing'] };
+}
+
+/** `value` on the insert, and the stored field untouched on the update. */
+function onInsert(
+	inserting: Document | undefined,
+	field: string,
+	value: Document | unknown,
+): Document {
+	if (!inserting) return unlessStored(field, value);
+	return { $cond: [inserting, value, `$${field}`] };
+}
+
+/**
  * The fields whose schema default an upsert fills in when the document does
  * not carry them.
  *
@@ -80,6 +110,7 @@ function upsertStage(
 	ctx: CollectionContext,
 	values: Fields,
 	wrote: ReadonlySet<string>,
+	inserting: Document | undefined,
 ): Document {
 	const set: Document = {};
 	for (const [field, value] of Object.entries(values)) {
@@ -94,20 +125,22 @@ function upsertStage(
 		if (field === '_id' || field === 'id' || field in set) continue;
 		const filled = ctx.shape[field]?.safeParse(undefined);
 		if (!filled?.success || filled.data === undefined) continue;
-		set[field] = unlessStored(field, literal(filled.data));
+		set[field] = onInsert(inserting, field, literal(filled.data));
 	}
 
 	const { updatedAt, createdBy, updatedBy, version } = ctx.stamps;
-	// `createdAt` needs no branch of its own: the loop above already leaves a
-	// stored one alone and fills an absent one from the schema's default,
-	// which is what `create` writes.
+	// `createdAt` needs no branch of its own: the loop above already writes it
+	// on the insert and leaves the stored one alone on the update.
 	const now = new Date();
 	// A stamp the caller wrote itself is left to them, as `update` leaves it.
 	if (ctx.touches && updatedAt && !wrote.has(updatedAt)) {
 		set[updatedAt] = literal(now);
 	}
 	if (ctx.actor !== undefined && createdBy) {
-		set[createdBy] = unlessStored(createdBy, literal(ctx.actor));
+		// Who created it, not who is upserting it: with the signal above, a
+		// document that has no `createdBy` keeps none rather than being
+		// credited to whoever happened to match it.
+		set[createdBy] = onInsert(inserting, createdBy, literal(ctx.actor));
 	}
 	if (ctx.actor !== undefined && updatedBy) set[updatedBy] = literal(ctx.actor);
 	if (ctx.locks && version) {
@@ -172,7 +205,7 @@ export async function upsert(
 	const answer = await run(ctx, async () =>
 		ctx.collection.findOneAndUpdate(
 			scoped,
-			[upsertStage(ctx, written, wrote)],
+			[upsertStage(ctx, written, wrote, insertingWhen(seeds))],
 			{
 				...ctx.sessionOption,
 				upsert: true,
