@@ -291,6 +291,12 @@ here.
 - **The stored document is not the API document.** `_id` is an `ObjectId`
   and the stamps are `Date`s; the mapping to what the spec declares is the
   controller's, written once per collection.
+- **A path id goes to the collection as the string it arrived as.**
+  `@nxgt/mongo` reads its schema and converts it, so nothing in a handler
+  parses an id; one that is no id matches nothing, which is the same 404 as
+  a document that is not there. The header is the exception: `tryObjectId`
+  checks `x-user-id` in the middleware, because an actor nobody can name is
+  a 401 and not an empty result.
 - **A service holds the kit it was built on, and nothing else.** Its only
   state is that constructor argument, so `buildServices(kit)` is one `new`
   per module per request and a service is as callable from a script or a

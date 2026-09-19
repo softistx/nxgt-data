@@ -1,4 +1,3 @@
-import { tryObjectId } from '@nxgt/mongo';
 import { Hono } from 'hono';
 import { api } from '../../api';
 import type { Env } from '../../context';
@@ -45,8 +44,9 @@ routes.post('/articles', async (c) => {
 });
 
 routes.delete('/articles/{id}', async (c) => {
-	const id = tryObjectId(c.req.valid('param').id);
-	const removed = id ? await c.get('services').articles.remove(id) : false;
+	const removed = await c
+		.get('services')
+		.articles.remove(c.req.valid('param').id);
 	if (!removed) return c.json({ message: 'errors.not-found' }, 404);
 	return c.body(null, 204);
 });

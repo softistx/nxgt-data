@@ -11,7 +11,7 @@ registry:
 | --- | --- |
 | `@nxgt/drizzle` | an SDK over Drizzle ORM: typed repositories (`createRepository`), offset and cursor pagination, `withTransaction`, its own errors with `toDataError`, and the `id()`, `timestamps()`, `softDelete()` columns. PostgreSQL first |
 | `@nxgt/meilisearch` | a typed Meilisearch index on the official SDK: `defineIndex<Doc>()({ uid, primaryKey, settings })`, `syncIndex`/`syncIndexes` applying the settings idempotently, and `bindIndex` for typed documents and searches. Its one error is `SearchIndexError` |
-| `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection` with its stamps and MongoDB's own collection options, `syncCollection`/`syncAll` applying the `$jsonSchema` validator, the collection options and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, `withTransaction`, and migrations in code under the `./migrations` subpath. Its errors are `DataError` and its subclasses |
+| `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection` with its stamps and MongoDB's own collection options, `syncCollection`/`syncAll` applying the `$jsonSchema` validator, the collection options and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, `withTransaction`, and migrations in code under the `./migrations` subpath. A string that arrives from outside is converted from the **schema** — a 24-hex string to `ObjectId` where the schema says `objectId()`, a date string to `Date` where it says `z.date()`, in ids, filters and writes alike — unless `coerce: false`. Its errors are `DataError` and its subclasses |
 | `@nxgt/mongo-meilisearch` | keeps a Meilisearch index in step with a MongoDB collection: `createSearchSync` with a `transform` typed by both definitions, `reindex`, and `start`, which follows the collection's changes in batches from a resume point kept in MongoDB. Its one error is `SearchSyncError` |
 | `@nxgt/mongo-kit` | an application's MongoDB wiring in one object: `defineConfig` checking a configuration of one or several databases, and `createKit` giving a `db` that is the driver's `Db` with every `@nxgt/mongo` collection typed on it, plus the actor, the session, transactions, `sync` and `close`. `discoverCollections` reads definitions from a glob, for scripts |
 | `@nxgt/mongo-search-kit` | a search kit over the wiring kit: `createSearchKit(kit, config)` takes one entry per collection — an index and a transform, under the key the kit wires that collection under — and gives one `reindexAll`, one `start` and one `close` for all of them. Each entry's sync is `@nxgt/mongo-meilisearch`'s, unchanged |
@@ -305,8 +305,9 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   them apart (`hook-types`, `change-types`), is several subjects. In
   `mongo/src/collection/` the root keeps what every subject shares — the
   surface (`get-collection.ts`, `types.ts`, `auto-sync.ts`), the
-  `context.ts`, `filters.ts`, `documents.ts` and the stamp-write policy
-  `documents.ts` applies, `stamp-writes.ts` — and each subject has a folder whose files drop the prefix:
+  `context.ts`, `filters.ts`, `documents.ts`, the reading of the strings a
+  caller passes, `coerce.ts`, and the stamp-write policy `documents.ts`
+  applies, `stamp-writes.ts` — and each subject has a folder whose files drop the prefix:
   - `operations/` — `reads`, `writes`, `paginate`;
   - `hooks/` — `types`, `sets`, `hooked`;
   - `changes/` — `types`, `events`, `subscription`, `retry`;
@@ -318,9 +319,9 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   import of a subject is `context.ts` → `hooks/sets`, a leaf that imports
   nothing and turns the `hooks` option into context data.
 - **Specs are split by subject, not one per source file.** `collection/` has
-  twelve, beside the code they test: `id`, `optimistic-lock`, `soft-delete`,
-  `stamp-writes`, `driver-methods`, `auto-sync` and the general one at the
-  root,
+  thirteen, beside the code they test: `id`, `coerce`, `optimistic-lock`,
+  `soft-delete`, `stamp-writes`, `driver-methods`, `auto-sync` and the general
+  one at the root,
   `operations/paginate`, `hooks/hooks`, `changes/changes`,
   `changes/subscription` and `aggregation/aggregation`. Beside `collection/`,
   `connection/connect` covers `connectMongo`, and `migrations/` has three:
@@ -380,7 +381,7 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **740 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 361,
+`bun run test` is **764 pass, 0 fail**: drizzle 93, meilisearch 42, mongo 385,
 mongo-meilisearch 40, mongo-kit 70, mongo-search-kit 14, redis 44, s3 36,
 hono-api-example 22, scripts 18. It runs one process per package, then the
 scripts' specs. Treat any failure as yours.

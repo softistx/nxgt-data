@@ -28,8 +28,11 @@ assertType<Equal<NewDocumentOf<typeof users>['updatedAt'], Date | undefined>>(
 await people.create({ email: 'a@example.com' });
 // A document imported with its own dates keeps them.
 await people.create({ email: 'a@example.com', createdAt: at, updatedAt: at });
-// @ts-expect-error a timestamp is a Date
+// A timestamp may also be given as the string it arrived as: the collection
+// reads it, because the schema says the field is a date.
 await people.create({ email: 'a@example.com', createdAt: '2024-01-01' });
+// @ts-expect-error and a number is not a date, in the types as at runtime
+await people.create({ email: 'a@example.com', createdAt: 1 });
 // @ts-expect-error the version starts where the collection says
 await people.create({ email: 'a@example.com', version: 1 });
 // @ts-expect-error a new document is not deleted

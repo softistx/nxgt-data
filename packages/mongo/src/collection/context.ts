@@ -9,6 +9,7 @@ import type { StampNames } from '../definition/stamps';
 import { NotFoundError } from '../errors/data-error';
 import { toDataError } from '../errors/to-data-error';
 import { DEFAULT_MAX_PAGE_SIZE } from '../pagination/page';
+import { type FieldKinds, kindsOf } from './coerce';
 import { type HookSet, hookSetsOf } from './hooks/sets';
 import type { CollectionOptions } from './types';
 
@@ -54,6 +55,17 @@ export interface CollectionContext {
 	readonly hasOwnId: boolean;
 	/** Whether a write is checked against the schema, which fills its defaults. */
 	readonly parses: boolean;
+	/**
+	 * Whether a string is read as the `ObjectId` or `Date` its field holds.
+	 * See `coerce.ts` for what that covers and what it deliberately does not.
+	 */
+	readonly coerces: boolean;
+	/**
+	 * Every coercible field, by the path a filter spells — resolved once from
+	 * the schema, because walking it per operation would be the same answer
+	 * computed again.
+	 */
+	readonly kinds: FieldKinds;
 	/** Whether `delete` writes the soft-delete field rather than removing. */
 	readonly softDeletes: boolean;
 	/** Whether an update that does not set the updated stamp gets it set. */
@@ -115,6 +127,8 @@ export function createContext(
 		maxPageSize: options.maxPageSize ?? DEFAULT_MAX_PAGE_SIZE,
 		hasOwnId: 'id' in shape,
 		parses: (options.validate ?? 'parse') === 'parse',
+		coerces: options.coerce ?? true,
+		kinds: (options.coerce ?? true) ? kindsOf(shape) : {},
 		softDeletes: options.softDelete ?? stamps.deletedAt !== false,
 		touches: options.touchUpdatedAt ?? stamps.updatedAt !== false,
 		locks: options.optimisticLock ?? stamps.version !== false,

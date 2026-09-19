@@ -1,7 +1,7 @@
 import type { ChangeStreamOptions, Document } from 'mongodb';
 import type { CollectionContext } from '../context';
 import { withId } from '../documents';
-import type { Fields } from '../filters';
+import { coerced, type Fields } from '../filters';
 import type { ChangeOptions, ChangeType } from './types';
 
 const ALL: readonly ChangeType[] = ['create', 'update', 'delete', 'restore'];
@@ -47,14 +47,20 @@ function prefixed(filter: Fields, prefix: string): Fields {
 }
 
 /** What the server is asked to send, built once per subscription. */
-export function pipelineOf(options: ChangeOptions<never>): Document[] {
+export function pipelineOf(
+	ctx: CollectionContext,
+	options: ChangeOptions<never>,
+): Document[] {
 	const events = options.events ?? ALL;
 	const operations = [...new Set(events.flatMap((e) => OPERATIONS[e]))];
 	const stages: Document[] = [
 		{ $match: { operationType: { $in: [...operations, 'invalidate'] } } },
 	];
-	const filter = options.filter as Fields | undefined;
-	if (filter && Object.keys(filter).length > 0) {
+	// Coerced like every other filter: a subscription keyed on a string id
+	// would otherwise match nothing, and nothing is what a change stream
+	// delivers anyway, so the mistake would never surface.
+	const filter: Fields = coerced(ctx, options.filter);
+	if (Object.keys(filter).length > 0) {
 		stages.push({
 			$match: {
 				$or: [

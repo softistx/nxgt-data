@@ -56,7 +56,7 @@ export class ArticleService {
 	 * Soft delete: the document stays, with the time it went, and every read
 	 * leaves it out from here on. `false` when there was nothing to take back.
 	 */
-	async remove(id: ObjectId): Promise<boolean> {
+	async remove(id: ObjectId | string): Promise<boolean> {
 		try {
 			await this.kit.db.articles.delete(id);
 			return true;
