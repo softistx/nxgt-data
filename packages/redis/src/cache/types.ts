@@ -22,6 +22,15 @@ export interface CacheDefinition<P, S extends z.ZodType> {
 export type ParamsOf<D> =
 	D extends CacheDefinition<infer P, z.ZodType> ? P : never;
 
-/** What the definition's schema gives back. */
+/**
+ * What the definition's schema gives back.
+ *
+ * `never` for the parameters, not `unknown`: `key` takes them, so the
+ * definition is **contravariant** in `P`, and under `strictFunctionTypes` a
+ * `CacheDefinition<string, …>` is not assignable to one of `unknown` — which
+ * made this resolve to `never` for every definition whose key took anything
+ * narrower. `never` is the bottom of that ordering, so every definition
+ * matches. Measured in `test/types/redis.ts`.
+ */
 export type ValueOf<D> =
-	D extends CacheDefinition<unknown, infer S> ? z.output<S> : never;
+	D extends CacheDefinition<never, infer S> ? z.output<S> : never;

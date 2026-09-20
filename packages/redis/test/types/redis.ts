@@ -6,8 +6,10 @@ import {
 	bindCache,
 	defineCache,
 	defineChannel,
+	type ParamsOf,
 	publish,
 	subscribe,
+	type ValueOf,
 	withLock,
 } from '../../src';
 import { seatCache, userCache, userCreated } from '../fixtures';
@@ -105,3 +107,29 @@ void withLock(client, 'job', () => 42, { ttl: '30s' });
 
 // @ts-expect-error there is no such option
 void withLock(client, 'job', () => 42, { timeout: 30 });
+
+// `ValueOf` resolves whatever the key takes. It used to be `never` for every
+// definition but one whose key took `unknown`: `key` makes the definition
+// contravariant in its parameters, so `CacheDefinition<string, …>` is not
+// assignable to `CacheDefinition<unknown, …>` under `strictFunctionTypes`.
+// One case per key shape, because that is what the mistake turned on.
+const fromPlainKey: ValueOf<typeof userCache> = ada;
+void fromPlainKey;
+
+const fromObjectKey: ValueOf<typeof seatCache> = { taken: 1 };
+void fromObjectKey;
+
+// @ts-expect-error the seat cache holds `{ taken: number }`, not a user
+const wrongValue: ValueOf<typeof seatCache> = ada;
+void wrongValue;
+
+// `ParamsOf` answers each key's own parameters, and refuses the other's.
+const plainParams: ParamsOf<typeof userCache> = 'u1';
+void plainParams;
+
+const objectParams: ParamsOf<typeof seatCache> = { org: 'o1', user: 'u1' };
+void objectParams;
+
+// @ts-expect-error this key takes an object, not a string
+const wrongParams: ParamsOf<typeof seatCache> = 'u1';
+void wrongParams;

@@ -34,12 +34,15 @@ everything this package does not wrap is still there.
 ## Install
 
 ```sh
-bun add @nxgt/s3 typescript
+bun add @nxgt/s3 typescript @types/bun
 ```
 
 - **Bun 1.4 or later, and Bun only.** `S3Client` is built into Bun, which is
   why there is no SDK to install — and why this package does not run on Node.
 - `typescript` `^6.0.3`: required peer, the version every `@nxgt` package pins.
+- `@types/bun`: required to typecheck. The shipped declarations name Bun's own
+  `S3Client`, `S3File` and `S3Options`, so without Bun's types the first `tsc`
+  fails with `Cannot find module 'bun'`.
 - Tested against SeaweedFS 4.47's S3 gateway. Anything S3-compatible that Bun
   can sign for will do; a service that is not AWS wants
   `virtualHostedStyle: false`.
@@ -264,6 +267,15 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   and `stat` read in one round trip and turn S3's own `NoSuchKey` into
   `undefined`; every other failure — a wrong secret, a refused request, a
   service that is down — comes back as the error it is.
+
+## Documentation
+
+- [docs/README.md](docs/README.md) — the guide index: buckets, reading,
+  writing and presigned URLs, each with its options and a worked example.
+- [docs/troubleshooting.md](docs/troubleshooting.md) — every error this
+  package can raise, by the message you will see.
+- [docs/roadmap.md](docs/roadmap.md) — what is coming, and what has been
+  ruled out.
 
 ## License
 

@@ -268,6 +268,21 @@ Each is a `@ts-expect-error` case in this package's type tests.
 - **`kit.db` throws on a kit with several databases**, where its type is
   already `never`: the message names the databases to read instead.
 
+## Documentation
+
+- [Guide index](docs/README.md) — every page, and when to read it.
+- [Configuration](docs/guide/configuration.md) — the databases, the
+  collections, and the options each is built with.
+- [The `db` scope](docs/guide/db-scope.md) — the collections on the driver's
+  `Db`, and the kit in a request.
+- [The actor, sessions and transactions](docs/guide/actor-and-transactions.md)
+  — `as`, `withSession` and `transaction`.
+- [Syncing](docs/guide/sync.md) — the deployment step, and `dryRun`.
+- [`discoverCollections`](docs/guide/discover-collections.md) — definitions
+  from a glob, for scripts.
+- [Troubleshooting](docs/troubleshooting.md) — the errors, by their message.
+- [Roadmap](docs/roadmap.md) — what is next, and what is not planned.
+
 ## License
 
 MIT

@@ -66,13 +66,16 @@ bun add @nxgt/mongo-search-kit @nxgt/mongo-kit @nxgt/mongo-meilisearch @nxgt/mon
 - **One database.** A kit that holds several gives `never` for its keys, as
   `kit.db` itself does, and `createSearchKit` throws naming them. Build one
   search kit per database, from a kit that wires that database alone.
-- **One process per sync name.** There is no lock; that is
-  `@nxgt/mongo-meilisearch`'s boundary and this package does not move it.
+- **One process per sync name.** There is no lock today, and how followers of
+  one name coordinate is `@nxgt/mongo-meilisearch`'s boundary, not this
+  package's to move.
 - **It does not own the Mongo kit.** Closing the search kit stops the syncs
   and nothing else: the clients, the databases and the collections are the
   Mongo kit's, and `kit.close()` is still the caller's to make.
-- **It does not sync the indexes' settings.** That is `@nxgt/meilisearch`'s
-  `syncIndex` / `syncIndexes`, run as a deployment step like `kit.sync()`.
+- **It does not sync the indexes' settings today.** Apply them with
+  `@nxgt/meilisearch`'s `syncIndex` / `syncIndexes`, as a deployment step
+  beside `kit.sync()`. A `syncIndexes()` on the kit itself is being worked
+  on: [the roadmap](docs/roadmap.md) says where it stands.
 
 ## API
 
@@ -131,9 +134,12 @@ refusal it goes with.
 
 ## Traps
 
-- **`failed` is a rejection you must take.** A sync that stops on an error
-  rejects it, and a rejection nobody handles ends the process. The kit takes
-  each sync's own `closed` so only `failed` is left to handle — handle it.
+- **A failure nobody handles is silent, not loud.** A sync that stops on an
+  error rejects `failed`, and the kit takes that rejection itself — as it
+  takes each sync's own `closed` — so nothing ends the process and nothing is
+  printed. That index simply stops updating. `failed` is the only place the
+  failure surfaces, so handle it; unhandled, the first sign is stale search
+  results.
 - **`failed` never resolves.** A clean stop is not an event to wait for, so
   `await running.failed` after `close()` waits forever. It is for `catch`,
   or for racing against your own shutdown.
@@ -174,6 +180,16 @@ refusal it goes with.
 - Everything `@nxgt/mongo-meilisearch`'s own Traps say still holds: a change
   may be applied twice, a transform that throws stops the sync, the sync owns
   its index, and Meilisearch has its own rules for ids.
+
+## Documentation
+
+- [Guide index](docs/README.md) — every page, and when to read it.
+- [Wiring it over a Mongo kit](docs/guide/wiring.md) — the config, the keys,
+  and every option an entry takes.
+- [The kit's lifecycle](docs/guide/lifecycle.md) — `reindexAll`, `start`,
+  `failed`, `flush` and `close`.
+- [Troubleshooting](docs/troubleshooting.md) — the errors, by their message.
+- [Roadmap](docs/roadmap.md) — what is next, and what is not planned.
 
 ## License
 

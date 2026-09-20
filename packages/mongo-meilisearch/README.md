@@ -225,10 +225,11 @@ out of range, an empty `name`, or a `transform` that is not a function.
 
 ## Not included
 
-- **Several processes sharing one sync.** There is no lock: run one
-  follower per sync name. Two do the same writes twice, and a `reindex` in
-  one while the other follows removes documents the follower has already
-  indexed and will not send again.
+- **Several processes sharing one sync — not yet.** There is no lock today,
+  so run **one** follower per sync name. Two do the same writes twice, and a
+  `reindex` in one while the other follows removes documents the follower has
+  already indexed and will not send again. A lease on a sync name is being
+  worked on: [the roadmap](docs/roadmap.md) says where it stands.
 - **Partial updates.** A change sends the whole document the transform
   gives, never a patch.
 - **Keeping the index's settings.** That is `@nxgt/meilisearch`'s `sync`.
@@ -289,8 +290,9 @@ that is `{ code, sync, cause? }`; both types are exported.
 Each is a `@ts-expect-error` case in this package's type tests.
 
 - A transform that reads a field the collection's schema does not have.
-- A transform that gives a field the index's document does not have, or an
-  id of the wrong type (an `ObjectId` for a string id).
+- A transform that leaves out a field the index's document has, or gives an
+  id of the wrong type (an `ObjectId` for a string id). A field the document
+  does not have, beside all the ones it does, is passed on to Meilisearch.
 - A transform that gives something other than a document or `null`.
 - No `toIndexId` when the index's ids are not strings; one that gives
   another type than the index's ids, or takes another than the collection's.
@@ -318,9 +320,10 @@ Each is a `@ts-expect-error` case in this package's type tests.
 - **Without post-images, a change carries the document as it is now**, not
   as the change left it (`@nxgt/mongo`'s change streams). For an index, where
   only the latest state counts, that is what you want.
-- **Only one process per sync name.** There is no lock; see *Not included*.
-  Inside one process this package refuses it: `reindex()` and a second
-  `start()` throw `RUNNING` while a sync of the same object is following.
+- **Only one process per sync name**, while there is no lock; see *Not
+  included*. Inside one process this package refuses it: `reindex()` and a
+  second `start()` throw `RUNNING` while a sync of the same object is
+  following.
 - **A dropped collection stops the sync** (`'invalidated'`) and leaves the
   index as it was. What the collection had is removed by the reindex the
   next `start` runs.
@@ -334,6 +337,19 @@ Each is a `@ts-expect-error` case in this package's type tests.
   Meilisearch key needs `documents.add`, `documents.get`,
   `documents.delete` and `tasks.get`, plus `indexes.create` unless the index
   already exists — the first write to an index that does not creates it.
+
+## Documentation
+
+- [Guide index](docs/README.md) — every page, and when to read it.
+- [The sync's lifecycle](docs/guide/sync-lifecycle.md) — the two definitions,
+  the transform, and every option with its default.
+- [Reindexing](docs/guide/reindex.md) — the full fill, and what it removes.
+- [Following changes](docs/guide/following-changes.md) — batches, the resume
+  point, and how a sync stops.
+- [What it leaves out](docs/guide/boundaries.md) — the settings, the joins,
+  and the one follower per sync name.
+- [Troubleshooting](docs/troubleshooting.md) — the errors, by their message.
+- [Roadmap](docs/roadmap.md) — what is next, and what is not planned.
 
 ## License
 
