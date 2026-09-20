@@ -21,21 +21,79 @@ Whatever the callback returns is what `withTransaction` resolves to.
 ## `with(tx)`, every time
 
 A repository runs on the database it was created with. Inside the callback,
-`repository.with(tx)` gives the same repository on the transaction; a call on
-the original repository runs **outside** it — and on a single-connection
-driver such as PGlite, it waits for a connection the transaction is holding,
-forever.
+`repository.with(tx)` gives the same repository on the transaction.
 
 ```ts
 await withTransaction(db, async (tx) => {
 	await userRepository.with(tx).create({ email });   // in the transaction
-	await userRepository.create({ email: other });     // outside it: do not
 	await tx.insert(auditEntries).values({ action: 'import' }); // tx is a Drizzle database
 });
 ```
 
 `tx` is an ordinary Drizzle database, so raw statements and
 `createRepository(tx, table)` both work.
+
+### Forgetting it is refused, not hung
+
+A call on the original repository asks the pool for a connection while the
+transaction is holding one. Nobody hands one over until the transaction ends,
+and the transaction cannot end while it is waiting for the call: the process
+stops, with nothing thrown and nothing timed out. Since 0.4.0 it is a
+`TypeError` instead:
+
+```ts
+await withTransaction(db, async () => {
+	await userRepository.create({ email });
+});
+// TypeError: The repository for "users" is bound to the database
+// withTransaction is holding open, so this call would wait for a connection
+// that transaction will not release until it ends, and never return. Call
+// .with(tx) to run it in the transaction, or .with(db) to say you mean the
+// database itself.
+```
+
+A **bare** `TypeError`, not an
+[`ArgumentError`](errors.md#argumenterror-what-the-call-said): that class is
+for a value that could have come from a request, and no request can bind a
+repository to the wrong database. So it is not a 400, it needs no carve-out
+in a handler that maps `ArgumentError` to one, and it reaches the 500 branch
+by itself.
+
+`withTransaction` records the database it opened on in an `AsyncLocalStorage`
+for the length of the callback, and each repository call compares its own
+database against it. What that buys, and what it deliberately does not catch:
+
+| | |
+| --- | --- |
+| `repository.with(tx)` | never refused — the fix |
+| `createRepository(tx, table)` | never refused — it is on the transaction |
+| a repository on **another** database | never refused; the comparison is against *this* transaction's database, not "a transaction is open" |
+| a repository bound to the outer transaction, inside a **savepoint** | never refused; only the outermost `withTransaction` records anything |
+| `repository.with(db)` | never refused — see below |
+| a call made **after** the transaction ended | never refused, even from a promise created inside the callback: the record is closed when the callback settles, not left behind with the async context |
+
+The refusal is **runtime-only**. No type can say which database a repository
+was built on, so nothing here fails to compile.
+
+### `with(db)`: meaning it on purpose
+
+Naming the database is how a caller says the work should survive a rollback —
+an audit row that must outlive a failed import:
+
+```ts
+await withTransaction(db, async (tx) => {
+	await attemptRepository.with(db).create({ action: 'import' });  // kept either way
+	await rowRepository.with(tx).createMany(rows);                  // rolled back on failure
+});
+```
+
+Whether it *runs* is the driver's business, and this is the trap the refusal
+does not remove. On a pooled driver — `node-postgres` — `.with(db)` takes a
+second connection and the insert commits on its own. On a
+**single-connection** driver such as PGlite there is no second connection,
+so it deadlocks exactly as an unbound repository used to. The refusal is
+there for the repository nobody re-bound, which is the mistake; `.with(db)`
+is a sentence somebody wrote on purpose, and is left alone.
 
 ## What it does with an error
 

@@ -13,7 +13,8 @@ is ordered by) and the `key` inside it when one is at fault. It
 extends `TypeError`, which these refusals were before 0.2.0, so a `catch`
 written against `TypeError` still catches them. A `where` or an `orderBy`
 assembled from a query string is user input, so that is the class a handler
-answers 400 on rather than 500. What is left is a plain `TypeError` or
+answers 400 on rather than 500; a refusal that no request could cause stays
+a **bare** `TypeError` and is a 500. What is left is a plain `TypeError` or
 `RangeError`: a repository configured wrong, or a page number that is not
 one.
 
@@ -49,7 +50,8 @@ one.
   - [`paginate on "users": page must be an integer of at least 1, not 0`](#paginate-on-users-page-must-be-an-integer-of-at-least-1-not-0)
 - **Transactions**
   - [`withTransaction: a nested transaction is a savepoint, which takes no isolation level or access mode`](#withtransaction-a-nested-transaction-is-a-savepoint-which-takes-no-isolation-level-or-access-mode)
-  - [A repository call inside a transaction never settles](#a-repository-call-inside-a-transaction-never-settles)
+  - [`The repository for "users" is bound to the database withTransaction is holding open, …`](#the-repository-for-users-is-bound-to-the-database-withtransaction-is-holding-open-)
+  - [A repository call inside a transaction still never settles, after `.with(db)`](#a-repository-call-inside-a-transaction-still-never-settles-after-withdb)
 
 ## Install and types
 
@@ -565,15 +567,15 @@ await withTransaction(db, async (tx) => {
 }, { isolationLevel: 'repeatable read' });
 ```
 
-### A repository call inside a transaction never settles
+### `The repository for "users" is bound to the database withTransaction is holding open, …`
 
 **When:** inside `withTransaction`, when a repository built on `db` is used
-instead of `repository.with(tx)`. There is no error: the call simply never
-resolves.
-**Why:** the repository on `db` runs outside the transaction, on another
-connection. On a driver with a single connection — PGlite, or a pool of one —
-that connection is held by the open transaction, so the query waits for it
-forever.
+instead of `repository.with(tx)`. Since 0.4.0 this is a bare `TypeError`;
+before it, the call simply never resolved and nothing was thrown.
+**Why:** the repository on `db` runs outside the transaction and asks the pool
+for a connection. The open transaction is holding one and will not release it
+until it ends, and it cannot end while it is waiting for this call. On a pool
+of one — PGlite, or `max: 1` — nobody ever hands one over.
 **Fix:**
 
 ```ts
@@ -584,4 +586,54 @@ await withTransaction(db, async (tx) => {
 ```
 
 Every repository in the callback takes `.with(tx)`; there is no ambient
-transaction.
+transaction. Three shapes are deliberately **not** refused:
+`createRepository(tx, table)`, which is already on the transaction; a
+repository on a **different** database, because the refusal compares against
+the database *this* transaction holds rather than asking whether a
+transaction is open anywhere; and a repository bound to the outer transaction
+used inside a nested `withTransaction`, because that nested call is a
+savepoint on the connection the outer one already holds.
+
+A **bare** `TypeError`, on purpose: it is a programming mistake rather than a
+client's input, so it is not an `ArgumentError` and a handler that answers
+400 to that class does not pick it up. It falls through to the 500 branch.
+
+### A repository call inside a transaction still never settles, after `.with(db)`
+
+**When:** `repository.with(db)` inside `withTransaction`, on PGlite or on a
+pool of one. No error, and no refusal either.
+**Why:** naming the database is how a caller says they mean it — work that
+should survive a rollback — so it is deliberately not refused. It then needs
+a **second** connection, which a pooled driver hands over and a
+single-connection driver does not. The deadlock is the driver's, and the same
+one that existed before the refusal.
+**Fix:** on `node-postgres`, give the pool room:
+
+```ts
+const pool = new Pool({ connectionString, max: 10 });   // not max: 1
+```
+
+On PGlite there is no second connection to take, so the work cannot run beside
+the transaction at all: do it after the transaction returns.
+
+```ts
+const rows = await withTransaction(db, (tx) => importRows(tx));
+await attempts.create({ action: 'import', rows: rows.length });
+```
+
+**Three more shapes deadlock the same way, and the refusal does not see any
+of them** — each measured on PGlite 0.5.8, each waiting forever with nothing
+thrown:
+
+- **A repository on a second `drizzle({ client })` over the same client.**
+  It is the same database, but not the same *object*, and the refusal
+  compares by identity. One `drizzle()` handle per client is the fix.
+- **A transaction opened with Drizzle's own `db.transaction(…)`** rather than
+  `withTransaction`. Nothing records what it holds, so nothing is refused
+  inside it. `withTransaction` is the one that guards.
+- **`withTransaction(db, …)` nested inside `withTransaction(db, …)`** — the
+  inner call names `db`, not `tx`, so it asks for a second connection exactly
+  as `.with(db)` does. Nest on `tx`, which opens a savepoint.
+
+`paginate(db, query, options)`, the standalone paginator, is unguarded for
+the same reason as `.with(db)`: the caller hands it the database by name.

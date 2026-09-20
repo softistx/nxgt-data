@@ -212,6 +212,31 @@ await withTransaction(db, async (tx) => {
 A repository can also be created on a transaction directly:
 `createRepository(tx, users)`.
 
+Forgetting `with(tx)` used to be a call that never returned — the repository
+on `db` asked the pool for a connection the open transaction was holding, and
+the transaction was waiting for the call. It is now refused by name:
+
+```ts
+await withTransaction(db, async () => {
+	await userRepository.create({ email });
+});
+// TypeError: The repository for "users" is bound to the database
+// withTransaction is holding open, … Call .with(tx) to run it in the
+// transaction, or .with(db) to say you mean the database itself.
+```
+
+A **bare** `TypeError`, not an `ArgumentError`: no request can bind a
+repository to the wrong database, so no handler should answer it 400.
+
+`with(db)` is **not** refused: naming the database is how a caller says the
+work should survive a rollback. It then needs a **second** connection, which
+a pool has and PGlite does not —
+[with(db): meaning it on purpose](docs/guide/transactions.md#withdb-meaning-it-on-purpose)
+is the whole of it. The check is runtime-only — no type knows which database
+a repository was built on — and it compares against the database *this*
+transaction holds, so a repository on another database, or one bound to the
+outer transaction inside a savepoint, goes through.
+
 ## Pagination
 
 ### Offset
@@ -539,8 +564,10 @@ function withTransaction<TDb extends PgDatabase, T>(
   `ConflictError`. Make the constraint a partial unique index,
   `... where deleted_at is null`, or `hardDelete`.
 - **Inside a transaction, use `with(tx)`.** A repository on `db` is not in
-  the transaction. On a driver with a single connection, PGlite for one, a
-  query on `db` while a transaction holds it waits forever.
+  the transaction, and since 0.4.0 calling one is an `ArgumentError` rather
+  than a call that never returns. `with(db)` is the way to say you mean the
+  database — and it still needs a **second** connection, which a pool has and
+  PGlite does not.
 - **`detail` can hold the refused value**: `Key (email)=(ada@example.com)
   already exists.` Log it; do not send it to a client. The messages
   themselves name the constraint and table only.
@@ -565,7 +592,10 @@ function withTransaction<TDb extends PgDatabase, T>(
   `now()`; `$onUpdate` is `new Date()`, in your process.
 - **An `ArgumentError` is a 400, not a 500.** Test for it *before* any
   `TypeError` branch in an error handler — it extends `TypeError`, so a
-  broader branch placed first swallows it.
+  broader branch placed first swallows it. A repository used on the database
+  an open transaction holds is a **bare** `TypeError` for exactly this
+  reason: it is wiring, not input, so it falls through to the 500 branch on
+  its own.
 
 ## Documentation
 

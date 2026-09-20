@@ -9,11 +9,8 @@ _Nothing in progress._
 
 ## Next
 
-- **A repository call inside a transaction is refused by name** — a repository
-  built on the outer `db`, used inside `withTransaction`, is refused with an
-  `ArgumentError` naming it and pointing at `.with(tx)`, instead of waiting
-  forever on the connection the open transaction holds. `.with(db)` stays the
-  explicit way to run work that should survive a rollback.
+_Nothing committed._ The dialects under **Later** are what this package
+needs next.
 
 ## Later
 
@@ -53,6 +50,11 @@ _Nothing in progress._
 
 ## Shipped
 
+- **A repository call inside a transaction is refused by name** — a repository
+  built on the outer `db` and used inside `withTransaction` throws a
+  `TypeError` naming the table and pointing at `.with(tx)`, instead of
+  waiting forever on the connection the transaction holds. `.with(db)` is not
+  refused: it is how a caller says the work should survive a rollback — 0.4.0.
 - **`InvalidValueError` for a value the column's type refuses** — SQLSTATE
   `22P02`, `22001`, `22003`, `22007` and `22008` come back with
   `code: 'INVALID_VALUE'` instead of `DATABASE`, so a handler mapping codes to

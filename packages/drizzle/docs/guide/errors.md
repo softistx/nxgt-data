@@ -220,6 +220,13 @@ gains a `code` to switch on instead of a message to match.
 `ArgumentError` is **not** a `DataError`: `error instanceof DataError` is
 false, and a handler that only catches `DataError` lets it through.
 
+**Every row above is a 400, and that is deliberate.** A refusal that *cannot*
+come from a request does not get this class: a repository used on the
+database an open `withTransaction` is holding is a **bare** `TypeError`
+([Transactions](transactions.md#forgetting-it-is-refused-not-hung)), and so
+is a table with no primary key. They fall through to the 500 branch on their
+own, and no handler has to carve an exception out of `argument`.
+
 ## One handler for the app
 
 Map the code once, at the edge, and let every route throw.
