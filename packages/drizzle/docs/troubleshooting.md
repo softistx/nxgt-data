@@ -52,6 +52,7 @@ one.
   - [`withTransaction: a nested transaction is a savepoint, which takes no isolation level or access mode`](#withtransaction-a-nested-transaction-is-a-savepoint-which-takes-no-isolation-level-or-access-mode)
   - [`The repository for "users" is bound to the database withTransaction is holding open, …`](#the-repository-for-users-is-bound-to-the-database-withtransaction-is-holding-open-)
   - [A repository call inside a transaction still never settles, after `.with(db)`](#a-repository-call-inside-a-transaction-still-never-settles-after-withdb)
+  - [A `serializable` transaction fails with `sqlState: '40001'`](#a-serializable-transaction-fails-with-sqlstate-40001)
 
 ## Install and types
 
@@ -637,3 +638,42 @@ thrown:
 
 `paginate(db, query, options)`, the standalone paginator, is unguarded for
 the same reason as `.with(db)`: the caller hands it the database by name.
+
+### A `serializable` transaction fails with `sqlState: '40001'`
+
+**When:** under `isolationLevel: 'serializable'` or `'repeatable read'`, when
+two transactions touched the same rows and PostgreSQL could not order them.
+**Why:** those levels are enforced by refusing one of the two transactions,
+not by making it wait. It arrives as a `DataError` with `code: 'DATABASE'`
+and `sqlState: '40001'`. This package does not retry: a retry re-runs the
+callback, and only the caller knows whether that is safe.
+**Fix:** match on `sqlState`, never on the message — PostgreSQL words it
+differently per isolation level — and retry the whole transaction, not the
+statement that failed:
+
+```ts
+import { DataError } from '@nxgt/drizzle';
+import { withTransaction } from '@nxgt/drizzle/pg';
+
+async function serializable<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return await fn();
+		} catch (error) {
+			const retryable =
+				error instanceof DataError && error.sqlState === '40001';
+			if (!retryable || attempt === attempts) throw error;
+			await Bun.sleep(attempt * 10);
+		}
+	}
+}
+
+await serializable(() =>
+	withTransaction(db, (tx) => transfer(tx), {
+		isolationLevel: 'serializable',
+	}),
+);
+```
+
+Nothing inside the callback may have an effect the retry cannot repeat — send
+the email after the transaction returns, not inside it.

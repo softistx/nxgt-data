@@ -127,6 +127,8 @@ await users.findMany({ orderBy: [asc(usersTable.teamId), desc(usersTable.created
 ### Writing
 
 ```ts
+import { sql } from 'drizzle-orm';
+
 const ada = await users.create({ email: 'ada@example.com' }); // the row, with its defaults
 const rows = await users.createMany([{ email: 'a@example.com' }, { email: 'b@example.com' }]);
 
@@ -464,7 +466,7 @@ between two tables. The timestamps are to the millisecond, as a JavaScript
 - `pageWindow(options?: PageOptions, maxPageSize = 100, where?: string): PageWindow`: checks a page and turns it into `{ page, pageSize, limit, offset }`. `where` names the call in the `RangeError`, the way `paginate` names itself.
 - `cursorLimit(limit: number | undefined, maxPageSize = 100, where?: string): number`: the cursor half of the same check — a `limit` lowered to the maximum, refused the same way.
 - `toPage<T>(items: T[], total: number, window: PageWindow): Page<T>`.
-- `encodeCursor(payload: CursorPayload): string` and `decodeCursor(cursor: string, expectedKey?: string, where?: string): CursorPayload`, with `CursorPayload = { key: string; values: readonly unknown[] }`: for a cursor pagination of your own. `Date` and `bigint` values survive the round trip, and `where` names the call in the `InvalidCursorError`.
+- `encodeCursor(payload: CursorPayload): string` and `decodeCursor(cursor: string, expectedKey?: string, where?: string, table?: string): CursorPayload`, with `CursorPayload = { key: string; values: readonly unknown[] }`: for a cursor pagination of your own. `Date` and `bigint` values survive the round trip, `where` names the call in the `InvalidCursorError`, and `table` sets `error.table` — the field a handler reads instead of parsing the message.
 - `DEFAULT_PAGE_SIZE = 20`, `DEFAULT_MAX_PAGE_SIZE = 100`.
 
 ### The `@nxgt/drizzle/pg` subpath
@@ -564,7 +566,7 @@ function withTransaction<TDb extends PgDatabase, T>(
   `ConflictError`. Make the constraint a partial unique index,
   `... where deleted_at is null`, or `hardDelete`.
 - **Inside a transaction, use `with(tx)`.** A repository on `db` is not in
-  the transaction, and since 0.4.0 calling one is an `ArgumentError` rather
+  the transaction, and since 0.4.0 calling one is a bare `TypeError` rather
   than a call that never returns. `with(db)` is the way to say you mean the
   database — and it still needs a **second** connection, which a pool has and
   PGlite does not.
