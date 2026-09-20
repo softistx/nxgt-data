@@ -444,7 +444,10 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   chunk's `data`, an option off a request body: say `a string`, `an array`,
   `no data field`. The value came from somewhere this package does not
   control and can hold anything the documents held.
-- **`process.emitWarning` is the one warning channel.** Nothing here logs. A
+- **`process.emitWarning` is the one warning channel.** Nothing here logs on
+  its own account. The one `console.error` in the estate is `@nxgt/redis`'s
+  default `onError`, which is a callback the caller replaces — a message that
+  would otherwise end the process, not a package deciding to write. A
   package that has something to say and nothing to refuse — a GridFS bucket
   whose missing index makes every read a collection scan — emits one
   `process` warning with a `code` of its own (`NxgtGridFSMissingIndex`), once
