@@ -5,6 +5,7 @@ export type DataErrorCode =
 	| 'FOREIGN_KEY'
 	| 'CHECK_VIOLATION'
 	| 'NOT_NULL_VIOLATION'
+	| 'INVALID_VALUE'
 	| 'INVALID_CURSOR'
 	| 'DATABASE';
 
@@ -124,6 +125,35 @@ export class NotNullViolationError extends DataError {
 			...options,
 			code: 'NOT_NULL_VIOLATION',
 		});
+	}
+}
+
+/**
+ * A value the database could not read as the column's type: SQLSTATE `22P02`
+ * — `invalid input syntax for type uuid: "abc"` — and its neighbours `22001`
+ * (too long for the column), `22003` (out of range), `22007` and `22008` (a
+ * date or a time that is not one).
+ *
+ * Like `InvalidCursorError`, this is the caller's input rather than the
+ * query's own doing, so a handler answers it with a 400. Without it, a `uuid`
+ * path parameter that a client mistyped came back as a plain `DataError` with
+ * `code: 'DATABASE'` — the same answer as a server that is down, which is a
+ * 500. A division by zero (`22012`) is *not* one of these: that is the query,
+ * not a value handed to it, and it stays a `DataError`.
+ *
+ * Measured on PGlite 0.5.8: every one of them carries the database's sentence
+ * and nothing else — no `table`, no `column`, no `detail` — so `table` and
+ * `columns` are empty here, unlike on a constraint violation. The sentence
+ * can hold the value that was refused: log it, do not send it to a client.
+ */
+export class InvalidValueError extends DataError {
+	override name = 'InvalidValueError';
+
+	constructor(
+		message = 'Invalid value for its type',
+		options: DataErrorOptions = {},
+	) {
+		super(message, { ...options, code: 'INVALID_VALUE' });
 	}
 }
 

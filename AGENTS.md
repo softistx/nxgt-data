@@ -284,7 +284,7 @@ publishes to npm.
 | --- | --- |
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
 | `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change both when the reason applies to both |
-| `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 87 lines each, ten of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ. `@nxgt/s3`'s `ObjectPage` is **not** a copy either — four lines agreeing with `CursorPage`'s shape so a caller pages the same way, with no logic to keep in step |
+| `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 104 and 109 lines, fifteen of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ. `@nxgt/s3`'s `ObjectPage` is **not** a copy either — four lines agreeing with `CursorPage`'s shape so a caller pages the same way, with no logic to keep in step |
 | `connection/connect.ts`, in `@nxgt/mongo` and `@nxgt/redis` | reference-counted client sharing per URI, copied rather than factored: a shared `@nxgt/connection` would make both depend on a sibling for one function, and layering comes first. **107 of 167 lines are identical**, comments included — closer than `page.ts` — so **a fix in one is a fix to make in the other**, and a spec added to one belongs in the other. What deliberately differs: `@nxgt/redis` has no `db`, holds the `RedisClient` itself rather than a `Promise<MongoClient>`, closes synchronously, closes sequentially in `closeRedis` where `closeMongo` uses `Promise.all`, and compares options with `Bun.deepEquals` in place of a hand-written `sameValue`. Since the error-code work, a sixth: `@nxgt/redis`'s `ping` races the command against a timer of its own and reports `PING_TIMEOUT` on the result, while `@nxgt/mongo`'s leaves the deadline to the driver's `timeoutMS` and reports whatever it produced. Both connection failures are a class with a code now, and **neither carries the URI** — a connection string holds the password, and a spec in each asserts its absence |
 | `test/server.ts` of `@nxgt/mongo` and of `@nxgt/meilisearch`, as `test/mongo.ts` and `test/meilisearch.ts` in `@nxgt/mongo-meilisearch` and again in `@nxgt/mongo-search-kit`, as `test/server.ts` in `@nxgt/mongo-kit`, and once more in `examples/hono-api/test/kit.ts` | a package reaches no sibling's tests, and an example reaches no package's. Keep `MONGOD_VERSION` equal in all five mongod copies: CI keys the mongod cache on the hash of those five files |
 
@@ -427,6 +427,41 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
     bare `TypeError`, and `packages/mongo/docs/guide/errors.md` says so
     outright, because an application on both it and `@nxgt/drizzle` gets a
     code for one and message text for the other.
+- **A message names what failed, not only what was wrong.** Every one of these
+  packages has several calls that take options under the same names — `page`,
+  `pageSize`, `limit`, `after` — so `limit must be an integer of at least 1`
+  is true and useless: a log line holding it says which of an application's
+  listings produced it never. A refusal names the call and the thing it was
+  on, and it names the call **a consumer wrote**, not the function behind
+  it: `paginate on "uploads": limit must be…` for a bucket's listing, whose
+  internal function is `paginateFiles`,
+  `Invalid cursor in paginateByCursor on "posts": …`,
+  `Chunk 4 of file 6721… in "uploads" holds a string where its bytes should
+  be`. Where a message is what a consumer searches for, the searchable lead
+  stays in front and the call is named after it. A helper that several calls
+  share takes an optional trailing `where` rather than being copied per call.
+- **A message reports a shape, never a value.** A transform's return, a
+  chunk's `data`, an option off a request body: say `a string`, `an array`,
+  `no data field`. The value came from somewhere this package does not
+  control and can hold anything the documents held.
+- **`process.emitWarning` is the one warning channel.** Nothing here logs on
+  its own account. The one `console.error` in the estate is `@nxgt/redis`'s
+  default `onError`, which is a callback the caller replaces — a message that
+  would otherwise end the process, not a package deciding to write. A
+  package that has something to say and nothing to refuse — a GridFS bucket
+  whose missing index makes every read a collection scan — emits one
+  `process` warning with a `code` of its own (`NxgtGridFSMissingIndex`), once
+  per subject for the life of the process. It is the one channel every
+  application already has, it can be listened to with `process.on('warning')`
+  or silenced, and it commits nobody to a logger. Measured on bun 1.4.2: a
+  listener receives it *and* Bun prints it, unlike Node, where a listener
+  replaces the default print. A warning never throws and never delays the
+  call it is about: probe beside the work, not in front of it, and forget a
+  probe that failed so the next call tries again. The memo is a module-level
+  `Set` keyed by the subject's own name — `<database>:<bucket>` — and it has
+  no reset: a suite that wants to observe the warning binds a bucket of its
+  own rather than clearing the memo, because a reset exported for the tests
+  is a reset an application can call, and the promise is once per process.
 - **The verb says what the function does.** `define*` describes and touches
   nothing (`defineCollection`, `defineIndex`, `defineConfig`,
   `defineMigration`); `get*` and `bind*` attach to a live client without
@@ -441,7 +476,7 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **933 pass, 0 fail**: drizzle 95, meilisearch 42, mongo 524,
+`bun run test` is **948 pass, 0 fail**: drizzle 102, meilisearch 42, mongo 532,
 mongo-meilisearch 40, mongo-kit 72, mongo-search-kit 14, redis 45, s3 52,
 hono-api-example 31, scripts 18. It runs one process per package, then the
 scripts' specs. Treat any failure as yours.

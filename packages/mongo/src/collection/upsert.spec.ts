@@ -6,13 +6,14 @@ import {
 	expect,
 	test,
 } from 'bun:test';
+import type { Collection, Db } from 'mongodb';
 import { ObjectId } from 'mongodb';
 import { z } from 'zod';
 import { posts, tickets, users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { defineCollection } from '../definition/define-collection';
 import { id, objectId } from '../definition/fields';
-import { ConflictError } from '../errors/data-error';
+import { ConflictError, DataError } from '../errors/data-error';
 import { withTransaction } from '../transaction/with-transaction';
 import { getCollection } from './get-collection';
 
@@ -657,5 +658,62 @@ describe('the edges an upsert answers for', () => {
 		expect(upserted.createdBy).toEqual(actor);
 		// …and still never mistakes a stored `null` for an absence.
 		expect(upserted.status).toBe(null);
+	});
+});
+
+describe('a server that answers an upsert with nothing', () => {
+	/**
+	 * The same database, with `findOneAndUpdate` answering no document.
+	 *
+	 * MongoDB does not do this — the branch exists because "does not" is not
+	 * "cannot": a proxy, a driver bug or a version that stops sending
+	 * `lastErrorObject` would all arrive here. Proxying the `Db` is how
+	 * `gridfs.spec.ts` makes the driver behave unusually, so it is how this
+	 * one does too.
+	 */
+	function mute(db: Db): Db {
+		return new Proxy(db, {
+			get(target, key, receiver) {
+				if (key !== 'collection') return Reflect.get(target, key, receiver);
+				return (name: string, ...rest: unknown[]) => {
+					const real = (
+						target.collection as (n: string, ...r: unknown[]) => Collection
+					)(name, ...rest);
+					return new Proxy(real, {
+						get(inner, member, self) {
+							if (member !== 'findOneAndUpdate') {
+								return Reflect.get(inner, member, self);
+							}
+							return async () => ({ value: null, lastErrorObject: {} });
+						},
+					});
+				};
+			},
+		});
+	}
+
+	test('says so, names the collection, and is not a TypeError', async () => {
+		const collection = getCollection(mute(t.db), users);
+		const error = await collection
+			.upsert({ email: 'ada@example.com' }, { name: 'Ada' })
+			.then(
+				() => undefined,
+				(reason: unknown) => reason,
+			);
+		// A `DataError`, not the `TypeError` the refusals of the same call
+		// throw: those are the caller's mistake and this one cannot be, and
+		// they used to wear the same class and the same `upsert: "users"`
+		// prefix.
+		expect(error).toBeInstanceOf(DataError);
+		expect(error).not.toBeInstanceOf(TypeError);
+		expect(error).toHaveProperty('code', 'DATABASE');
+		expect(error).toHaveProperty('collection', 'users');
+		expect((error as Error).message).toBe(
+			'upsert on "users" was answered with no document, although MongoDB ' +
+				'answers an upsert with the document it matched or inserted. ' +
+				'Nothing was stored. This is a bug in @nxgt/mongo or something ' +
+				'rewriting replies between the process and the server: report it ' +
+				'at https://github.com/softistx/nxgt-data/issues',
+		);
 	});
 });

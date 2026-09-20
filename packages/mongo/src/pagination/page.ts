@@ -34,10 +34,30 @@ export interface PageWindow {
 export const DEFAULT_PAGE_SIZE = 20;
 export const DEFAULT_MAX_PAGE_SIZE = 100;
 
-function positiveInteger(name: string, value: number): number {
+/**
+ * Checks one pagination number and gives it back.
+ *
+ * `where` names the call it came from — `paginate on "users"` — because a
+ * `RangeError` reading only `pageSize must be an integer of at least 1` says
+ * nothing about which of an application's paginated calls produced it, and
+ * every one of them takes the same two option names. It is optional:
+ * `pageWindow` and `cursorLimit` are exported for a caller paginating
+ * something this package knows nothing about.
+ *
+ * Exported so the bucket's own `paginateFiles` refuses a `limit` with this
+ * sentence rather than a second copy of it. It does not take a maximum: a
+ * bucket has no `maxPageSize`, and giving it one here would cap a listing
+ * that is uncapped today.
+ */
+export function pageNumber(
+	name: string,
+	value: number,
+	where?: string,
+): number {
 	if (!Number.isInteger(value) || value < 1) {
 		throw new RangeError(
-			`${name} must be an integer of at least 1, not ${value}`,
+			`${where ? `${where}: ` : ''}${name} must be an integer of at ` +
+				`least 1, not ${value}`,
 		);
 	}
 	return value;
@@ -51,10 +71,11 @@ function positiveInteger(name: string, value: number): number {
 export function pageWindow(
 	options: PageOptions = {},
 	maxPageSize = DEFAULT_MAX_PAGE_SIZE,
+	where?: string,
 ): PageWindow {
-	const page = positiveInteger('page', options.page ?? 1);
+	const page = pageNumber('page', options.page ?? 1, where);
 	const pageSize = Math.min(
-		positiveInteger('pageSize', options.pageSize ?? DEFAULT_PAGE_SIZE),
+		pageNumber('pageSize', options.pageSize ?? DEFAULT_PAGE_SIZE, where),
 		maxPageSize,
 	);
 	return { page, pageSize, limit: pageSize, skip: (page - 1) * pageSize };
@@ -79,9 +100,10 @@ export function toPage<T>(
 export function cursorLimit(
 	limit: number | undefined,
 	maxPageSize = DEFAULT_MAX_PAGE_SIZE,
+	where?: string,
 ): number {
 	return Math.min(
-		positiveInteger('limit', limit ?? DEFAULT_PAGE_SIZE),
+		pageNumber('limit', limit ?? DEFAULT_PAGE_SIZE, where),
 		maxPageSize,
 	);
 }

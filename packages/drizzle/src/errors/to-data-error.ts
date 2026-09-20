@@ -3,6 +3,7 @@ import {
 	ConflictError,
 	DataError,
 	ForeignKeyError,
+	InvalidValueError,
 	NotNullViolationError,
 } from './data-error';
 
@@ -101,6 +102,18 @@ export function toDataError(error: unknown): unknown {
 			return new NotNullViolationError(
 				`Column${column ? ` "${column}"` : ''}${on} cannot be null`,
 				{ ...options, columns: column ? [column] : [] },
+			);
+		// The value did not fit the column's type. The database's own sentence
+		// is kept: measured on PGlite 0.5.8, these carry no `table` and no
+		// `column`, so rewriting it would say less than it does.
+		case '22P02':
+		case '22001':
+		case '22003':
+		case '22007':
+		case '22008':
+			return new InvalidValueError(
+				driver.message ?? `Invalid value (${driver.code})`,
+				options,
 			);
 		default:
 			return new DataError(driver.message ?? `Database error ${driver.code}`, {

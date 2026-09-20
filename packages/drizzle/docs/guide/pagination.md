@@ -55,8 +55,15 @@ client sent, so answer it with a 400:
 
 ```ts
 await userRepository.paginate({ page: 0 });
-// RangeError: page must be an integer of at least 1, not 0
+// RangeError: paginate on "users": page must be an integer of at least 1, not 0
+await userRepository.paginateByCursor({ limit: 0 });
+// RangeError: paginateByCursor on "users": limit must be an integer of at least 1, not 0
 ```
+
+**The refusal names the call and the table.** Every paginated call takes the
+same `page`, `pageSize` and `limit`, so a log line reading only
+`pageSize must be an integer of at least 1` said nothing about which listing
+of an application produced it.
 
 The count and the page are two queries. They are sent together, but under
 concurrent writes `total` can still be off by the rows written between them.
@@ -135,12 +142,23 @@ A cursor written for another ordering, or not written by this package, throws
 
 ```ts
 await userRepository.paginateByCursor({ after: 'garbage' });
-// InvalidCursorError: Invalid cursor: it cannot be decoded
+// InvalidCursorError: Invalid cursor in paginateByCursor on "users": it cannot be decoded
 
 const byId = await userRepository.paginateByCursor({ limit: 2 });
 await userRepository.paginateByCursor({ after: byId.nextCursor, orderBy: 'createdAt' });
-// InvalidCursorError: it was written for the ordering id:asc, not createdAt:asc
+// InvalidCursorError: Invalid cursor in paginateByCursor on "users": it was
+// written for the ordering id:asc, not createdAt:asc
 ```
+
+The sentence leads with `Invalid cursor`, which is the part to search for,
+then names the call and the table, then what is wrong with it:
+
+| The message ends | What happened |
+| --- | --- |
+| `: it cannot be decoded` | not base64url of JSON: a truncated query string, or a cursor from somewhere else |
+| `: unexpected shape` | it decodes, but it is not `[key, values]` |
+| `: it was written for the ordering id:asc, not createdAt:asc` | `orderBy` or `direction` changed between two pages |
+| `: it holds 2 value(s) where the ordering id:asc needs 1 (id)` | the ordering pages along one column here and two there |
 
 A cursor is base64url of the last row's ordering values. It is **encoded, not
 signed**: a client can read those values and forge one. A forged cursor can
@@ -203,13 +221,31 @@ import { DEFAULT_PAGE_SIZE, pageWindow, toPage } from '@nxgt/drizzle';
 const window = pageWindow({ page: 2, pageSize: 25 }, 200);
 // { page: 2, pageSize: 25, limit: 25, offset: 25 }
 
+pageWindow({ page: 0 }, 200, 'listInvoices');
+// RangeError: listInvoices: page must be an integer of at least 1, not 0
+
 const rows = await someApi.list({ take: window.limit, skip: window.offset });
 const page = toPage(rows.items, rows.total, window);
 // { items, total, page: 2, pageSize: 25, pageCount }
 ```
 
+A third argument names the call in the `RangeError`, the way `paginate`
+names itself. It is optional, so a call that passes none reads as it always
+did.
+
+`cursorLimit` is the cursor half of the same thing — it checks a `limit` and
+lowers it to the maximum, exactly as `pageWindow` does for a `pageSize`:
+
 ```ts
-function pageWindow(options?: PageOptions, maxPageSize?: number): PageWindow;
+import { cursorLimit } from '@nxgt/drizzle';
+
+cursorLimit(500, 100);              // 100
+cursorLimit(0, 100, 'listInvoices'); // RangeError: listInvoices: limit must be …
+```
+
+```ts
+function pageWindow(options?: PageOptions, maxPageSize?: number, where?: string): PageWindow;
+function cursorLimit(limit: number | undefined, maxPageSize?: number, where?: string): number;
 function toPage<T>(items: T[], total: number, window: PageWindow): Page<T>;
 
 interface PageOptions { page?: number; pageSize?: number }
@@ -228,6 +264,9 @@ import { decodeCursor, encodeCursor } from '@nxgt/drizzle';
 const cursor = encodeCursor({ key: 'publishedAt:desc', values: [last.publishedAt, last.id] });
 const { values } = decodeCursor(cursor, 'publishedAt:desc');
 // values: readonly unknown[] — the Date and the id, as they were written
+
+decodeCursor('garbage', 'publishedAt:desc', 'the article feed');
+// InvalidCursorError: Invalid cursor in the article feed: it cannot be decoded
 ```
 
 ```ts
@@ -239,7 +278,12 @@ interface CursorPayload {
 
 function encodeCursor(payload: CursorPayload): string;
 /** Throws InvalidCursorError for anything else, or another ordering. */
-function decodeCursor(cursor: string, expectedKey?: string): CursorPayload;
+function decodeCursor(
+	cursor: string,
+	expectedKey?: string,
+	/** Names the call in the message: `Invalid cursor in <where>: …`. */
+	where?: string,
+): CursorPayload;
 ```
 
 ## In a Hono route

@@ -31,7 +31,8 @@ The classes come from `@nxgt/drizzle`; the repository, `paginate` and
 | `ForeignKeyError` | `FOREIGN_KEY` | `23503`: the parent row is missing, or a child still points at the row being deleted |
 | `CheckViolationError` | `CHECK_VIOLATION` | `23514` |
 | `NotNullViolationError` | `NOT_NULL_VIOLATION` | `23502` |
-| `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write, or wrote for another ordering |
+| `InvalidValueError` | `INVALID_VALUE` | a value the column's type could not read: `22P02`, `22001`, `22003`, `22007`, `22008` |
+| `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write, or wrote for another ordering. The message [names the call and the table](pagination.md#cursor-pages) |
 | `DataError` | `DATABASE` | any other database error; `sqlState` says which |
 
 All of them extend `DataError`, so one `catch` can take the group:
@@ -75,7 +76,64 @@ try {
 **`detail` can hold the value that was refused** —
 `Key (email)=(ada@example.com) already exists.` Log it, do not send it to a
 client. The `message` names the constraint and the table only, which is why
-it is the safe one to show.
+it is the safe one to show — on a constraint violation. On an
+[`InvalidValueError`](#invalidvalueerror-a-value-the-column-refused) the
+message is the database's own sentence, and that one can hold the value.
+
+## `InvalidValueError`: a value the column refused
+
+The caller handed a value the column's type could not read: `'nope'` where a
+`uuid` goes, a number past `integer`, a date that is not one. It is the
+input, not the query, so it is a **400** — the same answer as
+`InvalidCursorError`, and not the 500 that `code: 'DATABASE'` means.
+
+```ts
+import { Hono } from 'hono';
+import { InvalidValueError } from '@nxgt/drizzle';
+import { createRepository } from '@nxgt/drizzle/pg';
+import { db } from './db';
+import { users } from './schema';
+
+const userRepository = createRepository(db, users);
+
+export const app = new Hono().get('/users/:id', async (c) => {
+	try {
+		// A path parameter a client mistyped, handed straight to the repository.
+		const user = await userRepository.findById(c.req.param('id'));
+		return user ? c.json(user) : c.json({ error: 'No such user' }, 404);
+	} catch (error) {
+		if (error instanceof InvalidValueError) {
+			error.code; // 'INVALID_VALUE'
+			error.sqlState; // '22P02'
+			error.message; // 'invalid input syntax for type uuid: "nope"'
+			return c.json({ error: 'Invalid id' }, 400);
+		}
+		throw error;
+	}
+});
+```
+
+| SQLSTATE | What it is |
+| --- | --- |
+| `22P02` | the text is not a value of that type: `invalid input syntax for type uuid` |
+| `22001` | longer than the column — measured, only on an *assignment* to a column; `'abcdef'::varchar(3)` truncates instead |
+| `22003` | out of the type's range: `2147483648::integer` |
+| `22007` | text where a date or a time goes |
+| `22008` | a date or a time that is not one: `'2026-13-45'::timestamptz` |
+
+Two measured facts about this family, on PGlite 0.5.8:
+
+- **It carries nothing but the sentence.** No `table`, no `column`, no
+  `detail` — so `table` is `undefined` and `columns` is `[]`, where a
+  constraint violation fills both. There is nothing to read the column name
+  out of.
+- **The sentence can hold the refused value**, since it is the database's
+  own: `invalid input syntax for type uuid: "nope"`. Log it; answer the
+  client with a sentence of your own.
+
+**A division by zero is not one of these.** `22012` is the query, not a value
+handed to it, so it stays a `DataError` with `code: 'DATABASE'` and is a 500
+like any other failing statement.
 
 ## Your own queries
 
@@ -176,6 +234,8 @@ const STATUS: Record<DataErrorCode, 400 | 404 | 409 | 422 | 500> = {
 	FOREIGN_KEY: 422,
 	CHECK_VIOLATION: 422,
 	NOT_NULL_VIOLATION: 422,
+	// Both are the client's input rather than the query's own doing.
+	INVALID_VALUE: 400,
 	INVALID_CURSOR: 400,
 	DATABASE: 500,
 };
@@ -196,7 +256,9 @@ export const app = new Hono().onError((error, c) => {
 
 `RangeError` is there for
 [`paginate({ page: 0 })`](pagination.md#offset-pages), which is a client's
-input like the rest. `ArgumentError` comes first because it **is** a
+input like the rest; its message names the call and the table —
+`paginate on "users": page must be an integer of at least 1, not 0` — so the
+log line says which listing refused, not only which option. `ArgumentError` comes first because it **is** a
 `TypeError`, and a later `instanceof TypeError` branch would swallow it.
 
 ## Two other errors that are not `DataError`
@@ -232,7 +294,7 @@ class NotFoundError extends DataError {
 	constructor(message?: string, options?: Omit<DataErrorOptions, 'sqlState'> & { id?: unknown });
 }
 // ConflictError, ForeignKeyError, CheckViolationError, NotNullViolationError,
-// InvalidCursorError: new X(message?, options?: DataErrorOptions)
+// InvalidValueError, InvalidCursorError: new X(message?, options?: DataErrorOptions)
 
 interface DataErrorOptions {
 	cause?: unknown;

@@ -9,7 +9,11 @@ _Nothing in progress._
 
 ## Next
 
-_Nothing queued._
+- **A repository call inside a transaction is refused by name** — a repository
+  built on the outer `db`, used inside `withTransaction`, is refused with an
+  `ArgumentError` naming it and pointing at `.with(tx)`, instead of waiting
+  forever on the connection the open transaction holds. `.with(db)` stays the
+  explicit way to run work that should survive a rollback.
 
 ## Later
 
@@ -33,12 +37,32 @@ _Nothing queued._
 - **Signed cursors** — a cursor is encoded, not signed, deliberately: a forged
   one can still only ask for rows the query's own `where` allows, so signing
   would add a secret to configure and take nothing away.
+- **Every SQLSTATE class 22 as an `InvalidValueError`** — the class is for a
+  value a column's type refuses (`22P02`, `22001`, `22003`, `22007`, `22008`).
+  Division by zero, `22012`, is the query rather than a value handed to it, and
+  stays a `DataError`.
+- **A `table` and a `column` on an invalid-value error** — measured on PGlite
+  0.5.8, the database sends its sentence and nothing else for these codes, so
+  `table` is `undefined` and `columns` is empty, unlike on a constraint
+  violation. The database's own sentence is kept rather than rewritten into one
+  that says less; it can hold the value that was refused, so log it rather than
+  sending it to a client.
 - **A page and its total in one query** — `paginate` sends the count and the
   read together, but two queries are still not one snapshot. Run it inside a
   `repeatable read` transaction when `total` has to be exact.
 
 ## Shipped
 
+- **`InvalidValueError` for a value the column's type refuses** — SQLSTATE
+  `22P02`, `22001`, `22003`, `22007` and `22008` come back with
+  `code: 'INVALID_VALUE'` instead of `DATABASE`, so a handler mapping codes to
+  statuses answers 400 for an id that arrived from a URL rather than the 500 a
+  server that is down earns — 0.3.0.
+- **A pagination or cursor refusal names the call and the table** — `paginate`
+  and `paginateByCursor` take the same option names, and a refusal now says
+  which of them refused it, and on which table; `decodeCursor`, `pageWindow`
+  and `cursorLimit` take an optional argument that does the same for a listing
+  of your own — 0.3.0.
 - **`ArgumentError` for an argument refused before any SQL is built** —
   `code: 'INVALID_ARGUMENT'`, with the `argument` and the `key` at fault, so a
   handler answers 400 for a `where` or an `orderBy` that came from a

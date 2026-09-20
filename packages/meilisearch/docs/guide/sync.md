@@ -122,14 +122,34 @@ console.log(Object.keys(update)); // [] when live already holds everything stagi
 ```
 
 ```ts
-function diffSettings(wanted: Settings, live: Settings): Settings;
+function diffSettings(wanted: WantedSettings, live: Settings): Settings;
 ```
 
-Both sides are the SDK's `Settings`, whose lists are mutable. A definition's
-settings are read-only tuples — that is what keeps them typed — so they do
-not go in directly: for "what would `sync` change?", use
-`syncIndex(client, movies, { dryRun: true })`, whose `update` is exactly
-this diff.
+`wanted` is a `WantedSettings`: the settings as something *wants* them, with
+every list `readonly`. That is how a definition holds its own — `defineIndex`
+infers `sortableAttributes: ['year']` as `readonly ['year']`, which is what
+makes `SortableOf` and the typed `sort` work — so a definition goes in
+directly:
+
+```ts
+import { diffSettings } from '@nxgt/meilisearch';
+
+const live = await client.index('movies').getSettings();
+const update = diffSettings(movies.settings, live); // the definition itself
+```
+
+A plain, mutable `Settings` from anywhere else still goes in, and what comes
+back is a `Settings` the SDK will take:
+
+```ts
+await client.index('movies').updateSettings(diffSettings(movies.settings, live));
+```
+
+`live` stays the SDK's own `Settings`, because that is what the server hands
+back. A definition that sets no settings has no `settings` property at all —
+there is nothing to compare, and `sync` leaves that index's settings alone. For "what would `sync` change?" without writing any of this,
+`syncIndex(client, movies, { dryRun: true })` gives the same diff as its
+`update`.
 
 A setting `wanted` leaves out is never compared, and never sent.
 

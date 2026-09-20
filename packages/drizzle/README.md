@@ -224,7 +224,12 @@ const page = await users.paginate({ page: 2, pageSize: 20, where: { teamId: 1 } 
 `page` is 1-based, and `pageSize` defaults to 20. Without `orderBy`, rows
 are ordered by the primary key, so pages do not overlap. A page past the
 last one has no items and the same `total`. A `page` or `pageSize` that is
-not a positive integer throws a `RangeError`.
+not a positive integer throws a `RangeError` naming the call and the table:
+
+```ts
+await users.paginate({ page: 0 });
+// RangeError: paginate on "users": page must be an integer of at least 1, not 0
+```
 
 ### Cursor
 
@@ -245,7 +250,13 @@ await users.paginateByCursor({ orderBy: 'createdAt', direction: 'desc', after })
 ```
 
 A cursor written for another ordering, or not by this package, throws
-`InvalidCursorError`.
+`InvalidCursorError`. It names the call and the table too, after the lead a
+consumer searches for:
+
+```ts
+await users.paginateByCursor({ after: 'garbage' });
+// InvalidCursorError: Invalid cursor in paginateByCursor on "users": it cannot be decoded
+```
 
 ### Any query
 
@@ -311,6 +322,7 @@ Every error this package throws is a `DataError`, with a `code`:
 | `ForeignKeyError` | `FOREIGN_KEY` | a foreign key refused it: `23503`, a missing parent or a row still referenced |
 | `CheckViolationError` | `CHECK_VIOLATION` | a `CHECK` refused it: `23514` |
 | `NotNullViolationError` | `NOT_NULL_VIOLATION` | a `NOT NULL` column got no value: `23502` |
+| `InvalidValueError` | `INVALID_VALUE` | a value the column's type could not read: `22P02`, `22001`, `22003`, `22007`, `22008` |
 | `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write |
 | `DataError` | `DATABASE` | any other database error, with its `sqlState` |
 
@@ -330,6 +342,24 @@ try {
 Each carries what the database said: `sqlState`, `table`, `constraint`,
 `columns` and `detail`. `cause` is the error it was made from: Drizzle's
 `DrizzleQueryError`, with the query, around the driver's.
+
+`InvalidValueError` is the caller's input rather than the query's own doing —
+a `uuid` path parameter a client mistyped, a number past `integer`, a date
+that is not one — so it is a **400**, beside `INVALID_CURSOR`:
+
+```ts
+import { InvalidValueError } from '@nxgt/drizzle';
+
+if (error instanceof InvalidValueError) return reply(400, 'Invalid value');
+```
+
+Measured on PGlite 0.5.8, these five carry no `table`, no `column` and no
+`detail`, so `table` is `undefined` and `columns` is `[]` where a constraint
+violation fills both; the message is the database's own sentence —
+`invalid input syntax for type uuid: "nope"` — and it can hold the value that
+was refused, so log it rather than sending it on. A division by zero
+(`22012`) is deliberately not one of them: that is the query, not a value
+handed to it, and it stays a `DataError` with `code: 'DATABASE'`.
 
 `ArgumentError` is the other half, and it is **not** a `DataError`: a
 `DataError` is what the database said, an `ArgumentError` is what the call
@@ -396,8 +426,8 @@ between two tables. The timestamps are to the millisecond, as a JavaScript
 - `class ArgumentError extends TypeError`: `code: 'INVALID_ARGUMENT'`, `argument: string`, `key: string | undefined`. `new ArgumentError(argument, message, options?: { key?: string; cause?: unknown })`.
 - `class DataError extends Error`: `code: DataErrorCode`, `sqlState: string | undefined`, `table: string | undefined`, `constraint: string | undefined`, `columns: readonly string[]`, `detail: string | undefined`, `cause`. `new DataError(message, options?: DataErrorOptions & { code?: DataErrorCode })`.
 - `class NotFoundError extends DataError`: adds `id: unknown`. `new NotFoundError(message = 'Not found', options?)`.
-- `class ConflictError`, `class ForeignKeyError`, `class CheckViolationError`, `class NotNullViolationError`, `class InvalidCursorError`, all `extends DataError`, all `new X(message?, options?: DataErrorOptions)`.
-- `type DataErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'FOREIGN_KEY' | 'CHECK_VIOLATION' | 'NOT_NULL_VIOLATION' | 'INVALID_CURSOR' | 'DATABASE'`.
+- `class ConflictError`, `class ForeignKeyError`, `class CheckViolationError`, `class NotNullViolationError`, `class InvalidValueError`, `class InvalidCursorError`, all `extends DataError`, all `new X(message?, options?: DataErrorOptions)`.
+- `type DataErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'FOREIGN_KEY' | 'CHECK_VIOLATION' | 'NOT_NULL_VIOLATION' | 'INVALID_VALUE' | 'INVALID_CURSOR' | 'DATABASE'`.
 - `interface DataErrorOptions { cause?; sqlState?; table?; constraint?; columns?; detail? }`.
 - `toDataError(error: unknown): unknown`: the `DataError` for a database error, the error itself otherwise.
 
@@ -406,9 +436,10 @@ between two tables. The timestamps are to the millisecond, as a JavaScript
 - `interface Page<T> { items: T[]; total: number; page: number; pageSize: number; pageCount: number }`.
 - `interface CursorPage<T> { items: T[]; nextCursor: string | null }`.
 - `interface PageOptions { page?: number; pageSize?: number }`.
-- `pageWindow(options?: PageOptions, maxPageSize = 100): PageWindow`: checks a page and turns it into `{ page, pageSize, limit, offset }`.
+- `pageWindow(options?: PageOptions, maxPageSize = 100, where?: string): PageWindow`: checks a page and turns it into `{ page, pageSize, limit, offset }`. `where` names the call in the `RangeError`, the way `paginate` names itself.
+- `cursorLimit(limit: number | undefined, maxPageSize = 100, where?: string): number`: the cursor half of the same check — a `limit` lowered to the maximum, refused the same way.
 - `toPage<T>(items: T[], total: number, window: PageWindow): Page<T>`.
-- `encodeCursor(payload: CursorPayload): string` and `decodeCursor(cursor: string, expectedKey?: string): CursorPayload`, with `CursorPayload = { key: string; values: readonly unknown[] }`: for a cursor pagination of your own. `Date` and `bigint` values survive the round trip.
+- `encodeCursor(payload: CursorPayload): string` and `decodeCursor(cursor: string, expectedKey?: string, where?: string): CursorPayload`, with `CursorPayload = { key: string; values: readonly unknown[] }`: for a cursor pagination of your own. `Date` and `bigint` values survive the round trip, and `where` names the call in the `InvalidCursorError`.
 - `DEFAULT_PAGE_SIZE = 20`, `DEFAULT_MAX_PAGE_SIZE = 100`.
 
 ### The `@nxgt/drizzle/pg` subpath
@@ -521,12 +552,12 @@ function withTransaction<TDb extends PgDatabase, T>(
   And a subquery refuses two columns with one name: in a join, select the
   columns you need, under distinct keys, not `select()`.
 - **`findById` with a value the column's type refuses is an error, not
-  `undefined`.** The value reaches PostgreSQL, which answers `22P02`, and
-  `toDataError` has no case for it — measured on PGlite:
-  `findById('nope')` on a `uuid` primary key throws `DataError` with
-  `code: 'DATABASE'` and the message `invalid input syntax for type uuid`.
-  A route parameter goes through a check of its own, or through a `try`, if a
-  malformed id is to be a 404 rather than a 500.
+  `undefined`.** The value reaches PostgreSQL, which answers `22P02`, so
+  `findById('nope')` on a `uuid` primary key throws — measured on PGlite
+  0.5.8, an `InvalidValueError` with `code: 'INVALID_VALUE'` and the message
+  `invalid input syntax for type uuid: "nope"`. Map that code to a **400** and
+  a mistyped path parameter is answered as the client's mistake; catch it in
+  the route, and answer 404, if a malformed id should read as "no such row".
 - **A cursor is encoded, not signed.** A client can read the values of the
   last row's ordering columns in it, and forge one. It can only ask for rows
   its `where` already allows.

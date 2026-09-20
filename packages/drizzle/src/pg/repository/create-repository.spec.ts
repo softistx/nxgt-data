@@ -20,6 +20,7 @@ import { ArgumentError } from '../../errors/argument-error';
 import {
 	ConflictError,
 	ForeignKeyError,
+	InvalidValueError,
 	NotFoundError,
 } from '../../errors/data-error';
 import { createRepository } from './create-repository';
@@ -342,15 +343,22 @@ describe('database errors', () => {
 		);
 	});
 
-	test("an id the column's type refuses is an error, not an empty read", () => {
+	test("an id the column's type refuses is an InvalidValueError", async () => {
 		const { users } = repos();
-		// Recorded rather than fixed: `22P02` has no case in `toDataError`, so
-		// this is a `DataError`, and a route that hands a URL parameter
-		// straight to `findById` answers 500 where it meant 404. The Traps
-		// section says so; this is what it says it about.
-		return expect(users.findById('nope' as never)).rejects.toMatchObject({
-			code: 'DATABASE',
-		});
+		// A URL parameter a client mistyped, handed straight to `findById`.
+		// It used to come back `code: 'DATABASE'` — the same answer as a
+		// database that is down, so a handler that maps codes to statuses
+		// answered 500 to what is a 400.
+		const error = await users.findById('nope' as never).then(
+			() => undefined,
+			(reason: unknown) => reason,
+		);
+		expect(error).toBeInstanceOf(InvalidValueError);
+		expect(error).toHaveProperty('code', 'INVALID_VALUE');
+		expect(error).toHaveProperty('sqlState', '22P02');
+		expect((error as Error).message).toBe(
+			'invalid input syntax for type uuid: "nope"',
+		);
 	});
 });
 

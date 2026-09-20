@@ -9,7 +9,7 @@ example per area. These pages are the long one.
 | [guide/repository.md](guide/repository.md) | you are reading or writing the rows of one table: by id, by `where`, in bulk, with soft delete |
 | [guide/pagination.md](guide/pagination.md) | an endpoint returns a page: offset pages with a total, cursor pages for an infinite list, or a page of a join |
 | [guide/transactions.md](guide/transactions.md) | two writes must succeed together, or a repository must run inside a transaction |
-| [guide/errors.md](guide/errors.md) | you want a unique violation to become a 409, a missing row a 404, and a refused argument a 400 |
+| [guide/errors.md](guide/errors.md) | you want a unique violation to become a 409, a missing row a 404, and a refused value or argument a 400 |
 | [troubleshooting.md](troubleshooting.md) | you have an error message and want the fix |
 | [roadmap.md](roadmap.md) | you are wondering what is planned, shipped, or deliberately left out |
 

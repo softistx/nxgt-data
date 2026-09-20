@@ -321,7 +321,11 @@ function build(
 		},
 
 		async paginate(opts: PaginateOptions<any> = {}): Promise<Page<AnyRow>> {
-			const window = pageWindow(opts, maxPageSize);
+			const window = pageWindow(
+				opts,
+				maxPageSize,
+				`paginate on "${info.name}"`,
+			);
 			const [items, total] = await Promise.all([
 				findMany({
 					where: opts.where,
@@ -346,14 +350,27 @@ function build(
 				columnAt(info, key, 'paginateByCursor'),
 			);
 			const cursorKey = `${sortKey}:${direction}`;
-			const limit = cursorLimit(opts.limit, maxPageSize);
+			const limit = cursorLimit(
+				opts.limit,
+				maxPageSize,
+				`paginateByCursor on "${info.name}"`,
+			);
 
 			let after: SQL | undefined;
 			if (opts.after) {
-				const { values } = decodeCursor(opts.after, cursorKey);
+				const where = `paginateByCursor on "${info.name}"`;
+				const { values } = decodeCursor(
+					opts.after,
+					cursorKey,
+					where,
+					info.name,
+				);
 				if (values.length !== keys.length) {
 					throw new InvalidCursorError(
-						`Invalid cursor: expected ${keys.length} value(s), got ${values.length}`,
+						`Invalid cursor in ${where}: it holds ${values.length} ` +
+							`value(s) where the ordering ${cursorKey} needs ` +
+							`${keys.length} (${keys.join(', ')})`,
+						{ table: info.name },
 					);
 				}
 				after = keysetAfter(columns, values, direction);

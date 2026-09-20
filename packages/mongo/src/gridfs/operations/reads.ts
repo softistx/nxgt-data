@@ -1,6 +1,7 @@
 import { tryObjectId } from '../../definition/object-id';
 import { type BucketContext, noSuchFile, run } from '../context';
-import { FileHandle, HASH_KEY, type StoredFile } from '../handle';
+import { FileHandle, type StoredFile } from '../handle';
+import { HASH_KEY } from '../keys';
 import type { FileId } from '../types';
 
 /**

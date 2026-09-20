@@ -100,9 +100,20 @@ describe('repository.paginate', () => {
 		});
 	});
 
-	test('refuses a page that is not a positive integer', async () => {
+	test('refuses a page that is not a positive integer, naming the call', async () => {
 		const repo = createRepository(t.db, posts);
 		await expect(repo.paginate({ page: 0 })).rejects.toThrow(RangeError);
+		// Every paginated call takes the same two option names, so the
+		// sentence on its own said which of them refused nothing at all.
+		await expect(repo.paginate({ page: 0 })).rejects.toThrow(
+			'paginate on "posts": page must be an integer of at least 1, not 0',
+		);
+		await expect(repo.paginate({ pageSize: -1 })).rejects.toThrow(
+			'paginate on "posts": pageSize must be an integer of at least 1, not -1',
+		);
+		await expect(repo.paginateByCursor({ limit: 0 })).rejects.toThrow(
+			'paginateByCursor on "posts": limit must be an integer of at least 1, not 0',
+		);
 	});
 });
 
@@ -212,8 +223,16 @@ describe('repository.paginateByCursor', () => {
 			repo.paginateByCursor({ after: 'garbage' }),
 		).rejects.toBeInstanceOf(InvalidCursorError);
 		const wrong = encodeCursor({ key: 'id:asc', values: [1, 2] });
+		// It names the call, the table and the ordering: every paginated call
+		// takes the same `after`, so `expected 1 value(s), got 2` on its own
+		// said which listing rejected the cursor, and along which columns, not
+		// at all.
 		await expect(repo.paginateByCursor({ after: wrong })).rejects.toThrow(
-			'expected 1 value(s), got 2',
+			'Invalid cursor in paginateByCursor on "posts": it holds 2 value(s) ' +
+				'where the ordering id:asc needs 1 (id)',
+		);
+		await expect(repo.paginateByCursor({ after: 'garbage' })).rejects.toThrow(
+			'Invalid cursor in paginateByCursor on "posts": it cannot be decoded',
 		);
 	});
 
@@ -269,6 +288,24 @@ describe('repository.paginateByCursor', () => {
 });
 
 describe('paginate, on any select', () => {
+	test('a refused page says which page it was', async () => {
+		const query = t.db.select().from(users).$dynamic();
+		// This one pages an arbitrary select, so it has no table to name the
+		// way a repository does — and it is the call most likely to appear
+		// many times in one application. `name` is how the caller says which.
+		await expect(paginate(t.db, query, { page: 0 })).rejects.toThrow(
+			RangeError,
+		);
+		await expect(paginate(t.db, query, { page: 0 })).rejects.toThrow(
+			'paginate: page must be an integer of at least 1, not 0',
+		);
+		await expect(
+			paginate(t.db, query, { pageSize: 0, name: 'listInvoices' }),
+		).rejects.toThrow(
+			'listInvoices: pageSize must be an integer of at least 1, not 0',
+		);
+	});
+
 	test('pages a join and counts it', async () => {
 		const [core, web] = await t.db
 			.insert(teams)

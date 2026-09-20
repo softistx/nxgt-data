@@ -1,7 +1,7 @@
 import type { Document, Filter, ObjectId, Sort } from 'mongodb';
 import { coerceFilter } from '../../collection/coerce';
 import { decodeCursor, encodeCursor } from '../../pagination/cursor';
-import type { CursorPage } from '../../pagination/page';
+import { type CursorPage, pageNumber } from '../../pagination/page';
 import { type BucketContext, run } from '../context';
 import { FileHandle, type StoredFile } from '../handle';
 
@@ -35,18 +35,26 @@ export async function paginateFiles(
 ): Promise<CursorPage<FileHandle>> {
 	const order = options.order ?? 'newest';
 	const key = KEY[order];
-	const limit = options.limit ?? 20;
-	if (!Number.isInteger(limit) || limit < 1) {
-		throw new RangeError(
-			`limit must be an integer of at least 1, not ${limit}`,
-		);
-	}
+	// The same guard a collection's `paginate` is held to, rather than a
+	// second copy of its sentence: both refuse a `limit` of 0, and a log
+	// holding only `limit must be an integer of at least 1` said which of them
+	// never. The bucket's name is what tells the two apart.
+	// `paginate`, not `paginateFiles`: the method a consumer wrote is
+	// `files.paginate(…)`, and a message naming the function behind it sends
+	// them looking for something their code does not contain.
+	const where = `paginate on "${ctx.name}"`;
+	const limit = pageNumber('limit', options.limit ?? 20, where);
 	const given = (options.filter ?? {}) as Document;
 	const filter: Document = ctx.coerces
 		? coerceFilter(metadataKinds(ctx), given)
 		: { ...given };
 	if (options.after) {
-		const { values } = decodeCursor(options.after, key);
+		const { values } = decodeCursor(
+			options.after,
+			key,
+			where,
+			ctx.definition.collections.files,
+		);
 		const [date, id] = values as [Date, ObjectId];
 		const after = order === 'newest' ? '$lt' : '$gt';
 		// A compound `$or` rather than `$lt` on a pair: MongoDB compares

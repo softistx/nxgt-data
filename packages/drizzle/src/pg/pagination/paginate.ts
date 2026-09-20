@@ -21,6 +21,16 @@ export interface PaginatableQuery<TRow> {
 export interface PaginateQueryOptions extends PageOptions {
 	/** The largest `pageSize` a page may ask for. Default `100`. */
 	maxPageSize?: number;
+	/**
+	 * What to call this page in a refusal: `listInvoices`, `searchOrders`.
+	 *
+	 * Default `paginate`, which is honest and says little — this one pages an
+	 * arbitrary select, so it is the paginated call most likely to appear
+	 * many times in one application, and the one where `page must be an
+	 * integer of at least 1` on its own says least. There is no table to name
+	 * here the way a repository names its own, so the caller names it.
+	 */
+	name?: string;
 }
 
 /**
@@ -43,6 +53,7 @@ export async function paginate<TRow>(
 	const window = pageWindow(
 		options,
 		options.maxPageSize ?? DEFAULT_MAX_PAGE_SIZE,
+		options.name ?? 'paginate',
 	);
 	try {
 		// Counted first: `limit` on a dynamic query changes the query itself,

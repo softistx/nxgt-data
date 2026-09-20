@@ -1,4 +1,4 @@
-import { DataError } from '../../errors/data-error';
+import { InvalidCursorError } from '../../errors/data-error';
 import { decodeCursor, encodeCursor } from '../../pagination/cursor';
 import {
 	type CursorPage,
@@ -16,7 +16,7 @@ export async function paginate(
 	ctx: CollectionContext,
 	opts: Fields = {},
 ): Promise<Page<Fields>> {
-	const window = pageWindow(opts, ctx.maxPageSize);
+	const window = pageWindow(opts, ctx.maxPageSize, `paginate on "${ctx.name}"`);
 	const [items, total] = await Promise.all([
 		findMany(ctx, {
 			filter: opts.filter,
@@ -45,15 +45,31 @@ export async function paginateByCursor(
 	const direction = (opts.direction as OrderDirection | undefined) ?? 'asc';
 	const fields = sortField === '_id' ? ['_id'] : [sortField, '_id'];
 	const cursorKey = `${sortField}:${direction}`;
-	const limit = cursorLimit(opts.limit as number | undefined, ctx.maxPageSize);
+	const limit = cursorLimit(
+		opts.limit as number | undefined,
+		ctx.maxPageSize,
+		`paginateByCursor on "${ctx.name}"`,
+	);
 	const past = direction === 'asc' ? '$gt' : '$lt';
 
 	let after: Fields | undefined;
 	if (opts.after) {
-		const { values } = decodeCursor(opts.after as string, cursorKey);
+		const where = `paginateByCursor on "${ctx.name}"`;
+		const { values } = decodeCursor(
+			opts.after as string,
+			cursorKey,
+			where,
+			ctx.name,
+		);
 		if (values.length !== fields.length) {
-			throw new DataError(
-				`Invalid cursor: expected ${fields.length} value(s), got ${values.length}`,
+			// `InvalidCursorError`, like every other refusal of a cursor: this
+			// one was a bare `DataError` with `code: 'DATABASE'`, so a handler
+			// answering 400 on `INVALID_CURSOR` answered 500 to the one cursor
+			// failure a client can cause by pasting the wrong page's link.
+			throw new InvalidCursorError(
+				`Invalid cursor in ${where}: it holds ${values.length} value(s) ` +
+					`where the ordering ${cursorKey} needs ${fields.length} ` +
+					`(${fields.join(', ')})`,
 				{ collection: ctx.name },
 			);
 		}

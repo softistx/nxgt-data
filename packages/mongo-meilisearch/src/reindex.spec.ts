@@ -127,8 +127,8 @@ describe('reindex', () => {
 		expect(await indexed()).toEqual([]);
 	});
 
-	test('a transform that gives no document is refused', async () => {
-		await collection().create({ title: 'a' });
+	test('a transform that gives no document is refused, under its own code', async () => {
+		const created = await collection().create({ title: 'a' });
 		const error = await sync({
 			// @ts-expect-error a transform gives a document or null
 			transform: () => 'nope',
@@ -136,9 +136,20 @@ describe('reindex', () => {
 			.reindex()
 			.catch((caught: unknown) => caught);
 		if (!(error instanceof SearchSyncError)) throw error;
-		expect(error.message).toContain(
-			'transform must return a document or null, not nope',
+		// `NOT_A_DOCUMENT`, not `FAILED`: it was a bare `TypeError` that
+		// `failed()` wrapped as "anything else", so a caller could only tell
+		// it from a Meilisearch outage by reading the sentence.
+		expect(error.code).toBe('NOT_A_DOCUMENT');
+		expect(error.sync).toBe('articles:articles');
+		expect(error.message).toBe(
+			'Search sync "articles:articles": transform gave a string for the ' +
+				`document ${String(created._id)}. It must give a document to ` +
+				'index, or null to keep it out.',
 		);
+		// The shape, never the value: a transform is handed whole documents,
+		// and what it gives back can hold anything they held.
+		expect(error.message).not.toContain('nope');
+
 		const listed = await sync({
 			// @ts-expect-error an array is not a document
 			transform: () => [],
@@ -146,7 +157,10 @@ describe('reindex', () => {
 			.reindex()
 			.catch((caught: unknown) => caught);
 		if (!(listed instanceof SearchSyncError)) throw listed;
-		expect(listed.message).toContain('transform must return a document');
+		expect(listed.code).toBe('NOT_A_DOCUMENT');
+		expect(listed.message).toContain(
+			'transform gave an array for the document',
+		);
 	});
 
 	test('a server error is wrapped, and nothing is recorded', async () => {

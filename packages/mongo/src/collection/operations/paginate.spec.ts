@@ -233,8 +233,45 @@ describe('paginateByCursor', () => {
 			collection.paginateByCursor({ after: 'garbage' }),
 		).rejects.toBeInstanceOf(InvalidCursorError);
 		const wrong = encodeCursor({ key: '_id:asc', values: [1, 2] });
-		await expect(collection.paginateByCursor({ after: wrong })).rejects.toThrow(
-			'expected 1 value(s), got 2',
+		// It names the call, the collection and the ordering: every paginated
+		// call takes the same `after`, so `expected 1 value(s), got 2` on its
+		// own said which listing rejected the cursor, and along which fields,
+		// not at all.
+		const error = await collection.paginateByCursor({ after: wrong }).then(
+			() => undefined,
+			(reason: unknown) => reason,
+		);
+		// The same class as every other refusal of a cursor. It was a bare
+		// `DataError` with `code: 'DATABASE'`, so a handler answering 400 on
+		// `INVALID_CURSOR` answered 500 to a client who pasted the wrong
+		// page's link.
+		expect(error).toBeInstanceOf(InvalidCursorError);
+		expect(error).toHaveProperty('code', 'INVALID_CURSOR');
+		expect(error).toHaveProperty('collection', 'posts');
+		expect((error as Error).message).toBe(
+			'Invalid cursor in paginateByCursor on "posts": it holds 2 value(s) ' +
+				'where the ordering _id:asc needs 1 (_id)',
+		);
+		await expect(
+			collection.paginateByCursor({ after: 'garbage' }),
+		).rejects.toThrow(
+			'Invalid cursor in paginateByCursor on "posts": it cannot be decoded',
+		);
+	});
+
+	test('a `limit` it will not take names the call and the collection', async () => {
+		const collection = await seedPosts();
+		await expect(collection.paginateByCursor({ limit: 0 })).rejects.toThrow(
+			RangeError,
+		);
+		await expect(collection.paginateByCursor({ limit: 0 })).rejects.toThrow(
+			'paginateByCursor on "posts": limit must be an integer of at least 1, not 0',
+		);
+		await expect(collection.paginate({ page: 0 })).rejects.toThrow(
+			'paginate on "posts": page must be an integer of at least 1, not 0',
+		);
+		await expect(collection.paginate({ pageSize: -1 })).rejects.toThrow(
+			'paginate on "posts": pageSize must be an integer of at least 1, not -1',
 		);
 	});
 

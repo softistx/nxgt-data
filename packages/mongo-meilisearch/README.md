@@ -192,7 +192,8 @@ createSearchSync({
 
 The transform must give each document its index id as primary key: a
 document under another id could never be taken out again, and throws
-`ID_MISMATCH`.
+`ID_MISMATCH`. It must also give back a document, or `null` to keep the
+document out of the index; anything else is `NOT_A_DOCUMENT`.
 
 ## Errors
 
@@ -202,6 +203,7 @@ This package throws `SearchSyncError`; what caused it is its `cause`.
 | --- | --- |
 | `HISTORY_LOST` | `start` with `onHistoryLost: 'fail'`, and the recorded point is older than the server's history. `cause` is `@nxgt/mongo`'s `DataError`, `serverCode` 286 or 280 |
 | `ID_MISMATCH` | the transform gave a document whose primary key is not its index id |
+| `NOT_A_DOCUMENT` | the transform gave back something that is neither a document nor `null` — a string, a number, an array. The message says its shape, never its value |
 | `RUNNING` | `reindex()` or a second `start()` while this sync is already following changes in this process. A reindex beside its own follower would remove what the follower has just indexed |
 | `FAILED` | anything else: the transform threw, MongoDB or Meilisearch refused. The message says what the sync was doing |
 
@@ -281,7 +283,8 @@ function createSearchSync<C extends AnyCollectionDefinition, I extends AnyIndexD
 | `close(): Promise<void>` | flushes, then stops |
 
 `class SearchSyncError extends Error`: `code: SearchSyncErrorCode`
-(`'HISTORY_LOST' | 'ID_MISMATCH' | 'RUNNING' | 'FAILED'`), `sync: string`,
+(`'HISTORY_LOST' | 'ID_MISMATCH' | 'NOT_A_DOCUMENT' | 'RUNNING' | 'FAILED'`),
+`sync: string`,
 `cause`. Its constructor takes `(message, options: SearchSyncErrorOptions)`,
 that is `{ code, sync, cause? }`; both types are exported.
 

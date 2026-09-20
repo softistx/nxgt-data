@@ -19,7 +19,7 @@ the errors, and the second example.
 | [Connecting](guide/connecting.md) | opening the client, health checks, shutting down, and running tests against a real MongoDB |
 | [Migrations](guide/migrations.md) | documents have to be rewritten, in order, once, and recorded |
 | [Files (GridFS)](guide/gridfs.md) | files live in MongoDB: uploading, serving ranges, storing the same bytes once |
-| [Troubleshooting](troubleshooting.md) | you have an error message and want the fix |
+| [Troubleshooting](troubleshooting.md) | you have an error message, or a warning in the log, and want the fix |
 | [Roadmap](roadmap.md) | you want to know what is coming, and what will not |
 
 Every example is TypeScript, imports from `@nxgt/mongo` — or

@@ -178,9 +178,21 @@ page.items;        // FileHandle[]
 page.nextCursor;   // null on the last page
 ```
 
-A cursor written for one order is refused by the other, with
-`InvalidCursorError`. See [Pagination](pagination.md) for the same shape on a
-collection.
+Both refusals name this call and this bucket, because a collection's
+`paginate` and a bucket's take the same option names and used to answer with
+the same sentence:
+
+```ts
+await files.paginate({ limit: 0 });
+// RangeError: paginate on "avatars": limit must be an integer of at least 1, not 0
+
+await files.paginate({ after: newestCursor, order: 'oldest' });
+// InvalidCursorError: Invalid cursor in paginate on "avatars": it was
+// written for the ordering uploadDate:desc, not uploadDate:asc
+```
+
+See [Pagination](pagination.md#what-a-refused-cursor-says) for the same shape
+on a collection, and for the four things a refused cursor can say.
 
 ## It runs in a transaction
 
@@ -233,6 +245,49 @@ import { resetBucketSync } from '@nxgt/mongo/gridfs';
 
 resetBucketSync(db);   // or resetBucketSync() for every database
 ```
+
+### The first read of an unindexed bucket says so
+
+A bucket that was never synced reads correctly; it is only slow, and it looks
+exactly like one that was until it holds enough files to hurt. So the first
+read of a bucket whose chunks collection has no `files_id_1_n_1` emits one
+process warning:
+
+```
+Bucket "avatars" has no files_id_1_n_1 on "avatars.chunks": every read scans
+the whole collection, and the cost grows with the bucket rather than with the
+file. Call syncIndexes() at start-up, or bind with autoSync.
+```
+
+**Once per database and bucket for the life of the process**, and never again
+after that — a suite that empties its database between tests hears it once,
+not once a test. It costs one `indexes()` round trip per bucket, beside the
+read rather than in front of it: it never throws, never delays a byte, and a probe that
+fails is simply forgotten. A bucket bound with `autoSync`, or an application
+that called `syncIndexes()` at start-up, never sees it.
+
+It goes out through `process.emitWarning`, which is the one channel every
+application already has, so it can be routed into a logger without this
+package taking an opinion on logging:
+
+```ts
+process.on('warning', (warning) => {
+	if ((warning as { code?: string }).code === 'NxgtGridFSMissingIndex') {
+		log.warn({ warning: warning.message });
+	}
+});
+```
+
+Measured on bun 1.4.2: the listener receives it **and** Bun still prints it —
+listening adds a line rather than replacing one. The `code` is
+`'NxgtGridFSMissingIndex'`, which is what to match on; the message names the
+bucket and its chunks collection, and neither is a secret.
+
+Once per database and bucket, for the life of the process: the memo is a
+`Set` keyed by the two names, and nothing clears it — not `drop()`, not
+`resetBucketSync`. A hint given to whoever runs this process does not stop
+being true when the collections go, and a second bucket of the same name in
+another database is asked about separately.
 
 ## Storing the same bytes once
 
@@ -322,9 +377,42 @@ Nothing in MongoDB ties the `files` document to its chunks, so a chunk
 removed by hand or an interrupted write from another client leaves a file
 whose `length` promises bytes that are not there. `get` still answers, and
 `size` is whatever the document claims; the failure comes when the bytes are
-read. A chunk that is absent raises `CorruptFileError` naming its number, and
-one that is present but **short** — which leaves no gap to notice — raises it
-naming the file and both counts. Neither ever reads quietly short.
+read. Each of the three cases raises `CorruptFileError`, naming the chunk,
+the file and the bucket, and none of them ever reads quietly short:
+
+| What is wrong | The message |
+| --- | --- |
+| a chunk is gone | `Chunk 4 of file <id> in "avatars" is missing` |
+| a chunk is short | `File <id> in "avatars" reads 63 bytes where its chunks should hold 70: a chunk of it was truncated` |
+| a chunk holds something that is not bytes | `Chunk 4 of file <id> in "avatars" holds a string where its bytes should be: …` |
+
+The third one is what a chunk written by something other than GridFS looks
+like — a migration that stored text, a `$set` on `data` — and it says so in
+full:
+
+```
+Chunk 4 of file 68ca1f0f2b1c4d5e6f7a8b90 in "avatars" holds a string where
+its bytes should be: the chunk was written by something that is not GridFS,
+or its `data` was overwritten
+```
+
+A chunk with no `data` field at all reads `holds no data field where its
+bytes should be`. All three carry `collection: 'avatars.chunks'` and `id`,
+the file's `_id`, and the third names the *type* it found, never the value:
+
+```ts
+import { CorruptFileError } from '@nxgt/mongo/gridfs';
+
+try {
+	await (await files.get(id)).bytes();
+} catch (error) {
+	if (error instanceof CorruptFileError) {
+		log.error({ collection: error.collection, id: error.id, message: error.message });
+		return new Response('This file cannot be read', { status: 500 });
+	}
+	throw error;
+}
+```
 
 ### Sweeping chunks with no file
 

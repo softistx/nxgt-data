@@ -145,6 +145,42 @@ app.post('/webhooks/contact', async (c) => {
 });
 ```
 
+## What it throws
+
+Everything `upsert` refuses about the **call** — a filter that seeds nothing,
+a stamp in the values, an expected version — is a `TypeError`, raised before
+anything is sent. There is one exception, and it is not the caller's mistake:
+
+```ts
+import { DataError } from '@nxgt/mongo';
+
+try {
+	await collection.upsert({ email: 'ada@example.com' }, { name: 'Ada' });
+} catch (error) {
+	if (error instanceof DataError && error.code === 'DATABASE') {
+		// error.collection === 'users'
+	}
+	throw error;
+}
+```
+
+An upsert is one `findOneAndUpdate` with `upsert: true`, which matches,
+inserts, or errors — it does not answer with nothing. If it ever does, the
+call throws a `DataError` with `code: 'DATABASE'` and the collection on it,
+saying so:
+
+```
+upsert on "users" was answered with no document, although MongoDB answers an
+upsert with the document it matched or inserted. Nothing was stored. This is
+a bug in @nxgt/mongo or something rewriting replies between the process and
+the server: report it at https://github.com/softistx/nxgt-data/issues
+```
+
+A `DataError` and not a `TypeError`, because a class and a message are how a
+handler tells the two apart: every other refusal of this call is something to
+fix in the code that made it, and this one is not. Nothing was stored when it
+is raised, so a retry is safe — but it is a report, not a retry loop.
+
 ## The signature
 
 ```ts

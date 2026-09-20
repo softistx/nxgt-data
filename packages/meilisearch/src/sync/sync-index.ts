@@ -128,7 +128,9 @@ export async function syncIndex(
 		}
 	}
 
-	const wanted = (definition.settings ?? {}) as Settings;
+	// No cast: `diffSettings` takes the settings the way a definition holds
+	// them, which is the way a consumer holds them too.
+	const wanted = definition.settings ?? {};
 	// A missing index, in a dry run, has no settings to read: everything the
 	// definition sets would be sent.
 	const live: Settings =

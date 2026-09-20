@@ -1,6 +1,6 @@
 import { coerceFields } from '../collection/coerce';
 import type { BucketContext } from './context';
-import { HASH_KEY, TYPE_KEY } from './handle';
+import { HASH_KEY, TYPE_KEY } from './keys';
 
 /** The metadata a write stores: the caller's, checked, plus our two fields. */
 export function metadataFor(

@@ -1,11 +1,8 @@
 import type { ObjectId } from 'mongodb';
 import { readChunks } from './chunks';
 import type { BucketContext } from './context';
+import { HASH_KEY, TYPE_KEY } from './keys';
 import type { MetadataOf } from './types';
-
-/** Where the type and the digest live: GridFS keeps no field for either. */
-export const TYPE_KEY = 'contentType';
-export const HASH_KEY = 'sha256';
 
 /** The `<bucket>.files` document, as MongoDB stores it. */
 export interface StoredFile {

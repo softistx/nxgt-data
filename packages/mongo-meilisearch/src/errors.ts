@@ -4,6 +4,8 @@ export type SearchSyncErrorCode =
 	| 'HISTORY_LOST'
 	/** The transform gave a document whose primary key is not its index id. */
 	| 'ID_MISMATCH'
+	/** The transform gave something that is neither a document nor `null`. */
+	| 'NOT_A_DOCUMENT'
 	/** This sync is already following changes in this process. */
 	| 'RUNNING'
 	/** Anything else: the cause says what. */

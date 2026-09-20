@@ -34,6 +34,11 @@ _Nothing queued._
   GridFS call takes a session, so a file write could not run in the
   transaction it was asked to run in. `@nxgt/mongo/gridfs` writes and reads
   the chunk documents itself, which is what makes a file write transactional.
+- **Creating a bucket's indexes on the first write** — this package writes
+  chunk documents itself, so nothing is created behind a write; `syncIndexes()`
+  at start-up, or a bucket bound with `autoSync`, is what creates
+  `files_id_1_n_1`. A bucket without it warns once per process rather than
+  being quietly slow.
 - **A recursive schema as a validator** — MongoDB's `$jsonSchema` has no
   `$ref`, so a schema that refers to itself cannot be expressed;
   `toMongoJsonSchema` throws rather than writing a validator the server would
@@ -41,6 +46,17 @@ _Nothing queued._
 
 ## Shipped
 
+- **A bucket with no chunk index says so, once** — the first read of a bucket
+  whose chunks collection has no `files_id_1_n_1` emits one `process` warning,
+  `NxgtGridFSMissingIndex`, naming the bucket and the collection, so a read
+  that scans the whole bucket is no longer silent; `syncIndexes()` at start-up,
+  or binding with `autoSync`, is what it asks for — 0.17.0.
+- **Every refusal names the call and the collection** — a pagination number, a
+  cursor and a GridFS chunk that holds no bytes each say which listing, which
+  collection, and which file refused them, instead of a sentence three calls
+  shared; and an upsert the server answers with no document is a `DataError`
+  rather than a `TypeError`, so the one thing that should never happen no
+  longer wears the class the caller's own mistakes wear — 0.17.0.
 - **A connect a close interrupted is a `ConnectionError`** — carrying
   `code: 'CONNECTION'` and an `instanceof DataError` like the rest, so the one
   failure that is worth retrying is recognised without matching the sentence;
@@ -67,16 +83,6 @@ _Nothing queued._
   `ObjectId` and a date string a `Date`, in ids, filters, writes and hooks,
   so a handler no longer parses before it queries; `coerce: false` turns it
   off — 0.12.0.
-- **`position` on a change subscription** — where the stream is, changes or
-  not, so a quiet collection does not send a worker back to a history the
-  server has since dropped — 0.11.0.
-- **Migrations in code** — `defineMigration`, `migrate`, `rollback` and
-  `migrationStatus`, each migration applied in a transaction with its record,
-  and a renewed lock so two runs cannot migrate at once — 0.10.0.
-- **What a write may say about the stamps, typed and guarded** — `create`
-  keeps timestamps it is given, the expected version travels in the patch
-  under the version field's own name, and everything else is refused at
-  compile time and again before anything is sent — 0.9.0.
 
 Everything released is in [`CHANGELOG.md`](https://github.com/softistx/nxgt-data/blob/develop/packages/mongo/CHANGELOG.md) — it is not in
 the published package, only in the repository.

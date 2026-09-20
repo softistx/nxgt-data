@@ -6,16 +6,16 @@ name is written as it comes out by default — `<collection>:<index uid>`, here
 `articles:articles`.
 
 Everything this package throws is a `SearchSyncError` carrying a `code`
-(`HISTORY_LOST`, `ID_MISMATCH`, `RUNNING`, `FAILED`), the sync's `name`, and
-the original error as `cause` — except the options, which are refused with a
-`TypeError` before anything is opened.
+(`HISTORY_LOST`, `ID_MISMATCH`, `NOT_A_DOCUMENT`, `RUNNING`, `FAILED`), the
+sync's `name`, and the original error as `cause` — except the options, which
+are refused with a `TypeError` before anything is opened.
 
 | Area | Entries |
 | --- | --- |
 | [Install](#install) | [ERESOLVE](#npm-error-eresolve-unable-to-resolve-dependency-tree) · [incorrect peer dependency](#warn-incorrect-peer-dependency-nxgtmongo0140) · [TS2307](#error-ts2307-cannot-find-module-nxgtmongo-or-its-corresponding-type-declarations) |
 | [Options](#options) | [transform](#createsearchsync-transform-must-be-a-function) · [batchSize](#createsearchsync-batchsize-must-be-a-whole-number-above-0-not-0) · [flushIntervalMs](#createsearchsync-flushintervalms-must-be-a-whole-number-of-milliseconds-not--1) · [name](#createsearchsync-name-must-not-be-empty) |
 | [Starting](#starting) | [no replica set](#search-sync-articlesarticles-failed-starting-the-changestream-stage-is-only-supported-on-replica-sets) · [privileges](#search-sync-articlesarticles-failed-reindexing-not-authorized-on-app-to-execute-command--aggregate-articles-pipeline---changestream-----) · [history lost](#search-sync-articlesarticles-was-last-at-a-point-the-servers-change-history-no-longer-reaches-reindex-it-or-start-it-with-onhistorylost-reindex) · [already running](#search-sync-articlesarticles-is-already-following-changes-in-this-process-close-it-before-you-start-it-twice) |
-| [The transform](#the-transform) | [an id that is not the index's](#search-sync-articlesarticles-transform-gave-id-other-for-the-document--whose-index-id-is-) · [not a document](#transform-must-return-a-document-or-null-not-nope) · [it threw](#search-sync-articlesarticles-failed-following-changes-boom) |
+| [The transform](#the-transform) | [an id that is not the index's](#search-sync-articlesarticles-transform-gave-id-other-for-the-document--whose-index-id-is-) · [not a document](#search-sync-articlesarticles-transform-gave-a-string-for-the-document-) · [it threw](#search-sync-articlesarticles-failed-following-changes-boom) |
 | [Sending](#sending) | [an id Meilisearch refuses](#search-sync-articlesarticles-failed-sending-changes-task-3-documentadditionorupdate-on-index-articles-failed-document-identifier--is-invalid) |
 | [Stopping](#stopping) | [a dropped collection](#the-sync-stops-and-closed-resolves-with-invalidated) |
 
@@ -269,16 +269,23 @@ createSearchSync({
 });
 ```
 
-### `transform must return a document or null, not nope`
+### `Search sync "articles:articles": transform gave a string for the document …`
 
-Reaches the caller wrapped: `Search sync "articles:articles" failed
-reindexing: transform must return a document or null, not nope`.
+The document's `_id` closes the first sentence, and the message goes on: *It
+must give a document to index, or null to keep it out.* Code
+`NOT_A_DOCUMENT`, with the sync's `name` on it. An array is reported as
+`an array`, and a branch that returns nothing as `undefined`.
 
 **When:** `reindex()`, or a change the follower handles.
 
 **Why:** the transform gave something that is not a plain object and is not
 `null` — a string, a number, an array, or an implicit `undefined` from a branch
-that returns nothing.
+that returns nothing. It reports the **shape** of what came back and never its
+value: a transform is handed whole documents, and what it gives back can hold
+anything they held. The code is its own since 0.2.0: it used to be a bare
+`TypeError` that came back wrapped as `FAILED` — the code that means "anything
+else" — so it could not be told from a Meilisearch outage without reading the
+sentence.
 
 **Fix:** return `null` for a document that should stay out of the index, and
 make every branch return:

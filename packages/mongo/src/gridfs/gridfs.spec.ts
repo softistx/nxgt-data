@@ -16,6 +16,7 @@ import { startMongo, type TestServer } from '../../test/server';
 import {
 	ConflictError,
 	CorruptFileError,
+	InvalidCursorError,
 	NotFoundError,
 } from '../errors/data-error';
 import { withTransaction } from '../transaction/with-transaction';
@@ -507,14 +508,28 @@ describe('listing a bucket', () => {
 		expect(page.items[0]?.size).toBe(8);
 	});
 
-	test('refuses a cursor written for the other order', async () => {
+	test('refuses a cursor written for the other order, by name', async () => {
 		const files = anything();
 		await files.put(bytes(8));
 		await files.put(bytes(9));
 		const page = await files.paginate({ limit: 1 });
-		await expect(
-			files.paginate({ limit: 1, order: 'oldest', after: page.nextCursor }),
-		).rejects.toThrow(/ordering/);
+		const error = await files
+			.paginate({ limit: 1, order: 'oldest', after: page.nextCursor })
+			.then(
+				() => undefined,
+				(reason: unknown) => reason,
+			);
+		// The whole sentence, because the call it names is deliberate:
+		// `paginate` is the method a consumer wrote, not `paginateFiles`,
+		// which is the function behind it. A `/ordering/` match passed before
+		// the name existed and would pass if it were lost again.
+		expect(error).toBeInstanceOf(InvalidCursorError);
+		expect(error).toHaveProperty('code', 'INVALID_CURSOR');
+		expect(error).toHaveProperty('collection', 'uploads.files');
+		expect((error as Error).message).toBe(
+			'Invalid cursor in paginate on "uploads": it was written for the ' +
+				'ordering uploadDate:desc, not uploadDate:asc',
+		);
 	});
 });
 
@@ -1041,6 +1056,149 @@ describe('a chunk that is there but short', () => {
 		await expect((await files.get(file.id)).bytes()).rejects.toBeInstanceOf(
 			CorruptFileError,
 		);
+	});
+});
+
+describe('a chunk whose `data` is not bytes', () => {
+	test('names the chunk, the file and the bucket', async () => {
+		const files = anything();
+		const file = await files.put(bytes(70), { chunkSize: 7 });
+		// A chunk written by something that is not GridFS. The read used to
+		// answer `A chunk of this file holds no bytes`, which named neither
+		// the bucket, nor the file, nor which chunk — while its two
+		// neighbours, a missing chunk and a short one, named all three.
+		await t.db
+			.collection('uploads.chunks')
+			.updateOne({ files_id: file._id, n: 4 }, { $set: { data: 'nope' } });
+		const found = await files.get(file.id);
+		const error = await found.bytes().then(
+			() => undefined,
+			(reason: unknown) => reason,
+		);
+		expect(error).toBeInstanceOf(CorruptFileError);
+		expect(error).toHaveProperty('code', 'CORRUPT_FILE');
+		expect(error).toHaveProperty('collection', 'uploads.chunks');
+		expect((error as Error).message).toBe(
+			`Chunk 4 of file ${String(file._id)} in "uploads" holds a string ` +
+				'where its bytes should be: the chunk was written by something ' +
+				'that is not GridFS, or its `data` was overwritten',
+		);
+	});
+
+	test('a chunk with no `data` field at all says so', async () => {
+		const files = anything();
+		const file = await files.put(bytes(70), { chunkSize: 7 });
+		await t.db
+			.collection('uploads.chunks')
+			.updateOne({ files_id: file._id, n: 0 }, { $unset: { data: '' } });
+		await expect((await files.get(file.id)).bytes()).rejects.toThrow(
+			/Chunk 0 of file .* in "uploads" holds no data field/,
+		);
+	});
+
+	test('it says `an array` and `null`, not `a array` and `a null`', async () => {
+		const files = anything();
+		const file = await files.put(bytes(70), { chunkSize: 7 });
+		const chunks = t.db.collection('uploads.chunks');
+		await chunks.updateOne(
+			{ files_id: file._id, n: 1 },
+			{ $set: { data: [] } },
+		);
+		await expect((await files.get(file.id)).bytes()).rejects.toThrow(
+			/holds an array where its bytes should be/,
+		);
+		await chunks.updateOne(
+			{ files_id: file._id, n: 1 },
+			{ $set: { data: null } },
+		);
+		await expect((await files.get(file.id)).bytes()).rejects.toThrow(
+			/holds null where its bytes should be/,
+		);
+	});
+});
+
+describe('a `limit` a listing will not take', () => {
+	test('the refusal names the call and the bucket', async () => {
+		const files = anything();
+		// A collection's `paginate` and a bucket's both refuse a `limit` of 0,
+		// and both used to say only `limit must be an integer of at least 1` —
+		// one sentence, two calls, written twice. The name tells them apart.
+		const error = await files.paginate({ limit: 0 }).then(
+			() => undefined,
+			(reason: unknown) => reason,
+		);
+		expect(error).toBeInstanceOf(RangeError);
+		expect((error as Error).message).toBe(
+			'paginate on "uploads": limit must be an integer of at least 1, not 0',
+		);
+	});
+});
+
+describe('a bucket with no chunk index', () => {
+	// Two buckets of their own, read nowhere else in this file. The hint is
+	// given once per database and bucket for the life of the process, so a
+	// shared bucket would make these tests depend on what ran before them —
+	// and make the rest of the file hear a warning it is not about.
+	const unindexed = defineBucket({ name: 'warned' });
+	const indexed = defineBucket({ name: 'warned-synced' });
+
+	/** The warnings a body emits, as this process would print them. */
+	async function warnings(body: () => Promise<unknown>): Promise<string[]> {
+		const heard: string[] = [];
+		const listen = (warning: Error) => {
+			if ((warning as { code?: string }).code === 'NxgtGridFSMissingIndex') {
+				heard.push(warning.message);
+			}
+		};
+		process.on('warning', listen);
+		try {
+			await body();
+			// The probe runs beside the read, not in front of it: it has to be
+			// given the turn it needs before the warning can be there.
+			for (let i = 0; i < 50 && heard.length === 0; i++) {
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+		} finally {
+			process.off('warning', listen);
+		}
+		return heard;
+	}
+
+	test('a read says so once, and names the bucket and the collection', async () => {
+		const files = getFiles(t.db, unindexed);
+		const file = await files.put(bytes(70), { chunkSize: 7 });
+		// `put` creates nothing; only `putOnce` and `autoSync` do. So this is
+		// the state an application is in until it calls `syncIndexes()`: reads
+		// that work, and scan the whole collection to do it.
+		expect(
+			(await t.db.collection('warned.chunks').indexes()).map((i) => i.name),
+		).not.toContain('files_id_1_n_1');
+
+		const heard = await warnings(async () => {
+			expect(await (await files.get(file.id)).bytes()).toEqual(bytes(70));
+		});
+		expect(heard).toEqual([
+			'Bucket "warned" has no files_id_1_n_1 on "warned.chunks": every ' +
+				'read scans the whole collection, and the cost grows with the ' +
+				'bucket rather than with the file. Call syncIndexes() at ' +
+				'start-up, or bind with autoSync.',
+		]);
+
+		// Once per bucket for the life of the process: a second read is silent,
+		// and costs no listing of its own.
+		const again = await warnings(async () => {
+			await (await files.get(file.id)).bytes();
+		});
+		expect(again).toEqual([]);
+	});
+
+	test('a bucket that has the index says nothing', async () => {
+		const files = getFiles(t.db, indexed, { autoSync: true });
+		const file = await files.put(bytes(70), { chunkSize: 7 });
+		const heard = await warnings(async () => {
+			await (await files.get(file.id)).bytes();
+		});
+		expect(heard).toEqual([]);
 	});
 });
 

@@ -135,6 +135,7 @@ running.closed.then(
 | --- | --- |
 | `HISTORY_LOST` | `start` with `onHistoryLost: 'fail'`, and the recorded point is older than the server's history. `cause` is `@nxgt/mongo`'s `DataError`, `serverCode` 286 or 280 |
 | `ID_MISMATCH` | the transform gave a document whose primary key is not its index id |
+| `NOT_A_DOCUMENT` | the transform gave back something that is neither a document nor `null` — a string, a number, an array. The message says its shape, never its value |
 | `RUNNING` | a second `start()`, or a `reindex()`, while this sync is already following in this process |
 | `FAILED` | anything else: the transform threw, MongoDB or Meilisearch refused. The message says what the sync was doing, and `cause` carries the original error |
 
@@ -174,7 +175,8 @@ interface RunningSearchSync extends AsyncDisposable {
 }
 
 class SearchSyncError extends Error {
-	readonly code: SearchSyncErrorCode; // 'HISTORY_LOST' | 'ID_MISMATCH' | 'RUNNING' | 'FAILED'
+	// 'HISTORY_LOST' | 'ID_MISMATCH' | 'NOT_A_DOCUMENT' | 'RUNNING' | 'FAILED'
+	readonly code: SearchSyncErrorCode;
 	readonly sync: string;
 	constructor(message: string, options: SearchSyncErrorOptions);
 }

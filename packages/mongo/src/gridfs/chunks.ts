@@ -1,6 +1,7 @@
 import { Binary, ObjectId } from 'mongodb';
 import { CorruptFileError } from '../errors/data-error';
 import { type BucketContext, run } from './context';
+import { warnIfChunksUnindexed } from './indexes';
 
 /** MongoDB's own default, and the one a bucket takes when it names none. */
 export const DEFAULT_CHUNK_SIZE = 255 * 1024;
@@ -9,28 +10,41 @@ export const DEFAULT_CHUNK_SIZE = 255 * 1024;
 const BATCH = 16;
 
 /**
- * The unique index GridFS requires, by the name the server reports it under.
- *
- * Named here because it is not only an index: it is what refuses the second
- * of two writers reaching for the same chunk of the same file, which is half
- * of how `putOnce` elects between them.
- */
-export const CHUNK_INDEX = 'files_id_1_n_1';
-
-/**
  * The bytes of a chunk document.
  *
  * The driver gives `data` back as a `Binary`, whose bytes are on `.buffer`.
  * A chunk written by something else may be a plain `Uint8Array`, so both are
  * read rather than only the one this package writes.
  */
-function bytesOf(data: unknown): Uint8Array {
+function bytesOf(
+	ctx: BucketContext,
+	filesId: ObjectId,
+	n: number,
+	data: unknown,
+): Uint8Array {
 	if (data instanceof Binary) return data.buffer;
 	if (data instanceof Uint8Array) return data;
 	if (ArrayBuffer.isView(data)) {
 		return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
 	}
-	throw new CorruptFileError('A chunk of this file holds no bytes');
+	throw new CorruptFileError(
+		`Chunk ${n} of file ${String(filesId)} in "${ctx.name}" holds ` +
+			`${describe(data)} where its bytes should be: the chunk was written ` +
+			'by something that is not GridFS, or its `data` was overwritten',
+		{ collection: ctx.definition.collections.chunks, id: filesId },
+	);
+}
+
+/**
+ * What a chunk's `data` turned out to be, for a message: its shape, never its
+ * value, and with the article the sentence needs — `an array`, not `a array`.
+ */
+function describe(data: unknown): string {
+	if (data === undefined) return 'no data field';
+	if (data === null) return 'null';
+	if (Array.isArray(data)) return 'an array';
+	const kind = typeof data;
+	return `${kind === 'object' ? 'an' : 'a'} ${kind}`;
 }
 
 /**
@@ -144,6 +158,10 @@ export function readChunks(
 	const end = Math.max(start, Math.min(range?.end ?? length, length));
 	if (end === start) return new ReadableStream({ start: (c) => c.close() });
 
+	// Beside the read, never in front of it: this is the query the missing
+	// index makes a collection scan, so it is where the warning belongs.
+	warnIfChunksUnindexed(ctx);
+
 	const firstChunk = Math.floor(start / chunkSize);
 	const lastChunk = Math.ceil(end / chunkSize) - 1;
 	const cursor = ctx.chunks
@@ -187,7 +205,7 @@ export function readChunks(
 					return;
 				}
 				if (chunk.n !== expected) throw missingChunk(ctx, filesId, expected);
-				const bytes = bytesOf(chunk.data);
+				const bytes = bytesOf(ctx, filesId, chunk.n, chunk.data);
 				const at = expected * chunkSize;
 				// Only the first and the last chunk are ever cut.
 				const from = Math.max(0, start - at);

@@ -12,6 +12,13 @@ export const keyOf = (id: unknown) => `${typeof id}:${String(id)}`;
 const isRecord = (value: unknown): value is Doc =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
 
+/** What a transform gave back, for a message: its shape, never its value. */
+function describe(value: unknown): string {
+	if (Array.isArray(value)) return 'an array';
+	if (value === undefined) return 'undefined';
+	return `a ${typeof value}`;
+}
+
 /**
  * What the index should hold for a document of the collection: what the
  * transform makes of it, or nothing when it is gone or kept out.
@@ -27,8 +34,15 @@ export async function entryOf(
 	const indexed = await ctx.transform(document);
 	if (indexed === null) return { kind: 'delete', key, id };
 	if (!isRecord(indexed)) {
-		throw new TypeError(
-			`transform must return a document or null, not ${String(indexed)}`,
+		// A `SearchSyncError` with a code of its own, like the id mismatch
+		// below it: a bare `TypeError` came back through `failed()` as
+		// `FAILED`, the code that means "anything else", and named neither the
+		// sync nor the document whose transform did it.
+		throw new SearchSyncError(
+			`Search sync "${ctx.name}": transform gave ${describe(indexed)} for ` +
+				`the document ${String(mongoId)}. It must give a document to ` +
+				'index, or null to keep it out.',
+			{ code: 'NOT_A_DOCUMENT', sync: ctx.name },
 		);
 	}
 	const given = indexed[ctx.primaryKey];
