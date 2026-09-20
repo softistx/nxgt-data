@@ -225,7 +225,18 @@ export async function startS3(buckets: string[] = []): Promise<TestServer> {
 			}
 		},
 		stop: async () => {
-			process.kill();
+			// `SIGKILL`, not the default `SIGTERM`. Measured on SeaweedFS 4.47:
+			// `weed server` takes **20 s** to exit on either SIGTERM or SIGINT —
+			// 20078 / 20024 ms and 20015 / 20102 ms over two runs each — and
+			// **11 ms** on SIGKILL. That is a fixed shutdown grace period, not a
+			// flush: this server writes into a temp directory that the next line
+			// removes, so there is nothing to lose by taking it out at once.
+			//
+			// It is the whole of the spec's local slowness. Every spec file that
+			// calls `useS3` paid those 20 s in `afterAll`, which is why
+			// `bind-bucket.spec.ts` ran 12-30 s here and why a default 5 s hook
+			// timeout reported a phantom `(fail) (unnamed) [5000ms]`.
+			process.kill('SIGKILL');
 			await process.exited;
 			await rm(dir, { recursive: true, force: true });
 			// `weed` names a unix socket in the system's temp directory after

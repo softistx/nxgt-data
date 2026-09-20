@@ -203,7 +203,7 @@ matching key in `exports`.
   file: `weed server -s3`, from the binary `scripts/seaweedfs.ts` downloads
   into `.cache/seaweedfs`. **Not MinIO** — measured 2026-09-18, `dl.min.io`
   answers `410 Gone` and the project is archived, so nothing in any repository
-  should plan around it. Four things about SeaweedFS were measured here and
+  should plan around it. Five things about SeaweedFS were measured here and
   every one of them is a line in `test/server.ts`: `-dir` must already exist,
   or it dies; 4.47 starts an **Iceberg** catalog on a fixed 8181 and a
   **Lance** namespace on a fixed 9101, either of which kills the process when
@@ -215,9 +215,18 @@ matching key in `exports`.
   which the production defaults (8 volumes of 30 GB) cannot allocate — hence
   `-master.volumeSizeLimitMB=64 -volume.max=100`. **Its log goes to a file,
   never a pipe**: SeaweedFS fills a 64 KB pipe buffer in under a minute, and a
-  pipe nobody drains blocks the process writing to it. `weed` also leaves a
-  unix socket in the temp directory per port it bound, so `stop()` removes the
-  eight it knows.
+  pipe nobody drains blocks the process writing to it. **It is stopped with
+  `SIGKILL`**: measured on 4.47, `weed server` takes **20 s** to exit on
+  SIGTERM *or* SIGINT — 20078 / 20024 ms and 20015 / 20102 ms over two runs
+  each — and **11 ms** on SIGKILL. That is a fixed grace period, not a flush,
+  and the directory it writes into is removed on the next line. It was the
+  whole of the suite's local slowness: `packages/s3` ran in 24.9 / 29.9 /
+  29.5 s and now runs in 5.2 / 4.9 / 4.9 s, and a default 5 s hook timeout
+  used to report a phantom `(fail) (unnamed) [5000ms]` that named no test.
+  `@nxgt/meilisearch`'s server does **not** share the defect — measured, it
+  stops in 8 ms on SIGTERM — so do not copy the signal across. `weed` also
+  leaves a unix socket in the temp directory per port it bound, so `stop()`
+  removes the eight it knows.
 
 - **Type tests** are `test/types/*.ts`, checked by the package's
   `typecheck` (`tsc --noEmit`) and never run. A call that must not compile
