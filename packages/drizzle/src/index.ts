@@ -1,6 +1,7 @@
 // What does not depend on a dialect: the errors, the cursor and the page
 // shapes. The PostgreSQL helpers are in `@nxgt/drizzle/pg`.
 
+export { ArgumentError } from './errors/argument-error';
 export type { DataErrorCode, DataErrorOptions } from './errors/data-error';
 export {
 	CheckViolationError,

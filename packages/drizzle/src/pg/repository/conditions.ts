@@ -12,14 +12,17 @@ import {
 	SQL,
 } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
+import { ArgumentError } from '../../errors/argument-error';
 import type { TableInfo } from './table-info';
 import type { OrderDirection } from './types';
 
 function columnAt(info: TableInfo, key: string, what: string): PgColumn {
 	const column = info.columns[key];
 	if (!column) {
-		throw new TypeError(
+		throw new ArgumentError(
+			what,
 			`${what}: "${info.name}" has no column under the key "${key}"`,
+			{ key },
 		);
 	}
 	return column;
@@ -45,13 +48,18 @@ export function whereToSql(info: TableInfo, where: unknown): SQL | undefined {
 	if (where === undefined) return undefined;
 	if (is(where, SQL)) return where;
 	if (!isPlainObject(where)) {
-		throw new TypeError('where: expected a Drizzle condition or an object');
+		throw new ArgumentError(
+			'where',
+			'where: expected a Drizzle condition or an object',
+		);
 	}
 	const conditions: SQL[] = [];
 	for (const [key, value] of Object.entries(where)) {
 		if (value === undefined) {
-			throw new TypeError(
+			throw new ArgumentError(
+				'where',
 				`where: "${key}" is undefined. Leave the key out, or pass null for IS NULL`,
+				{ key },
 			);
 		}
 		const column = columnAt(info, key, 'where');
@@ -77,15 +85,18 @@ export function orderByToSql(info: TableInfo, orderBy: unknown): Ordering[] {
 		return [orderBy as Ordering];
 	}
 	if (!isPlainObject(orderBy)) {
-		throw new TypeError(
+		throw new ArgumentError(
+			'orderBy',
 			'orderBy: expected a Drizzle ordering, a list, or an object',
 		);
 	}
 	return Object.entries(orderBy).map(([key, direction]) => {
 		const column = columnAt(info, key, 'orderBy');
 		if (direction !== 'asc' && direction !== 'desc') {
-			throw new TypeError(
+			throw new ArgumentError(
+				'orderBy',
 				`orderBy: "${key}" must be 'asc' or 'desc', not ${String(direction)}`,
+				{ key },
 			);
 		}
 		return direction === 'asc' ? asc(column) : desc(column);

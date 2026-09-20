@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { useRedis } from '../../test/fixtures';
+import { RedisError } from '../errors/redis-error';
 import { closeRedis, connectRedis } from './connect';
 
 const servers = useRedis();
@@ -76,6 +77,31 @@ describe('connectRedis', () => {
 		if (answer.ok) expect(answer.latencyMs).toBeGreaterThanOrEqual(0);
 	});
 
+	test('ping reports a timeout rather than hanging, with its own code', async () => {
+		await using redis = await connectRedis(servers.redis.uri);
+		// Measured, twenty runs out of twenty: `timeoutMs: 0` against a live
+		// server never reaches the timer — the PING answers first, so there is
+		// no timeout to observe that way. A `send` that never settles is what
+		// makes this deterministic, and `client` is public, so a caller could
+		// hit exactly this with a server that accepted the command and went
+		// quiet.
+		const real = redis.client.send.bind(redis.client);
+		redis.client.send = (() => new Promise(() => {})) as typeof real;
+		try {
+			const answer = await redis.ping({ timeoutMs: 5 });
+			expect(answer.ok).toBe(false);
+			if (answer.ok) return;
+			expect(answer.error).toBeInstanceOf(RedisError);
+			expect(answer.error).toHaveProperty('code', 'PING_TIMEOUT');
+			expect(answer.error).toHaveProperty('message', 'ping: no answer in 5ms');
+			// About the connection, not a key — and never the URI.
+			expect(answer.error).toHaveProperty('key', '');
+			expect((answer.error as Error).message).not.toContain(servers.redis.uri);
+		} finally {
+			redis.client.send = real;
+		}
+	});
+
 	test('a failed connect is forgotten, so the next call tries again', async () => {
 		// Nothing listens on this port. `autoReconnect: false` is what makes
 		// that quick: measured, `connectionTimeout` does not bound a refused
@@ -106,10 +132,16 @@ describe('connectRedis', () => {
 			(error: unknown) => error,
 		);
 		await closeRedis();
-		expect(await connecting).toHaveProperty(
+		const error = await connecting;
+		expect(error).toHaveProperty(
 			'message',
 			expect.stringContaining('closed while this one was connecting'),
 		);
+		expect(error).toBeInstanceOf(RedisError);
+		expect(error).toHaveProperty('code', 'CONNECTION');
+		// Never the URI: a connection string holds the password.
+		expect(error).toHaveProperty('key', '');
+		expect((error as Error).message).not.toContain(servers.redis.uri);
 	});
 
 	test('a close after closeRedis does not take the next client away', async () => {

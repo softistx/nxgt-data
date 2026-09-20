@@ -1,9 +1,16 @@
 # Troubleshooting
 
 This package throws one error of its own, `RedisError`, with a `code` of
-`LOCK_HELD`, `LOCK_LOST` or `INVALID`, and the key or channel it happened on
-as `key` — never the value. Everything else comes from Bun's `RedisClient` as
-it is.
+`LOCK_HELD`, `LOCK_LOST`, `INVALID`, `CONNECTION` or `PING_TIMEOUT`, and the
+key or channel it happened on as `key` — never the value. `CONNECTION` and
+`PING_TIMEOUT` are about the client rather than one key, so their `key` is
+the empty string; it is never the URI, because a connection string holds the
+password. Everything else comes from Bun's `RedisClient` as it is.
+
+`defineCache` and `defineChannel` check their arguments before anything
+connects, and a URI already connected with other options is a plain
+`TypeError` still: those are mistakes in the code, not something a running
+application can handle.
 
 - **Install and import**
   - [`Cannot find package 'bun'`](#cannot-find-package-bun)
@@ -125,11 +132,30 @@ await connectRedis(url, { autoReconnect: false });
 **When:** at shutdown, when `closeRedis()` ran while something was still
 connecting.
 **Why:** the shared client being waited for is gone, so the connect rejects
-rather than handing back a dead one.
+rather than handing back a dead one. A `RedisError` with
+`code: 'CONNECTION'` since 0.2.0 — it was a bare `Error` before — and its
+`key` is empty: it is about the client, and the URI is never printed.
+Redis's own refusal to connect is Bun's error, and reaches you unchanged.
 **Fix:**
 
 ```ts
 await connection.close(); // give back one holder; closeRedis() takes every client away
+```
+
+It is the one failure worth retrying — the connect raced the shutdown, the
+URI is fine — so a worker that reconnects can tell it apart:
+
+```ts
+import { RedisError } from '@nxgt/redis';
+
+try {
+	return await connectRedis(url);
+} catch (error) {
+	if (error instanceof RedisError && error.code === 'CONNECTION') {
+		return await connectRedis(url); // a fresh client, once the close is done
+	}
+	throw error;
+}
 ```
 
 ### A connect to a port nothing listens on takes about 31 seconds
@@ -154,7 +180,9 @@ a health check reports rather than fails, so the message arrives as the
 body.
 **Why:** the client is connected but the round trip did not finish in time —
 Redis is busy on a long command, the link is slow, or the server went away
-without the socket noticing yet.
+without the socket noticing yet. Since 0.2.0 it is a `RedisError` with
+`code: 'PING_TIMEOUT'` and an empty `key`, so the `error` a health check
+reports carries a code to log rather than a sentence to match.
 **Fix:**
 
 ```ts

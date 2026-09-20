@@ -4,10 +4,10 @@ Every method turns a driver error into one of this package's own, so the
 heading is usually a `DataError` subclass's message: `ConflictError`,
 `ValidationError`, `NotFoundError`, `OptimisticLockError`, `InvalidIdError`,
 `InvalidCursorError`, `CorruptFileError`, `MigrationError`,
-`MigrationLockedError`. Each carries a `code` you can switch on, and the
-driver's error as `cause`. A mistake in a call — a field that is not in the
-schema, an option a collection does not have — is a `TypeError` instead:
-that is a bug in the code, not data.
+`MigrationLockedError`, `ConnectionError`. Each carries a `code` you can
+switch on, and the driver's error as `cause`. A mistake in a call — a field
+that is not in the schema, an option a collection does not have — is a
+`TypeError` instead: that is a bug in the code, not data.
 
 The classes are exported from `@nxgt/mongo`, and the same classes again from
 `@nxgt/mongo/gridfs`, so `instanceof` holds across both.
@@ -1148,11 +1148,29 @@ const mongo = await connectMongo(uri, options);
 **When:** at shutdown: `closeMongo()` ran while a request was still
 connecting.
 **Why:** the shared client it was waiting for is gone, so the connect rejects
-rather than handing back a dead client.
+rather than handing back a dead client. A `ConnectionError` since 0.16.0 —
+`code: 'CONNECTION'`, an `instanceof DataError` like the rest — where it was
+a bare `Error` before. It carries no URI: a connection string holds the
+password. MongoDB's own refusal to connect — a host that does not answer, an
+authentication failure — is the driver's error, and reaches you unchanged.
 **Fix:**
 
 ```ts
 await mongo.close(); // give back one holder; closeMongo() takes every client away
+```
+
+Nothing is wrong with the URI, so this is the one connect failure worth
+retrying: calling `connectMongo` again opens a fresh client.
+
+```ts
+import { ConnectionError, connectMongo } from '@nxgt/mongo';
+
+try {
+	return await connectMongo(uri);
+} catch (error) {
+	if (error instanceof ConnectionError) return await connectMongo(uri);
+	throw error;
+}
 ```
 
 `mongo.client.close()` skips the count: the closed client stays shared, and

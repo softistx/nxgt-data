@@ -120,7 +120,25 @@ else console.error('redis down', health.error);
 | `timeoutMs` | `number` | `2_000` | how long to wait for `PONG` before answering `{ ok: false }` |
 
 `ping` **never throws**: a health check reports, it does not fail. A timeout
-comes back as `{ ok: false, error }` like anything else.
+comes back as `{ ok: false, error }` like anything else — and that error is a
+`RedisError` with the code `PING_TIMEOUT`, so a health route can tell "no
+answer in time" from "the server said no":
+
+```ts
+import { RedisError } from '@nxgt/redis';
+
+const health = await redis.ping({ timeoutMs: 500 });
+
+if (!health.ok && health.error instanceof RedisError) {
+	health.error.code;    // 'PING_TIMEOUT'
+	health.error.message; // 'ping: no answer in 500ms'
+	health.error.key;     // '' — this one is about the connection, not a key
+}
+```
+
+`PING_TIMEOUT` is the one code that is **returned and never thrown**. The
+`key` is empty, and it is never the URI: a connection string holds the
+password.
 
 ## Closing
 
@@ -177,14 +195,43 @@ gets this very client, not a second connection.
 
 ## What is thrown
 
-| Thrown | When |
-| --- | --- |
-| `TypeError` | a URI already connected with other options |
-| `Error` | `closeRedis()` ran while this connect was still connecting |
+| Thrown | `code` | When |
+| --- | --- | --- |
+| `TypeError` | — | a URI already connected with other options |
+| `RedisError` | `CONNECTION` | `closeRedis()` ran while this connect was still connecting |
+| `RedisError` | `PING_TIMEOUT` | `ping` gave up waiting — **returned** on `{ ok: false, error }`, never thrown |
 
-Redis's own failures come back as they are, from Bun's client. This package's
-`RedisError` belongs to [caches](cache.md), [locks](locks.md) and
-[pub/sub](channels.md), not to connecting.
+`closeRedis()` closes every client at once, so a `connectRedis` that was
+still waiting comes back holding nothing. It rejects rather than hand out a
+closed client:
+
+```ts
+import { closeRedis, connectRedis, RedisError } from '@nxgt/redis';
+
+const connecting = connectRedis(uri);
+await closeRedis();                  // a shutdown, or the end of a test file
+
+try {
+	await connecting;
+} catch (error) {
+	if (error instanceof RedisError && error.code === 'CONNECTION') {
+		// 'connectRedis: every client was closed while this one was connecting.'
+	}
+}
+
+// Calling again opens a fresh client: the failure was the race, not the URI.
+const redis = await connectRedis(uri);
+```
+
+Its `key` is `''`, like `PING_TIMEOUT`'s: both are about the connection rather
+than one key, and neither is ever the URI.
+
+**Redis's own refusal to connect is not this.** A port nothing listens on, a
+wrong password, a server that is down: those are Bun's errors, and they reach
+you unchanged. `CONNECTION` is only what this package decides.
+
+This package's other codes — `LOCK_HELD`, `LOCK_LOST`, `INVALID` — belong to
+[caches](cache.md), [locks](locks.md) and [pub/sub](channels.md).
 
 ## Next
 

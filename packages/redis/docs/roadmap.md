@@ -33,6 +33,10 @@ _Nothing queued._
 
 ## Shipped
 
+- **The connection failures are a `RedisError` too** — `CONNECTION` for a
+  connect a close interrupted, `PING_TIMEOUT` on the result `ping` reports,
+  so one class and one code cover everything this package refuses; neither
+  prints the URI, and a connection string holds the password — 0.2.0.
 - **Documentation that travels with the package** — a guide page for
   connections, caches, locks and channels, a troubleshooting page whose
   headings are the exact error text, and this roadmap, installed in `docs/`

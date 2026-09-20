@@ -16,6 +16,7 @@ import {
 	teams,
 	users,
 } from '../../../test/schema';
+import { ArgumentError } from '../../errors/argument-error';
 import {
 	ConflictError,
 	ForeignKeyError,
@@ -153,6 +154,33 @@ describe('create and read', () => {
 		);
 	});
 
+	test('a refused argument is an ArgumentError, and names which one', async () => {
+		const { posts } = repos();
+		// A `where` or an `orderBy` built from a query string is user input, so
+		// a handler answering 400 rather than 500 has to recognise these
+		// without reading the message.
+		const thrown = async (promise: Promise<unknown>): Promise<unknown> =>
+			promise.then(
+				() => {
+					throw new Error('it resolved, and should not have');
+				},
+				(error: unknown) => error,
+			);
+		const bad = await thrown(
+			posts.findMany({ orderBy: { rank: 'down' } as never }),
+		);
+		expect(bad).toBeInstanceOf(ArgumentError);
+		expect(bad).toHaveProperty('code', 'INVALID_ARGUMENT');
+		expect(bad).toHaveProperty('argument', 'orderBy');
+		expect(bad).toHaveProperty('key', 'rank');
+		// Still a TypeError, which is what it was before it had a code.
+		expect(bad).toBeInstanceOf(TypeError);
+
+		const shape = await thrown(posts.findMany({ where: 42 as never }));
+		expect(shape).toHaveProperty('argument', 'where');
+		expect(shape).toHaveProperty('key', undefined);
+	});
+
 	test('count and exists', async () => {
 		const { posts } = repos();
 		expect(await posts.count()).toBe(0);
@@ -252,6 +280,14 @@ describe('update', () => {
 		await expect(posts.updateMany({}, { title: 'y' })).rejects.toThrow(
 			TypeError,
 		);
+		// An empty `where` is the caller's argument, so it is an `ArgumentError`
+		// naming it — and still a `TypeError`, which is what it threw before.
+		const refused = await posts
+			.updateMany({}, { title: 'y' })
+			.then(null, (error: unknown) => error);
+		expect(refused).toBeInstanceOf(ArgumentError);
+		expect(refused).toHaveProperty('code', 'INVALID_ARGUMENT');
+		expect(refused).toHaveProperty('argument', 'where');
 		expect(await posts.updateMany(sql`true`, { rank: 5 })).toHaveLength(3);
 		expect(await posts.updateMany({ rank: 5 }, {})).toHaveLength(3);
 	});

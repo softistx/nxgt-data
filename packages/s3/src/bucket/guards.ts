@@ -1,6 +1,7 @@
 import { S3Error } from '../errors/s3-error';
 import type { BucketContext } from './context';
-import type { PutBody } from './types';
+import type { PresignOptions } from './operations/presign';
+import type { PutBody, PutOptions } from './types';
 
 /**
  * A content type without its parameters, lower-cased: `text/plain` from
@@ -93,6 +94,121 @@ export function checkSize<P>(
 			'TOO_LARGE',
 			key,
 			`"${bucket}" accepts ${maxSize} bytes at most, and this body is ${size}`,
+		);
+	}
+}
+
+/**
+ * The values the service accepts for the two options that have a fixed set,
+ * listed so this package refuses a wrong one itself.
+ *
+ * Bun checks them too, and refuses with a plain `TypeError` — measured on
+ * bun 1.4.2, `name` is `"TypeError"`. Every other refusal of the same call
+ * is an `S3Error` with a code, so a caller had to catch two classes for one
+ * `put`, and read message text for one of them. Checking here gives every
+ * refusal of a write one class and one code.
+ *
+ * The exhaustiveness lines below are the ones `PASSED` carries in `writes.ts`,
+ * for the values rather than the keys: a value Bun adds or drops fails the
+ * build here instead of silently widening or narrowing what this package
+ * accepts.
+ */
+const ACLS = [
+	'private',
+	'public-read',
+	'public-read-write',
+	'aws-exec-read',
+	'authenticated-read',
+	'bucket-owner-read',
+	'bucket-owner-full-control',
+	'log-delivery-write',
+] as const satisfies readonly NonNullable<PutOptions['acl']>[];
+
+const STORAGE_CLASSES = [
+	'STANDARD',
+	'DEEP_ARCHIVE',
+	'EXPRESS_ONEZONE',
+	'GLACIER',
+	'GLACIER_IR',
+	'INTELLIGENT_TIERING',
+	'ONEZONE_IA',
+	'OUTPOSTS',
+	'REDUCED_REDUNDANCY',
+	'SNOW',
+	'STANDARD_IA',
+] as const satisfies readonly NonNullable<PutOptions['storageClass']>[];
+
+type UnlistedAcl = Exclude<
+	NonNullable<PutOptions['acl']>,
+	(typeof ACLS)[number]
+>;
+const _everyAclListed: [UnlistedAcl] extends [never] ? true : UnlistedAcl =
+	true;
+void _everyAclListed;
+
+type UnlistedClass = Exclude<
+	NonNullable<PutOptions['storageClass']>,
+	(typeof STORAGE_CLASSES)[number]
+>;
+const _everyClassListed: [UnlistedClass] extends [never]
+	? true
+	: UnlistedClass = true;
+void _everyClassListed;
+
+const ALLOWED = {
+	acl: ACLS,
+	storageClass: STORAGE_CLASSES,
+} as const satisfies Partial<
+	Record<keyof PutOptions | keyof PresignOptions, readonly string[]>
+>;
+
+/**
+ * The longest a presigned URL can live: SigV4's own limit, seven days.
+ *
+ * Measured on bun 1.4.2: the client refuses `0` and below with a `TypeError`
+ * of its own, and **signs** an `expiresIn` of `1e12` happily — a URL the
+ * service then rejects at use time, which is the one thing this package
+ * exists not to do.
+ */
+const MAX_EXPIRES_IN = 604_800;
+
+/**
+ * Refuses a value the service does not accept for `acl` or `storageClass`.
+ * Shared by `put` and `presign`, so the same wrong `acl` is the same error
+ * whichever one a caller reached for. An option with no fixed set passes.
+ */
+export function checkOption(key: string, name: string, value: unknown): void {
+	if (value === undefined) return;
+	if (name === 'expiresIn') {
+		checkExpiresIn(key, value);
+		return;
+	}
+	const allowed = (ALLOWED as Record<string, readonly string[] | undefined>)[
+		name
+	];
+	if (!allowed) return;
+	if (!allowed.includes(value as string)) {
+		throw new S3Error(
+			'WRONG_OPTION',
+			key,
+			`${name} must be one of ${allowed.join(', ')}; got ${JSON.stringify(value)}`,
+		);
+	}
+}
+
+function checkExpiresIn(key: string, value: unknown): void {
+	if (
+		typeof value !== 'number' ||
+		!Number.isFinite(value) ||
+		value <= 0 ||
+		value > MAX_EXPIRES_IN
+	) {
+		throw new S3Error(
+			'WRONG_OPTION',
+			key,
+			`expiresIn is seconds, and must be above 0 and at most ` +
+				`${MAX_EXPIRES_IN} (seven days, which is S3's own limit); ` +
+				`got ${JSON.stringify(value)}`,
 		);
 	}
 }

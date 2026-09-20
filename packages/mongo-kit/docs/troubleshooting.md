@@ -3,11 +3,33 @@
 Every heading is the text the error prints, so the page can be searched with
 what you have in front of you. Stacks, ids and paths are cut.
 
+Everything this package refuses is a `KitError`, exported from
+`@nxgt/mongo-kit`. It carries a `code` — `CONFIG`, `COLLISION`,
+`NO_DATABASE`, `SEVERAL_DATABASES`, `TRANSACTION`, `DERIVED` or `DISCOVERY` —
+beside the `database` and the `key` it is about, so a caller switches on the
+code instead of matching the sentence. It extends `TypeError`, which these
+were before 0.2.0, so a `catch` written against `TypeError` still catches
+them. The driver's own errors, and `@nxgt/mongo`'s `DataError`s, reach you
+unchanged.
+
+```ts
+import { KitError } from '@nxgt/mongo-kit';
+
+try {
+	await kit.transaction(work, { on: 'main' });
+} catch (error) {
+	if (error instanceof KitError) {
+		log.error({ code: error.code, database: error.database, key: error.key });
+	}
+	throw error;
+}
+```
+
 | Area | Entries |
 | --- | --- |
 | [Install](#install) | [ERESOLVE](#npm-error-eresolve-unable-to-resolve-dependency-tree) · [incorrect peer dependency](#warn-incorrect-peer-dependency-nxgtmongo0140) · [TS2307](#error-ts2307-cannot-find-module-nxgtmongo-or-its-corresponding-type-declarations) |
 | [Types](#types) | [a key the `Db` has](#command-is-a-member-of-the-drivers-db-wire-this-collection-under-another-key) · [options for a key that is not wired](#posts-is-not-wired-by-this-database-there-are-no-options-for-it) |
-| [Configuration](#configuration) | [no configuration at all](#defineconfig-a-configuration-object-is-required) · [`databases` is not an object](#defineconfig-databases-is-not-an-object) · [neither a uri nor a client](#defineconfig-database-main-has-neither-a-uri-nor-a-client) · [both](#defineconfig-database-main-has-both-a-uri-and-a-client-pass-the-one-it-should-use) · [client options](#defineconfig-database-main-has-client-options-beside-a-client-it-did-not-open-pass-them-where-the-client-is-made) · [no definition in it](#defineconfig-database-main-has-a-collections-object-with-no-definition-in-it-pass-the-module-as-in-import--as-collections) · [two keys, one collection](#defineconfig-database-main-wires-users-and-people-to-the-same-collection-users) · [an option the kit decides](#defineconfig-database-main-has-session-in-options-which-the-kit-decides-) · [options for a key it does not wire](#defineconfig-database-main-has-options-for-posts-which-it-does-not-wire) · [no databases](#defineconfig-databases-names-none) |
+| [Configuration](#configuration) | [no configuration at all](#defineconfig-a-configuration-object-is-required) · [`databases` is not an object of databases by name](#defineconfig-databases-must-be-an-object-of-databases-by-name-as--databases--main----one-database-is-the-configuration-itself-and-names-itself-with-database) · [neither a uri nor a client](#defineconfig-database-main-has-neither-a-uri-nor-a-client) · [both](#defineconfig-database-main-has-both-a-uri-and-a-client-pass-the-one-it-should-use) · [client options](#defineconfig-database-main-has-client-options-beside-a-client-it-did-not-open-pass-them-where-the-client-is-made) · [no definition in it](#defineconfig-database-main-has-a-collections-object-with-no-definition-in-it-pass-the-module-as-in-import--as-collections) · [two keys, one collection](#defineconfig-database-main-wires-users-and-people-to-the-same-collection-users) · [an option the kit decides](#defineconfig-database-main-has-session-in-options-which-the-kit-decides-) · [options for a key it does not wire](#defineconfig-database-main-has-options-for-posts-which-it-does-not-wire) · [no databases](#defineconfig-databases-names-none-give-it-at-least-one-as--databases--main---) |
 | [Runtime](#runtime) | [a key the `Db` has, at creation](#createkit-database-main-wires-a-collection-under-command-which-is-a-member-of-the-drivers-db-it-would-be-unreachable-export-that-definition-under-another-name) · [ECONNREFUSED](#mongoserverselectionerror-connect-econnrefused-12700127017) · [one URI, two option sets](#connectmongo-this-uri-is-already-connected-with-other-options-pass-the-same-options-everywhere-or-close-the-first-connection) · [`kit.db` with several databases](#kitdb-this-kit-has-several-databases-read-the-one-you-mean-as-kitdatabasesmain) · [an unknown database](#this-kit-has-no-database-reporting-it-has-main-analytics) · [closing a derived kit](#close-this-kit-came-from-as-withsession-or-a-transaction-close-the-kit-createkit-returned--the-clients-are-shared) · [`sync()` and privileges](#not-authorized-on-app-to-execute-command--collmod-users--) |
 | [Transactions](#transactions) | [more than one client](#transaction-this-kit-holds-more-than-one-client-and-a-transaction-lives-on-one-name-the-database-it-runs-on-as--on-main-) · [already in a session](#transaction-this-kit-is-already-in-a-session-which-this-call-joins-so-on-has-no-client-left-to-choose) · [a session from another client](#clientsession-must-be-from-the-same-mongoclient) · [no replica set](#this-mongodb-deployment-does-not-support-retryable-writes-please-add-retrywritesfalse-to-your-connection-string) |
 | [Scripts](#scripts) | [`Bun is not defined`](#referenceerror-bun-is-not-defined) · [no glob](#discovercollections-a-glob-is-required) · [two files, one collection](#discovercollections-srcmodelsonemodelts-and-srcmodelstwomodelts-both-define-the-collection-twice) · [no definition of that name](#discovercollections-srcmodelsnotests-exports-no-definition-named-definition) |
@@ -131,8 +153,10 @@ defineConfig({
 
 ## Configuration
 
-`defineConfig` connects to nothing: everything below throws where the
-configuration is written, before the application starts.
+`defineConfig` connects to nothing: everything below is a `KitError` with
+`code: 'CONFIG'`, thrown where the configuration is written, before the
+application starts. It names the database it is about as `error.database`,
+and the collection key as `error.key` when one is at fault.
 
 ### `defineConfig: a configuration object is required`
 
@@ -154,7 +178,7 @@ import * as collections from './models';
 export const config = defineConfig({ uri, collections });
 ```
 
-### `defineConfig: databases is not an object`
+### ``defineConfig: databases must be an object of databases by name, as `{ databases: { main: … } }`. One database is the configuration itself, and names itself with `database`.``
 
 **When:** calling `defineConfig` with a `databases` that is a string, a number
 or `null`.
@@ -302,7 +326,7 @@ a config built at run time, or JavaScript.
 export const config = defineConfig({ uri, collections, optionsFor: { users: {} } });
 ```
 
-### `defineConfig: databases names none`
+### ``defineConfig: databases names none. Give it at least one, as `{ databases: { main: … } }`.``
 
 **When:** calling `defineConfig` with `databases: {}`.
 
@@ -324,8 +348,10 @@ given back before it throws.
 
 **Why:** the same collision as the
 [type error](#command-is-a-member-of-the-drivers-db-wire-this-collection-under-another-key),
-asked of the live `Db` object rather than of its type. It fires when the types
-were bypassed, and when a driver release adds a member your key already uses.
+asked of the live `Db` object rather than of its type. A `KitError` with
+`code: 'COLLISION'`, carrying the `database` and the `key` it refused. It
+fires when the types were bypassed, and when a driver release adds a member
+your key already uses.
 
 **Fix:** rename the export, as above. If the driver added the member, raising
 `mongodb` is what surfaced it — the check is deliberate, not a regression.
@@ -373,7 +399,7 @@ Both databases then share the one client, which is the point.
 
 **Why:** `db` is the sole database's scope. With several there is no sole one,
 so its type is already `never` — this is what a cast or a JavaScript call-site
-gets at run time.
+gets at run time. `code: 'SEVERAL_DATABASES'`.
 
 **Fix:**
 
@@ -386,7 +412,8 @@ await kit.databases.main.users.create({ email: 'ada@example.com' });
 **When:** `transaction(fn, { on })` with a name the config does not hold.
 
 **Why:** the names are the keys of `databases` in the config, nothing else —
-not the database names on the server. (Reading `kit.databases.<name>` for a
+not the database names on the server. `code: 'NO_DATABASE'`, with the name
+that was asked for as `error.database`. (Reading `kit.databases.<name>` for a
 name that is not there does not throw: it does not compile, and gives
 `undefined` where the types were bypassed.)
 
@@ -403,7 +430,7 @@ that came from `as`, `withSession`, or the one handed to a transaction body.
 
 **Why:** a derived kit shares the databases and the clients of the kit
 `createKit` returned. Closing it would take the connections from every other
-kit derived from the same root.
+kit derived from the same root. `code: 'DERIVED'`.
 
 **Fix:** keep `await using` for the root, and let the derived ones fall away:
 
@@ -442,6 +469,7 @@ client.
 **Why:** a transaction lives on a single client, and the types cannot decide:
 two databases on one URI share a client and need no `on`, so what matters is
 the number of *clients*, which is known only once they are open.
+`code: 'TRANSACTION'`.
 
 **Fix:**
 
@@ -456,7 +484,7 @@ await kit.transaction((tx) => tx.databases.main.users.create(user), { on: 'main'
 
 **Why:** a nested transaction **joins** the outer one rather than opening a
 second beside it, so it runs on the session that is already open — there is no
-client left to pick.
+client left to pick. `code: 'TRANSACTION'`, as above.
 
 **Fix:**
 
@@ -503,7 +531,9 @@ mongod --replSet rs0 --dbpath ./data   # then, once: rs.initiate()
 ## Scripts
 
 `discoverCollections` is for scripts run from the repository: it reads a glob
-from the file system, gives no types, and does not survive bundling.
+from the file system, gives no types, and does not survive bundling. What it
+refuses is a `KitError` with `code: 'DISCOVERY'`, and the path it was reading
+as `error.key`.
 
 ### `ReferenceError: Bun is not defined`
 

@@ -2,6 +2,7 @@ import { connectMongo, type MongoConnection } from '@nxgt/mongo';
 import type { Db } from 'mongodb';
 import { checkDatabase } from '../config/checks';
 import type { DatabaseConfig, KitConfig } from '../config/types';
+import { KitError } from '../errors/kit-error';
 import type { DatabaseContext, KitContext } from './context';
 import { kitOf } from './derive';
 import type { MongoKit } from './types';
@@ -36,10 +37,12 @@ async function open(
 function checkCollisions(name: string, db: Db, keys: readonly string[]): void {
 	for (const key of keys) {
 		if (key in db) {
-			throw new TypeError(
+			throw new KitError(
+				'COLLISION',
 				`createKit: database "${name}" wires a collection under "${key}", ` +
 					"which is a member of the driver's Db: it would be unreachable. " +
 					'Export that definition under another name.',
+				{ database: name, key },
 			);
 		}
 	}

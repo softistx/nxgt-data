@@ -73,8 +73,9 @@ kit.clients.main === kit.clients.analytics; // true when one URI wires both
 ```
 
 `kit.db` is then `never`, and reading it anyway — from JavaScript, or across
-an `any` — throws a `TypeError` naming the databases to read instead: with
-two of them there is no "the" database.
+an `any` — throws a [`KitError`](errors.md) with
+`code: 'SEVERAL_DATABASES'`, naming the databases to read instead: with two
+of them there is no "the" database.
 
 ## Closing
 

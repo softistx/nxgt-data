@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { defineCollection, id } from '@nxgt/mongo';
 import { MongoClient } from 'mongodb';
 import { z } from 'zod';
+import { KitError } from '../errors/kit-error';
 import { defineConfig } from './define-config';
 
 const users = defineCollection({
@@ -17,6 +18,16 @@ const people = defineCollection({
 const uri = 'mongodb://127.0.0.1:27017/app';
 
 describe('defineConfig', () => {
+	/** The error a call threw, or a failure that says it did not throw. */
+	const thrown = (fn: () => unknown): unknown => {
+		try {
+			fn();
+		} catch (error) {
+			return error;
+		}
+		throw new Error('it did not throw, and should have');
+	};
+
 	test('names the only database `default`', () => {
 		const config = defineConfig({ uri, collections: { users } });
 		expect(Object.keys(config.databases)).toEqual(['default']);
@@ -68,10 +79,39 @@ describe('defineConfig', () => {
 			);
 		});
 
-		test('a `databases` that is not an object', () => {
+		test('a `databases` that is not an object, and says what one looks like', () => {
 			expect(() => defineConfig({ databases: 'main' } as never)).toThrow(
-				'databases is not an object',
+				'databases must be an object of databases by name',
 			);
+		});
+
+		test('every refusal is a KitError with the CONFIG code', () => {
+			for (const bad of [
+				undefined,
+				{ databases: 'main' },
+				{ databases: {} },
+				{ uri, collections: {} },
+			]) {
+				const error = thrown(() => defineConfig(bad as never));
+				expect(error).toBeInstanceOf(KitError);
+				expect(error).toHaveProperty('code', 'CONFIG');
+				// It still answers to `TypeError`, which is what this package threw
+				// before `KitError` existed: no consumer's `catch` stopped working.
+				expect(error).toBeInstanceOf(TypeError);
+			}
+		});
+
+		test('names the database it is about', () => {
+			// Not a bare `try`/`catch`: with nothing on the resolved path, a
+			// `defineConfig` that stopped refusing would pass this with zero
+			// assertions run.
+			const error = thrown(() =>
+				defineConfig({
+					databases: { analytics: { uri, collections: {} } },
+				} as never),
+			);
+			expect(error).toHaveProperty('database', 'analytics');
+			expect(error).toHaveProperty('code', 'CONFIG');
 		});
 
 		test('both a uri and a client', () => {

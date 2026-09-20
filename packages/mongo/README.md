@@ -730,6 +730,7 @@ application never reads a numeric code:
 | `CorruptFileError` | `CORRUPT_FILE` | a stored file is missing chunks, or one of them is short — raised while its bytes are read, not when it is found |
 | `MigrationError` | `MIGRATION` | a migration failed, or the list does not match the records — from `@nxgt/mongo/migrations` |
 | `MigrationLockedError` | `MIGRATION_LOCKED` | another run holds the migration lock, or this one lost it — from `@nxgt/mongo/migrations` |
+| `ConnectionError` | `CONNECTION` | `closeMongo()` closed every client while this `connectMongo` was still connecting. It carries no URI: a connection string holds the password |
 | `DataError` | `DATABASE` | any other server error, with its `serverCode` |
 
 `ConflictError` carries `index`, `keys` and, when the server gives them,
@@ -1312,8 +1313,9 @@ operator, and getting it subtly wrong is worse than being honest about it.
 - **Close a shared client through its connection.** `mongo.client.close()`
   skips the count: the closed client stays shared, and every later
   `connectMongo` for that URI gets it, dead, until `closeMongo()`.
-- **A connect that `closeMongo()` interrupts rejects.** At shutdown, a request
-  still connecting fails rather than getting a closed client.
+- **A connect that `closeMongo()` interrupts rejects with a `ConnectionError`.**
+  At shutdown a request still connecting fails rather than getting a closed
+  client: `if (error instanceof ConnectionError) return c.json({ error: 'shutting down' }, 503);`.
 - **Without post-images, an update's `document` is today's.** It is looked up
   when the change is read, so two quick updates can both arrive with the
   second one's document. Enable `changeStreamPreAndPostImages` when the exact

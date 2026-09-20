@@ -218,6 +218,40 @@ definition under it; without `export`, every export that is a definition is
 taken. Two files defining the same server collection are refused. It needs
 the Bun runtime, and it is for scripts.
 
+## Errors
+
+`KitError` is what this package refuses: a configuration, a name or a call
+that cannot work. It carries a `code`, and the `database` and `key` it is
+about — never a URI, which may hold a password.
+
+```ts
+import { KitError } from '@nxgt/mongo-kit';
+
+if (error instanceof KitError && error.code === 'CONFIG') {
+	console.error(`mongo: "${error.database}" is misconfigured`, error.message);
+}
+```
+
+| `KitErrorCode` | |
+| --- | --- |
+| `CONFIG` | `defineConfig` refused the configuration |
+| `COLLISION` | a collection is wired under a name the driver's `Db` has |
+| `NO_DATABASE` | `transaction(fn, { on })` named a database this kit does not hold |
+| `SEVERAL_DATABASES` | `kit.db` was read on a kit that holds more than one |
+| `TRANSACTION` | no client named where one is needed, or `{ on }` inside a session |
+| `DERIVED` | `close()` on a kit `as`, `withSession` or a transaction derived |
+| `DISCOVERY` | `discoverCollections` could not make a set of definitions |
+
+It extends **`TypeError`**, not `Error`: each of these is a call or a
+configuration written wrong, and this package threw bare `TypeError`s before
+the class existed, so a `catch` that tests for `TypeError` still matches.
+
+The collections are `@nxgt/mongo`'s, so what a *query* throws is its
+`DataError` and its subclasses, unchanged. MongoDB's own refusal to connect
+reaches the caller from `createKit` as the driver's error. Every code, with
+the call that raises it, is in
+[docs/guide/errors.md](docs/guide/errors.md).
+
 ## What does not compile
 
 Each is a `@ts-expect-error` case in this package's type tests.
@@ -250,7 +284,7 @@ Each is a `@ts-expect-error` case in this package's type tests.
   deployment step: it needs `dbAdmin`, and an index build is not in a
   transaction.
 - **A kit from `as` or `withSession` cannot be closed**, and `close()` on it
-  throws: the clients are the root kit's.
+  throws `KitError` with the code `DERIVED`: the clients are the root kit's.
 - **`discoverCollections` runs under Bun**, has no types, and does not
   survive bundling. It is for scripts run from the repository; a Node script
   calling it gets `Bun is not defined`.
@@ -258,15 +292,16 @@ Each is a `@ts-expect-error` case in this package's type tests.
   uncallable: one call could not stamp both.
 - **`{ on }` is required at run time, not by the types**, and cannot be: two
   databases on one URI share a client and need none, so what decides is the
-  number of *clients*. Without it, a kit holding two throws.
+  number of *clients*. Without it, a kit holding two throws `TRANSACTION`.
 - **A transaction body may run twice.** The driver retries it from the start
   on a transient error, so it must hold nothing that MongoDB would not roll
   back.
 - **A transaction reaches one client's databases.** With `{ on: 'main' }`,
   an operation on a database of another client carries a session that client
   does not own, and the driver refuses it.
-- **`kit.db` throws on a kit with several databases**, where its type is
-  already `never`: the message names the databases to read instead.
+- **`kit.db` throws `SEVERAL_DATABASES` on a kit with several databases**,
+  where its type is already `never`: the message names the databases to read
+  instead.
 
 ## Documentation
 
@@ -278,6 +313,8 @@ Each is a `@ts-expect-error` case in this package's type tests.
 - [The actor, sessions and transactions](docs/guide/actor-and-transactions.md)
   — `as`, `withSession` and `transaction`.
 - [Syncing](docs/guide/sync.md) — the deployment step, and `dryRun`.
+- [Errors](docs/guide/errors.md) — `KitError`, its codes, and what each one
+  is thrown by.
 - [`discoverCollections`](docs/guide/discover-collections.md) — definitions
   from a glob, for scripts.
 - [Troubleshooting](docs/troubleshooting.md) — the errors, by their message.

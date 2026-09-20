@@ -7,6 +7,7 @@ import {
 	test,
 } from 'bun:test';
 import { startMongo, type TestServer } from '../../test/server';
+import { ConnectionError } from '../errors/data-error';
 import { closeMongo, connectMongo } from './connect';
 
 let t: TestServer;
@@ -152,10 +153,16 @@ describe('closeMongo', () => {
 			(error: unknown) => error,
 		);
 		await closeMongo();
-		expect(await pending).toHaveProperty(
+		const error = await pending;
+		expect(error).toHaveProperty(
 			'message',
 			expect.stringContaining('closed while this one'),
 		);
+		expect(error).toBeInstanceOf(ConnectionError);
+		expect(error).toHaveProperty('code', 'CONNECTION');
+		// Never the URI: a connection string holds the password. The mirror of
+		// this assertion is in `@nxgt/redis`'s `connect.spec.ts`.
+		expect((error as Error).message).not.toContain(t.uri);
 		const after = await connectMongo(t.uri);
 		expect((await after.ping()).ok).toBe(true);
 	});

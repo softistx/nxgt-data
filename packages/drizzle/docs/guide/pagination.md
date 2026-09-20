@@ -118,8 +118,13 @@ const page = await userRepository.paginateByCursor({
 
 Two rules the column must follow:
 
+- **A column the table has.** An `orderBy` naming one it does not is an
+  [`ArgumentError`](errors.md#argumenterror-what-the-call-said) with
+  `argument: 'paginateByCursor'` and the key on `key` — a column name off a
+  query string is user input, so it is a 400.
 - **`NOT NULL`.** A row whose ordering column is `null` cannot be paged past,
-  and throws a `TypeError` naming the column.
+  and throws a bare `TypeError` naming the column. That one is about the data
+  in the table, not the call, so it is not an `ArgumentError`.
 - **No precision the type cannot hold.** A `timestamptz` at PostgreSQL's
   default microsecond precision, read into a `Date`, loses digits, and the
   next page starts at the wrong place. Declare it `precision: 3`, as

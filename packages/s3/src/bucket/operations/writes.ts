@@ -1,5 +1,5 @@
 import { type BucketContext, keyOf } from '../context';
-import { checkSize, checkType, effectiveType } from '../guards';
+import { checkOption, checkSize, checkType, effectiveType } from '../guards';
 import type { PutBody, PutOptions } from '../types';
 
 /**
@@ -16,11 +16,14 @@ export async function putObject<P>(
 	const type = effectiveType(body, options.type);
 	checkType(context, key, type);
 	checkSize(context, key, body);
+	// Refused here with the other two, so every guard on this call answers
+	// before anything is sent, and every one of them is an `S3Error`.
+	const forwarded = passed(key, options);
 	// The very type `checkType` approved, and nothing else: `type` is not one
 	// of the keys `passed` forwards, so no option can carry a second one in
 	// beside it.
 	await context.client.write(key, body, {
-		...passed(options),
+		...forwarded,
 		...(type ? { type } : {}),
 	});
 }
@@ -56,10 +59,13 @@ const _nothingForgotten: [Unforwarded] extends [never] ? true : Unforwarded =
 	true;
 void _nothingForgotten;
 
-function passed(options: PutOptions): PutOptions {
+function passed(key: string, options: PutOptions): PutOptions {
 	const forwarded: Record<string, unknown> = {};
-	for (const key of PASSED) {
-		if (options[key] !== undefined) forwarded[key] = options[key];
+	for (const name of PASSED) {
+		const value = options[name];
+		if (value === undefined) continue;
+		checkOption(key, name, value);
+		forwarded[name] = value;
 	}
 	return forwarded as PutOptions;
 }

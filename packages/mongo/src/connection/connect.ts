@@ -1,4 +1,5 @@
 import { type Db, MongoClient, type MongoClientOptions } from 'mongodb';
+import { ConnectionError } from '../errors/data-error';
 
 /** What `ping` found. It never throws: a health check reports, it does not fail. */
 export type PingResult =
@@ -121,7 +122,7 @@ export async function connectMongo(
 	const client = await shared.connecting;
 	if (clients.get(uri) !== shared) {
 		// `closeMongo` ran while this was connecting: the client is closed.
-		throw new Error(
+		throw new ConnectionError(
 			'connectMongo: every client was closed while this one was connecting.',
 		);
 	}

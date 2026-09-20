@@ -191,6 +191,100 @@ describe('the write guards', () => {
 		expect(await bucket.exists({ userId: 'u1' })).toBe(false);
 	});
 
+	test('refuse a storageClass the service would not take', async () => {
+		const bucket = anything();
+		// Bun checks this too, and throws a `TypeError` whose `name` is also
+		// "S3Error" — measured. Refusing it here makes every guard on one `put`
+		// one class with one code.
+		const error = (await bucket
+			.put({ folder: 'a', name: 'b.txt' }, 'a,b\n', {
+				storageClass: 'CHEAP' as never,
+			})
+			.catch((reason: unknown) => reason)) as S3Error;
+		expect(error).toBeInstanceOf(S3Error);
+		expect(error.code).toBe('WRONG_OPTION');
+		expect(error.message).toContain('storageClass must be one of');
+		expect(error.message).toContain('got "CHEAP"');
+		expect(error.key).toBe('a/b.txt');
+		expect(await bucket.exists({ folder: 'a', name: 'b.txt' })).toBe(false);
+	});
+
+	test('refuse an acl the service would not take', async () => {
+		const bucket = anything();
+		const error = (await bucket
+			.put({ folder: 'a', name: 'b.txt' }, 'a,b\n', {
+				acl: 'everyone' as never,
+			})
+			.catch((reason: unknown) => reason)) as S3Error;
+		expect(error).toBeInstanceOf(S3Error);
+		expect(error.code).toBe('WRONG_OPTION');
+		expect(error.message).toContain('acl must be one of');
+		expect(await bucket.exists({ folder: 'a', name: 'b.txt' })).toBe(false);
+	});
+
+	test('a presign is held to the same allowlist as a put', async () => {
+		const bucket = anything();
+		// `presign` forwards `acl` too, and used to forward it unchecked: the
+		// same wrong value was an `S3Error` on `put` and Bun's own `TypeError`
+		// here, for one mistake. Both go through `checkOption` now.
+		const error = (() => {
+			try {
+				bucket.presignPut(
+					{ folder: 'a', name: 'b.txt' },
+					{ acl: 'everyone' as never },
+				);
+			} catch (reason: unknown) {
+				return reason as S3Error;
+			}
+			throw new Error('it signed a URL, and should not have');
+		})();
+		expect(error).toBeInstanceOf(S3Error);
+		expect(error.code).toBe('WRONG_OPTION');
+		expect(error.key).toBe('a/b.txt');
+		// The ACL a bucket does accept still signs.
+		expect(
+			bucket.presignGet({ folder: 'a', name: 'b.txt' }, { acl: 'private' }),
+		).toContain('a/b.txt');
+	});
+
+	test('refuses an expiresIn the service would reject at use time', () => {
+		const bucket = anything();
+		const refused = (seconds: unknown): S3Error => {
+			try {
+				bucket.presignGet(
+					{ folder: 'a', name: 'b.txt' },
+					{ expiresIn: seconds as number },
+				);
+			} catch (reason: unknown) {
+				return reason as S3Error;
+			}
+			throw new Error(`it signed a URL for ${String(seconds)}`);
+		};
+		// Measured on bun 1.4.2: the client refuses 0 and below itself, with a
+		// `TypeError`; it *signs* 1e12 happily, and S3 caps a presigned URL at
+		// seven days, so that URL fails at use time — after this package said
+		// yes. Both are a `WRONG_OPTION` here, before anything is signed.
+		for (const bad of [0, -1, 1e12, Number.NaN, '3600']) {
+			const error = refused(bad);
+			expect(error).toBeInstanceOf(S3Error);
+			expect(error.code).toBe('WRONG_OPTION');
+			expect(error.key).toBe('a/b.txt');
+		}
+		// Seven days exactly is the limit, and passes.
+		expect(
+			bucket.presignGet({ folder: 'a', name: 'b.txt' }, { expiresIn: 604_800 }),
+		).toContain('a/b.txt');
+	});
+
+	test('take the values the service does accept', async () => {
+		const bucket = anything();
+		await bucket.put({ folder: 'a', name: 'ok.txt' }, 'a,b\n', {
+			acl: 'private',
+			storageClass: 'STANDARD',
+		});
+		expect(await bucket.text({ folder: 'a', name: 'ok.txt' })).toBe('a,b\n');
+	});
+
 	test('let anything through when the bucket guards nothing', async () => {
 		const bucket = anything();
 		// The same body a guarded bucket refuses.
@@ -294,12 +388,12 @@ describe('what a single write may say about the object', () => {
 		expect(await bucket.text({ folder: 'a', name: 'b.txt' })).toBe('x');
 	});
 
-	test('leaves an option’s own value to Bun, which throws its own error', async () => {
-		// The guards own the content type and the size, and raise `S3Error`.
-		// A value outside one of Bun's unions is Bun's to refuse, and it
-		// refuses with a `TypeError` before anything is sent — a different
-		// class for a handler to catch. `contentDisposition` has no union, so
-		// there is nothing there to refuse.
+	test('refuses an option’s own value itself, rather than leaving it to Bun', async () => {
+		// It used to reach Bun, which refused it with a `TypeError` — a second
+		// class to catch for one `put`, and one this package could not even
+		// tell apart by name, because Bun calls its errors `S3Error` too.
+		// `contentDisposition` and `contentEncoding` have no union, so there is
+		// nothing there to refuse and they are still forwarded as they come.
 		const bucket = anything();
 		// `as unknown` because the types do refuse this one outright, where a
 		// bag with an extra `bucket` key still overlaps `PutOptions`.
@@ -309,9 +403,9 @@ describe('what a single write may say about the object', () => {
 		} as unknown as PutOptions;
 		const error = (await bucket
 			.put({ folder: 'a', name: 'bad.txt' }, 'x', bad)
-			.catch((reason: unknown) => reason)) as Error;
-		expect(error).toBeInstanceOf(TypeError);
-		expect(error).not.toBeInstanceOf(S3Error);
+			.catch((reason: unknown) => reason)) as S3Error;
+		expect(error).toBeInstanceOf(S3Error);
+		expect(error.code).toBe('WRONG_OPTION');
 		expect(await bucket.exists({ folder: 'a', name: 'bad.txt' })).toBe(false);
 	});
 

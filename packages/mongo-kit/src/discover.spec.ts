@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { clearCollectionRegistry } from '@nxgt/mongo';
 import { discoverCollections } from './discover';
+import { KitError } from './errors/kit-error';
 
 /** The package's own directory, whatever `bun test` was run from. */
 const cwd = new URL('..', import.meta.url).pathname;
@@ -66,8 +67,15 @@ describe('discoverCollections', () => {
 	});
 
 	test('refuses an empty glob', async () => {
-		await expect(discoverCollections({ glob: '', cwd })).rejects.toThrow(
-			'a glob is required',
+		const error = await discoverCollections({ glob: '', cwd }).then(
+			null,
+			(reason: unknown) => reason,
 		);
+		expect(error).toHaveProperty(
+			'message',
+			expect.stringContaining('a glob is required'),
+		);
+		expect(error).toBeInstanceOf(KitError);
+		expect(error).toHaveProperty('code', 'DISCOVERY');
 	});
 });

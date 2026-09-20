@@ -1,5 +1,6 @@
 import { type TransactionHost, withTransaction } from '@nxgt/mongo';
 import type { MongoClient, TransactionOptions } from 'mongodb';
+import { KitError } from '../errors/kit-error';
 import { databaseOf, derived, type KitContext } from './context';
 
 /**
@@ -15,7 +16,8 @@ export function clientFor(
 	const clients = new Set(ctx.databases.map((database) => database.client));
 	const [only] = clients;
 	if (clients.size === 1 && only) return only;
-	throw new TypeError(
+	throw new KitError(
+		'TRANSACTION',
 		'transaction: this kit holds more than one client, and a transaction ' +
 			"lives on one. Name the database it runs on, as `{ on: 'main' }`.",
 	);
@@ -32,7 +34,8 @@ export function hostFor(
 ): TransactionHost {
 	if (!ctx.session) return clientFor(ctx, on);
 	if (on !== undefined) {
-		throw new TypeError(
+		throw new KitError(
+			'TRANSACTION',
 			'transaction: this kit is already in a session, which this call ' +
 				'joins, so `on` has no client left to choose.',
 		);

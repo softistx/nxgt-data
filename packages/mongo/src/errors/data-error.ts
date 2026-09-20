@@ -9,7 +9,8 @@ export type DataErrorCode =
 	| 'INVALID_ID'
 	| 'CORRUPT_FILE'
 	| 'MIGRATION'
-	| 'MIGRATION_LOCKED';
+	| 'MIGRATION_LOCKED'
+	| 'CONNECTION';
 
 /** One reason a document failed the collection's `$jsonSchema` validator. */
 export interface ValidationIssue {
@@ -168,6 +169,28 @@ export class InvalidCursorError extends DataError {
 	override readonly code = 'INVALID_CURSOR' as const;
 
 	constructor(message = 'Invalid cursor', options: DataErrorOptions = {}) {
+		super(message, options);
+	}
+}
+
+/**
+ * The shared client was closed while this `connectMongo` was still waiting
+ * for it.
+ *
+ * `closeMongo()` closes every client at once, so a connect that raced it
+ * comes back holding nothing. Calling `connectMongo` again opens a fresh one;
+ * the failure is the race, not the URI.
+ *
+ * MongoDB's own refusal to connect — a host that does not answer, an auth
+ * failure — is the driver's error and reaches the caller unchanged. This is
+ * only what *this* package decides. It carries no URI: a connection string
+ * holds the password.
+ */
+export class ConnectionError extends DataError {
+	override name = 'ConnectionError';
+	override readonly code = 'CONNECTION' as const;
+
+	constructor(message = 'Connection lost', options: DataErrorOptions = {}) {
 		super(message, options);
 	}
 }

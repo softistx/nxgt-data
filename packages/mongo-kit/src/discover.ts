@@ -1,5 +1,6 @@
 import type { AnyCollectionDefinition } from '@nxgt/mongo';
 import { definitionsOf, isDefinition } from './config/checks';
+import { KitError } from './errors/kit-error';
 
 /** What to scan, and what to read in each file it finds. */
 export interface DiscoverOptions {
@@ -41,7 +42,7 @@ export async function discoverCollections(
 ): Promise<AnyCollectionDefinition[]> {
 	const { glob, cwd = process.cwd(), export: name } = options;
 	if (typeof glob !== 'string' || glob === '') {
-		throw new TypeError('discoverCollections: a glob is required');
+		throw new KitError('DISCOVERY', 'discoverCollections: a glob is required');
 	}
 	const paths = await Array.fromAsync(new Bun.Glob(glob).scan({ cwd }));
 	const found: AnyCollectionDefinition[] = [];
@@ -55,15 +56,19 @@ export async function discoverCollections(
 					? ([[name, module[name]]] as [string, AnyCollectionDefinition][])
 					: [];
 		if (name !== undefined && definitions.length === 0) {
-			throw new TypeError(
+			throw new KitError(
+				'DISCOVERY',
 				`discoverCollections: ${path} exports no definition named "${name}"`,
+				{ key: path },
 			);
 		}
 		for (const [, definition] of definitions) {
 			const seen = byName.get(definition.name);
 			if (seen !== undefined && seen !== path) {
-				throw new TypeError(
+				throw new KitError(
+					'DISCOVERY',
 					`discoverCollections: ${seen} and ${path} both define the collection "${definition.name}"`,
+					{ key: path },
 				);
 			}
 			byName.set(definition.name, path);

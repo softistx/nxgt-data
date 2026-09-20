@@ -39,6 +39,12 @@ _Nothing queued._
 
 ## Shipped
 
+- **An option's own value is refused before anything is sent or signed** —
+  `code: 'WRONG_OPTION'` for an `acl` or a `storageClass` a write names, for
+  an `acl` on a presigned URL, and for an `expiresIn` outside the seven days
+  S3 itself allows. Every refusal of a write or a signed URL is one class with
+  a code to switch on, rather than an `S3Error` for the content type and the
+  size and the client's own `TypeError` for the rest — 0.3.0.
 - **Documentation that travels with the package** — a guide page for the
   bucket definition, writes, reads and presigned URLs, a troubleshooting page
   whose headings are the exact error text, and this roadmap, installed in

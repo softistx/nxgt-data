@@ -196,13 +196,17 @@ if (error instanceof RedisError && error.code === 'LOCK_HELD') { … }
 | `LOCK_HELD` | `wait` ran out and somebody else still holds it |
 | `LOCK_LOST` | the work finished, but the lock had already expired |
 | `INVALID` | a value does not match the schema it is stored or published under |
+| `CONNECTION` | `closeRedis()` closed every client while this `connectRedis` was still connecting |
+| `PING_TIMEOUT` | `ping` gave up waiting. **Returned** on `{ ok: false, error }`, never thrown |
+
+`key` is `''` for those last two — they are about the connection, not a key —
+and it is never the URI, which may carry a password.
 
 **Three `TypeError`s come earlier, at definition time**, and normally at
 import: `defineCache` refuses an empty `name` and a `ttl` that is not a finite
 number above zero, and `defineChannel` refuses an empty `name`.
 `connectRedis` throws a `TypeError` when a URI is already connected with other
-options, and a plain `Error` when `closeRedis()` ran while it was connecting.
-Redis's own failures come back as they are, from Bun's client.
+options. Redis's own failures come back as they are, from Bun's client.
 
 ## What does not compile
 
@@ -269,6 +273,10 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
   application connects, or pass the same options everywhere.
 - **`close()` on one connection is not `closeRedis()`.** The first gives back
   one holder; the second takes every client away from everybody.
+- **A connect that `closeRedis()` interrupts rejects, with `CONNECTION`.** At
+  shutdown a request still connecting fails rather than get a closed client;
+  connecting again opens a fresh one, since the failure was the race and not
+  the URI.
 
 ## Documentation
 

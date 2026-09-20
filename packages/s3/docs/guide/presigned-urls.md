@@ -43,8 +43,35 @@ interface PresignOptions {
 
 | Option | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `expiresIn` | `number` | Bun's, one day | **seconds** until the URL expires. Always pass one |
+| `expiresIn` | `number` | Bun's, one day | **seconds** until the URL expires. Always pass one. Above 604 800 (seven days, S3's own limit), at or below zero, or anything that is not a finite number is an `S3Error` with `code: 'WRONG_OPTION'` |
 | `acl` | `'private' \| 'public-read' \| …` | none | the ACL the URL is signed for, where the service honours it |
+
+`acl` goes through the same allowlist a `put` is held to, so a value the
+service does not accept is an `S3Error` with `code: 'WRONG_OPTION'` and no
+URL is signed:
+
+```ts
+import { S3Error } from '@nxgt/s3';
+
+try {
+	store.presignPut({ userId: 'u1' }, { acl: 'everyone' as never });
+} catch (error) {
+	if (error instanceof S3Error && error.code === 'WRONG_OPTION') {
+		error.key; // 'u1.png' — the object it was about
+	}
+}
+```
+
+`expiresIn` goes through the same check. Measured on bun 1.4.2, the client
+refuses `0` and below itself, and **signs** an `expiresIn` of `1e12`
+happily — a URL S3 then rejects at use time, which is the one thing this
+package exists not to do. Both ends are refused here now, before anything is
+signed.
+
+Before 0.3.0 the values went straight to the client: the same mistake was two
+different classes depending on whether it reached a `put` or a `presign`.
+There is no `storageClass` here — signing a URL stores nothing, so there is
+no class to name.
 
 A day is a long time for a URL that anyone can forward. Sign for the time the
 page actually needs:

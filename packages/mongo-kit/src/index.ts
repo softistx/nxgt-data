@@ -12,6 +12,11 @@ export type {
 	Unwired,
 } from './config/types';
 export { type DiscoverOptions, discoverCollections } from './discover';
+export {
+	KitError,
+	type KitErrorCode,
+	type KitErrorOptions,
+} from './errors/kit-error';
 export { createKit } from './kit/create-kit';
 export type {
 	DbScope,

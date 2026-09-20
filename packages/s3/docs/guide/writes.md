@@ -89,27 +89,39 @@ that changes one is a compile error here rather than a silent drift. Given
 both here and to `bindBucket`, the one on the write wins: it is the last
 thing handed to the client.
 
-### An option's *value* is Bun's to check, and Bun throws its own error
+### An option's *value* is checked here too
 
-The guards below own the content type and the size, and raise `S3Error`. A
-value outside one of Bun's unions is Bun's to refuse, and it refuses with a
-plain `TypeError`:
+`acl` and `storageClass` are unions, and the values listed above are the only
+ones the service takes. A bag off a request body never met those types, so
+the value is checked at run time as well — before anything is sent, with the
+content type and the size, and as the same `S3Error`:
 
 ```ts
-import type { PutOptions } from '@nxgt/s3';
+import { S3Error, type PutOptions } from '@nxgt/s3';
 
-const bad = { type: 'text/plain', storageClass: 'NOPE' } as unknown as PutOptions;
+const bad = { type: 'text/plain', storageClass: 'CHEAP' } as unknown as PutOptions;
 
-await store.put({ userId: 'u1' }, 'x', bad);
-// TypeError: storageClass must be one of …
-// `error instanceof S3Error` is false. Nothing was stored.
+const error = (await store
+	.put({ userId: 'u1' }, 'a,b\n', bad)
+	.catch((reason: unknown) => reason)) as S3Error;
+
+error instanceof S3Error; // true
+error.code;               // 'WRONG_OPTION'
+error.message;            // 'storageClass must be one of STANDARD, DEEP_ARCHIVE, …; got "CHEAP"'
+error.key;                // 'u1.png' — the key, never the body
+// Nothing was stored: `await store.exists({ userId: 'u1' })` is still false.
 ```
 
-`acl` behaves the same way. `contentDisposition` and `contentEncoding` are
-plain strings to Bun and accept **anything** — nothing there is refused, by
-this package or by Bun. Nothing is sent in either case; it is the class a
-handler catches that differs. Validate a bag that arrives from a request body
-before passing it on.
+Bun checks both values as well, and refuses with a plain `TypeError`
+(measured on bun 1.4.2). That left one `put` with two classes of refusal —
+an `S3Error` with a code for the content type and the size, a `TypeError`
+with only a sentence for these two. Checking here means one `put` has one
+class of refusal, with a code to switch on. `contentDisposition` and `contentEncoding` are free strings
+and are never refused, by this package or by Bun.
+
+The same allowlist holds `acl` on a
+[presigned URL](presigned-urls.md#options), so a wrong value is the same
+`WRONG_OPTION` whichever call a consumer reached for.
 
 ### A write cannot change where it goes
 
@@ -165,6 +177,7 @@ try {
 | `WRONG_TYPE` | the type is not one this bucket accepts — or the write named none and the body carries none, while the bucket names some |
 | `TOO_LARGE` | the body is bigger than `maxSize`. The limit is inclusive: with `maxSize: 1024`, 1024 bytes passes and 1025 does not |
 | `UNMEASURABLE` | `maxSize` is set and the body's size cannot be known before sending |
+| `WRONG_OPTION` | the write's `acl` or `storageClass` is not a value the service accepts — see [above](#an-options-value-is-checked-here-too) |
 
 A content type is compared on its **essence**: parameters and case are
 ignored, and nothing else is. A bucket that accepts `text/csv` accepts

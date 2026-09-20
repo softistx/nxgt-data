@@ -174,6 +174,7 @@ if (error instanceof S3Error && error.code === 'TOO_LARGE') {
 | `WRONG_TYPE` | the body's content type is not one this bucket accepts — or the write named none and the bucket names some |
 | `TOO_LARGE` | the body is bigger than `maxSize` |
 | `UNMEASURABLE` | `maxSize` is set and the body's size cannot be known before sending |
+| `WRONG_OPTION` | an option's own value is not one the service accepts: `acl` or `storageClass` on a write, `acl` or `expiresIn` on a presigned URL |
 
 `defineBucket` throws a `TypeError` for a definition that could never work: an
 empty `bucket`, a `maxSize` that is not a positive number, an empty list of
@@ -242,18 +243,22 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   set and one without come back with the **same** ETag, and neither carries
   the `-<parts>` suffix a multipart upload leaves. Use `file(params).writer()`
   for a body that wants parts.
-- **An option's *value* is Bun's to check, and it throws Bun's error.** The
-  guards refuse a content type and a size before anything is sent, and raise
-  `S3Error`. An `acl` or a `storageClass` outside what Bun accepts raises
-  Bun's own `TypeError` instead — measured:
-  `storageClass: 'NOPE'` gives `TypeError: storageClass must be one of …`, and
-  `instanceof S3Error` is false. `contentDisposition` and `contentEncoding`
-  are plain strings to Bun and accept anything. Nothing is sent either way; it
-  is the class a handler catches that differs, so validate a bag from a
-  request body before passing it on.
+- **A wrong `acl` or `storageClass` is `WRONG_OPTION`, not Bun's `TypeError`.**
+  Both values are checked here, with the content type and the size — and an
+  `acl` on a presigned URL against the same list — so one `catch` takes every
+  refusal:
+  `if (error instanceof S3Error) return c.json({ error: error.code }, 400);`.
+  `contentDisposition` and `contentEncoding` are free strings and are never
+  refused. `presignGet` and `presignPut` forward `acl` too, and go through the
+  same allowlist. The accepted values are listed in
+  [docs/guide/writes.md](docs/guide/writes.md).
 - **A string body is measured in bytes, not in characters**, and `maxSize` is
   inclusive: 1024 passes, 1025 does not.
-- **`expiresIn` is seconds, and Bun's default is a day.** Always pass one.
+- **`expiresIn` is seconds, and Bun's default is a day.** Always pass one. An
+  `S3Error` with `code: 'WRONG_OPTION'` refuses it above 604 800 seconds —
+  seven days, S3's own cap on a presigned URL — at or below zero, and for
+  anything that is not a finite number, so a signed URL this package hands
+  back is one the service will accept.
 - **A key is built, never guessed.** `keyFor` is there so a caller that needs
   the string gets *the* string; building one by hand somewhere else is how a
   bucket ends up with two spellings of the same object.
