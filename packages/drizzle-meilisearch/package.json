@@ -1,0 +1,66 @@
+{
+	"name": "@nxgt/drizzle-meilisearch",
+	"version": "0.0.0",
+	"description": "Keeps a Meilisearch index in step with a PostgreSQL table: a typed transform, a full reindex, and one call per write — no change feed, and none pretended",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"docs",
+		"README.md",
+		"package.json",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"keywords": [
+		"drizzle",
+		"postgresql",
+		"meilisearch",
+		"search",
+		"sync",
+		"typescript"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/softistx/nxgt-data.git",
+		"directory": "packages/drizzle-meilisearch"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	},
+	"scripts": {
+		"build": "bun run ../../build.ts",
+		"test": "bun run ../../scripts/meilisearch.ts && bun test --timeout 30000 src",
+		"typecheck": "tsc --noEmit"
+	},
+	"nxgt": {
+		"entrypoints": [
+			"src/index.ts"
+		]
+	},
+	"devDependencies": {
+		"@electric-sql/pglite": "0.5.8",
+		"@nxgt/drizzle": "workspace:^",
+		"@nxgt/meilisearch": "workspace:^",
+		"@types/bun": "^1.4.0",
+		"drizzle-orm": "1.0.0-rc.4",
+		"meilisearch": "0.62.0"
+	},
+	"peerDependencies": {
+		"@nxgt/drizzle": "workspace:^",
+		"@nxgt/meilisearch": "workspace:^",
+		"drizzle-orm": ">=1.0.0-rc.4 <2",
+		"meilisearch": ">=0.62.0 <1",
+		"typescript": "^6.0.3"
+	}
+}

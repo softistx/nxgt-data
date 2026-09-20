@@ -44,6 +44,25 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/drizzle-meilisearch": {
+      "name": "@nxgt/drizzle-meilisearch",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@electric-sql/pglite": "0.5.8",
+        "@nxgt/drizzle": "workspace:^",
+        "@nxgt/meilisearch": "workspace:^",
+        "@types/bun": "^1.4.0",
+        "drizzle-orm": "1.0.0-rc.4",
+        "meilisearch": "0.62.0",
+      },
+      "peerDependencies": {
+        "@nxgt/drizzle": "workspace:^",
+        "@nxgt/meilisearch": "workspace:^",
+        "drizzle-orm": ">=1.0.0-rc.4 <2",
+        "meilisearch": ">=0.62.0 <1",
+        "typescript": "^6.0.3",
+      },
+    },
     "packages/meilisearch": {
       "name": "@nxgt/meilisearch",
       "version": "0.2.0",
@@ -247,6 +266,8 @@
     "@mongodb-js/saslprep": ["@mongodb-js/saslprep@1.5.4", "", { "dependencies": { "sparse-bitfield": "^3.0.3" } }, "sha512-05UC0jQsjKAOuXQ0H9Ud9vUTJpZIg+n/FinpR30tI5I8pY2inTfPOZ5OF/cg3Ce/N9MoD1xhRCeOsJtuTbFYlw=="],
 
     "@nxgt/drizzle": ["@nxgt/drizzle@workspace:packages/drizzle"],
+
+    "@nxgt/drizzle-meilisearch": ["@nxgt/drizzle-meilisearch@workspace:packages/drizzle-meilisearch"],
 
     "@nxgt/meilisearch": ["@nxgt/meilisearch@workspace:packages/meilisearch"],
 
