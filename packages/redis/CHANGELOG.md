@@ -1,5 +1,33 @@
 # @nxgt/redis
 
+## 0.1.1
+
+### Patch Changes
+
+- [#66](https://github.com/softistx/nxgt-data/pull/66) [`5c5aa1d`](https://github.com/softistx/nxgt-data/commit/5c5aa1d8b8902c25e9a6a8a12b1ce44834c943f6) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Every package now ships a `docs/` folder, linked from its npm page.
+  
+  The README stays the short version: what the package is, how to install it,
+  and one copy-paste example per area. `docs/` is the long one — a guide page
+  per area with the option tables, the defaults, what is returned and what is
+  thrown; a `troubleshooting.md` whose headings are the exact error text you
+  would paste into a search box, with the line that prevents each one; and a
+  `roadmap.md` saying what is coming, and what is deliberately not.
+  
+  `docs` is named in each package's `files`, so it travels in the tarball
+  rather than living only on GitHub.
+
+- [#66](https://github.com/softistx/nxgt-data/pull/66) [`5c5aa1d`](https://github.com/softistx/nxgt-data/commit/5c5aa1d8b8902c25e9a6a8a12b1ce44834c943f6) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `ValueOf<D>` gives a definition's value again, instead of `never`.
+  
+  `CacheDefinition<P, S>` is **contravariant** in `P` — `key` takes the
+  parameters — so under `strictFunctionTypes` a `CacheDefinition<string, …>` is
+  not assignable to one of `unknown`. `ValueOf` matched
+  `CacheDefinition<unknown, infer S>`, which therefore failed for every
+  definition whose key took anything narrower than `unknown`: in practice, all
+  of them. It now matches `CacheDefinition<never, infer S>`, the bottom of that
+  ordering, so every definition matches.
+  
+  `ParamsOf` was never affected. Both are now pinned by type tests.
+
 ## 0.1.0
 
 ### Minor Changes
