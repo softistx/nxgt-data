@@ -1,5 +1,26 @@
 # @nxgt/meilisearch
 
+## 0.2.0
+
+### Minor Changes
+
+- [#70](https://github.com/softistx/nxgt-data/pull/70) [`1f99fcb`](https://github.com/softistx/nxgt-data/commit/1f99fcb8bbf37e6af9cc19a0b919c9c7d6a9a893) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `diffSettings` takes a definition's own settings.
+  
+  ```ts
+  const update = diffSettings(movies.settings, await index.getSettings());
+  ```
+  
+  That line did not compile. `defineIndex` infers a definition's lists as
+  `readonly` — which is what makes `SortableOf` and the typed `sort` work — and
+  the SDK's `Settings` has mutable arrays, so the obvious call was a type error
+  and every call site needed a cast. This package's own `syncIndex` had one; it
+  is gone.
+  
+  The first parameter is now `WantedSettings`, exported: the settings as
+  something *wants* them, with every list `readonly` and every value allowed to
+  be `undefined`. A plain, mutable `Settings` from anywhere else still goes in,
+  and what comes back is still a `Settings` the SDK will take.
+
 ## 0.1.1
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/meilisearch",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"description": "A typed Meilisearch index: its definition, its settings synced idempotently, and typed documents and searches, on the official SDK",
 	"license": "MIT",
 	"type": "module",
