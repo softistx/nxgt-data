@@ -216,7 +216,7 @@ The pieces are exported from `@nxgt/drizzle`, with no dialect and no
 database: a page of an external API, of a Redis list, of anything.
 
 ```ts
-import { DEFAULT_PAGE_SIZE, pageWindow, toPage } from '@nxgt/drizzle';
+import { pageWindow, toPage } from '@nxgt/drizzle';
 
 const window = pageWindow({ page: 2, pageSize: 25 }, 200);
 // { page: 2, pageSize: 25, limit: 25, offset: 25 }
@@ -283,6 +283,8 @@ function decodeCursor(
 	expectedKey?: string,
 	/** Names the call in the message: `Invalid cursor in <where>: …`. */
 	where?: string,
+	/** Sets `error.table`, so a handler reads it instead of the message. */
+	table?: string,
 ): CursorPayload;
 ```
 

@@ -292,7 +292,8 @@ publishes to npm.
 
 These are measured limits, not taste. They exist because both packages grew
 the same shape before anyone looked: `@nxgt/mongo`'s `build()` reached **487
-lines**, and `@nxgt/drizzle`'s still holds **353** — the number said 321 for
+lines** and `@nxgt/drizzle`'s **353**, and both have since been taken apart
+the same way — the drizzle one down to **31**. The drizzle number said 321 for
 longer than it was true, which is its own lesson: measure it when you touch
 the file.
 
@@ -309,9 +310,13 @@ the file.
   `documents.ts`, `operations/reads.ts`, `operations/writes.ts`,
   `operations/paginate.ts`. Each takes the context as its **first
   argument**. `mongo/src/collection/` is the worked example, and the factory
-  that is left (`get-collection.ts`) only assembles and proxies. Do the same
-  in `@nxgt/drizzle`'s `pg/repository/` when it is next opened for a real
-  change — not before, and never in the same PR as a behaviour change.
+  that is left (`get-collection.ts`) only assembles and proxies.
+  `@nxgt/drizzle`'s `pg/repository/` is the second one, done the same way and
+  on purpose in a PR of its own: `create-repository.ts` fell from **419 lines
+  to 103** and its `build()` from **353 to 31**, against an unchanged 113
+  tests. A split like this is never made in the same PR as a behaviour
+  change — the identical test count is the only evidence that nothing moved,
+  and it is worthless if the tests changed too.
 - **The context holds data, not closures.** This is the half of the rule that
   is easy to miss, and it was missed here first: a `createContext` that
   resolves the options *and* returns eight functions closed over them is the
