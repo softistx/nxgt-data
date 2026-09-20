@@ -17,7 +17,8 @@ bun add @nxgt/mongo mongodb zod
 ```
 
 `mongodb` (>=7) and `zod` (>=4.6.5) are peer dependencies, so your application
-decides their versions and there is only ever one copy of each.
+decides their versions and there is only ever one copy of each. `typescript` 6
+is a required peer too, the version every `@nxgt` package pins.
 
 ## Setup
 
@@ -49,7 +50,7 @@ const db = client.db('app');
 
 | import | what it holds |
 | --- | --- |
-| `@nxgt/mongo` | everything below, but migrations |
+| `@nxgt/mongo` | the collections: definitions, `getCollection`, the queries, change streams and the errors. Not migrations, and not files — those are the two subpaths below |
 | `@nxgt/mongo/migrations` | [migrations](#migrations): `defineMigration`, `migrate`, `rollback`, `migrationStatus`, `MigrationError`, `MigrationLockedError` |
 | `@nxgt/mongo/gridfs` | [files](#files): `defineBucket`, `getFiles`, `FileHandle`, `parseRange`, `resetBucketSync`, the option types `TypedPutOptions` and `PutOnceOptions`, and the errors it raises |
 
@@ -1529,6 +1530,30 @@ Transactions need a replica set, which a standalone `mongod` is not. This
 package's own specs run against a single-node replica set from
 `mongodb-memory-server-core`, with no Docker; the same works in any consumer's
 test suite.
+
+## Documentation
+
+- [docs/README.md](docs/README.md) — the guide index: one row per page, and
+  when to read it.
+- [docs/troubleshooting.md](docs/troubleshooting.md) — an error message, why
+  it happens, and the line that prevents it.
+- [docs/roadmap.md](docs/roadmap.md) — what is next, what shipped, and what
+  is not planned.
+
+The guide pages, each with its own examples:
+[collections](docs/guide/collections.md),
+[documents](docs/guide/documents.md),
+[upsert](docs/guide/upsert.md),
+[hooks](docs/guide/hooks.md),
+[sync](docs/guide/sync.md),
+[pagination](docs/guide/pagination.md),
+[transactions and locking](docs/guide/transactions.md),
+[change subscriptions](docs/guide/changes.md),
+[aggregation](docs/guide/aggregation.md),
+[errors](docs/guide/errors.md),
+[connecting](docs/guide/connecting.md),
+[migrations](docs/guide/migrations.md),
+[files (GridFS)](docs/guide/gridfs.md).
 
 ## License
 

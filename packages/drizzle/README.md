@@ -184,7 +184,20 @@ On a table with an `updatedAt` column, `update`, `updateMany`, `delete`
 declared with `$onUpdate`, as `timestamps()` declares it, is left to Drizzle.
 `touchUpdatedAt: false` turns it off.
 
-### Transactions
+```ts
+// `postsTable.updatedAt` is a plain timestamp column, declared without
+// `$onUpdate` — so the repository is what sets it.
+const posts = createRepository(db, postsTable);
+const post = await posts.create({ title: 'a' });          // updatedAt: null
+
+await posts.update(post.id, { title: 'b' });              // updatedAt: now()
+await posts.update(post.id, { updatedAt: new Date(0) });  // kept: the patch wins
+
+const untouched = createRepository(db, postsTable, { touchUpdatedAt: false });
+await untouched.update(post.id, { title: 'c' });          // updatedAt: still null
+```
+
+### Running on a transaction
 
 A repository runs on the database it was given. `with(tx)` gives the same
 repository on a transaction:
@@ -357,9 +370,9 @@ between two tables. The timestamps are to the millisecond, as a JavaScript
 
 ## API
 
-### `@nxgt/drizzle`
+### The `@nxgt/drizzle` subpath
 
-#### Errors
+#### Error classes
 
 - `class DataError extends Error`: `code: DataErrorCode`, `sqlState: string | undefined`, `table: string | undefined`, `constraint: string | undefined`, `columns: readonly string[]`, `detail: string | undefined`, `cause`. `new DataError(message, options?: DataErrorOptions & { code?: DataErrorCode })`.
 - `class NotFoundError extends DataError`: adds `id: unknown`. `new NotFoundError(message = 'Not found', options?)`.
@@ -368,7 +381,7 @@ between two tables. The timestamps are to the millisecond, as a JavaScript
 - `interface DataErrorOptions { cause?; sqlState?; table?; constraint?; columns?; detail? }`.
 - `toDataError(error: unknown): unknown`: the `DataError` for a database error, the error itself otherwise.
 
-#### Pagination
+#### Pagination helpers
 
 - `interface Page<T> { items: T[]; total: number; page: number; pageSize: number; pageCount: number }`.
 - `interface CursorPage<T> { items: T[]; nextCursor: string | null }`.
@@ -378,7 +391,7 @@ between two tables. The timestamps are to the millisecond, as a JavaScript
 - `encodeCursor(payload: CursorPayload): string` and `decodeCursor(cursor: string, expectedKey?: string): CursorPayload`, with `CursorPayload = { key: string; values: readonly unknown[] }`: for a cursor pagination of your own. `Date` and `bigint` values survive the round trip.
 - `DEFAULT_PAGE_SIZE = 20`, `DEFAULT_MAX_PAGE_SIZE = 100`.
 
-### `@nxgt/drizzle/pg`
+### The `@nxgt/drizzle/pg` subpath
 
 #### `createRepository(db, table, options?)`
 
@@ -452,7 +465,7 @@ function withTransaction<TDb extends PgDatabase, T>(
 `TransactionOf<TDb>` is the transaction type of that database's driver.
 `config` on a transaction, a savepoint, throws a `TypeError`.
 
-#### Columns
+#### Column helpers
 
 - `id(): uuid builder`, `id('uuid')`, `id('identity'): integer builder`.
 - `timestamps(): { createdAt, updatedAt }`.
@@ -499,3 +512,18 @@ function withTransaction<TDb extends PgDatabase, T>(
   its `where` already allows.
 - **`timestamps()` has two clocks.** `defaultNow()` is the database's
   `now()`; `$onUpdate` is `new Date()`, in your process.
+
+## Documentation
+
+- [docs/README.md](docs/README.md) — the guide index.
+- [docs/guide/schema.md](docs/guide/schema.md) — the column helpers, and what the repository reads from a table.
+- [docs/guide/repository.md](docs/guide/repository.md) — reads, writes, `where`, ordering, primary keys and soft delete.
+- [docs/guide/pagination.md](docs/guide/pagination.md) — offset pages, cursor pages, one page of any query.
+- [docs/guide/transactions.md](docs/guide/transactions.md) — `withTransaction`, `with(tx)`, savepoints and isolation.
+- [docs/guide/errors.md](docs/guide/errors.md) — the `DataError` classes, `toDataError`, one handler for the app.
+- [docs/troubleshooting.md](docs/troubleshooting.md) — an error message, and its fix.
+- [docs/roadmap.md](docs/roadmap.md) — what is next, and what is not planned.
+
+## License
+
+MIT

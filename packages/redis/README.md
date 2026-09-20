@@ -34,7 +34,7 @@ not wrap is still there.
 ## Install
 
 ```sh
-bun add @nxgt/redis zod typescript
+bun add @nxgt/redis zod typescript @types/bun
 ```
 
 - **Bun 1.4 or later, and Bun only.** `RedisClient` is built into Bun, which
@@ -44,6 +44,9 @@ bun add @nxgt/redis zod typescript
 - `zod` `>=4.6.5 <5`: required peer. A cache and a channel are described by a
   schema, and nothing is stored or published unchecked.
 - `typescript` `^6.0.3`: required peer, the version every `@nxgt` package pins.
+- `@types/bun`: required to typecheck. The shipped declarations name Bun's own
+  `RedisClient` and `RedisOptions`, so without Bun's types the first `tsc`
+  fails with `Cannot find module 'bun'`.
 - Tested against Redis 7.4.
 
 ## What it does not do
@@ -266,6 +269,15 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
   application connects, or pass the same options everywhere.
 - **`close()` on one connection is not `closeRedis()`.** The first gives back
   one holder; the second takes every client away from everybody.
+
+## Documentation
+
+- [docs/README.md](docs/README.md) — the guide index: connections, caches,
+  locks and pub/sub, each with its options and a worked example.
+- [docs/troubleshooting.md](docs/troubleshooting.md) — every error this
+  package can raise, by the message you will see.
+- [docs/roadmap.md](docs/roadmap.md) — what is coming, and what has been
+  ruled out.
 
 ## License
 

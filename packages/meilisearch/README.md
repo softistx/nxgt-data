@@ -392,3 +392,18 @@ The types it uses:
   `indexes.create`, `indexes.get`, `indexes.update`, `settings.get`,
   `settings.update` and `tasks.get`. A search-only key is enough for the
   rest.
+
+## Documentation
+
+- [docs/README.md](docs/README.md) — the guide index.
+- [docs/guide/definition.md](docs/guide/definition.md) — `defineIndex`, the settings, and the types a definition gives back.
+- [docs/guide/sync.md](docs/guide/sync.md) — `syncIndex`, the report, dry runs, and how the settings are compared.
+- [docs/guide/documents.md](docs/guide/documents.md) — `bindIndex`, writes, waiting for a task, reads by id, `list`.
+- [docs/guide/search.md](docs/guide/search.md) — filters, sorts, facets, highlighting and the two paginations.
+- [docs/guide/errors.md](docs/guide/errors.md) — `SearchIndexError`, the SDK's errors, one handler for the app.
+- [docs/troubleshooting.md](docs/troubleshooting.md) — an error message, and its fix.
+- [docs/roadmap.md](docs/roadmap.md) — what is next, and what is not planned.
+
+## License
+
+MIT

@@ -1,0 +1,62 @@
+# Roadmap
+
+Where `@nxgt/mongo-kit` is going. A direction, not a commitment: the version
+an item shipped in is the only number on this page.
+
+## Now
+
+- **`ping()`** — one call that says whether the databases the kit wires
+  answer, and how long they took, for a health endpoint that does not reach
+  for the driver itself.
+
+## Next
+
+- **Files beside the collections** — a bucket declared in the configuration
+  and reached off the kit the way a collection is today, in the kit's session
+  and under its actor, so a file write joins a transaction with the documents
+  around it.
+
+## Later
+
+_Nothing queued._
+
+## Not planned
+
+- **A typed `discoverCollections`** — it reads the file system under Bun, has
+  no types and does not survive bundling. It is for scripts; an application
+  wires its collections in the configuration, as `import * as collections`,
+  where they stay typed.
+- **Closing a client the configuration handed over** — the kit gives back only
+  the clients it opened, `await using` included. A client you opened is closed
+  where it was opened.
+- **A transaction across two clients** — MongoDB refuses a session a client
+  does not own, so a transaction reaches one client's databases and `{ on }`
+  names which. Two databases on one URI share a client and need no `{ on }`.
+- **`autoSync` as a production setting** — it is for tests and development.
+  In production `sync()` is a deployment step: it needs `dbAdmin`, and an
+  index build does not run in a transaction.
+- **Wiring a collection under a name the driver's `Db` already answers to** —
+  refused by the types where the configuration is written, and again by
+  `createKit` against the object itself, so `kit.db.command(…)` is always the
+  driver's.
+
+## Shipped
+
+- **Documentation that travels with the package** — a guide page for the
+  configuration, the `db` scope, actor and transactions, and `sync()`, a
+  troubleshooting page whose headings are the exact error text, and this
+  roadmap, installed in `docs/` rather than left on GitHub — 0.1.5.
+- **`@nxgt/mongo` 0.15.0** — a deduplicated file write two callers cannot
+  both win — 0.1.4.
+- **`@nxgt/mongo` 0.14.0** — files under its `./gridfs` subpath — 0.1.3.
+- **`@nxgt/mongo` 0.13.0** — `upsert` in one round trip — 0.1.2.
+- **`@nxgt/mongo` 0.12.0** — strings from outside read from the schema —
+  0.1.1.
+- **First release** — `defineConfig` checking a configuration of one or
+  several databases and freezing it, and `createKit` giving a `db` that is the
+  driver's own with every collection typed on it, plus `as(actor)`,
+  `withSession`, `transaction`, `sync()` and `close()`; `discoverCollections`
+  for scripts — 0.1.0.
+
+Everything released is in [`CHANGELOG.md`](https://github.com/softistx/nxgt-data/blob/develop/packages/mongo-kit/CHANGELOG.md) — it is not in
+the published package, only in the repository.
