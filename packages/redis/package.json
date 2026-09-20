@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/redis",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Redis on Bun's own client: one connection shared per URI, typed caches, locks, and typed pub/sub",
 	"license": "MIT",
 	"type": "module",
