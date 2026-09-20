@@ -354,7 +354,14 @@ the file.
   `get-collection.ts` and `types.ts` reach into all of them. The one root
   import of a subject is `context.ts` → `hooks/sets`, a leaf that imports
   nothing and turns the `hooks` option into context data.
-- **Specs are split by subject, not one per source file.** `collection/` has
+- **Specs are split by subject, not one per source file.** `@nxgt/drizzle`'s
+  `pg/repository/` has four — `create-repository` for what the factory
+  decides, `operations/reads`, `operations/writes`, and `soft-delete` —
+  and a spec file is not free: it opens a database of its own. Measured,
+  `createTestDb` costs 0.8-2.0 s cold and far less warm, so two more files
+  cost **+0.5 s**; `@nxgt/s3` was left whole because the same measurement
+  came back at **+13 s** on a 5 s suite, one SeaweedFS per file. Measure
+  before splitting, and say the number. `collection/` has
   fourteen, beside the code they test: `id`, `coerce`, `upsert`,
   `optimistic-lock`, `soft-delete`, `stamp-writes`, `driver-methods`,
   `auto-sync` and the general one at the root,
