@@ -20,8 +20,10 @@
  * `$REDIS_BIN`, when set, names a `redis-server` to use instead — a system
  * one, or a build for a platform this cannot compile on.
  *
- * Raise the version in `packages/redis/test/server.ts`, and the cache key
- * follows: CI keys its cache on the hash of that file and this one.
+ * Raise the version in `packages/redis/test/server.ts` **and in
+ * `packages/redis-kit/test/server.ts`**, which is its copy: the two pin the
+ * same `REDIS_VERSION`, and CI keys its cache on the hash of both files and
+ * this one. A version raised in one copy alone is a second compile.
  */
 
 import { redisBinary } from '../packages/redis/test/server';

@@ -16,6 +16,7 @@ registry:
 | `@nxgt/mongo-kit` | an application's MongoDB wiring in one object: `defineConfig` checking a configuration of one or several databases, and `createKit` giving a `db` that is the driver's `Db` with every `@nxgt/mongo` collection typed on it, plus the actor, the session, transactions, `sync` and `close`. `discoverCollections` reads definitions from a glob, for scripts |
 | `@nxgt/mongo-search-kit` | a search kit over the wiring kit: `createSearchKit(kit, config)` takes one entry per collection — an index and a transform, under the key the kit wires that collection under — and gives one `reindexAll`, one `start` and one `close` for all of them. Each entry's sync is `@nxgt/mongo-meilisearch`'s, unchanged |
 | `@nxgt/redis` | Redis on Bun's own `RedisClient`, with no third-party driver: `connectRedis`/`closeRedis` sharing one client per URI, `defineCache`/`bindCache` with the key built by a typed function and the value checked by its schema both ways, `withLock` over `SET NX PX` released by a compare-and-delete script, and `defineChannel`/`publish`/`subscribe` typed the same way. Its one error is `RedisError` |
+| `@nxgt/redis-kit` | an application's Redis wiring in one object: `defineConfig` checking a configuration of one or several Redis instances, and `connectKit` opening the clients and giving `kit.cache.<key>` and `kit.channels.<key>` — every `@nxgt/redis` cache and channel typed under the key it is exported as, renamed under the instance's prefix — plus the subscriptions it tracks and closes, `lock`, `ping` and `close`. It has no error of its own: its refusals are bare `TypeError`s, and what a caller catches at run time is `@nxgt/redis`'s `RedisError` |
 | `@nxgt/s3` | S3 on Bun's own `S3Client`, with no AWS SDK: `defineBucket` naming the bucket, the key-building function, the content types and the maximum size, and `bindBucket` giving `put`/`bytes`/`text`/`exists`/`stat`/`delete`, a `list` in this repository's cursor shape, and `presignGet`/`presignPut` from the same definition. The content type and the size are refused **before** the request goes out. Its one error is `S3Error` |
 
 `examples/` holds applications, not packages: they are `private`, unscoped,
@@ -71,11 +72,15 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   `mongodb-memory-server-core` is a devDependency, and it depends on
   `mongodb ^7.2.0`: keep the pin inside that range, or the tree carries two
   drivers and two `ObjectId` classes, which no `instanceof` survives.
-- **Two packages are built on siblings**, and both are the same shape: a
-  package over siblings is a package of its own, never an import from one
-  into another. `@nxgt/mongo-kit` has `@nxgt/mongo` as a required peer, by
-  `workspace:^`, and as a devDependency the same way; `mongodb` is a peer
-  with the sibling's range and pin. `@nxgt/mongo` knows nothing of it.
+- **Three packages are built on siblings**, and all three are the same
+  shape: a package over siblings is a package of its own, never an import
+  from one into another. `@nxgt/mongo-kit` has `@nxgt/mongo` as a required
+  peer, by `workspace:^`, and as a devDependency the same way; `mongodb` is a
+  peer with the sibling's range and pin. `@nxgt/mongo` knows nothing of it.
+  `@nxgt/redis-kit` is the same over `@nxgt/redis`, and carries `zod` with
+  the sibling's range and pin instead of a driver — `@nxgt/redis` has no
+  driver peer to carry. `@nxgt/mongo-search-kit` peers on four siblings at
+  once and none of them knows it either.
 - **`@nxgt/mongo-meilisearch` is the bridge between two of them.** It
   has `@nxgt/mongo` and `@nxgt/meilisearch` as required peers, by
   `workspace:^`, and as devDependencies, the same way; `mongodb` and
@@ -194,7 +199,8 @@ matching key in `exports`.
   not belong inside a test's timeout. The script holds no logic of its own —
   `redisBinary` lives beside the server that starts it — and
   `scripts/redis.spec.ts` covers its `$REDIS_BIN` branch. `$REDIS_BIN` names a `redis-server` to
-  use instead. CI caches `.cache/redis`, keyed on `test/server.ts` and the
+  use instead. CI caches `.cache/redis`, keyed on **both** copies of
+  `test/server.ts` — `@nxgt/redis`'s and `@nxgt/redis-kit`'s — and the
   script. `test/fixtures.ts` calls `closeRedis()` before stopping the server,
   because `connectRedis` shares a client per URI and a connection a test left
   open would outlive it.
@@ -295,6 +301,8 @@ publishes to npm.
 | `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change both when the reason applies to both |
 | `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 104 and 109 lines, fifteen of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ. `@nxgt/s3`'s `ObjectPage` is **not** a copy either — four lines agreeing with `CursorPage`'s shape so a caller pages the same way, with no logic to keep in step |
 | `connection/connect.ts`, in `@nxgt/mongo` and `@nxgt/redis` | reference-counted client sharing per URI, copied rather than factored: a shared `@nxgt/connection` would make both depend on a sibling for one function, and layering comes first. **107 of 167 lines are identical**, comments included — closer than `page.ts` — so **a fix in one is a fix to make in the other**, and a spec added to one belongs in the other. What deliberately differs: `@nxgt/redis` has no `db`, holds the `RedisClient` itself rather than a `Promise<MongoClient>`, closes synchronously, closes sequentially in `closeRedis` where `closeMongo` uses `Promise.all`, and compares options with `Bun.deepEquals` in place of a hand-written `sameValue`. Since the error-code work, a sixth: `@nxgt/redis`'s `ping` races the command against a timer of its own and reports `PING_TIMEOUT` on the result, while `@nxgt/mongo`'s leaves the deadline to the driver's `timeoutMS` and reports whatever it produced. Both connection failures are a class with a code now, and **neither carries the URI** — a connection string holds the password, and a spec in each asserts its absence |
+| `pingClient` in `@nxgt/redis-kit`, and `ping` in `@nxgt/redis`'s `connection/connect.ts` | a client the *configuration* handed in carries no `ping` — that one belongs to what `connectRedis` returned — so the kit has its own copy, down to the `PING_TIMEOUT` code and the message, and a health route reads the same answer either way. **A fix in one is a fix to make in the other.** The sibling exports no standalone `ping` to call instead; if it ever does, this copy goes |
+| `test/server.ts` of `@nxgt/redis`, copied into `@nxgt/redis-kit` | the same rule: a package reaches no sibling's tests, and a kit over a sibling is a package like any other. Keep `REDIS_VERSION` equal in both copies — `redis-memory-server` **compiles** the source, so two versions is two builds and two caches, and CI keys the redis cache on the hash of both files and `scripts/redis.ts`. `@nxgt/redis-kit`'s copy adds nothing to the server itself; what differs is its `test/fixtures.ts`, which also closes the kits a spec opened |
 | `test/server.ts` of `@nxgt/mongo` and of `@nxgt/meilisearch`, as `test/mongo.ts` and `test/meilisearch.ts` in `@nxgt/mongo-meilisearch` and again in `@nxgt/mongo-search-kit`, as `test/server.ts` in `@nxgt/mongo-kit`, and once more in `examples/hono-api/test/kit.ts` | a package reaches no sibling's tests, and an example reaches no package's. Keep `MONGOD_VERSION` equal in all five mongod copies: CI keys the mongod cache on the hash of those five files |
 
 ## Keeping the code maintainable
@@ -499,10 +507,10 @@ the file.
 
 ## Known state
 
-`bun run test` is **959 pass, 0 fail**: drizzle 113, meilisearch 42, mongo 532,
-mongo-meilisearch 40, mongo-kit 72, mongo-search-kit 14, redis 45, s3 52,
-hono-api-example 31, scripts 18. It runs one process per package, then the
-scripts' specs. Treat any failure as yours.
+`bun run test` is **1014 pass, 0 fail**: drizzle 113, meilisearch 42,
+mongo 532, mongo-meilisearch 40, mongo-kit 72, mongo-search-kit 14, redis 45,
+redis-kit 55, s3 52, hono-api-example 31, scripts 18. It runs one process
+per package, then the scripts' specs. Treat any failure as yours.
 
 - **The test mongod runs with `enableTestCommands`**, so a spec can make it
   fail a command on demand with `t.failNext(['getMore', 'aggregate'], …)`.

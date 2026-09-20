@@ -1,0 +1,61 @@
+{
+	"name": "@nxgt/redis-kit",
+	"version": "0.0.0",
+	"description": "An application's Redis wiring in one object: a validated config, the clients it opens from it, and every cache and channel typed under the name it is wired as",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"docs",
+		"README.md",
+		"package.json",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"keywords": [
+		"redis",
+		"typescript",
+		"cache",
+		"pubsub",
+		"configuration"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/softistx/nxgt-data.git",
+		"directory": "packages/redis-kit"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	},
+	"scripts": {
+		"build": "bun run ../../build.ts",
+		"test": "bun run ../../scripts/redis.ts && bun test --timeout 30000 src",
+		"typecheck": "tsc --noEmit"
+	},
+	"nxgt": {
+		"entrypoints": [
+			"src/index.ts"
+		]
+	},
+	"devDependencies": {
+		"@nxgt/redis": "workspace:^",
+		"@types/bun": "^1.4.0",
+		"redis-memory-server": "0.17.1",
+		"zod": "4.6.5"
+	},
+	"peerDependencies": {
+		"@nxgt/redis": "workspace:^",
+		"typescript": "^6.0.3",
+		"zod": ">=4.6.5 <5"
+	}
+}
