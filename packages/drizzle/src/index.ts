@@ -9,6 +9,7 @@ export {
 	DataError,
 	ForeignKeyError,
 	InvalidCursorError,
+	InvalidValueError,
 	NotFoundError,
 	NotNullViolationError,
 } from './errors/data-error';
@@ -22,6 +23,10 @@ export type {
 	PageWindow,
 } from './pagination/page';
 export {
+	// `cursorLimit` beside `pageWindow`, as `@nxgt/mongo` already exports it:
+	// a caller paginating something of their own could reach the offset half
+	// of this and not the cursor half, for no reason anybody wrote down.
+	cursorLimit,
 	DEFAULT_MAX_PAGE_SIZE,
 	DEFAULT_PAGE_SIZE,
 	pageWindow,

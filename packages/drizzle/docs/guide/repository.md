@@ -88,6 +88,15 @@ await userRepository.findById(id, { withDeleted: true });
 await userRepository.count(undefined, { withDeleted: true });
 ```
 
+**`findById` with a value the column's type refuses throws**, rather than
+answering `undefined`: the value goes to PostgreSQL, which will not read it.
+Measured on PGlite 0.5.8, `findById('nope')` on a `uuid` primary key throws
+an [`InvalidValueError`](errors.md#invalidvalueerror-a-value-the-column-refused)
+with `code: 'INVALID_VALUE'` and the message
+`invalid input syntax for type uuid: "nope"` — a 400, since it is the
+caller's input, where a row that is simply not there is `undefined` and a
+404.
+
 ### Where
 
 A `where` is an object of equalities, or any Drizzle condition:

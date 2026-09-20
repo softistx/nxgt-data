@@ -1,8 +1,9 @@
 import { ObjectId } from 'mongodb';
 import { ConflictError } from '../../errors/data-error';
-import { CHUNK_INDEX, dropChunks } from '../chunks';
+import { dropChunks } from '../chunks';
 import { type BucketContext, run } from '../context';
 import { FileHandle } from '../handle';
+import { CHUNK_INDEX } from '../indexes';
 import { fileWithDigest, findFile } from './reads';
 import type { WrittenBody } from './writes';
 

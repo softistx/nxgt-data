@@ -107,9 +107,19 @@ try {
 }
 ```
 
-`ID_MISMATCH` is the one exception that means something more precise: the
-transform gave a document whose primary key is not that document's index id.
-[Troubleshooting](../troubleshooting.md) has both messages.
+Two codes mean something more precise than `FAILED`, and both are the
+transform's doing. `ID_MISMATCH`: it gave a document whose primary key is not
+that document's index id. `NOT_A_DOCUMENT`: it gave back something that is
+neither a document nor `null`.
+
+```ts
+const transform = (article: Article) =>
+	article.draft ? null : { id: String(article._id), title: article.title };
+// Anything else — a string, a number, an array — is NOT_A_DOCUMENT, and the
+// message reports its shape rather than its value.
+```
+
+[Troubleshooting](../troubleshooting.md) has each message.
 
 ## Signatures
 

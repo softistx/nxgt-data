@@ -78,16 +78,32 @@ export function encodeCursor(payload: CursorPayload): string {
  * Reads a cursor `encodeCursor` wrote. Throws `InvalidCursorError` for
  * anything else, and for a cursor written for another ordering when
  * `expectedKey` is given.
+ *
+ * `where` names the call it came from, so the sentence reads `Invalid cursor
+ * in paginateByCursor on "users": unexpected shape`: every paginated call
+ * takes the same `after`, and the message on its own named none of them. The
+ * lead stays where it was, because that is the part a consumer searches for.
+ * It is optional: this is exported for a caller paginating something this
+ * package knows nothing about.
  */
 export function decodeCursor(
 	cursor: string,
 	expectedKey?: string,
+	where?: string,
+	collection?: string,
 ): CursorPayload {
+	const at = where ? ` in ${where}` : '';
+	// The collection on the error as well as in the sentence: the refusal below
+	// is the caller's to answer with a 400, and a handler that logs which
+	// listing failed should not have to parse a message to find out. The
+	// value-count refusal, thrown where this is called, already carries it.
+	const on = { collection };
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(fromBase64Url(cursor), reviver);
 	} catch (cause) {
-		throw new InvalidCursorError('Invalid cursor: it cannot be decoded', {
+		throw new InvalidCursorError(`Invalid cursor${at}: it cannot be decoded`, {
+			...on,
 			cause,
 		});
 	}
@@ -97,12 +113,14 @@ export function decodeCursor(
 		typeof parsed[0] !== 'string' ||
 		!Array.isArray(parsed[1])
 	) {
-		throw new InvalidCursorError('Invalid cursor: unexpected shape');
+		throw new InvalidCursorError(`Invalid cursor${at}: unexpected shape`, on);
 	}
 	const [key, values] = parsed as [string, unknown[]];
 	if (expectedKey !== undefined && key !== expectedKey) {
 		throw new InvalidCursorError(
-			`Invalid cursor: it was written for the ordering ${key}, not ${expectedKey}`,
+			`Invalid cursor${at}: it was written for the ordering ` +
+				`${key}, not ${expectedKey}`,
+			on,
 		);
 	}
 	return { key, values };

@@ -459,6 +459,14 @@ An expected version is refused: a document that may not exist has no version
 to be at. For a conditional write on a document you know is there, use
 `update`.
 
+Every one of those refusals is a `TypeError`, raised before anything is sent.
+The one thing an upsert can fail at that is **not** the caller's doing is a
+server answering it with no document — which MongoDB does not do, since one
+`findOneAndUpdate` with `upsert: true` matches, inserts or errors. That is a
+`DataError` with `code: 'DATABASE'` and the collection on it, saying nothing
+was stored and asking for a report, so a handler can tell a bug from a
+mistake without reading messages.
+
 ## Strings from outside
 
 A collection converts the strings that arrive from outside on its own, so a
@@ -666,6 +674,21 @@ document is repeated or skipped while the collection is written to, where
 `skip` would do both. It is opaque and URL-safe, and it survives `ObjectId`,
 `Date` and `bigint` values. It is encoded, not signed.
 
+**Both refusals name the call and the collection**, because every paginated
+call takes the same options and a log line holding one sentence said nothing
+about which listing produced it:
+
+```ts
+await repo.paginate({ page: 0 });
+// RangeError: paginate on "users": page must be an integer of at least 1, not 0
+await repo.paginateByCursor({ after: 'garbage' });
+// InvalidCursorError: Invalid cursor in paginateByCursor on "users": it cannot be decoded
+```
+
+`Invalid cursor` still leads the sentence, which is the part to search for.
+The four endings are in
+[docs/guide/pagination.md](docs/guide/pagination.md#what-a-refused-cursor-says).
+
 ## Transactions
 
 ```ts
@@ -725,13 +748,13 @@ application never reads a numeric code:
 | `ConflictError` | `CONFLICT` | a unique index refused the write (`E11000`); `put({ id })` named a file the bucket already has; or `putOnce` found the id its bytes decide held by a write that never finished, claimed and let go twice under it, blocked by a chunk an interrupted write left where this file's own would go, or holding a file whose digest is not the one asked for |
 | `ValidationError` | `VALIDATION` | the collection's validator refused it (121) |
 | `OptimisticLockError` | `OPTIMISTIC_LOCK` | the version in the patch no longer matches |
-| `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write |
+| `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write, or one written for another ordering. The message names the call and the collection |
 | `InvalidIdError` | `INVALID_ID` | a value that is no `ObjectId`, nor the string of one — raised by `toObjectId`, `toObjectIds` and `objectIdParam`, and by `put({ id })`, where the id is the caller's own. Reading a string never throws: a malformed id on `findById`, `get`, `serve` or any other read matches nothing |
-| `CorruptFileError` | `CORRUPT_FILE` | a stored file is missing chunks, or one of them is short — raised while its bytes are read, not when it is found |
+| `CorruptFileError` | `CORRUPT_FILE` | a stored file is missing a chunk, or one of them is short, or one holds something that is not bytes — raised while its bytes are read, not when it is found, and naming the chunk, the file and the bucket |
 | `MigrationError` | `MIGRATION` | a migration failed, or the list does not match the records — from `@nxgt/mongo/migrations` |
 | `MigrationLockedError` | `MIGRATION_LOCKED` | another run holds the migration lock, or this one lost it — from `@nxgt/mongo/migrations` |
 | `ConnectionError` | `CONNECTION` | `closeMongo()` closed every client while this `connectMongo` was still connecting. It carries no URI: a connection string holds the password |
-| `DataError` | `DATABASE` | any other server error, with its `serverCode` |
+| `DataError` | `DATABASE` | any other server error, with its `serverCode` — and the one answer MongoDB should never give: an `upsert` answered with no document, which says so and asks for a report |
 
 `ConflictError` carries `index`, `keys` and, when the server gives them,
 `values`. `ValidationError` carries `issues`, MongoDB's `errInfo` flattened
@@ -1043,7 +1066,10 @@ page.items;        // FileHandle[]
 page.nextCursor;   // null on the last page
 ```
 
-A cursor written for one order is refused by the other.
+A cursor written for one order is refused by the other. Both refusals name
+this call and this bucket — `paginate on "avatars": limit must be an
+integer of at least 1, not 0` — because a collection's page and a bucket's
+listing take the same option names.
 
 **It runs in a transaction.** `files.withSession(session)` scopes every read
 and every write, `put` included — which the driver's own `GridFSBucket`
@@ -1080,6 +1106,25 @@ file — the one `putOnce` will not do without, and creates for itself. It runs
 in the bucket's session like everything else, which means mongod refuses it
 inside a transaction — so call it at start-up, or use `autoSync`, which drops
 the session for exactly that reason, as `putOnce` does.
+
+**An unindexed bucket says so on its first read**, since nothing else does:
+the read works, it is only slow, and a bucket that was never synced looks
+like one that was until it holds enough files to hurt. One
+`process.emitWarning` per bucket per process, with
+`code: 'NxgtGridFSMissingIndex'`, naming the bucket and its chunks
+collection. It never throws and never delays the read, and a bucket bound
+`autoSync` never emits it. To route it into a logger:
+
+```ts
+process.on('warning', (warning) => {
+	if ((warning as { code?: string }).code === 'NxgtGridFSMissingIndex') {
+		log.warn({ warning: warning.message });
+	}
+});
+```
+
+Measured on bun 1.4.2: the listener receives it **and** Bun prints it as
+well.
 
 | option of `put` | what it does |
 | --- | --- |
@@ -1174,7 +1219,7 @@ const withRelations = await members.populate(await members.findMany(), {
 | `resetAutoSync(db?)` | forget the syncs `autoSync` has run |
 | `withTransaction(clientOrSession, fn, options?)` | a transaction, joined when nested |
 | `toMongoJsonSchema(schema)` | a Zod schema as a MongoDB `$jsonSchema` |
-| `encodeCursor`, `decodeCursor`, `pageWindow`, `toPage` | the pagination pieces |
+| `encodeCursor`, `decodeCursor`, `pageWindow`, `cursorLimit`, `toPage` | the pagination pieces, for a list this package does not produce. The three that refuse — `decodeCursor`, `pageWindow`, `cursorLimit` — take an optional last argument naming the call, which they put in the message |
 | `DataError` and its subclasses, `toDataError` | the errors |
 | `defineMigration`, `migrate`, `rollback`, `migrationStatus`, `MigrationError`, `MigrationLockedError` | from `@nxgt/mongo/migrations`: migrations, in code |
 | `defineBucket`, `getFiles` | from `@nxgt/mongo/gridfs`: a bucket, described once and bound to a database |
@@ -1445,9 +1490,11 @@ operator, and getting it subtly wrong is worse than being honest about it.
   or an interrupted write from another client leaves a file whose `length`
   promises bytes that are not there. `get` still answers, and `size` is
   whatever the document claims; the failure comes when the bytes are read.
-  A chunk that is absent raises `CorruptFileError` naming its number, and one
+  A chunk that is absent raises `CorruptFileError` naming its number, one
   that is present but **short** — which leaves no gap to notice — raises it
-  naming the file and both counts. Neither ever reads quietly short.
+  naming the file and both counts, and one whose `data` is not bytes at all
+  raises it naming the chunk, the file, the bucket and the type it found.
+  None of them ever reads quietly short.
 - **Chunks with no file are nothing's to clean up.** `delete` works from a
   `files` document, so chunks an interrupted write left behind have to be
   removed from the chunks collection directly. That is a maintenance pass
@@ -1499,7 +1546,10 @@ operator, and getting it subtly wrong is worse than being honest about it.
   unique `{ files_id, n }` index is half of how it elects between two callers.
   Without `syncIndexes()` at start-up or `autoSync` on the bucket, every read
   is a scan of the whole chunks collection, and the documents examined grow
-  with the size of the bucket rather than of the file. `syncIndexes` runs in
+  with the size of the bucket rather than of the file. The first read of such
+  a bucket emits one `process.emitWarning` with
+  `code: 'NxgtGridFSMissingIndex'`, once per database and bucket per process,
+  because nothing else about a bucket says it is unindexed. `syncIndexes` runs in
   the bucket's session, so mongod refuses it inside a transaction; `autoSync`
   drops the session for that reason.
 - **`uploadDate` is not unique.** Two files written in the same millisecond

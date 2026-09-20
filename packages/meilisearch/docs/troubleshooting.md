@@ -10,6 +10,7 @@ v1.53.2 with meilisearch-js 0.62.0.
 - **Install and types**
   - [`Cannot find module 'meilisearch' or its corresponding type declarations.`](#cannot-find-module-meilisearch-or-its-corresponding-type-declarations)
   - [`Argument of type '{ sort: string[]; }' is not assignable to parameter of type 'SearchOptions<…>'`](#argument-of-type--sort-string--is-not-assignable-to-parameter-of-type-searchoptions)
+  - [`Argument of type '{ readonly sortableAttributes: readonly ["year"]; … }' is not assignable to parameter of type 'Settings'.`](#argument-of-type--readonly-sortableattributes-readonly-year---is-not-assignable-to-parameter-of-type-settings)
 - **Configuration and sync**
   - [`Index "movies" has the primary key "id", but its definition says "movieId".`](#index-movies-has-the-primary-key-id-but-its-definition-says-movieid)
   - [`Task 7 (settingsUpdate) on index "movies" failed:`](#task-7-settingsupdate-on-index-movies-failed)
@@ -54,6 +55,31 @@ await movieIndex.search('alien', options);
 ```
 
 Writing the object inline in the call does the same thing.
+
+### `Argument of type '{ readonly sortableAttributes: readonly ["year"]; … }' is not assignable to parameter of type 'Settings'.`
+
+The line under it says which list: *The type `readonly ["year"]` is
+`readonly` and cannot be assigned to the mutable type `string[]`.*
+
+**When:** typechecking `diffSettings(movies.settings, live)` — a definition's
+own settings as the first argument — **before 0.2.0**.
+**Why:** `defineIndex` infers a definition's lists as `readonly`, which is
+what makes `SortableOf` and the typed `sort` work, and the SDK's `Settings`
+declares them mutable.
+**Fix:** nothing, since 0.2.0: `diffSettings` takes them directly. Its first
+parameter is `WantedSettings`, exported there — the same fields with every
+list `readonly` — and a plain mutable `Settings` from anywhere still goes in,
+while what comes back is a `Settings` the SDK accepts:
+
+```ts
+import { diffSettings } from '@nxgt/meilisearch';
+
+const live = await client.index('movies').getSettings();
+await client.index('movies').updateSettings(diffSettings(movies.settings, live));
+```
+
+Before 0.2.0, the cast at the call site — `movies.settings as Settings` — was
+the way through.
 
 ## Configuration and sync
 

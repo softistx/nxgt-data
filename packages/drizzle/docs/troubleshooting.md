@@ -31,7 +31,7 @@ one.
   - [`Foreign key "posts_author_id_fkey" violated on "posts"`](#foreign-key-posts_author_id_fkey-violated-on-posts)
   - [`Check constraint "users_age_check" violated on "users"`](#check-constraint-users_age_check-violated-on-users)
   - [`Column "email" on "users" cannot be null`](#column-email-on-users-cannot-be-null)
-  - [`invalid input syntax for type uuid`](#invalid-input-syntax-for-type-uuid)
+  - [`invalid input syntax for type uuid: "nope"`](#invalid-input-syntax-for-type-uuid-nope)
   - [`No row in "users" with id …`](#no-row-in-users-with-id-)
   - [`where: "teamId" is undefined. Leave the key out, or pass null for IS NULL`](#where-teamid-is-undefined-leave-the-key-out-or-pass-null-for-is-null)
   - [`where: "users" has no column under the key "teamID"`](#where-users-has-no-column-under-the-key-teamid)
@@ -40,13 +40,13 @@ one.
   - [`orderBy: "createdAt" must be 'asc' or 'desc', not DESC`](#orderby-createdat-must-be-asc-or-desc-not-desc)
   - [`orderBy: expected a Drizzle ordering, a list, or an object`](#orderby-expected-a-drizzle-ordering-a-list-or-an-object)
 - **Pagination**
-  - [`Invalid cursor: it cannot be decoded`](#invalid-cursor-it-cannot-be-decoded)
-  - [`Invalid cursor: unexpected shape`](#invalid-cursor-unexpected-shape)
-  - [`Invalid cursor: it was written for the ordering createdAt:asc, not id:asc`](#invalid-cursor-it-was-written-for-the-ordering-createdatasc-not-idasc)
-  - [`Invalid cursor: expected 2 value(s), got 1`](#invalid-cursor-expected-2-values-got-1)
+  - [`Invalid cursor in paginateByCursor on "users": it cannot be decoded`](#invalid-cursor-in-paginatebycursor-on-users-it-cannot-be-decoded)
+  - [`Invalid cursor in paginateByCursor on "users": unexpected shape`](#invalid-cursor-in-paginatebycursor-on-users-unexpected-shape)
+  - [`Invalid cursor in paginateByCursor on "users": it was written for the ordering createdAt:asc, not id:asc`](#invalid-cursor-in-paginatebycursor-on-users-it-was-written-for-the-ordering-createdatasc-not-idasc)
+  - [`Invalid cursor in paginateByCursor on "users": it holds 1 value(s) where the ordering createdAt:asc needs 2 (createdAt, id)`](#invalid-cursor-in-paginatebycursor-on-users-it-holds-1-values-where-the-ordering-createdatasc-needs-2-createdat-id)
   - [`paginateByCursor: "users" has no column under the key "createdAtt"`](#paginatebycursor-users-has-no-column-under-the-key-createdatt)
   - [`paginateByCursor: "createdAt" is null in a row of "users". Page along a NOT NULL column.`](#paginatebycursor-createdat-is-null-in-a-row-of-users-page-along-a-not-null-column)
-  - [`page must be an integer of at least 1, not 0`](#page-must-be-an-integer-of-at-least-1-not-0)
+  - [`paginate on "users": page must be an integer of at least 1, not 0`](#paginate-on-users-page-must-be-an-integer-of-at-least-1-not-0)
 - **Transactions**
   - [`withTransaction: a nested transaction is a savepoint, which takes no isolation level or access mode`](#withtransaction-a-nested-transaction-is-a-savepoint-which-takes-no-isolation-level-or-access-mode)
   - [A repository call inside a transaction never settles](#a-repository-call-inside-a-transaction-never-settles)
@@ -233,14 +233,21 @@ the one column PostgreSQL named.
 await users.create({ email }); // every NOT NULL column without a default
 ```
 
-### `invalid input syntax for type uuid`
+### `invalid input syntax for type uuid: "nope"`
 
-**When:** `findById('nope')` — any id whose text the column's type refuses.
-**Why:** the value reaches PostgreSQL, which refuses it with SQLSTATE
-`22P02`. There is no subclass for that, so it arrives as a `DataError` with
-`code: 'DATABASE'` — an error, not `undefined`. Measured on PGlite with a
-`uuid` primary key.
-**Fix:**
+**When:** any query handed a value the column's type cannot read — most often
+a URL parameter passed straight to `findById`.
+**Why:** PostgreSQL's SQLSTATE `22P02`, as an `InvalidValueError` with
+`code: 'INVALID_VALUE'` since 0.3.0. It is the caller's input rather than the
+query's own doing, so it is a 400: before that it was a plain `DataError` with
+`code: 'DATABASE'`, which is what a database that is down answers too, so a
+handler mapping codes to statuses returned 500 for a mistyped id. Its
+siblings are the same class — `22001` (a value too long for the column),
+`22003` (out of the type's range), `22007` and `22008` (a date or a time that
+is not one). Measured on PGlite 0.5.8: none of them carries `table`, `column`
+or `detail`, so the database's own sentence is all there is, and it can hold
+the value that was refused — log it, do not send it to a client.
+**Fix:** validate the parameter, or answer the error with a 400:
 
 ```ts
 // a route parameter is checked before it is used as an id
@@ -248,6 +255,21 @@ const id = z.uuid().safeParse(request.params.id);
 if (!id.success) return notFound();
 await users.findById(id.data);
 ```
+
+```ts
+import { InvalidValueError } from '@nxgt/drizzle';
+
+try {
+	return await users.getById(request.params.id);
+} catch (error) {
+	if (error instanceof InvalidValueError) return badRequest('id'); // not a 500
+	throw error;
+}
+```
+
+A division by zero (`22012`) is deliberately **not** one of these: that is the
+query rather than a value handed to it, and it stays a `DataError` with
+`code: 'DATABASE'`.
 
 ### `No row in "users" with id …`
 
@@ -390,10 +412,12 @@ await users.paginateByCursor({ orderBy: 'createdAt' });          // a key, here 
 
 ## Pagination
 
-### `Invalid cursor: it cannot be decoded`
+### `Invalid cursor in paginateByCursor on "users": it cannot be decoded`
 
 **When:** `paginateByCursor({ after })` with a cursor that was not written by
-this package — truncated in a URL, re-encoded, or made up.
+this package — truncated in a URL, re-encoded, or made up. The call and the
+table are named in the sentence, because every paginated call takes the same
+`after`.
 **Why:** an `InvalidCursorError`, `code: 'INVALID_CURSOR'`. It is a client's
 input, so it is a 400, not a 500.
 **Fix:**
@@ -412,7 +436,7 @@ try {
 A cursor is base64url, not a signature: a client can read the ordering values
 out of it and forge one. It can only ask for rows its `where` already allows.
 
-### `Invalid cursor: unexpected shape`
+### `Invalid cursor in paginateByCursor on "users": unexpected shape`
 
 **When:** `paginateByCursor({ after })` with a value that decoded and parsed
 as JSON, but is not what `encodeCursor` writes — a base64 payload from
@@ -431,10 +455,10 @@ const cursor = encodeCursor({ key: 'createdAt:asc', values: [row.createdAt, row.
 ```
 
 In a handler, treat every cursor that comes from a client as a 400 — see
-[`Invalid cursor: it cannot be decoded`](#invalid-cursor-it-cannot-be-decoded)
+[`Invalid cursor in paginateByCursor on "users": it cannot be decoded`](#invalid-cursor-in-paginatebycursor-on-users-it-cannot-be-decoded)
 for the shape of that `catch`.
 
-### `Invalid cursor: it was written for the ordering createdAt:asc, not id:asc`
+### `Invalid cursor in paginateByCursor on "users": it was written for the ordering createdAt:asc, not id:asc`
 
 **When:** paging on with a cursor taken from a page that was ordered
 differently, or sorted in the other direction.
@@ -447,7 +471,7 @@ for the order it was cut in.
 await users.paginateByCursor({ orderBy: 'createdAt', direction: 'asc', after });
 ```
 
-### `Invalid cursor: expected 2 value(s), got 1`
+### `Invalid cursor in paginateByCursor on "users": it holds 1 value(s) where the ordering createdAt:asc needs 2 (createdAt, id)`
 
 **When:** `paginateByCursor({ after })` with a cursor written for the same
 ordering but holding another number of values — a cursor issued before the
@@ -455,7 +479,9 @@ repository's `primaryKey` changed, or one that was edited.
 **Why:** the keyset is one column when the ordering **is** the primary key,
 and two — the ordering column, then the primary key to break its ties — for
 any other, and a cursor carries one value per column. The ordering name in
-the cursor still matches, so this check is what catches it.
+the cursor still matches, so this check is what catches it. The sentence
+names the call, the table and the columns the ordering needs, and the error
+carries the `table`.
 **Fix:** treat it as any other bad cursor, and hand back the first page:
 
 ```ts
@@ -506,10 +532,14 @@ A `timestamptz` at PostgreSQL's default precision also holds microseconds a
 `Date` cannot; declare it `precision: 3`, as `timestamps()` does, or a cursor
 on it repeats or skips rows.
 
-### `page must be an integer of at least 1, not 0`
+### `paginate on "users": page must be an integer of at least 1, not 0`
 
 **When:** `paginate({ page })` or `paginate({ pageSize })` with a number that
-is not a positive integer — usually a query string turned into a number.
+is not a positive integer — usually a query string turned into a number. The
+same message names `pageSize` for that option, and
+`paginateByCursor on "users": limit must be …` for a cursor page's: the call
+and the table open the sentence, since every paginated call takes the same
+option names.
 **Why:** a `RangeError`; pages are 1-based. A `pageSize` **above**
 `maxPageSize` is not an error, it is lowered.
 **Fix:**

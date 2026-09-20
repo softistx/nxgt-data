@@ -29,13 +29,13 @@ A driver error that is none of them reaches you untouched.
 | `ConflictError` | `CONFLICT` | a unique index refused the write (`E11000`); `put({ id })` named a file the bucket already has; or one of [`putOnce`'s four](gridfs.md#what-putonce-refuses) |
 | `ValidationError` | `VALIDATION` | the collection's `$jsonSchema` validator refused it (121) |
 | `OptimisticLockError` | `OPTIMISTIC_LOCK` | the version in the patch no longer matches |
-| `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write, or one written for another ordering |
+| `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write, or one written for another ordering. The message [names the call and the collection](pagination.md#what-a-refused-cursor-says) |
 | `InvalidIdError` | `INVALID_ID` | a value that is no `ObjectId`, nor the string of one — from `toObjectId`, `toObjectIds`, `objectIdParam`, and `put({ id })` |
-| `CorruptFileError` | `CORRUPT_FILE` | a stored file is missing chunks, or one is short — raised while its bytes are read |
+| `CorruptFileError` | `CORRUPT_FILE` | a stored file is [missing a chunk, or one is short, or one holds something that is not bytes](gridfs.md#a-file-is-found-whole-and-only-reading-it-says-otherwise) — raised while its bytes are read, and naming the chunk, the file and the bucket |
 | `MigrationError` | `MIGRATION` | a migration failed, or the list does not match the records — from `@nxgt/mongo/migrations` |
 | `MigrationLockedError` | `MIGRATION_LOCKED` | another run holds the migration lock, or this one lost it — from `@nxgt/mongo/migrations` |
 | `ConnectionError` | `CONNECTION` | `closeMongo()` ran while this [`connectMongo`](connecting.md#a-connect-that-closemongo-interrupts) was still connecting |
-| `DataError` | `DATABASE` | any other server error, with its `serverCode` |
+| `DataError` | `DATABASE` | any other server error, with its `serverCode` — and the one answer MongoDB should never give, an [`upsert` answered with no document](upsert.md#what-it-throws) |
 
 `ConnectionError` is the one that is not a server answer: MongoDB's own
 refusal to connect — a host that does not answer, an auth failure — is the
@@ -135,8 +135,7 @@ app.onError((error, c) => {
 });
 ```
 
-Two things that are **not** errors here, and are worth deciding about on
-purpose:
+What is **not** a `DataError` here, and is worth deciding about on purpose:
 
 - A malformed id on a read is a `NotFoundError`, not an `InvalidIdError`: the
   collection hands an unreadable string on rather than throwing. Call
@@ -145,7 +144,16 @@ purpose:
 - A write refused before anything is sent — a stamp a caller may not write, a
   filter an [upsert](upsert.md#the-filter-is-written-not-only-matched) cannot
   seed from — is a `TypeError`, not a `DataError`. The types refuse most of
-  them first.
+  them first. The exception is the one thing about an `upsert` that cannot be
+  the caller's doing: a server that
+  [answers it with no document](upsert.md#what-it-throws) is a `DataError`
+  with `code: 'DATABASE'`, so a handler is not left reading messages to tell
+  a bug from a mistake.
+- A `page`, a `pageSize` or a `limit` that is not a positive integer is a
+  `RangeError`, and it [names the call](pagination.md#by-page-number):
+  `paginate on "users": page must be an integer of at least 1, not 0`. It is
+  a client's input as often as not, so it is a 400 too — and it is not a
+  `DataError`, so the mapping below does not catch it.
 - **A refused *argument* here is a bare `TypeError` with no code**, and that
   is worth knowing if you also use `@nxgt/drizzle`, where the equivalent is
   an `ArgumentError` carrying `code: 'INVALID_ARGUMENT'`. An `updateMany`

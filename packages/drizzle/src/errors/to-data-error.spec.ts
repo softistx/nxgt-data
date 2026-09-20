@@ -14,6 +14,7 @@ import {
 	ConflictError,
 	DataError,
 	ForeignKeyError,
+	InvalidValueError,
 	NotFoundError,
 	NotNullViolationError,
 } from './data-error';
@@ -136,6 +137,74 @@ describe('toDataError, from real PostgreSQL errors', () => {
 		expect(error.sqlState).toBe('42P01');
 		expect(error.message).toContain('nowhere');
 		expect(error.cause).toBe(raw);
+	});
+});
+
+describe("a value the column's type refuses", () => {
+	/**
+	 * The five SQLSTATEs of the `22` class this package answers with a 400,
+	 * each measured against PGlite 0.5.8 rather than taken from the standard.
+	 */
+	const REFUSED: [string, string, () => PromiseLike<unknown>][] = [
+		[
+			'22P02',
+			'text where a uuid goes',
+			() => t.db.execute(sql`select * from users where id = 'abc'`),
+		],
+		[
+			'22001',
+			'longer than the column',
+			// An insert, not a cast: measured, `'abcdef'::varchar(3)` truncates
+			// and succeeds — PostgreSQL only refuses the length when the value
+			// is *assigned* to a column.
+			async () => {
+				await t.db.execute(
+					sql`create temp table if not exists nxgt_short (s varchar(3))`,
+				);
+				return t.db.execute(sql`insert into nxgt_short (s) values ('abcdef')`);
+			},
+		],
+		[
+			'22003',
+			"out of the type's range",
+			() => t.db.execute(sql`select 2147483648::integer`),
+		],
+		[
+			'22007',
+			'text where a date goes',
+			() => t.db.execute(sql`select 'not-a-date'::date`),
+		],
+		[
+			'22008',
+			'a date that is not one',
+			() => t.db.execute(sql`select '2026-13-45'::timestamptz`),
+		],
+	];
+
+	for (const [sqlState, what, run] of REFUSED) {
+		test(`${sqlState}, ${what}, is an InvalidValueError`, async () => {
+			const error = toDataError(await caught(run()));
+			expect(error).toBeInstanceOf(InvalidValueError);
+			expect(error).toBeInstanceOf(DataError);
+			expect(error).toHaveProperty('code', 'INVALID_VALUE');
+			expect(error).toHaveProperty('sqlState', sqlState);
+			// Measured: this family carries no table, no column and no detail,
+			// so the database's own sentence is all there is to report.
+			expect(error).toHaveProperty('table', undefined);
+			expect(error).toHaveProperty('detail', undefined);
+			expect((error as DataError).columns).toEqual([]);
+			expect((error as Error).message).not.toBe('');
+		});
+	}
+
+	test('a division by zero is not one of them', async () => {
+		// The query, not a value handed to it: a 500, and a `DataError` with
+		// its SQLSTATE, the way every other server error is.
+		const error = toDataError(await caught(t.db.execute(sql`select 1 / 0`)));
+		expect(error).not.toBeInstanceOf(InvalidValueError);
+		expect(error).toBeInstanceOf(DataError);
+		expect(error).toHaveProperty('code', 'DATABASE');
+		expect(error).toHaveProperty('sqlState', '22012');
 	});
 });
 

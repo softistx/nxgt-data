@@ -93,7 +93,9 @@ throws stops the sync.
 
 The document it returns must carry its **index id** under the index's primary
 key. One under another id could never be taken out again, so it is refused
-with `ID_MISMATCH`.
+with `ID_MISMATCH`. It must return a document or `null`; anything else —
+a string, a number, an array — is refused with `NOT_A_DOCUMENT`, and the
+message reports its shape rather than its value.
 
 ## Options
 

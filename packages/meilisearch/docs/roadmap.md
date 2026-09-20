@@ -33,6 +33,11 @@ _Nothing queued._
 
 ## Shipped
 
+- **`diffSettings` takes a definition's own settings** — a definition's
+  settings go straight in, with no cast: the first parameter is the exported
+  `WantedSettings`, every list `readonly` and every value allowed to be
+  `undefined`, and a plain `Settings` from anywhere else still goes in; what
+  comes back is still a `Settings` the SDK will take — 0.2.0.
 - **Documentation that travels with the package** — a guide page for the
   definition, documents, search and `syncIndex`, a troubleshooting page whose
   headings are the exact error text, and this roadmap, installed in `docs/`

@@ -39,16 +39,16 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`upsert: "users" cannot upsert on "rank": it is matched rather than given a value`](#upsert-users-cannot-upsert-on-rank-it-is-matched-rather-than-given-a-value)
   - [`restore: "users" has no soft delete`](#restore-users-has-no-soft-delete)
   - [`update: the expected "version" must be a whole number, not 3.5`](#update-the-expected-version-must-be-a-whole-number-not-35)
-  - [`upsert: "users" wrote nothing`](#upsert-users-wrote-nothing)
+  - [`upsert on "users" was answered with no document`](#upsert-on-users-was-answered-with-no-document)
 - **Reads, ids and pagination**
   - [`No document in "users" with _id 6721…`](#no-document-in-users-with-_id-6721)
   - [`_id: expected an ObjectId or its 24-character hex string, got the string "nope"`](#_id-expected-an-objectid-or-its-24-character-hex-string-got-the-string-nope)
-  - [`Invalid cursor: it cannot be decoded`](#invalid-cursor-it-cannot-be-decoded)
-  - [`Invalid cursor: it was written for the ordering createdAt:asc, not _id:asc`](#invalid-cursor-it-was-written-for-the-ordering-createdatasc-not-_idasc)
+  - [`Invalid cursor in paginateByCursor on "users": it cannot be decoded`](#invalid-cursor-in-paginatebycursor-on-users-it-cannot-be-decoded)
+  - [`Invalid cursor in paginateByCursor on "users": it was written for the ordering createdAt:asc, not _id:asc`](#invalid-cursor-in-paginatebycursor-on-users-it-was-written-for-the-ordering-createdatasc-not-_idasc)
   - [`paginateByCursor: "createdAt" is null in a document of "users". Page along a field every document has.`](#paginatebycursor-createdat-is-null-in-a-document-of-users-page-along-a-field-every-document-has)
-  - [`page must be an integer of at least 1, not 0`](#page-must-be-an-integer-of-at-least-1-not-0)
-  - [`Invalid cursor: unexpected shape`](#invalid-cursor-unexpected-shape)
-  - [`Invalid cursor: expected 1 value(s), got 2`](#invalid-cursor-expected-1-values-got-2)
+  - [`paginate on "users": page must be an integer of at least 1, not 0`](#paginate-on-users-page-must-be-an-integer-of-at-least-1-not-0)
+  - [`Invalid cursor in paginateByCursor on "users": unexpected shape`](#invalid-cursor-in-paginatebycursor-on-users-unexpected-shape)
+  - [`Invalid cursor in paginateByCursor on "users": it holds 2 value(s) where the ordering _id:asc needs 1 (_id)`](#invalid-cursor-in-paginatebycursor-on-users-it-holds-2-values-where-the-ordering-_idasc-needs-1-_id)
 - **Aggregation**
   - [`groupBy: "count" cannot name a measure.`](#groupby-count-cannot-name-a-measure)
   - [`groupBy: measure "total" must be one of { sum | avg | min | max: field }.`](#groupby-measure-total-must-be-one-of--sum--avg--min--max-field-)
@@ -73,9 +73,9 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`File 6721… in "avatars" reads 900 bytes where its chunks should hold 1024: a chunk of it was truncated`](#file-6721-in-avatars-reads-900-bytes-where-its-chunks-should-hold-1024-a-chunk-of-it-was-truncated)
   - [``put: "contentType" and "sha256" are kept by "avatars" itself.``](#put-contenttype-and-sha256-are-kept-by-avatars-itself)
   - [`put: expected a file, a blob, a response, a stream or bytes, not null`](#put-expected-a-file-a-blob-a-response-a-stream-or-bytes-not-null)
-  - [`A chunk of this file holds no bytes`](#a-chunk-of-this-file-holds-no-bytes)
+  - [`Chunk 3 of file 6721… in "avatars" holds a string where its bytes should be`](#chunk-3-of-file-6721-in-avatars-holds-a-string-where-its-bytes-should-be)
   - [`defineBucket: "avatars.small" is not a bucket name.`](#definebucket-avatarssmall-is-not-a-bucket-name)
-  - [A read of one file scans the whole chunks collection](#a-read-of-one-file-scans-the-whole-chunks-collection)
+  - [`(node:1) [NxgtGridFSMissingIndex] Warning: Bucket "avatars" has no files_id_1_n_1 on "avatars.chunks": every read scans the whole collection, …`](#node1-nxgtgridfsmissingindex-warning-bucket-avatars-has-no-files_id_1_n_1-on-avatarschunks-every-read-scans-the-whole-collection-)
 - **Migrations**
   - [`Migrations are locked by host:1234:6721… until 2026-01-01T00:00:00.000Z`](#migrations-are-locked-by-host12346721-until-2026-01-01t000000000z)
   - [`This run lost its migration lock: it was not renewed in time, and another run may have taken it.`](#this-run-lost-its-migration-lock-it-was-not-renewed-in-time-and-another-run-may-have-taken-it)
@@ -482,13 +482,21 @@ From a request body, turn it into a number before the write:
 `Number.isInteger(n)` and `n >= 0`, or a `z.coerce.number().int()` on the
 body's field.
 
-### `upsert: "users" wrote nothing`
+### `upsert on "users" was answered with no document`
+
+The message goes on: *although MongoDB answers an upsert with the document it
+matched or inserted. Nothing was stored. This is a bug in @nxgt/mongo or
+something rewriting replies between the process and the server: report it at
+https://github.com/softistx/nxgt-data/issues*
 
 **When:** `upsert`, when the server answered an upsert with no document.
 **Why:** MongoDB does not do that — `findOneAndUpdate` with `upsert: true`
 and `returnDocument: 'after'` either matches, inserts, or errors. Reaching
 this means a bug in this package, or something between the process and the
-server rewriting replies. Nothing was stored.
+server rewriting replies. Nothing was stored. It is a `DataError` with
+`code: 'DATABASE'` and the `collection` on it since 0.17.0 — **not** a
+`TypeError`, which is what the other refusals of the same call are and what
+this one used to be: those are a mistake in the call, and this one cannot be.
 **Fix:** there is nothing to change in the call. Report it at
 `https://github.com/softistx/nxgt-data/issues` with the collection definition,
 the filter and the values, and the MongoDB version:
@@ -544,10 +552,11 @@ nothing, and raises `NotFoundError`. And `new ObjectId(undefined)` is a
 **fresh** id, not an error — `toObjectId` throws, `tryObjectId` answers
 `undefined`.
 
-### `Invalid cursor: it cannot be decoded`
+### `Invalid cursor in paginateByCursor on "users": it cannot be decoded`
 
 **When:** `paginateByCursor({ after })` with a cursor this package did not
-write — truncated in a URL, or made up.
+write — truncated in a URL, or made up. The call and the collection are named
+in the sentence, because every paginated call takes the same `after`.
 **Why:** an `InvalidCursorError`, `code: 'INVALID_CURSOR'`: a client's input,
 so a 400.
 **Fix:**
@@ -558,7 +567,7 @@ import { InvalidCursorError } from '@nxgt/mongo';
 if (error instanceof InvalidCursorError) return badRequest('cursor');
 ```
 
-### `Invalid cursor: it was written for the ordering createdAt:asc, not _id:asc`
+### `Invalid cursor in paginateByCursor on "users": it was written for the ordering createdAt:asc, not _id:asc`
 
 **When:** paging on with a cursor cut under a different `orderBy` or
 `direction`.
@@ -572,7 +581,8 @@ await users.paginateByCursor({ orderBy: 'createdAt', direction: 'asc', after });
 
 Carry `orderBy` and `direction` with the cursor on every page. The file
 listing orders on `uploadDate` **and** `_id`, and refuses a cursor from the
-other order for the same reason.
+other order for the same reason — its sentences open with
+`Invalid cursor in paginate on "avatars"` instead.
 
 ### `paginateByCursor: "createdAt" is null in a document of "users". Page along a field every document has.`
 
@@ -584,11 +594,15 @@ other order for the same reason.
 await users.paginateByCursor({ orderBy: '_id' });
 ```
 
-### `page must be an integer of at least 1, not 0`
+### `paginate on "users": page must be an integer of at least 1, not 0`
 
 **When:** `paginate({ page })` with `0`, a negative, or a fraction. The same
 message names `pageSize` for that option, and `limit` for a cursor page's —
-`paginateByCursor({ limit })` and a bucket's `paginate({ limit })` both.
+`paginateByCursor on "users": limit must be …`, and
+`paginate on "avatars": limit must be …` for a bucket's listing — which
+is `files.paginate({ limit })` on your side, under the name the bucket's
+listing has inside the package. The call and the collection or bucket open
+the sentence, since every paginated call takes the same option names.
 **Why:** a `RangeError`, not a `DataError`: pages are one-based, and a value
 off a query string that came out `0` or `NaN` would otherwise ask the server
 to skip a negative number of documents. A `pageSize` **above** `maxPageSize`
@@ -602,7 +616,7 @@ const page = Number.isInteger(asked) && asked > 0 ? asked : 1;
 await users.paginate({ page, pageSize: 20 });
 ```
 
-### `Invalid cursor: unexpected shape`
+### `Invalid cursor in paginateByCursor on "users": unexpected shape`
 
 **When:** `paginateByCursor({ after })` with a cursor that decodes as JSON but
 not as a cursor — one built by hand, or a value from somewhere else that
@@ -620,14 +634,16 @@ const next = await users.paginateByCursor({ after: page.nextCursor }); // pass i
 A cursor is opaque: never trim, decorate or re-encode one on the way through
 a client.
 
-### `Invalid cursor: expected 1 value(s), got 2`
+### `Invalid cursor in paginateByCursor on "users": it holds 2 value(s) where the ordering _id:asc needs 1 (_id)`
 
 **When:** paging on with a cursor whose ordering matches the call but whose
 number of keyset values does not — a cursor edited by hand, or one from a
 build whose `orderBy` meant a different pair of fields.
 **Why:** paging on `_id` keeps one value; paging on any other field keeps that
 field **and** `_id`, which breaks its ties, so two. A cursor carrying the
-wrong count cannot be turned into a keyset condition.
+wrong count cannot be turned into a keyset condition. The sentence names the
+ordering the call is on and the fields it needs, so the two can be compared
+without decoding the cursor.
 **Fix:**
 
 ```ts
@@ -635,10 +651,10 @@ const page = await users.paginateByCursor({ orderBy: 'createdAt', direction: 'as
 await users.paginateByCursor({ orderBy: 'createdAt', direction: 'asc', after: page.nextCursor });
 ```
 
-Unlike the two cursor errors above, this one arrives as a plain `DataError`
-with `code: 'DATABASE'`, not as an `InvalidCursorError`: a handler that maps
-only `InvalidCursorError` to a 400 answers 500 for it. Match on `DataError`
-with that message, or carry the ordering with the cursor so it cannot happen.
+It is an `InvalidCursorError` with `code: 'INVALID_CURSOR'`, like the two
+cursor errors above, so one `catch` and one 400 cover all of them. Before
+0.17.0 this one alone arrived as a plain `DataError` with `code: 'DATABASE'`,
+and a handler mapping codes answered 500 to it.
 
 ## Aggregation
 
@@ -903,8 +919,9 @@ const saved = await files.put(source); // …or let the bucket give it an id
 
 ### `Chunk 3 of file 6721… in "avatars" is missing`
 
-**When:** reading the bytes — `text()`, `bytes()`, `stream()`, `serve()` —
-never at `get`, which only reads the `files` document.
+**When:** reading the bytes — `stream()`, `bytes()`, `text()`, `json()`,
+`blob()`, `response()` or the bucket's `serve()` — never at `get`, which only
+reads the `files` document.
 **Why:** nothing in MongoDB ties a `files` document to its chunks, so a chunk
 removed by hand, an interrupted write from another client, or a restore of
 one collection without the other leaves a file whose `length` promises bytes
@@ -958,13 +975,22 @@ const saved = await files.put(field, { type: field.type });
 
 A string is not bytes on purpose: encode it first (`new TextEncoder().encode(text)`).
 
-### `A chunk of this file holds no bytes`
+### `Chunk 3 of file 6721… in "avatars" holds a string where its bytes should be`
 
-**When:** reading a file — `bytes()`, `text()`, `stream()`, `serve()` — whose
-chunk documents hold something other than binary in `data`.
-**Why:** a `CorruptFileError`. A chunk written by a GridFS client holds a
-`Binary`; a chunk restored from a dump that mapped the field to a string, or
-inserted by hand as a fixture, holds something that cannot be read as bytes.
+The message ends: *the chunk was written by something that is not GridFS, or
+its `data` was overwritten*. A chunk with no `data` field at all says
+`holds no data field` in place of `holds a string`; a chunk holding a number,
+an array or `null` names that instead.
+
+**When:** reading a file — `stream()`, `bytes()`, `text()`, `json()`,
+`blob()`, `response()` or the bucket's `serve()` — whose chunk documents hold
+something other than binary in `data`.
+**Why:** a `CorruptFileError`, `code: 'CORRUPT_FILE'`, carrying the chunks
+collection as `collection` (`"avatars.chunks"`) and the file's `_id` as `id`.
+A chunk written by a GridFS client holds a `Binary`; a chunk restored from a
+dump that mapped the field to a string, or inserted by hand as a fixture,
+holds something that cannot be read as bytes. The message reports the
+**shape** of what was found, never its value: a chunk holds a file's bytes.
 **Fix:**
 
 ```ts
@@ -987,19 +1013,44 @@ name may not be empty and may not contain `.` or `$`.
 defineBucket({ name: 'avatarsSmall', metadata });
 ```
 
-### A read of one file scans the whole chunks collection
+### `(node:1) [NxgtGridFSMissingIndex] Warning: Bucket "avatars" has no files_id_1_n_1 on "avatars.chunks": every read scans the whole collection, …`
 
-**When:** any bucket with no indexes: no error, just reads whose cost grows
-with the size of the bucket rather than of the file.
-**Why:** the driver builds GridFS's two indexes on its first upload, and this
-package does not upload through the driver — it writes the chunk documents
-itself, which is what lets a file write run in a transaction. `putOnce` is
-the one call that creates them anyway, because it elects on the unique
-`{ files_id, n }` index.
+The warning's own text ends: *and the cost grows with the bucket rather than
+with the file. Call syncIndexes() at start-up, or bind with autoSync.* It is
+a `process` warning, not an error: nothing is thrown, and the read it came
+beside returns the bytes.
+
+**When:** the first read of a bucket whose chunks collection has no
+`files_id_1_n_1` — `stream()`, `bytes()`, `text()`, `json()`, `blob()`,
+`response()` or the bucket's `serve()` — since 0.17.0. It is emitted **once
+per database and bucket per process**, so a second read is silent.
+**Why:** nothing else creates those indexes. The driver builds them on its
+first upload, and this package does not upload through the driver:
+`GridFSBucket` takes no session, so the chunk documents are written here —
+which is what lets a file write run in a transaction — and the driver's
+safety net went with it. `putOnce` is the one call that creates them anyway,
+because it elects on the unique `{ files_id, n }` index. Until they exist, a
+read examines every chunk document of the bucket, and a bucket that was never
+synced looks exactly like one that was until it holds enough files to hurt.
 **Fix:**
 
 ```ts
-await files.syncIndexes(); // at start-up; or bind the bucket with `autoSync`
+const files = getFiles(db, avatars, { autoSync: true }); // before the first call that needs them
+// or, on a bucket bound without it, once where the app starts:
+await getFiles(db, avatars).syncIndexes();
+```
+
+The probe runs beside the read and never delays or fails it. It arrives on
+the `process` channel every application already has, so it can be routed or
+silenced without this package taking a view on logging — measured on bun
+1.4.2, a listener receives it and Bun prints it as well:
+
+```ts
+process.on('warning', (warning) => {
+	if ((warning as { code?: string }).code === 'NxgtGridFSMissingIndex') {
+		log.warn(warning.message);
+	}
+});
 ```
 
 `syncIndexes` runs in the bucket's session, and mongod refuses

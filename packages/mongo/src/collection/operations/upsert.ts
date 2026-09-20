@@ -1,5 +1,6 @@
 import type { Document } from 'mongodb';
 import { isObjectId } from '../../definition/object-id';
+import { DataError } from '../../errors/data-error';
 import { coercedValues } from '../coerce';
 import { type CollectionContext, run } from '../context';
 import { setFromFields, withId, withoutUndefined } from '../documents';
@@ -216,8 +217,21 @@ export async function upsert(
 	);
 	const document = answer.value as Fields | null;
 	if (!document) {
-		// The server answered no document for an upsert, which it does not do.
-		throw new TypeError(`upsert: "${ctx.name}" wrote nothing`);
+		// The server answered no document for an upsert, which it does not do:
+		// `findOneAndUpdate` with `upsert: true` and `returnDocument: 'after'`
+		// matches, inserts, or errors. A `DataError` rather than the
+		// `TypeError` the refusals above throw, and a sentence that says so:
+		// those are the caller's mistake and this one cannot be, so wearing the
+		// same class and the same `upsert: "name"` prefix left no way to tell
+		// them apart in a handler or in a log.
+		throw new DataError(
+			`upsert on "${ctx.name}" was answered with no document, although ` +
+				'MongoDB answers an upsert with the document it matched or ' +
+				'inserted. Nothing was stored. This is a bug in @nxgt/mongo or ' +
+				'something rewriting replies between the process and the server: ' +
+				'report it at https://github.com/softistx/nxgt-data/issues',
+			{ collection: ctx.name },
+		);
 	}
 	return {
 		document: withId(ctx, document),

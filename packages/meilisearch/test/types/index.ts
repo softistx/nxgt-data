@@ -2,11 +2,17 @@
 // is a line that must not compile: if it compiles, tsc reports the unused
 // directive.
 
-import type { EnqueuedTaskPromise, Meilisearch, Task } from 'meilisearch';
+import type {
+	EnqueuedTaskPromise,
+	Meilisearch,
+	Settings,
+	Task,
+} from 'meilisearch';
 import {
 	bindIndex,
 	type DocumentPath,
 	defineIndex,
+	diffSettings,
 	type IdOf,
 	type SortableOf,
 	syncIndexes,
@@ -219,3 +225,32 @@ await bindIndex(client, tags).get('drizzle');
 
 // Definitions of different documents sync together.
 await syncIndexes(client, [movies, tags]);
+
+// A definition's own settings go straight into `diffSettings`: they are
+// `readonly` — that is what makes `SortableOf` work — and the SDK's `Settings`
+// is not, so this used to need a cast at every call site, this package's own
+// included.
+diffSettings(movies.settings, {});
+diffSettings(places.settings, await client.index('places').getSettings());
+
+// And a plain `Settings`, mutable and from anywhere, still goes in.
+const mutable: Settings = { sortableAttributes: ['year'], stopWords: ['the'] };
+diffSettings(mutable, {});
+
+// What comes back is a `Settings` the SDK will take, not a readonly copy.
+const update: Settings = diffSettings(movies.settings, {});
+await client.index('movies').updateSettings(update);
+
+// @ts-expect-error the live settings are the server's, and are not readonly
+diffSettings({}, movies.settings);
+
+// `WantedSettings` allows every value to be `undefined`, because a definition
+// writes `sortFacetValuesBy` as a `Partial<Record<…>>` — and a setting that is
+// `undefined` is one `diffSettings` skips. It is no wider than that:
+// @ts-expect-error a sortable attribute is a string, not a number
+diffSettings({ sortableAttributes: [123] }, {});
+// @ts-expect-error there is no such setting
+diffSettings({ nonsense: true }, {});
+// @ts-expect-error prefixSearch takes two values, and this is not one of them
+diffSettings({ prefixSearch: 'sometimes' }, {});
+diffSettings({ stopWords: undefined }, {});

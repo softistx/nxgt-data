@@ -35,6 +35,11 @@ _Nothing queued._
 
 ## Shipped
 
+- **A transform that gives back something that is not a document has its own
+  code** — `SearchSyncErrorCode` gains `NOT_A_DOCUMENT`, naming the sync and
+  the document and reporting the shape of what came back, never its value, so
+  a transform written wrong is no longer the same `FAILED` a Meilisearch
+  outage is — 0.2.0.
 - **Documentation that travels with the package** — a guide page for the
   sync's lifecycle, following a collection's changes, `reindex` and where the
   package's boundaries are, a troubleshooting page whose headings are the
