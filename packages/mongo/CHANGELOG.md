@@ -1,5 +1,32 @@
 # @nxgt/mongo
 
+## 0.16.0
+
+### Minor Changes
+
+- [#68](https://github.com/softistx/nxgt-data/pull/68) [`2e63c80`](https://github.com/softistx/nxgt-data/commit/2e63c80a3530fb5cc600c2deb2ddc1d1b68bfd19) Thanks [@SteveGT96](https://github.com/SteveGT96)! - A connect that a close interrupts is a `ConnectionError`, not a bare `Error`.
+  
+  ```ts
+  import { ConnectionError } from '@nxgt/mongo';
+  
+  try {
+  	await connectMongo(uri);
+  } catch (error) {
+  	if (error instanceof ConnectionError) {
+  		// The shared client went away mid-connect: worth trying again.
+  	}
+  }
+  ```
+  
+  It is a `DataError` like the rest of this package's failures, with
+  `code: 'CONNECTION'`, so a handler that already maps `DataError` codes to
+  statuses covers it without a second branch. MongoDB's own refusal to connect
+  is still the driver's error, unchanged — this is only what *this* package
+  decides.
+  
+  **It carries no URI**, and a spec asserts it: a connection string holds the
+  password, and this package prints none.
+
 ## 0.15.1
 
 ### Patch Changes

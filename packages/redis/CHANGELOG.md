@@ -1,5 +1,26 @@
 # @nxgt/redis
 
+## 0.2.0
+
+### Minor Changes
+
+- [#68](https://github.com/softistx/nxgt-data/pull/68) [`2e63c80`](https://github.com/softistx/nxgt-data/commit/2e63c80a3530fb5cc600c2deb2ddc1d1b68bfd19) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The connection failures are a `RedisError` too, with a code.
+  
+  `RedisErrorCode` gains two: `CONNECTION`, for a `connectRedis` the shared
+  client was closed under, and `PING_TIMEOUT`, which `ping` reports on its
+  result rather than throwing. Both used to be a bare `Error`, so one class and
+  one `code` now cover everything this package refuses; Redis's own failures
+  still come back as they are, from Bun's client.
+  
+  ```ts
+  if (error instanceof RedisError && error.code === 'CONNECTION') { … }
+  ```
+  
+  **Neither prints the URI.** `key` is the empty string for both — it names a
+  key or a channel, and these are about the connection, not one key. A
+  connection string holds the password, and a spec asserts the URI is absent
+  from the message.
+
 ## 0.1.1
 
 ### Patch Changes
