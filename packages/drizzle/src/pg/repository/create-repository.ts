@@ -12,6 +12,7 @@ import {
 	pageWindow,
 	toPage,
 } from '../../pagination/page';
+import { refuseHeldDatabase } from '../transaction/open-transaction';
 import {
 	columnAt,
 	isEmptyWhere,
@@ -68,6 +69,12 @@ function build(
 	table: PgTable,
 	info: TableInfo,
 	options: RepositoryOptions<any, any, any>,
+	/**
+	 * Whether a caller named this database themselves, through `.with()`. A
+	 * repository that came out of `createRepository` did not, and is the one
+	 * `refuseHeldDatabase` protects inside an open transaction.
+	 */
+	explicit = false,
 ) {
 	// Drizzle's builders are typed per table; this body works on any table,
 	// and the public type above is what callers see.
@@ -76,6 +83,10 @@ function build(
 	const maxPageSize = options.maxPageSize ?? DEFAULT_MAX_PAGE_SIZE;
 
 	async function run<R>(fn: () => Promise<R>): Promise<R> {
+		// Every database access this repository makes goes through here, so the
+		// one check covers every method, including the ones that reach the
+		// database through another (`paginate` through `findMany` and `count`).
+		refuseHeldDatabase(info.name, db, explicit);
 		try {
 			return await fn();
 		} catch (error) {
@@ -215,7 +226,7 @@ function build(
 	const repository = {
 		table,
 		db,
-		with: (other: PgDatabase) => build(other, table, info, options),
+		with: (other: PgDatabase) => build(other, table, info, options, true),
 
 		findById,
 		getById,

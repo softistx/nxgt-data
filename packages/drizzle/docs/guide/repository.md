@@ -276,6 +276,12 @@ that.
 | `with(db)` | the same repository on another database or transaction | |
 | `table`, `db` | what it was created with | |
 
+**Every method that reaches the database also throws a bare `TypeError`**
+when the repository is the one built on the outer database and the call is
+made inside `withTransaction`. A programming mistake rather than a client's
+input, which is why it is not an `ArgumentError`:
+[Forgetting `with(tx)` is refused, not hung](transactions.md#forgetting-it-is-refused-not-hung).
+
 Pagination has its own page: [guide/pagination.md](pagination.md). What the
 database said is a `DataError`, what the call said is an `ArgumentError`, and
 [guide/errors.md](errors.md) tells the two apart.

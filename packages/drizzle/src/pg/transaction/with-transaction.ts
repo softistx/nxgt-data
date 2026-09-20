@@ -5,6 +5,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { toDataError } from '../../errors/to-data-error';
 import type { PgDatabase } from '../repository/types';
+import { whileHolding } from './open-transaction';
 
 /** The transaction a database's `transaction` callback receives. */
 export type TransactionOf<TDb extends PgDatabase> = Parameters<
@@ -29,13 +30,23 @@ export async function withTransaction<TDb extends PgDatabase, T>(
 	fn: (tx: TransactionOf<TDb>) => Promise<T>,
 	config?: PgTransactionConfig,
 ): Promise<T> {
-	if (config && is(db, PgAsyncTransaction)) {
+	const nested = is(db, PgAsyncTransaction);
+	if (config && nested) {
 		throw new TypeError(
 			'withTransaction: a nested transaction is a savepoint, which takes no isolation level or access mode',
 		);
 	}
 	try {
-		return await db.transaction(fn as never, config);
+		// Only the outermost transaction records what it holds, and it records
+		// it around `fn` rather than around `db.transaction` — the connection
+		// is not taken until the callback runs, and a repository bound to the
+		// outer `db` is only a deadlock once it is.
+		return await db.transaction(
+			(nested
+				? fn
+				: (tx: TransactionOf<TDb>) => whileHolding(db, () => fn(tx))) as never,
+			config,
+		);
 	} catch (error) {
 		throw toDataError(error);
 	}

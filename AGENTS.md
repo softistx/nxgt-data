@@ -292,7 +292,9 @@ publishes to npm.
 
 These are measured limits, not taste. They exist because both packages grew
 the same shape before anyone looked: `@nxgt/mongo`'s `build()` reached **487
-lines**, and `@nxgt/drizzle`'s still holds **321**.
+lines**, and `@nxgt/drizzle`'s still holds **353** — the number said 321 for
+longer than it was true, which is its own lesson: measure it when you touch
+the file.
 
 - **A long file of declarations is fine; a long function is not.** A type or
   an options interface earns its length in documentation —
@@ -476,7 +478,7 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **948 pass, 0 fail**: drizzle 102, meilisearch 42, mongo 532,
+`bun run test` is **959 pass, 0 fail**: drizzle 113, meilisearch 42, mongo 532,
 mongo-meilisearch 40, mongo-kit 72, mongo-search-kit 14, redis 45, s3 52,
 hono-api-example 31, scripts 18. It runs one process per package, then the
 scripts' specs. Treat any failure as yours.
