@@ -7,6 +7,28 @@ on:
     # are merged without waiting for a human. Without this they merged with no
     # CI at all — no tests, no artifact check.
     branches: [develop, main, 'feat/**']
+  # On `develop` as well, and the reason is the four caches below rather than
+  # the tests. A cache written by a pull request is scoped to
+  # `refs/pull/<N>/merge` and **no other branch can read it** — a pull request
+  # reads its base branch's caches and the default branch's, never another
+  # pull request's. With CI on `pull_request` alone, nothing was ever written
+  # under `refs/heads/develop`, so every run started cold: mongod (122 MB),
+  # Meilisearch, SeaweedFS and a Redis compiled from source, four downloads
+  # and a build in parallel before a single test.
+  #
+  # Measured on 2026-09-20: 173 cache entries, seven separate copies of
+  # mongod, one per pull request, and the only entry on `refs/heads/develop`
+  # was `bun-`. The version pull request failed twice in a row under that
+  # load — six migration specs timing out at 5 s the first time, the
+  # change-stream one the second — while the identical tree had passed on the
+  # feature pull request minutes earlier. Different tests each time, which is
+  # load, not a regression.
+  #
+  # One run per merge into `develop` fills `refs/heads/develop`, and every
+  # pull request after it starts warm. The minutes are free here, as the
+  # `runs-on` comment says.
+  push:
+    branches: [develop]
 
 jobs:
   ci:
@@ -86,6 +108,14 @@ jobs:
       # `.changeset/*.md` that justified them, and so trips this check on its
       # own output. Requiring a changeset there would mean requiring one for
       # the act of releasing.
+      #
+      # And only on a pull request. On a push to `develop` the check compares
+      # `develop` with `origin/develop`, which is an empty diff: measured on
+      # changesets 3.0.3 it exits 0, so it cannot fail there — but it cannot
+      # catch anything either, and a step that can only pass is one a reader
+      # has to work out.
       - name: Changeset present
-        if: github.head_ref != 'changeset-release/develop'
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.head_ref != 'changeset-release/develop'
         run: bun run changeset:status
