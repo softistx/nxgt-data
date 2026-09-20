@@ -10,6 +10,7 @@ registry:
 | package | what it is |
 | --- | --- |
 | `@nxgt/drizzle` | an SDK over Drizzle ORM: typed repositories (`createRepository`), offset and cursor pagination, `withTransaction`, its own errors with `toDataError`, and the `id()`, `timestamps()`, `softDelete()` columns. PostgreSQL first |
+| `@nxgt/drizzle-meilisearch` | keeps a Meilisearch index in step with a PostgreSQL table: `createSearchSync` with a `transform` and a `toIndexId` typed by both sides, `reindexAll`, and one call per write — `indexRow`, `indexRows`, `removeRow`, `remove`, `removeMany`. Deliberately smaller than the Mongo bridge: PostgreSQL has no change feed a library could follow without owning the deployment, so there is no `start`, no resume point and nothing followed. Its one error is `SearchSyncError` |
 | `@nxgt/meilisearch` | a typed Meilisearch index on the official SDK: `defineIndex<Doc>()({ uid, primaryKey, settings })`, `syncIndex`/`syncIndexes` applying the settings idempotently, and `bindIndex` for typed documents and searches. Its one error is `SearchIndexError` |
 | `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection` with its stamps and MongoDB's own collection options, `syncCollection`/`syncAll` applying the `$jsonSchema` validator, the collection options and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, `withTransaction`, `upsert` as one atomic pipeline update, migrations in code under the `./migrations` subpath, and files under `./gridfs` — a bucket described once, typed metadata, `Range`-aware serving, and chunk documents written by the package itself so that a file write can run in a transaction, which the driver's GridFS cannot. A string that arrives from outside is converted from the **schema** — a 24-hex string to `ObjectId` where the schema says `objectId()`, a date string to `Date` where it says `z.date()`, in ids, filters and writes alike — unless `coerce: false`. Its errors are `DataError` and its subclasses |
 | `@nxgt/mongo-meilisearch` | keeps a Meilisearch index in step with a MongoDB collection: `createSearchSync` with a `transform` typed by both definitions, `reindex`, and `start`, which follows the collection's changes in batches from a resume point kept in MongoDB. Its one error is `SearchSyncError` |
@@ -72,7 +73,7 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   `mongodb-memory-server-core` is a devDependency, and it depends on
   `mongodb ^7.2.0`: keep the pin inside that range, or the tree carries two
   drivers and two `ObjectId` classes, which no `instanceof` survives.
-- **Three packages are built on siblings**, and all three are the same
+- **Three kits are built on siblings**, and all three are the same
   shape: a package over siblings is a package of its own, never an import
   from one into another. `@nxgt/mongo-kit` has `@nxgt/mongo` as a required
   peer, by `workspace:^`, and as a devDependency the same way; `mongodb` is a
@@ -81,13 +82,15 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   the sibling's range and pin instead of a driver — `@nxgt/redis` has no
   driver peer to carry. `@nxgt/mongo-search-kit` peers on four siblings at
   once and none of them knows it either.
-- **`@nxgt/mongo-meilisearch` is the bridge between two of them.** It
-  has `@nxgt/mongo` and `@nxgt/meilisearch` as required peers, by
-  `workspace:^`, and as devDependencies, the same way; `mongodb` and
-  `meilisearch` are peers with their siblings' ranges and pins. Neither
-  sibling knows it: a bridge between two packages is a third package, never
-  an import from one into the other. `bun publish` turns `workspace:^` into
-  `^<current version>`, and changesets gives the bridge a **patch** when a
+- **Two packages are bridges**, and both are the same shape.
+  `@nxgt/mongo-meilisearch` has `@nxgt/mongo` and `@nxgt/meilisearch` as
+  required peers, by `workspace:^`, and as devDependencies, the same way;
+  `mongodb` and `meilisearch` are peers with their siblings' ranges and pins.
+  `@nxgt/drizzle-meilisearch` is the same over `@nxgt/drizzle` and
+  `@nxgt/meilisearch`, carrying `drizzle-orm` and `meilisearch`. No sibling
+  knows either of them: a bridge between two packages is a third package,
+  never an import from one into the other. `bun publish` turns `workspace:^`
+  into `^<current version>`, and changesets gives a bridge a **patch** when a
   sibling it peers on takes a minor (measured with changesets 3.0.3), so it
   is republished with the new range.
 - **Another database library is another package**, and each keeps its own
@@ -170,6 +173,13 @@ matching key in `exports`.
   downloads Meilisearch first, as `@nxgt/meilisearch`'s does, and passes
   `--timeout 30000`: Meilisearch takes about half a second to apply each
   write, measured, so a test that writes a few batches outlasts Bun's 5 s.
+- **`@nxgt/drizzle-meilisearch`'s specs run against both too**: PGlite in
+  process (`test/db.ts`, with its own one-table `test/schema.ts`) and the
+  fourth copy of the Meilisearch server (`test/meilisearch.ts`), one of each
+  per spec file. Its specs are `create-search-sync` (the options and the
+  refusals, no server at all — `createSearchSync` does no I/O, so a
+  repository and an index that are only their shapes are enough), `reindex`
+  and `write`. Same `--timeout 30000`, for the same reason.
 - **`@nxgt/mongo-kit`'s specs** hold the third copy of the mongod server
   (`test/server.ts`), one per spec file, and `test/fixtures.ts` closes the
   kits a file opened: `connectMongo` shares a client per URI, so a kit a
@@ -304,6 +314,9 @@ publishes to npm.
 | `pingClient` in `@nxgt/redis-kit`, and `ping` in `@nxgt/redis`'s `connection/connect.ts` | a client the *configuration* handed in carries no `ping` — that one belongs to what `connectRedis` returned — so the kit has its own copy, down to the `PING_TIMEOUT` code and the message, and a health route reads the same answer either way. **A fix in one is a fix to make in the other.** The sibling exports no standalone `ping` to call instead; if it ever does, this copy goes |
 | `test/server.ts` of `@nxgt/redis`, copied into `@nxgt/redis-kit` | the same rule: a package reaches no sibling's tests, and a kit over a sibling is a package like any other. Keep `REDIS_VERSION` equal in both copies — `redis-memory-server` **compiles** the source, so two versions is two builds and two caches, and CI keys the redis cache on the hash of both files and `scripts/redis.ts`. `@nxgt/redis-kit`'s copy adds nothing to the server itself; what differs is its `test/fixtures.ts`, which also closes the kits a spec opened |
 | `test/server.ts` of `@nxgt/mongo` and of `@nxgt/meilisearch`, as `test/mongo.ts` and `test/meilisearch.ts` in `@nxgt/mongo-meilisearch` and again in `@nxgt/mongo-search-kit`, as `test/server.ts` in `@nxgt/mongo-kit`, and once more in `examples/hono-api/test/kit.ts` | a package reaches no sibling's tests, and an example reaches no package's. Keep `MONGOD_VERSION` equal in all five mongod copies: CI keys the mongod cache on the hash of those five files |
+| `test/server.ts` of `@nxgt/meilisearch`, a **fourth** time as `test/meilisearch.ts` in `@nxgt/drizzle-meilisearch` | the same rule. The Meilisearch cache key hashes `scripts/meilisearch.ts` alone — the script pins the version, and the copies only start the binary it prints — so a new copy needs no CI change |
+| `test/db.ts` of `@nxgt/drizzle`, copied into `@nxgt/drizzle-meilisearch` | the PGlite helper: one database per spec file, `reset` between tests. The copy carries this package's own `test/schema.ts` — one `articles` table instead of five — so only the four lines around `createTestDb` are the same |
+| `batch.ts`, `documents.ts`, `errors.ts` and `reindex.ts`'s `sendAll`/`removeUnwanted`, in `@nxgt/mongo-meilisearch` and `@nxgt/drizzle-meilisearch` | the two bridges write to Meilisearch the same way: chunking by `batchSize`, one `Entry` per id so adds and deletes cannot race, `keyOf` telling `1` from `'1'`, the same `SearchSyncError`/`failed` pair, and the same read-back of the index 1 000 ids at a time to find what to take out — `LIST_LIMIT`, `missingIndex` and `removeUnwanted` are identical. **A fix in one is a fix to make in the other.** What deliberately differs: `entryOf` takes a row and reads its id through the caller's required `toIndexId` instead of taking a Mongo `_id`; the batch helpers take a `wait` flag, because only `reindexAll` waits here; `reindexAll` takes a per-call `pageSize` where the Mongo one reads `ctx.pageSize`, and takes no resume token before the scan and saves no state after it; the Drizzle error has no `HISTORY_LOST` or `RUNNING`, since nothing is followed; and **the dedup by `Entry.key` sits on the other side** — the Mongo bridge's follower buffers into a `Map` before calling `send`, while here the list of rows is the caller's, so `indexRows` keys it itself, last one wins |
 
 ## Keeping the code maintainable
 
@@ -507,9 +520,10 @@ the file.
 
 ## Known state
 
-`bun run test` is **1014 pass, 0 fail**: drizzle 113, meilisearch 42,
-mongo 532, mongo-meilisearch 40, mongo-kit 72, mongo-search-kit 14, redis 45,
-redis-kit 55, s3 52, hono-api-example 31, scripts 18. It runs one process
+`bun run test` is **1052 pass, 0 fail**: drizzle 113, meilisearch 42,
+mongo 532, drizzle-meilisearch 38, mongo-meilisearch 40, mongo-kit 72,
+mongo-search-kit 14, redis 45, redis-kit 55, s3 52, hono-api-example 31,
+scripts 18. It runs one process
 per package, then the scripts' specs. Treat any failure as yours.
 
 - **The test mongod runs with `enableTestCommands`**, so a spec can make it
