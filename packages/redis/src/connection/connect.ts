@@ -1,4 +1,5 @@
 import { RedisClient, type RedisOptions } from 'bun';
+import { RedisError } from '../errors/redis-error';
 
 /** What `ping` found. It never throws: a health check reports, it does not fail. */
 export type PingResult =
@@ -90,7 +91,14 @@ async function ping(
 		const answer = client.send('PING', []);
 		const timer = new Promise<never>((_, reject) => {
 			setTimeout(
-				() => reject(new Error(`ping: no answer in ${timeoutMs}ms`)),
+				() =>
+					reject(
+						new RedisError(
+							'PING_TIMEOUT',
+							'',
+							`ping: no answer in ${timeoutMs}ms`,
+						),
+					),
 				timeoutMs,
 			).unref?.();
 		});
@@ -127,7 +135,9 @@ export async function connectRedis(
 	await shared.connecting;
 	if (clients.get(uri) !== shared) {
 		// `closeRedis` ran while this was connecting: the client is closed.
-		throw new Error(
+		throw new RedisError(
+			'CONNECTION',
+			'',
 			'connectRedis: every client was closed while this one was connecting.',
 		);
 	}

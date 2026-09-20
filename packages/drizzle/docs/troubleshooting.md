@@ -4,10 +4,18 @@ Every heading is the message as it is printed, with the stack and the row ids
 cut, and a long one ended in `…`. The table, column and constraint names in
 them are an example — the message you get names yours, so search for the
 words around the name. The errors this package raises are the classes
-`@nxgt/drizzle` exports — `DataError` and its subclasses — and every one of
-them carries a `code` you can switch on. A mistake in the call itself, such
-as a `where` or an `orderBy` that is not one, is a plain `TypeError` or
-`RangeError`: nothing reached the database, and there is nothing to handle.
+`@nxgt/drizzle` exports: `DataError` and its subclasses for what the database
+answered, and `ArgumentError` for an argument refused before any SQL is
+built. Every one of them carries a `code` you can switch on —
+`ArgumentError`'s is `INVALID_ARGUMENT`, beside the `argument` it is about
+(`where`, `orderBy`, or `paginateByCursor` for the column a cursor page
+is ordered by) and the `key` inside it when one is at fault. It
+extends `TypeError`, which these refusals were before 0.2.0, so a `catch`
+written against `TypeError` still catches them. A `where` or an `orderBy`
+assembled from a query string is user input, so that is the class a handler
+answers 400 on rather than 500. What is left is a plain `TypeError` or
+`RangeError`: a repository configured wrong, or a page number that is not
+one.
 
 - **Install and types**
   - [`Cannot find module 'drizzle-orm' or its corresponding type declarations.`](#cannot-find-module-drizzle-orm-or-its-corresponding-type-declarations)
@@ -26,6 +34,7 @@ as a `where` or an `orderBy` that is not one, is a plain `TypeError` or
   - [`invalid input syntax for type uuid`](#invalid-input-syntax-for-type-uuid)
   - [`No row in "users" with id …`](#no-row-in-users-with-id-)
   - [`where: "teamId" is undefined. Leave the key out, or pass null for IS NULL`](#where-teamid-is-undefined-leave-the-key-out-or-pass-null-for-is-null)
+  - [`where: "users" has no column under the key "teamID"`](#where-users-has-no-column-under-the-key-teamid)
   - [`updateMany needs a where. …`](#updatemany-needs-a-where-)
   - [`where: expected a Drizzle condition or an object`](#where-expected-a-drizzle-condition-or-an-object)
   - [`orderBy: "createdAt" must be 'asc' or 'desc', not DESC`](#orderby-createdat-must-be-asc-or-desc-not-desc)
@@ -35,6 +44,7 @@ as a `where` or an `orderBy` that is not one, is a plain `TypeError` or
   - [`Invalid cursor: unexpected shape`](#invalid-cursor-unexpected-shape)
   - [`Invalid cursor: it was written for the ordering createdAt:asc, not id:asc`](#invalid-cursor-it-was-written-for-the-ordering-createdatasc-not-idasc)
   - [`Invalid cursor: expected 2 value(s), got 1`](#invalid-cursor-expected-2-values-got-1)
+  - [`paginateByCursor: "users" has no column under the key "createdAtt"`](#paginatebycursor-users-has-no-column-under-the-key-createdatt)
   - [`paginateByCursor: "createdAt" is null in a row of "users". Page along a NOT NULL column.`](#paginatebycursor-createdat-is-null-in-a-row-of-users-page-along-a-not-null-column)
   - [`page must be an integer of at least 1, not 0`](#page-must-be-an-integer-of-at-least-1-not-0)
 - **Transactions**
@@ -260,7 +270,8 @@ await users.getById(id, { withDeleted: true }); // or look past the stamp
 usually a filter built from optional query parameters.
 **Why:** an `undefined` key is dropped by most query builders, which would
 make `{ id: undefined }` match **every** row, and an `updateMany` rewrite the
-table. It is refused instead.
+table. It is refused instead, as an `ArgumentError` with
+`argument: 'where'`, `key: 'teamId'` and `code: 'INVALID_ARGUMENT'`.
 **Fix:**
 
 ```ts
@@ -270,16 +281,45 @@ await users.findMany({ where });
 
 `null` is a value, not an absence: it becomes `IS NULL`.
 
+### `where: "users" has no column under the key "teamID"`
+
+**When:** any call whose `where` or `orderBy` names a key the table object
+does not have — the same message with an `orderBy:` prefix comes from an
+ordering.
+**Why:** an `ArgumentError`: the key is the one **in the table object**, not
+the column name in the database, so `team_id` and a mistyped `teamID` are
+both refused rather than silently dropped. `error.argument` says which of
+the two it came from, and `error.key` is the key.
+**Fix:**
+
+```ts
+import { ArgumentError } from '@nxgt/drizzle';
+
+try {
+	await users.findMany({ where: { [query.field]: query.value } });
+} catch (error) {
+	if (error instanceof ArgumentError) return badRequest(error.argument, error.key);
+	throw error;
+}
+```
+
+Better still, build the filter from keys you list yourself, so a query string
+can only name a column the handler allows.
+
 ### `updateMany needs a where. …`
 
-**When:** `updateMany` or `deleteMany` with no `where`, or with `{}`. The
-full message names the table and the way out:
+**When:** `updateMany`, `deleteMany` or `hardDeleteMany` with no `where`, or
+with `{}`. The full message names the table and the way out:
 
 ```text
 updateMany needs a where. Pass `sql`true`` to target every row of "users".
 ```
 
-**Why:** a filter that came out empty would otherwise touch every row.
+**Why:** a filter that came out empty would otherwise touch every row. An
+`ArgumentError` since 0.2.0, with `code: 'INVALID_ARGUMENT'` and
+`argument: 'where'` — a `where` assembled from a request that comes out empty
+is the caller's input, so this is a 400 rather than a 500. It is still a
+`TypeError` by inheritance, which is what it threw before.
 **Fix:**
 
 ```ts
@@ -294,7 +334,7 @@ await users.deleteMany(sql`true`); // every row, said out loud
 object — a bare id, an array of conditions, `null`.
 **Why:** `where` is either SQL (`eq`, `and`, `sql`…) or an object read as one
 equality per key. Anything else has no reading, and guessing one would filter
-on something other than what was meant. It is a plain `TypeError`, not a
+on something other than what was meant. An `ArgumentError`, not a
 `DataError`: nothing reached the database.
 **Fix:**
 
@@ -316,8 +356,8 @@ direction that is not one of the two — usually a query string taken as it
 came, where `DESC`, `descending` or `-1` arrives.
 **Why:** the direction is matched exactly, and lowercase: `'asc'` and
 `'desc'` are the only two. It is refused rather than defaulted, because a
-silently reversed page is worse than a 400. A `TypeError`, like the `where`
-above.
+silently reversed page is worse than a 400. An `ArgumentError` with
+`argument: 'orderBy'` and the `key` it is about, like the `where` above.
 **Fix:**
 
 ```ts
@@ -325,9 +365,9 @@ const direction = query.order === 'desc' ? 'desc' : 'asc';
 await users.findMany({ orderBy: { createdAt: direction } });
 ```
 
-The same call also throws `orderBy: "users" has no column under the key
-"nope"` when the key is not a column of the table — the key is the one in the
-table object, not the column name in the database.
+The same call also throws
+[`orderBy: "users" has no column under the key "nope"`](#where-users-has-no-column-under-the-key-teamid)
+when the key is not a column of the table.
 
 ### `orderBy: expected a Drizzle ordering, a list, or an object`
 
@@ -336,7 +376,8 @@ column name, `null`.
 **Why:** an ordering is Drizzle's own (`asc(column)`, a column, a `sql`
 fragment), a list of them, or an object of `key: 'asc' | 'desc'`. A bare
 string is not one of them: it would have to be turned into a column, and
-`orderBy: 'createdAt'` is `paginateByCursor`'s shape, not `findMany`'s.
+`orderBy: 'createdAt'` is `paginateByCursor`'s shape, not `findMany`'s. An
+`ArgumentError`, before any SQL is built.
 **Fix:**
 
 ```ts
@@ -432,6 +473,23 @@ try {
 
 A cursor does not outlive a change of `primaryKey`; nothing needs to be
 migrated, the next page is simply cut again.
+
+### `paginateByCursor: "users" has no column under the key "createdAtt"`
+
+**When:** `paginateByCursor` with an `orderBy` naming a column the table does
+not have — typically a column name read off a query string, where the types
+were not there to refuse it.
+**Why:** an `ArgumentError` with `code: 'INVALID_ARGUMENT'`,
+`argument: 'paginateByCursor'` and the key on `key`. Nothing was sent, and a
+column name from a client is user input, so this is a 400.
+**Fix:** narrow the name to the columns you page along:
+
+```ts
+const COLUMNS = ['createdAt', 'id'] as const;
+const orderBy = COLUMNS.find((known) => known === c.req.query('sort')) ?? 'createdAt';
+
+await users.paginateByCursor({ orderBy, limit: 20 });
+```
 
 ### `paginateByCursor: "createdAt" is null in a row of "users". Page along a NOT NULL column.`
 

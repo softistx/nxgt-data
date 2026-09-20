@@ -41,6 +41,11 @@ _Nothing queued._
 
 ## Shipped
 
+- **A connect a close interrupted is a `ConnectionError`** — carrying
+  `code: 'CONNECTION'` and an `instanceof DataError` like the rest, so the one
+  failure that is worth retrying is recognised without matching the sentence;
+  it holds no URI, and MongoDB's own refusal to connect is still the driver's
+  error, unchanged — 0.16.0.
 - **Documentation that travels with the package** — a guide page per area,
   from collections and documents to transactions, change streams, migrations
   and GridFS, a troubleshooting page whose headings are the exact error text,

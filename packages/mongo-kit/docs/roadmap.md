@@ -42,6 +42,12 @@ _Nothing queued._
 
 ## Shipped
 
+- **Every refusal is a `KitError`, with a code** — `CONFIG`, `COLLISION`,
+  `NO_DATABASE`, `SEVERAL_DATABASES`, `TRANSACTION`, `DERIVED` or `DISCOVERY`,
+  beside the database and the key it is about, so a caller switches on the
+  code instead of matching the sentence; it extends `TypeError`, which these
+  were before, so a `catch` written against the old ones still catches them —
+  0.2.0.
 - **Documentation that travels with the package** — a guide page for the
   configuration, the `db` scope, actor and transactions, and `sync()`, a
   troubleshooting page whose headings are the exact error text, and this

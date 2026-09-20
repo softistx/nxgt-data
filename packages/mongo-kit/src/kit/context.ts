@@ -1,6 +1,7 @@
 import type { AnyCollectionDefinition, MongoConnection } from '@nxgt/mongo';
 import type { ClientSession, Db, MongoClient } from 'mongodb';
 import type { KitCollectionOptions } from '../config/types';
+import { KitError } from '../errors/kit-error';
 
 /** A collection as the kit holds it: the key it is reached by, and its definition. */
 export type Wired = readonly [key: string, definition: AnyCollectionDefinition];
@@ -51,10 +52,12 @@ export function derived(
 export function databaseOf(ctx: KitContext, name: string): DatabaseContext {
 	const found = ctx.databases.find((database) => database.name === name);
 	if (!found) {
-		throw new TypeError(
+		throw new KitError(
+			'NO_DATABASE',
 			`This kit has no database "${name}": it has ${ctx.databases
 				.map((database) => `"${database.name}"`)
 				.join(', ')}.`,
+			{ database: name },
 		);
 	}
 	return found;

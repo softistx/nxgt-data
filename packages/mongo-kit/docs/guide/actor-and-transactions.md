@@ -124,8 +124,8 @@ await kit.transaction(async (outer) => {
 
 `{ on }` is required at **run time**, not by the types, and cannot be: two
 databases on one URI share a client and need none, so what decides is the
-number of clients. A kit holding two without it throws a `TypeError` naming
-what to write.
+number of clients. A kit holding two without it throws a
+[`KitError`](errors.md) with `code: 'TRANSACTION'`, naming what to write.
 
 ## In a request
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { MongoClient, ObjectId } from 'mongodb';
 import { collections, events, useMongo } from '../../test/fixtures';
 import { defineConfig } from '../config/define-config';
+import { KitError } from '../errors/kit-error';
 import { createKit } from './create-kit';
 
 const { server, track } = useMongo('kit-transaction');
@@ -79,11 +80,17 @@ describe('transaction', () => {
 
 	test('refuses `on` once it is in a session', async () => {
 		const kit = await plainKit();
-		await expect(
-			kit.transaction((outer) =>
+		const error = await kit
+			.transaction((outer) =>
 				outer.transaction(async () => undefined, { on: 'default' }),
-			),
-		).rejects.toThrow('already in a session');
+			)
+			.then(null, (reason: unknown) => reason);
+		expect(error).toHaveProperty(
+			'message',
+			expect.stringContaining('already in a session'),
+		);
+		expect(error).toBeInstanceOf(KitError);
+		expect(error).toHaveProperty('code', 'TRANSACTION');
 	});
 
 	describe('with several databases', () => {
@@ -126,6 +133,12 @@ describe('transaction', () => {
 			await expect(
 				kit.transaction(async () => undefined, { on: 'nowhere' as never }),
 			).rejects.toThrow('has no database "nowhere"');
+			const error = await kit
+				.transaction(async () => undefined, { on: 'nowhere' as never })
+				.then(null, (reason: unknown) => reason);
+			expect(error).toBeInstanceOf(KitError);
+			expect(error).toHaveProperty('code', 'NO_DATABASE');
+			expect(error).toHaveProperty('database', 'nowhere');
 		});
 
 		test('refuses to choose between two clients', async () => {

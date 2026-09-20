@@ -1,7 +1,8 @@
 # Errors
 
-Every failure this package reports is a `DataError`, with a `code` you can
-switch on and the fields the database sent. A unique violation becomes a 409
+What the database refused is a `DataError`, with a `code` you can switch on
+and the fields the database sent; what the *call* got wrong is an
+`ArgumentError`. A unique violation becomes a 409, and a bad `orderBy` a 400,
 without anyone parsing a driver message.
 
 ```ts
@@ -106,13 +107,68 @@ It returns `unknown` on purpose: what goes in may not be a database error.
   unchanged, and a `DataError` comes back as it is. `throw toDataError(error)`
   is always safe in a `catch`.
 
+## `ArgumentError`: what the call said
+
+`DataError` is what the **database** said. `ArgumentError` is what the *call*
+said — an argument refused before any SQL is built — and the two are worth
+telling apart, because a `where` or an `orderBy` assembled from a query string
+is user input: the answer is 400, not 500.
+
+```ts
+import { ArgumentError } from '@nxgt/drizzle';
+
+try {
+	await userRepository.findMany({ where: { teamId: maybeTeamId } });
+} catch (error) {
+	if (error instanceof ArgumentError) {
+		error.code;     // 'INVALID_ARGUMENT'
+		error.argument; // 'where' — which argument was refused
+		error.key;      // 'teamId', or undefined when the whole argument is wrong
+	}
+	throw error;
+}
+```
+
+```ts
+class ArgumentError extends TypeError {
+	readonly code: 'INVALID_ARGUMENT';
+	/** The argument it is about: `where`, `orderBy`, `paginateByCursor`. */
+	readonly argument: string;
+	/** The key inside that argument, when one is at fault. */
+	readonly key: string | undefined;
+
+	constructor(
+		argument: string,
+		message: string,
+		options?: { key?: string | undefined; cause?: unknown },
+	);
+}
+```
+
+It extends **`TypeError`**, not `Error`: these were bare `TypeError`s before
+the class existed, so a `catch` that tests for `TypeError` keeps working and
+gains a `code` to switch on instead of a message to match.
+
+| `argument` | `key` | Refused |
+| --- | --- | --- |
+| `where` | — | a `where` that is neither a Drizzle condition nor an object |
+| `where` | the key | a key set to `undefined` — dropped, `{ id: undefined }` would match every row |
+| `where` | the key | a key that is not a column of the table |
+| `where` | — | `updateMany`, `deleteMany` or `hardDeleteMany` with an empty `where`; pass `` sql`true` `` to mean every row |
+| `orderBy` | — | an `orderBy` that is not an ordering, a list or an object |
+| `orderBy` | the key | a key that is not a column, or a direction that is not `'asc'` or `'desc'` |
+| `paginateByCursor` | the key | an `orderBy` column the table does not have |
+
+`ArgumentError` is **not** a `DataError`: `error instanceof DataError` is
+false, and a handler that only catches `DataError` lets it through.
+
 ## One handler for the app
 
 Map the code once, at the edge, and let every route throw.
 
 ```ts
 import { Hono } from 'hono';
-import { DataError, type DataErrorCode } from '@nxgt/drizzle';
+import { ArgumentError, DataError, type DataErrorCode } from '@nxgt/drizzle';
 
 const STATUS: Record<DataErrorCode, 400 | 404 | 409 | 422 | 500> = {
 	NOT_FOUND: 404,
@@ -125,6 +181,10 @@ const STATUS: Record<DataErrorCode, 400 | 404 | 409 | 422 | 500> = {
 };
 
 export const app = new Hono().onError((error, c) => {
+	// What the call said, not what the database said: the client's input.
+	if (error instanceof ArgumentError) {
+		return c.json({ error: error.message, argument: error.argument }, 400);
+	}
 	if (error instanceof RangeError) return c.json({ error: error.message }, 400);
 	if (!(error instanceof DataError)) return c.json({ error: 'Internal error' }, 500);
 
@@ -136,15 +196,16 @@ export const app = new Hono().onError((error, c) => {
 
 `RangeError` is there for
 [`paginate({ page: 0 })`](pagination.md#offset-pages), which is a client's
-input like the rest.
+input like the rest. `ArgumentError` comes first because it **is** a
+`TypeError`, and a later `instanceof TypeError` branch would swallow it.
 
-## Two errors that are not `DataError`
+## Two other errors that are not `DataError`
 
-- **`TypeError`** is a programming mistake, not a database answer: a `where`
-  key set to `undefined`, an `updateMany` with no `where`, a table whose
-  primary key needs the `primaryKey` option, a config on a nested
+- **`TypeError`** is left for a mistake in the wiring rather than in a call: a
+  table whose primary key needs the `primaryKey` option, a `restore` on a
+  table with no soft delete, a config on a nested
   [`withTransaction`](transactions.md#isolation). The message says what to
-  change.
+  change. `ArgumentError` extends it, so a `catch` on `TypeError` takes both.
 - **`RangeError`** is a `page`, `pageSize` or `limit` that is not a positive
   integer.
 

@@ -1,11 +1,16 @@
 # Troubleshooting
 
 This package throws one error of its own, `S3Error`, with a `code` of
-`WRONG_TYPE`, `TOO_LARGE` or `UNMEASURABLE`, and the object `key` it was
-about — never the body. Every one of them is raised **before** anything is
-sent. The service's own failures, and the checks Bun makes on an option's
-value, come back as Bun raises them; the entries below say which is which.
-The Bun messages were measured on Bun 1.4.2.
+`WRONG_TYPE`, `TOO_LARGE`, `UNMEASURABLE` or `WRONG_OPTION`, and the object
+`key` it was about — never the body. Every one of them is raised **before**
+anything is sent, so a refused write stored nothing. The service's own
+failures come back as Bun raises them; the entries below say which is which.
+A wrong `acl` is this package's own refusal on a `put` **and** on a
+`presign`, so one class and one code cover both. Bun names its own *service*
+failures `S3Error` as well, so it is `instanceof S3Error` against the class
+this package exports that tells those apart — never `error.name`. (Bun's
+refusal of a wrong argument is a different thing again: a plain `TypeError`,
+named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
 
 - **Install and import**
   - [`Cannot find package 'bun'`](#cannot-find-package-bun)
@@ -19,8 +24,9 @@ The Bun messages were measured on Bun 1.4.2.
   - [``"avatars" accepts image/png, image/jpeg, and this write names no content type. Pass `type` ``](#avatars-accepts-imagepng-imagejpeg-and-this-write-names-no-content-type-pass-type-)
   - [`"avatars" accepts 2097152 bytes at most, and this body is 5242880`](#avatars-accepts-2097152-bytes-at-most-and-this-body-is-5242880)
   - [`"avatars" has a maxSize, and this body's size cannot be known before sending it. …`](#avatars-has-a-maxsize-and-this-bodys-size-cannot-be-known-before-sending-it-)
-  - [`storageClass must be one of "STANDARD", "STANDARD_IA", "INTELLIGENT_TIERING", …`](#storageclass-must-be-one-of-standard-standard_ia-intelligent_tiering-)
-  - [`acl must be one of "private", "public-read", "public-read-write", …`](#acl-must-be-one-of-private-public-read-public-read-write-)
+  - [`storageClass must be one of STANDARD, DEEP_ARCHIVE, EXPRESS_ONEZONE, …; got "CHEAP"`](#storageclass-must-be-one-of-standard-deep_archive-express_onezone--got-cheap)
+  - [`acl must be one of private, public-read, public-read-write, …; got "everyone"`](#acl-must-be-one-of-private-public-read-public-read-write--got-everyone)
+  - [`expiresIn is seconds, and must be above 0 and at most 604800 …`](#expiresin-is-seconds-and-must-be-above-0-and-at-most-604800-seven-days-which-is-s3s-own-limit-got-1000000000000)
 - **The service**
   - [`Missing S3 credentials. 'accessKeyId', 'secretAccessKey', 'bucket', and 'endpoint' are required`](#missing-s3-credentials-accesskeyid-secretaccesskey-bucket-and-endpoint-are-required)
   - [`The AWS Access Key Id you provided does not exist in our records.`](#the-aws-access-key-id-you-provided-does-not-exist-in-our-records)
@@ -96,7 +102,9 @@ defineBucket({ bucket: 'avatars', key, contentType: ['image/png', 'image/jpeg'] 
 
 ### `"avatars" accepts image/png, image/jpeg, not application/pdf`
 
-**When:** `put` or `presignGet`, with a `type` the definition does not list.
+**When:** `put`, with a `type` the definition does not list. A presigned URL
+is never checked against it — `PresignOptions` has no `type`, and a signed
+PUT constrains the key and the deadline and nothing else.
 **Why:** an `S3Error` with `code: 'WRONG_TYPE'`. Nothing was sent. The type
 is compared on its **essence**: `text/csv` accepts `text/csv;charset=utf-8`
 and `TEXT/CSV`, because that is what real bodies carry — parameters and case
@@ -157,19 +165,31 @@ await avatars.put({ userId }, await response.bytes()); // read it in first
 Or drop `maxSize` from the definition and let the service refuse an oversized
 body.
 
-### `storageClass must be one of "STANDARD", "STANDARD_IA", "INTELLIGENT_TIERING", …`
+### `storageClass must be one of STANDARD, DEEP_ARCHIVE, EXPRESS_ONEZONE, …; got "CHEAP"`
 
-**When:** `put` or `presignPut` with a `storageClass` Bun does not know.
-**Why:** an option's **value** is Bun's to check, and it throws **Bun's own
-`TypeError`** — not an `S3Error`. `instanceof S3Error` is false, and
-`error.code` is not one of this package's. Nothing is sent either way; it is
-the class a handler catches that differs.
-**Fix:**
+The whole line names every class the service takes, then the one it was
+given:
+
+```text
+storageClass must be one of STANDARD, DEEP_ARCHIVE, EXPRESS_ONEZONE, GLACIER,
+GLACIER_IR, INTELLIGENT_TIERING, ONEZONE_IA, OUTPOSTS, REDUCED_REDUNDANCY,
+SNOW, STANDARD_IA; got "CHEAP"
+```
+
+**When:** `put` with a `storageClass` that is not one of those — usually a
+value read off a request body or an environment variable, where the types
+were not there to refuse it.
+**Why:** an `S3Error` with `code: 'WRONG_OPTION'`, raised before the request
+goes out, like the content type and the size. Since 0.3.0 this package
+checks the two guarded options itself rather than letting the client refuse
+them, so one `catch` covers every refusal of a `put`.
+**Fix:** narrow the value against the option's own type before it reaches the
+call:
 
 ```ts
-import type { PutOptions } from '@nxgt/s3';
+import { S3Error, type PutOptions } from '@nxgt/s3';
 
-// the classes this application allows, proved against Bun's own list
+// the classes this application allows, proved against the option's type
 const CLASSES = ['STANDARD', 'STANDARD_IA'] as const satisfies readonly NonNullable<
 	PutOptions['storageClass']
 >[];
@@ -178,23 +198,55 @@ function storageClassOf(value: string | undefined): PutOptions['storageClass'] {
 	return CLASSES.find((known) => known === value); // undefined: the bucket's default
 }
 
-await avatars.put({ userId }, bytes, { storageClass: storageClassOf(body.storageClass) });
+try {
+	await avatars.put({ userId }, bytes, { storageClass: storageClassOf(input) });
+} catch (error) {
+	if (error instanceof S3Error && error.code === 'WRONG_OPTION') return badRequest();
+	throw error;
+}
 ```
 
-Catch `TypeError` beside `S3Error` where such a value can reach a call.
+### `acl must be one of private, public-read, public-read-write, …; got "everyone"`
 
-### `acl must be one of "private", "public-read", "public-read-write", …`
+```text
+acl must be one of private, public-read, public-read-write, aws-exec-read,
+authenticated-read, bucket-owner-read, bucket-owner-full-control,
+log-delivery-write; got "everyone"
+```
 
-**When:** `put`, `presignGet` or `presignPut` with an `acl` Bun does not
-know.
-**Why:** the same as `storageClass`: Bun's own `TypeError`, before anything is
-sent. `contentDisposition` and `contentEncoding`, by contrast, are plain
-strings to Bun and accept anything.
+**When:** `put`, `presignGet` or `presignPut` with an `acl` that is not one
+of those. Both paths go through the same allowlist since 0.3.0; before it,
+`presign` handed the value to the client, which refused it with a plain
+`TypeError` that quoted **every accepted value** (`must be one of "private",
+"public-read", …`). This one quotes only the value it was given, so a message
+with the allowed values in quotes means the package is older than 0.3.0.
+**Why:** the same `code: 'WRONG_OPTION'`, before anything is sent or signed.
+The two guarded options are `acl` and `storageClass`; `contentDisposition`
+and `contentEncoding` are plain strings to the service and accept anything.
+`presign` takes no `storageClass` — nothing is stored by signing a URL.
 **Fix:**
 
 ```ts
 await avatars.put({ userId }, bytes, { acl: 'public-read' });
+const url = avatars.presignPut({ userId }, { acl: 'private', expiresIn: 300 });
 ```
+
+### `expiresIn is seconds, and must be above 0 and at most 604800 (seven days, which is S3's own limit); got 1000000000000`
+
+**When:** `presignGet` or `presignPut` with an `expiresIn` that is not a
+finite number of seconds inside S3's range.
+**Why:** an `S3Error` with `code: 'WRONG_OPTION'`, raised before anything is
+signed. Measured on bun 1.4.2, the client refuses `0` and below with a
+`TypeError` of its own and **signs** `1e12` happily — a URL the service then
+rejects when somebody uses it, long after this package reported success.
+**Fix:** pass seconds, and no more than a week:
+
+```ts
+const url = avatars.presignPut({ userId }, { expiresIn: 300 }); // five minutes
+```
+
+Sign for the time the page actually needs: a day is a long life for a URL
+anyone can forward.
 
 ## The service
 

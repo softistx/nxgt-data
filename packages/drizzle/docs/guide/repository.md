@@ -105,11 +105,22 @@ await userRepository.findMany({
 
 In an object, the keys are joined with `AND`, and `null` means `IS NULL`.
 
-A key set to `undefined` throws a `TypeError` rather than being dropped:
+A key set to `undefined` throws an [`ArgumentError`](errors.md#argumenterror-what-the-call-said)
+rather than being dropped:
 
 ```ts
-await userRepository.findMany({ where: { teamId: maybeTeamId } });
-// TypeError: where: "teamId" is undefined. Leave the key out, or pass null for IS NULL
+import { ArgumentError } from '@nxgt/drizzle';
+
+try {
+	await userRepository.findMany({ where: { teamId: maybeTeamId } });
+} catch (error) {
+	if (error instanceof ArgumentError) {
+		error.code;      // 'INVALID_ARGUMENT'
+		error.argument;  // 'where'
+		error.key;       // 'teamId'
+		error.message;   // 'where: "teamId" is undefined. Leave the key out, or pass null for IS NULL'
+	}
+}
 ```
 
 Dropped, `{ id: undefined }` would match every row — and an `updateMany` with
@@ -134,7 +145,22 @@ await userRepository.findMany({ orderBy: sql`lower(${users.name}) asc` });
 ```
 
 A key that is not a column, or a direction that is not `'asc'` or `'desc'`,
-throws a `TypeError` naming it.
+throws an [`ArgumentError`](errors.md#argumenterror-what-the-call-said) naming
+it — `argument: 'orderBy'`, `key: 'rank'`:
+
+```ts
+import type { OrderDirection } from '@nxgt/drizzle/pg';
+
+// A direction off a query string: a string, whatever the type says.
+const direction = c.req.query('direction') as OrderDirection;
+
+await userRepository.findMany({ orderBy: { createdAt: direction } });
+// ArgumentError: orderBy: "createdAt" must be 'asc' or 'desc', not sideways
+//   argument: 'orderBy', key: 'createdAt'
+```
+
+That is the case to care about: an ordering built from a query string is a
+client's input, and `ArgumentError` is what a handler answers 400 on.
 
 ## Writing
 
@@ -171,7 +197,7 @@ Three edges worth knowing:
 | --- | --- |
 | `createMany([])` | sends nothing, returns `[]` |
 | `update(id, {})` | sends no update, returns the row (and still throws `NotFoundError` when there is none) |
-| `updateMany(where, …)` / `deleteMany(where)` with no `where` | throws a `TypeError`: pass `` sql`true` `` to mean every row |
+| `updateMany(where, …)` / `deleteMany(where)` with no `where` | throws an `ArgumentError`: pass `` sql`true` `` to mean every row |
 
 ```ts
 await userRepository.deleteMany(sql`true`); // yes, all of them
@@ -230,19 +256,20 @@ that.
 | `create(values)` | `Row` | `ConflictError`, `ForeignKeyError`… |
 | `createMany(values)` | `Row[]` | the same |
 | `update(id, patch)` | `Row` | `NotFoundError`, and the above |
-| `updateMany(where, patch)` | `Row[]` | `TypeError` without a `where` |
+| `updateMany(where, patch)` | `Row[]` | `ArgumentError` without a `where` |
 | `delete(id)` | `Row` | `NotFoundError` |
-| `deleteMany(where)` | `Row[]` | `TypeError` without a `where` |
+| `deleteMany(where)` | `Row[]` | `ArgumentError` without a `where` |
 | `count(where?, options?)` | `number` | |
 | `exists(where, options?)` | `boolean` | |
 | `paginate(options?)` | `Page<Row>` | `RangeError` on a bad page |
 | `paginateByCursor(options?)` | `CursorPage<Row>` | `InvalidCursorError` |
-| `restore(id)`, `hardDelete(id)`, `hardDeleteMany(where)` | soft delete only | `NotFoundError` |
+| `restore(id)`, `hardDelete(id)`, `hardDeleteMany(where)` | soft delete only | `NotFoundError`; `ArgumentError` for a `hardDeleteMany` without a `where` |
 | `with(db)` | the same repository on another database or transaction | |
 | `table`, `db` | what it was created with | |
 
-Pagination has its own page: [guide/pagination.md](pagination.md). Every
-error is a `DataError`: [guide/errors.md](errors.md).
+Pagination has its own page: [guide/pagination.md](pagination.md). What the
+database said is a `DataError`, what the call said is an `ArgumentError`, and
+[guide/errors.md](errors.md) tells the two apart.
 
 ## In a Hono route
 

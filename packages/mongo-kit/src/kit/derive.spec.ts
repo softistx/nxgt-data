@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { collections, events, useMongo } from '../../test/fixtures';
 import { defineConfig } from '../config/define-config';
+import { KitError } from '../errors/kit-error';
 import { createKit } from './create-kit';
 
 const { server, track } = useMongo('kit-derive');
@@ -110,5 +111,11 @@ describe('the databases', () => {
 			),
 		);
 		expect(() => kit.db).toThrow('kit.databases.main');
+		try {
+			void kit.db;
+		} catch (error) {
+			expect(error).toBeInstanceOf(KitError);
+			expect(error).toHaveProperty('code', 'SEVERAL_DATABASES');
+		}
 	});
 });

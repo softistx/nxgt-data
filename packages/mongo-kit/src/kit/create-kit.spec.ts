@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { collections, events, useMongo, users } from '../../test/fixtures';
 import { defineConfig } from '../config/define-config';
+import { KitError } from '../errors/kit-error';
 import { createKit } from './create-kit';
 
 const { server, track } = useMongo('kit-create');
@@ -62,8 +63,13 @@ describe('createKit', () => {
 			uri: server.uri,
 			collections: { command: users },
 		} as never);
-		await expect(createKit(config)).rejects.toThrow(
-			'wires a collection under "command"',
+		const error = await createKit(config).then(null, (e: unknown) => e);
+		expect(error).toBeInstanceOf(KitError);
+		expect(error).toHaveProperty('code', 'COLLISION');
+		expect(error).toHaveProperty('key', 'command');
+		expect(error).toHaveProperty(
+			'message',
+			expect.stringContaining('wires a collection under "command"'),
 		);
 	});
 });

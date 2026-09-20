@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { connectMongo } from '@nxgt/mongo';
 import { collections, events, useMongo } from '../../test/fixtures';
 import { defineConfig } from '../config/define-config';
+import { KitError } from '../errors/kit-error';
 import { createKit } from './create-kit';
 
 /**
@@ -55,9 +56,9 @@ describe('close', () => {
 	test('refuses a kit that came from `as` or `withSession`', async () => {
 		const kit = await createKit(defineConfig({ uri: server.uri, collections }));
 		const derived = kit.withSession(undefined);
-		await expect(derived.close()).rejects.toThrow(
-			'Close the kit `createKit` returned',
-		);
+		const error = await derived.close().then(null, (e: unknown) => e);
+		expect(error).toBeInstanceOf(KitError);
+		expect(error).toHaveProperty('code', 'DERIVED');
 		await kit.close();
 	});
 

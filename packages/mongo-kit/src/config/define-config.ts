@@ -1,3 +1,4 @@
+import { KitError } from '../errors/kit-error';
 import { checkDatabase } from './checks';
 import type {
 	Checked,
@@ -11,18 +12,30 @@ function databasesOf(
 	config: KitConfigInput,
 ): Record<string, DatabaseConfig<object>> {
 	if (typeof config !== 'object' || config === null) {
-		throw new TypeError('defineConfig: a configuration object is required');
+		throw new KitError(
+			'CONFIG',
+			'defineConfig: a configuration object is required',
+		);
 	}
 	if (!('databases' in config)) {
 		return { default: config as DatabaseConfig<object> };
 	}
 	const { databases } = config;
 	if (typeof databases !== 'object' || databases === null) {
-		throw new TypeError('defineConfig: databases is not an object');
+		throw new KitError(
+			'CONFIG',
+			'defineConfig: databases must be an object of databases by name, ' +
+				'as `{ databases: { main: … } }`. One database is the ' +
+				'configuration itself, and names itself with `database`.',
+		);
 	}
 	const names = Object.keys(databases);
 	if (names.length === 0) {
-		throw new TypeError('defineConfig: databases names none');
+		throw new KitError(
+			'CONFIG',
+			'defineConfig: databases names none. Give it at least one, ' +
+				'as `{ databases: { main: … } }`.',
+		);
 	}
 	return databases as Record<string, DatabaseConfig<object>>;
 }

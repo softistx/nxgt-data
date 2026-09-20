@@ -169,12 +169,13 @@ export class UserService {
 
 ## What it throws
 
-Every check is a `TypeError`, thrown from `defineConfig`, before anything
-connects. The message names the database it is about:
+Every check is a [`KitError`](errors.md) with `code: 'CONFIG'`, thrown from
+`defineConfig`, before anything connects. The message names the database it
+is about, and so does `error.database`:
 
 ```ts
 defineConfig({ collections });
-// TypeError: defineConfig: database "default" has neither a uri nor a client
+// KitError: defineConfig: database "default" has neither a uri nor a client
 ```
 
 - a database with both a `uri` and a `client`, or neither;

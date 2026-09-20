@@ -54,6 +54,48 @@ process.on('SIGTERM', async () => {
 skips the count: the closed client stays shared, and every later
 `connectMongo` for that URI gets it, dead, until `closeMongo()`.
 
+## A connect that `closeMongo()` interrupts
+
+`closeMongo()` closes every client at once, so a `connectMongo` that was
+still waiting comes back holding nothing. It rejects rather than hand out a
+closed client, and the rejection is a `ConnectionError`:
+
+```ts
+import { ConnectionError, closeMongo, connectMongo } from '@nxgt/mongo';
+
+const connecting = connectMongo(uri);
+await closeMongo();                       // a shutdown, or the end of a test file
+
+try {
+	await connecting;
+} catch (error) {
+	if (error instanceof ConnectionError) {
+		error.code;      // 'CONNECTION'
+		error.message;   // 'connectMongo: every client was closed while this one was connecting.'
+	}
+}
+
+// Calling again opens a fresh client: the failure was the race, not the URI.
+const mongo = await connectMongo(uri);
+```
+
+- **It carries no URI**, in the message or on the error — a connection string
+  holds the password. `collection` and `serverCode` are `undefined` for the
+  same reason: nothing about it came from the server.
+- **MongoDB's own refusal to connect is not this.** A host that does not
+  answer, a wrong password, a replica set that has no primary: those are the
+  driver's errors, and they reach you unchanged. `ConnectionError` is only
+  what this package decides.
+- It extends [`DataError`](errors.md), so a handler that already catches that
+  class sees it; `CONNECTION` is the code to map to a 503.
+
+```ts
+app.onError((error, c) => {
+	if (error instanceof ConnectionError) return c.json({ error: 'shutting down' }, 503);
+	// …
+});
+```
+
 ## A health check
 
 `ping` answers within `timeoutMS` either way, and never throws — a health
@@ -154,8 +196,9 @@ interface MongoConnection extends AsyncDisposable {
 }
 ```
 
-A connect that `closeMongo()` interrupts rejects: at shutdown, a request
-still connecting fails rather than getting a closed client.
+A connect that `closeMongo()` interrupts rejects with a `ConnectionError`:
+at shutdown, a request still connecting fails rather than getting a closed
+client.
 
 ## Next
 

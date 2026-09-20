@@ -39,6 +39,12 @@ _Nothing queued._
 
 ## Shipped
 
+- **`ArgumentError` for an argument refused before any SQL is built** —
+  `code: 'INVALID_ARGUMENT'`, with the `argument` and the `key` at fault, so a
+  handler answers 400 for a `where` or an `orderBy` that came from a
+  query string without matching the sentence; it extends `TypeError`, which
+  these were before, so a `catch` written against the old ones still catches
+  them — 0.2.0.
 - **Documentation that travels with the package** — a guide page for
   repositories, the schema helpers, pagination, transactions and the error
   classes, a troubleshooting page whose headings are the exact error text, and

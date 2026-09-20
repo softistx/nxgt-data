@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, isNull, type SQL, sql } from 'drizzle-orm';
 import type { PgColumn, PgTable } from 'drizzle-orm/pg-core';
+import { ArgumentError } from '../../errors/argument-error';
 import { InvalidCursorError, NotFoundError } from '../../errors/data-error';
 import { toDataError } from '../../errors/to-data-error';
 import { decodeCursor, encodeCursor } from '../../pagination/cursor';
@@ -110,7 +111,11 @@ function build(
 
 	function requireWhere(method: string, where: unknown): void {
 		if (isEmptyWhere(where)) {
-			throw new TypeError(
+			// An `ArgumentError` like the ones `conditions.ts` throws: a `where`
+			// built from a request that comes out empty is the caller's input,
+			// not the table's definition, so a handler answers 400 on it.
+			throw new ArgumentError(
+				'where',
 				`${method} needs a where. Pass \`sql\`true\`\` to target every row of "${info.name}".`,
 			);
 		}

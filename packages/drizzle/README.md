@@ -109,8 +109,8 @@ await users.findMany({ where: and(gt(usersTable.createdAt, since), ilike(usersTa
 ```
 
 In an object, keys are joined with `AND` and `null` matches `IS NULL`. A key
-set to `undefined` throws a `TypeError` instead of being left out: left out,
-`{ id: maybeId }` would match every row.
+set to `undefined` throws an `ArgumentError` instead of being left out: left
+out, `{ id: maybeId }` would match every row.
 
 ### Ordering
 
@@ -331,6 +331,25 @@ Each carries what the database said: `sqlState`, `table`, `constraint`,
 `columns` and `detail`. `cause` is the error it was made from: Drizzle's
 `DrizzleQueryError`, with the query, around the driver's.
 
+`ArgumentError` is the other half, and it is **not** a `DataError`: a
+`DataError` is what the database said, an `ArgumentError` is what the call
+said — a `where` that is not an object, a key that is not a column, a
+direction that is not `'asc'`, an `updateMany` with no `where`. A `where`
+built from a query string is user input, so a handler answers 400 rather than
+500:
+
+```ts
+import { ArgumentError } from '@nxgt/drizzle';
+
+if (error instanceof ArgumentError) {
+	return reply(400, `${error.argument}: ${error.message}`); // code: 'INVALID_ARGUMENT'
+}
+```
+
+It carries `argument` and `key`, and extends `TypeError`, so a `catch` written
+against `TypeError` still matches it. Every case is in
+[docs/guide/errors.md](docs/guide/errors.md).
+
 The repository, `paginate` and `withTransaction` map errors themselves. For
 your own queries, `toDataError`:
 
@@ -374,6 +393,7 @@ between two tables. The timestamps are to the millisecond, as a JavaScript
 
 #### Error classes
 
+- `class ArgumentError extends TypeError`: `code: 'INVALID_ARGUMENT'`, `argument: string`, `key: string | undefined`. `new ArgumentError(argument, message, options?: { key?: string; cause?: unknown })`.
 - `class DataError extends Error`: `code: DataErrorCode`, `sqlState: string | undefined`, `table: string | undefined`, `constraint: string | undefined`, `columns: readonly string[]`, `detail: string | undefined`, `cause`. `new DataError(message, options?: DataErrorOptions & { code?: DataErrorCode })`.
 - `class NotFoundError extends DataError`: adds `id: unknown`. `new NotFoundError(message = 'Not found', options?)`.
 - `class ConflictError`, `class ForeignKeyError`, `class CheckViolationError`, `class NotNullViolationError`, `class InvalidCursorError`, all `extends DataError`, all `new X(message?, options?: DataErrorOptions)`.
@@ -512,6 +532,9 @@ function withTransaction<TDb extends PgDatabase, T>(
   its `where` already allows.
 - **`timestamps()` has two clocks.** `defaultNow()` is the database's
   `now()`; `$onUpdate` is `new Date()`, in your process.
+- **An `ArgumentError` is a 400, not a 500.** Test for it *before* any
+  `TypeError` branch in an error handler — it extends `TypeError`, so a
+  broader branch placed first swallows it.
 
 ## Documentation
 
@@ -520,7 +543,7 @@ function withTransaction<TDb extends PgDatabase, T>(
 - [docs/guide/repository.md](docs/guide/repository.md) — reads, writes, `where`, ordering, primary keys and soft delete.
 - [docs/guide/pagination.md](docs/guide/pagination.md) — offset pages, cursor pages, one page of any query.
 - [docs/guide/transactions.md](docs/guide/transactions.md) — `withTransaction`, `with(tx)`, savepoints and isolation.
-- [docs/guide/errors.md](docs/guide/errors.md) — the `DataError` classes, `toDataError`, one handler for the app.
+- [docs/guide/errors.md](docs/guide/errors.md) — the `DataError` classes and `toDataError`, `ArgumentError` for an argument refused before any SQL, and one handler for the app.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — an error message, and its fix.
 - [docs/roadmap.md](docs/roadmap.md) — what is next, and what is not planned.
 

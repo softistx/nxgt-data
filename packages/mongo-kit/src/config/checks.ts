@@ -1,4 +1,5 @@
 import type { AnyCollectionDefinition } from '@nxgt/mongo';
+import { KitError } from '../errors/kit-error';
 import type { DatabaseConfig } from './types';
 
 /** A definition, told by its shape: `instanceof` has no class to ask. */
@@ -24,8 +25,11 @@ export function definitionsOf(
 	);
 }
 
-const refuse = (where: string, said: string): never => {
-	throw new TypeError(`defineConfig: ${where} ${said}`);
+const refuse = (name: string, said: string, key?: string): never => {
+	throw new KitError('CONFIG', `defineConfig: database "${name}" ${said}`, {
+		database: name,
+		key,
+	});
 };
 
 /**
@@ -37,15 +41,21 @@ const refuse = (where: string, said: string): never => {
  */
 const OWNED = ['db', 'session', 'actor', 'autoSync'] as const;
 
-function checkOwned(where: string, what: string, options: unknown): void {
+function checkOwned(
+	name: string,
+	what: string,
+	options: unknown,
+	forKey?: string,
+): void {
 	if (typeof options !== 'object' || options === null) return;
 	for (const key of OWNED) {
 		if (key in options) {
 			refuse(
-				where,
+				name,
 				`has "${key}" in ${what}, which the kit decides: ` +
 					'a database is named by its key, `as` and `withSession` carry the ' +
 					"actor and the session, and `autoSync` is the database's",
+				forKey,
 			);
 		}
 	}
@@ -56,42 +66,41 @@ export function checkDatabase(
 	name: string,
 	config: DatabaseConfig<object>,
 ): [string, AnyCollectionDefinition][] {
-	const where = `database "${name}"`;
 	if (typeof config !== 'object' || config === null) {
-		refuse(where, 'is not a configuration object');
+		refuse(name, 'is not a configuration object');
 	}
 	const hasUri = config.uri !== undefined;
 	const hasClient = config.client !== undefined;
 	if (hasUri === hasClient) {
 		refuse(
-			where,
+			name,
 			hasUri
 				? 'has both a uri and a client: pass the one it should use'
 				: 'has neither a uri nor a client',
 		);
 	}
 	if (hasUri && (typeof config.uri !== 'string' || config.uri === '')) {
-		refuse(where, 'has a uri that is not a string');
+		refuse(name, 'has a uri that is not a string');
 	}
 	if (hasClient && typeof config.client?.db !== 'function') {
-		refuse(where, 'has a client that is not a MongoClient');
+		refuse(name, 'has a client that is not a MongoClient');
 	}
 	if (hasClient && config.clientOptions !== undefined) {
 		refuse(
-			where,
+			name,
 			'has client options beside a client it did not open: pass them where the client is made',
 		);
 	}
 	if (config.database !== undefined && config.database === '') {
-		refuse(where, 'has an empty database name');
+		refuse(name, 'has an empty database name');
 	}
 	if (typeof config.collections !== 'object' || config.collections === null) {
-		refuse(where, 'has no collections object');
+		refuse(name, 'has no collections object');
 	}
 	const definitions = definitionsOf(config.collections);
 	if (definitions.length === 0) {
 		refuse(
-			where,
+			name,
 			'has a collections object with no definition in it: pass the module, as in `import * as collections`',
 		);
 	}
@@ -100,7 +109,7 @@ export function checkDatabase(
 		const seen = byName.get(definition.name);
 		if (seen !== undefined) {
 			refuse(
-				where,
+				name,
 				`wires "${seen}" and "${key}" to the same collection, "${definition.name}"`,
 			);
 		}
@@ -109,12 +118,12 @@ export function checkDatabase(
 	const keys = new Set(definitions.map(([key]) => key));
 	for (const key of Object.keys(config.optionsFor ?? {})) {
 		if (!keys.has(key)) {
-			refuse(where, `has options for "${key}", which it does not wire`);
+			refuse(name, `has options for "${key}", which it does not wire`, key);
 		}
 	}
-	checkOwned(where, 'options', config.options);
+	checkOwned(name, 'options', config.options);
 	for (const [key, options] of Object.entries(config.optionsFor ?? {})) {
-		checkOwned(where, `the options of "${key}"`, options);
+		checkOwned(name, `the options of "${key}"`, options, key);
 	}
 	return definitions;
 }

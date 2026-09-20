@@ -5,7 +5,12 @@ export type S3ErrorCode =
 	/** The body is bigger than this bucket's `maxSize`. */
 	| 'TOO_LARGE'
 	/** The body's size cannot be known before sending, and `maxSize` is set. */
-	| 'UNMEASURABLE';
+	| 'UNMEASURABLE'
+	/**
+	 * An option's own value is not one the service accepts: `acl` or
+	 * `storageClass` on a write, `acl` or `expiresIn` on a presigned URL.
+	 */
+	| 'WRONG_OPTION';
 
 /**
  * This package's only error, and every one of them is thrown **before**

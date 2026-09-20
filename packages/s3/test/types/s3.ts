@@ -115,6 +115,26 @@ store.presignGet(
 	{ expiresIn: '1h' },
 );
 
+store.presignGet(
+	{ userId: 'u1' },
+	// @ts-expect-error an `acl` is one the service accepts, not any string
+	{ acl: 'everyone' },
+);
+
+void store.put(
+	{ userId: 'u1' },
+	'x',
+	// @ts-expect-error an `acl` is one the service accepts, not any string
+	{ acl: 'everyone' },
+);
+
+void store.put(
+	{ userId: 'u1' },
+	'x',
+	// @ts-expect-error a `storageClass` is one the service has, not any string
+	{ storageClass: 'CHEAP' },
+);
+
 // @ts-expect-error a listing pages by cursor; there is no page number
 void store.list({ page: 2 });
 

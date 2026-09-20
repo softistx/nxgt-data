@@ -55,7 +55,9 @@ A glob that matches nothing gives `[]`.
 
 ## What it throws
 
-All three are a `TypeError`:
+All three are a [`KitError`](errors.md) with `code: 'DISCOVERY'`. The two
+that are about a file carry its path on `key`; the missing-glob one has no
+path yet, so its `key` is `undefined`:
 
 - `discoverCollections: a glob is required` — `glob` missing or empty.
 - `discoverCollections: <path> exports no definition named "<name>"` — with

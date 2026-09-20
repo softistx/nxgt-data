@@ -34,7 +34,14 @@ A driver error that is none of them reaches you untouched.
 | `CorruptFileError` | `CORRUPT_FILE` | a stored file is missing chunks, or one is short — raised while its bytes are read |
 | `MigrationError` | `MIGRATION` | a migration failed, or the list does not match the records — from `@nxgt/mongo/migrations` |
 | `MigrationLockedError` | `MIGRATION_LOCKED` | another run holds the migration lock, or this one lost it — from `@nxgt/mongo/migrations` |
+| `ConnectionError` | `CONNECTION` | `closeMongo()` ran while this [`connectMongo`](connecting.md#a-connect-that-closemongo-interrupts) was still connecting |
 | `DataError` | `DATABASE` | any other server error, with its `serverCode` |
+
+`ConnectionError` is the one that is not a server answer: MongoDB's own
+refusal to connect — a host that does not answer, an auth failure — is the
+driver's error and reaches you unchanged. `CONNECTION` is only what *this*
+package decides, and it carries neither a URI nor a collection. See
+[Connecting](connecting.md#a-connect-that-closemongo-interrupts).
 
 All of them extend `DataError`, so one `catch` covers the lot:
 
@@ -117,6 +124,7 @@ const status: Partial<Record<DataErrorCode, number>> = {
 	OPTIMISTIC_LOCK: 409,
 	INVALID_ID: 400,
 	INVALID_CURSOR: 400,
+	CONNECTION: 503,
 };
 
 app.onError((error, c) => {
@@ -138,6 +146,13 @@ purpose:
   filter an [upsert](upsert.md#the-filter-is-written-not-only-matched) cannot
   seed from — is a `TypeError`, not a `DataError`. The types refuse most of
   them first.
+- **A refused *argument* here is a bare `TypeError` with no code**, and that
+  is worth knowing if you also use `@nxgt/drizzle`, where the equivalent is
+  an `ArgumentError` carrying `code: 'INVALID_ARGUMENT'`. An `updateMany`
+  with no filter, or a `paginateByCursor` along a field the schema has not,
+  is recognised here by catching `TypeError` and reading the message. Giving
+  this package a class of its own is a change of its own; until then, a
+  handler that wants one answer for both writes its own check.
 
 A failed parse is Zod's own `ZodError`, from `create`, `update` and an
 `upsert` that could not have inserted.

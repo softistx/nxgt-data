@@ -1,5 +1,6 @@
 import type { S3Options } from 'bun';
 import { type BucketContext, keyOf } from '../context';
+import { checkOption } from '../guards';
 
 /** How a presigned URL is asked for. `expiresIn` is **seconds**, as S3's is. */
 export interface PresignOptions {
@@ -27,10 +28,19 @@ type Unsigned = Exclude<Signable, (typeof SIGNED)[number]>;
 const _nothingForgotten: [Unsigned] extends [never] ? true : Unsigned = true;
 void _nothingForgotten;
 
-function signed(options: PresignOptions | undefined): PresignOptions {
+function signed(
+	key: string,
+	options: PresignOptions | undefined,
+): PresignOptions {
 	const forwarded: Record<string, unknown> = {};
-	for (const key of SIGNED) {
-		if (options?.[key] !== undefined) forwarded[key] = options[key];
+	for (const name of SIGNED) {
+		const value = options?.[name];
+		if (value === undefined) continue;
+		// The same allowlist a `put` is held to: a wrong `acl` is an `S3Error`
+		// with `WRONG_OPTION` whichever of the two a caller reached for, rather
+		// than an `S3Error` here and Bun's own `TypeError` there.
+		checkOption(key, name, value);
+		forwarded[name] = value;
 	}
 	return forwarded as PresignOptions;
 }
@@ -40,8 +50,9 @@ export function presignGetUrl<P>(
 	params: P,
 	options?: PresignOptions,
 ): string {
-	return context.client.presign(keyOf(context, params), {
-		...signed(options),
+	const key = keyOf(context, params);
+	return context.client.presign(key, {
+		...signed(key, options),
 		method: 'GET',
 	});
 }
@@ -62,8 +73,9 @@ export function presignPutUrl<P>(
 	params: P,
 	options?: PresignOptions,
 ): string {
-	return context.client.presign(keyOf(context, params), {
-		...signed(options),
+	const key = keyOf(context, params);
+	return context.client.presign(key, {
+		...signed(key, options),
 		method: 'PUT',
 	});
 }

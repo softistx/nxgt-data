@@ -285,7 +285,7 @@ publishes to npm.
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
 | `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change both when the reason applies to both |
 | `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 87 lines each, ten of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ. `@nxgt/s3`'s `ObjectPage` is **not** a copy either — four lines agreeing with `CursorPage`'s shape so a caller pages the same way, with no logic to keep in step |
-| `connection/connect.ts`, in `@nxgt/mongo` and `@nxgt/redis` | reference-counted client sharing per URI, copied rather than factored: a shared `@nxgt/connection` would make both depend on a sibling for one function, and layering comes first. **107 of 167 lines are identical**, comments included — closer than `page.ts` — so **a fix in one is a fix to make in the other**, and a spec added to one belongs in the other. What deliberately differs: `@nxgt/redis` has no `db`, holds the `RedisClient` itself rather than a `Promise<MongoClient>`, closes synchronously, closes sequentially in `closeRedis` where `closeMongo` uses `Promise.all`, and compares options with `Bun.deepEquals` in place of a hand-written `sameValue` |
+| `connection/connect.ts`, in `@nxgt/mongo` and `@nxgt/redis` | reference-counted client sharing per URI, copied rather than factored: a shared `@nxgt/connection` would make both depend on a sibling for one function, and layering comes first. **107 of 167 lines are identical**, comments included — closer than `page.ts` — so **a fix in one is a fix to make in the other**, and a spec added to one belongs in the other. What deliberately differs: `@nxgt/redis` has no `db`, holds the `RedisClient` itself rather than a `Promise<MongoClient>`, closes synchronously, closes sequentially in `closeRedis` where `closeMongo` uses `Promise.all`, and compares options with `Bun.deepEquals` in place of a hand-written `sameValue`. Since the error-code work, a sixth: `@nxgt/redis`'s `ping` races the command against a timer of its own and reports `PING_TIMEOUT` on the result, while `@nxgt/mongo`'s leaves the deadline to the driver's `timeoutMS` and reports whatever it produced. Both connection failures are a class with a code now, and **neither carries the URI** — a connection string holds the password, and a spec in each asserts its absence |
 | `test/server.ts` of `@nxgt/mongo` and of `@nxgt/meilisearch`, as `test/mongo.ts` and `test/meilisearch.ts` in `@nxgt/mongo-meilisearch` and again in `@nxgt/mongo-search-kit`, as `test/server.ts` in `@nxgt/mongo-kit`, and once more in `examples/hono-api/test/kit.ts` | a package reaches no sibling's tests, and an example reaches no package's. Keep `MONGOD_VERSION` equal in all five mongod copies: CI keys the mongod cache on the hash of those five files |
 
 ## Keeping the code maintainable
@@ -402,6 +402,31 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
   not flat.
 - **A package keeps its own errors.** `@nxgt/drizzle` throws `DataError` and
   its subclasses; it depends on no exception package.
+- **Which base class, and whether a refusal gets a code.** Two questions, and
+  they are answered separately.
+  - *A code, or a bare `TypeError`?* A refusal at **definition or wiring
+    time** — `defineCache('')`, `defineBucket({})`, a table with no primary
+    key, `connectRedis` called twice with different options — stays a bare
+    `TypeError`: it cannot come from a request, and no handler should answer
+    it. A refusal at **call time, on a value that could have come from a
+    request** — a `where`, an `orderBy`, an `acl`, an `expiresIn` — carries a
+    class with a `code`, so a handler answers 400 without matching message
+    text.
+    `@nxgt/mongo-kit` is the deliberate exception: every one of its refusals
+    is wiring-time, and it still gives them codes, because it has seven
+    distinct ones and a start-up script wants to tell them apart. The rule
+    underneath is **a handful of refusals can be told apart by their
+    sentence; a dozen cannot**.
+  - *Extend `Error` or `TypeError`?* Extend whichever class the refusals it
+    replaces already threw, so no consumer's `catch` stops working.
+    `KitError` and `ArgumentError` replaced bare `TypeError`s, so they extend
+    `TypeError`; `DataError`, `RedisError` and `S3Error` never replaced one,
+    so they extend `Error`. A class that extends `TypeError` must be tested
+    for **before** any `TypeError` branch in a handler, and its docs say so.
+  - `@nxgt/mongo` has **no** `ArgumentError`: a refused argument there is a
+    bare `TypeError`, and `packages/mongo/docs/guide/errors.md` says so
+    outright, because an application on both it and `@nxgt/drizzle` gets a
+    code for one and message text for the other.
 - **The verb says what the function does.** `define*` describes and touches
   nothing (`defineCollection`, `defineIndex`, `defineConfig`,
   `defineMigration`); `get*` and `bind*` attach to a live client without
@@ -416,8 +441,8 @@ lines**, and `@nxgt/drizzle`'s still holds **321**.
 
 ## Known state
 
-`bun run test` is **924 pass, 0 fail**: drizzle 94, meilisearch 42, mongo 524,
-mongo-meilisearch 40, mongo-kit 70, mongo-search-kit 14, redis 44, s3 47,
+`bun run test` is **933 pass, 0 fail**: drizzle 95, meilisearch 42, mongo 524,
+mongo-meilisearch 40, mongo-kit 72, mongo-search-kit 14, redis 45, s3 52,
 hono-api-example 31, scripts 18. It runs one process per package, then the
 scripts' specs. Treat any failure as yours.
 

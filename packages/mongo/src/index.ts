@@ -165,6 +165,7 @@ export type {
 } from './definition/writable';
 export {
 	ConflictError,
+	ConnectionError,
 	CorruptFileError,
 	DataError,
 	type DataErrorCode,

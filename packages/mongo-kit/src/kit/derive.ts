@@ -1,4 +1,5 @@
 import type { SyncOptions } from '@nxgt/mongo';
+import { KitError } from '../errors/kit-error';
 import { databaseOf, derived, type KitContext } from './context';
 import { scopeOf } from './scope';
 import { syncKit } from './sync';
@@ -11,7 +12,8 @@ import type { KitTransactionOptions, MongoKit } from './types';
  */
 async function closeKit(ctx: KitContext): Promise<void> {
 	if (!ctx.root) {
-		throw new TypeError(
+		throw new KitError(
+			'DERIVED',
 			'close: this kit came from `as`, `withSession` or a transaction. ' +
 				'Close the kit `createKit` returned — the clients are shared.',
 		);
@@ -53,7 +55,8 @@ export function kitOf<C>(ctx: KitContext): MongoKit<C> {
 		get db() {
 			const [only] = ctx.databases;
 			if (ctx.databases.length !== 1 || !only) {
-				throw new TypeError(
+				throw new KitError(
+					'SEVERAL_DATABASES',
 					'kit.db: this kit has several databases. Read the one you mean, ' +
 						`as \`kit.databases.${ctx.databases[0]?.name ?? 'main'}\`.`,
 				);
