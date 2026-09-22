@@ -21,7 +21,7 @@
  * consumer who uses the subpath that needs one would.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { $ } from 'bun';
@@ -73,6 +73,13 @@ async function readPackages(): Promise<Pkg[]> {
  *     resolved to a newer one: two copies in one tree, and two
  *     `ValidationError` classes. `workspace:^` publishes
  *     as a caret range, which dedupes.
+ *   - a **package that lists itself** in a field a consumer installs. None of
+ *     the checks above see it: `@nxgt/material` shipped `"@nxgt/material": "."`
+ *     for four months, and `.` is neither a `file:` prefix nor a digit. It is
+ *     not inert — `.` resolves to the *consumer's* directory, so every install
+ *     grew a second copy of the package reporting the consumer's own version,
+ *     plus a `bun.lock` entry no manifest declared and `bun install` kept
+ *     re-creating. A package self-references through its `name` and `exports`.
  *   - a **license other than MIT, or no `LICENSE` in the tarball**. npm only
  *     ships the `LICENSE` in the package's own directory, never the root's.
  */
@@ -113,6 +120,13 @@ async function manifestProblems(
 			)) {
 				if (/^(link|file):/.test(String(range))) {
 					problems.push(`${name}: ${field}.${dep} = ${range}`);
+				}
+				if (dep === name) {
+					problems.push(
+						`${name}: ${field} lists itself as ${range}; a relative path ` +
+							"there resolves to the CONSUMER's directory — " +
+							'`exports` already makes the package self-referencing',
+					);
 				}
 				if (own.has(dep) && /^\d/.test(String(range))) {
 					problems.push(
@@ -159,7 +173,62 @@ async function manifestProblems(
 	return problems;
 }
 
+/**
+ * The newest mtime under a directory, or 0 if it does not exist. Deep, because
+ * a build is only as fresh as its stalest input.
+ */
+async function newestMtime(dir: string): Promise<number> {
+	let newest = 0;
+	const glob = new Bun.Glob('**/*');
+	for await (const rel of glob.scan({ cwd: dir, onlyFiles: true })) {
+		const { mtimeMs } = await stat(join(dir, rel));
+		if (mtimeMs > newest) newest = mtimeMs;
+	}
+	return newest;
+}
+
+/**
+ * Packages whose `dist/` is missing, or older than their own `src/`.
+ *
+ * This script packs `dist/` and does not build. CI builds first and so does
+ * `changeset:publish`, so only a bare local `bun run verify:artifacts` can
+ * verify yesterday's artifact — and `dist/` is gitignored, so the staleness is
+ * invisible and cannot be reasoned about from the diff. Measured in `nxgt-core`
+ * on 2026-09-22, where it cost an hour: four subpaths failed on `Cannot find
+ * package 'stx-sdk'` while the same commit passed in CI, and a *resolution*
+ * error sends you to the environment, not to the build.
+ */
+async function staleBuilds(pkgs: Pkg[]): Promise<string[]> {
+	const stale: string[] = [];
+	for (const pkg of pkgs) {
+		const dist = await newestMtime(join(pkg.dir, 'dist'));
+		if (dist === 0) {
+			stale.push(`${pkg.name}: no dist/`);
+			continue;
+		}
+		const src = await newestMtime(join(pkg.dir, 'src'));
+		if (src > dist) {
+			const age = Math.round((src - dist) / 1000);
+			stale.push(`${pkg.name}: src/ is ${age}s newer than dist/`);
+		}
+	}
+	return stale;
+}
+
 const packages = await readPackages();
+
+const stale = await staleBuilds(packages);
+if (stale.length > 0) {
+	console.error('This would verify a stale build, not the working tree:\n');
+	for (const one of stale) console.error(`  ${one}`);
+	console.error(
+		'\nRun `bun run build` first. This script packs `dist/`, which is\n' +
+			'gitignored, so a stale one reports failures the source does not have —\n' +
+			'and they look like environment problems, not build problems.',
+	);
+	process.exit(1);
+}
+
 const workdir = await mkdtemp(join(tmpdir(), 'nxgt-data-verify-'));
 
 try {
@@ -189,8 +258,8 @@ try {
 		console.error(
 			'\nA `link:` or `file:` no consumer can resolve, a required peer that is\n' +
 				'on no registry, a sibling range that leaves out the sibling beside\n' +
-				'it, an exact pin on a sibling, or a license other than MIT or no\n' +
-				'LICENSE shipped. See AGENTS.md.',
+				'it, an exact pin on a sibling, a package that lists itself, or a\n' +
+				'license other than MIT or no LICENSE shipped. See AGENTS.md.',
 		);
 		process.exit(1);
 	}
