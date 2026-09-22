@@ -177,15 +177,26 @@ async function manifestProblems(
  * The newest mtime under a directory, or 0 if it does not exist. Deep, because
  * a build is only as fresh as its stalest input.
  */
-async function newestMtime(dir: string): Promise<number> {
+async function newestMtime(dir: string, skip?: RegExp): Promise<number> {
 	let newest = 0;
 	const glob = new Bun.Glob('**/*');
 	for await (const rel of glob.scan({ cwd: dir, onlyFiles: true })) {
+		if (skip?.test(rel)) continue;
 		const { mtimeMs } = await stat(join(dir, rel));
 		if (mtimeMs > newest) newest = mtimeMs;
 	}
 	return newest;
 }
+
+/**
+ * Specs and their snapshots live under `src/` but the build does not emit
+ * them, so they cannot make `dist/` stale — and `bun test` rewrites a snapshot
+ * file's mtime. CI runs the tests *between* the build and this script, so
+ * counting them made a green pipeline fail with
+ * `@nxgt/openapi-codegen: src/ is 57s newer than dist/`. Measured on
+ * nxgt-http, 2026-09-22.
+ */
+const NOT_A_BUILD_INPUT = /(^|\/)__snapshots__\/|\.(spec|test)\.[cm]?[jt]sx?$/;
 
 /**
  * Packages whose `dist/` is missing, or older than their own `src/`.
@@ -206,7 +217,7 @@ async function staleBuilds(pkgs: Pkg[]): Promise<string[]> {
 			stale.push(`${pkg.name}: no dist/`);
 			continue;
 		}
-		const src = await newestMtime(join(pkg.dir, 'src'));
+		const src = await newestMtime(join(pkg.dir, 'src'), NOT_A_BUILD_INPUT);
 		if (src > dist) {
 			const age = Math.round((src - dist) / 1000);
 			stale.push(`${pkg.name}: src/ is ${age}s newer than dist/`);
