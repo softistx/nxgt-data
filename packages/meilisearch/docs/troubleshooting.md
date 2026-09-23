@@ -46,6 +46,7 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`tenantToken for "movies": expiresAt is not a whole number of seconds`](#tenanttoken-for-movies-expiresat-is-not-a-whole-number-of-seconds)
   - [`tenantToken for "movies": expiresAt is an invalid Date`](#tenanttoken-for-movies-expiresat-is-an-invalid-date)
   - [`tenantToken for "movies": expiresAt is neither a Date nor a finite number`](#tenanttoken-for-movies-expiresat-is-neither-a-date-nor-a-finite-number)
+  - [`tenantToken for "movies": expiresAt is a Date past the year 5138; was it built from milliseconds times 1000?`](#tenanttoken-for-movies-expiresat-is-a-date-past-the-year-5138-was-it-built-from-milliseconds-times-1000)
   - [`tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date`](#tenanttoken-for-movies-expiresat-is-a-number-of-milliseconds-it-takes-seconds-or-a-date)
   - [`tenantToken for "movies_next": searchRules names "movies", which is not the uid of any of its indexes`](#tenanttoken-for-movies_next-searchrules-names-movies-which-is-not-the-uid-of-any-of-its-indexes)
   - [`tenantToken for "movies": searchRules must be a plain object`](#tenanttoken-for-movies-searchrules-must-be-a-plain-object)
@@ -487,7 +488,8 @@ await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { mov
 `indexes` — the key left out, set to `undefined`, or `searchRules` left out
 altogether. A bare `TypeError`, thrown before anything is signed. The types
 refuse it too for an index whose uid is a literal; for a rebuild's next
-index, typed `string`, only this check sees it. Since 0.5.0.
+index, typed `string`, or an index typed as a union of uids —
+`cond ? movieIndex : peopleIndex` — only this check sees it. Since 0.5.0.
 **Why:** an index with no rule would be searched with **no filter** by
 anyone holding the token. That has to be asked for, with `null`, never
 reached by leaving a line out. The message names the uids, never a rule.
@@ -500,8 +502,8 @@ await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex, peopleIndex], searc
 ### `tenantToken for "movies", "people": searchRules has an empty rule for "people"; give it { filter: … }, or null to search it with no filter`
 
 **When:** `tenantToken` with a rule object that filters nothing: no
-`filter`, `filter: undefined` or `null`, a blank string, an empty array, or
-an array of those (`['', []]`) — typically a filter built from a value that
+`filter`, `filter: undefined` or `null`, a blank string (whitespace, U+0085 (NEL) and U+FEFF included), an empty array, or an array of those (`['', []]`,
+`['\u0085']`) — typically a filter built from a value that
 came back empty. A bare `TypeError`, thrown before anything is signed; every
 empty rule is named. The types refuse a rule with no `filter`, an
 `undefined` or a `null` one; an empty string or array compiles, since the
@@ -568,9 +570,12 @@ token.
 ### `tenantToken for "movies": searchRules has a rule for "movies" whose filter is a number; give it { filter: … }, or null to search it with no filter`
 
 **When:** a `filter` that is not a string or an array of strings: `NaN` or
-`Infinity` (`whose filter is a number`), a function, a symbol, or an array
-holding one of those (`whose filter holds a number`) or nested past the
-SDK's two levels (`whose filter holds an array`). A bare `TypeError`,
+`Infinity` (`whose filter is a number`), a function, a symbol, an object
+(`whose filter is an object`), a boolean (`whose filter is a boolean`), or
+an array holding one of those (`whose filter holds a number`), holding
+`undefined` or `null` (`whose filter holds undefined`, `whose filter holds
+null`), or nested past the SDK's two levels (`whose filter holds an
+array`). A bare `TypeError`,
 before anything is signed.
 **Why:** `JSON.stringify` writes `NaN` as `null` and leaves a function or a
 symbol out: measured on v1.53.2, a `NaN` filter signed an unfiltered token.
@@ -625,16 +630,34 @@ const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 ### `tenantToken for "movies": expiresAt is neither a Date nor a finite number`
 
 **When:** `expiresAt` is `NaN`, `Infinity`, or neither a `Date` nor a number
-— a string from a request, say. `INVALID_EXPIRES_AT`, before anything is
-signed.
+— a string from a request, say, or an object given `Date.prototype` without
+being a `Date`. `INVALID_EXPIRES_AT`, before anything is signed.
 **Why:** the token's `exp` is a whole number of seconds, and nothing else is
-read by the server.
+read by the server. A `Date` is read with the intrinsic
+`Date.prototype.getTime`, which only a real `Date` answers: measured on
+v1.53.2, an object that merely looked like one signed an `exp` the server
+took as no expiry.
 **Fix:** a `Date`, or whole seconds:
 
 ```ts
 expiresAt: new Date(Date.now() + 60 * 60 * 1000),
 // or
 expiresAt: Math.floor(Date.now() / 1000) + 3600,
+```
+
+### `tenantToken for "movies": expiresAt is a Date past the year 5138; was it built from milliseconds times 1000?`
+
+**When:** `expiresAt` is a `Date` whose time, in seconds, is past 10¹¹ —
+the year 5138 — typically `new Date(Date.now() * 1000)`, a time in
+milliseconds multiplied as if it were seconds. `INVALID_EXPIRES_AT`, before
+anything is signed.
+**Why:** the same mistake as a number is refused as milliseconds; as a
+`Date`, it would sign a token that lasts some 56 000 years. The message
+never holds the date.
+**Fix:** build the `Date` from milliseconds:
+
+```ts
+expiresAt: new Date(Date.now() + 60 * 60 * 1000),
 ```
 
 ### `tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date`
@@ -656,7 +679,9 @@ expiresAt: new Date(Date.now() + 3_600_000),
 its `indexes` **has** at run time. A bare `TypeError`, thrown before
 anything is signed. The typical case is inside a rebuild's `fill`: its index
 is `movies_next`, and a rule written for `movies` does not apply to it —
-the types cannot tell, since that index's uid is typed `string`.
+the types cannot tell, since that index's uid is typed `string`. The same
+goes for an index typed as a union of uids, `cond ? movieIndex :
+peopleIndex`, whose rule the types let you key by either.
 **Why:** Meilisearch reads a token's rules by uid. A rule under another uid
 would be dropped, and its index searched **with no filter** — so it is
 refused instead.

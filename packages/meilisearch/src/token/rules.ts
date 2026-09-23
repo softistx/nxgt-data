@@ -26,10 +26,15 @@ const shapeOf = (value: unknown) => {
 	return `a ${typeof value}`;
 };
 
+/** Whitespace as Meilisearch reads it: `\s`, U+0085 and U+FEFF. */
+const BLANK = /[\s\u0085\uFEFF]/g;
+
 /** Whether a copied filter filters nothing: blank, or only blanks. */
 function isEmpty(filter: unknown): boolean {
 	if (filter === undefined || filter === null) return true;
-	if (typeof filter === 'string') return filter.trim() === '';
+	// `trim` keeps U+0085 (NEL), which Meilisearch reads as blank: measured
+	// on v1.53.2, a filter of only NEL signed an unfiltered token.
+	if (typeof filter === 'string') return filter.replace(BLANK, '') === '';
 	return Array.isArray(filter) && filter.every(isEmpty);
 }
 
@@ -69,7 +74,8 @@ function copyRule(value: unknown): TokenIndexRules | null {
 	return { filter: copyFilter(filter.value) as TokenIndexRules['filter'] };
 }
 
-const quoted = (uids: readonly string[]) =>
+/** Uids as a message names them: `"movies", "people"`. */
+export const quoted = (uids: readonly string[]) =>
 	uids.map((uid) => `"${uid}"`).join(', ');
 
 const give = 'or null to search it with no filter';

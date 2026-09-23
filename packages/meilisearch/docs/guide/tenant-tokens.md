@@ -74,7 +74,8 @@ types require it, where the SDK's `TokenIndexRules` leaves it optional — so
 `{}`, `{ filter: undefined }` and `{ filter: null }` do not compile. A filter
 that filters nothing does compile, since the SDK's `Filter` is any string or
 array, and is refused at run time with the rest: a blank string (`''`,
-`'  '`), an empty array, or an array of those (`['', []]`):
+`'  '` — whitespace, U+0085 (NEL) and U+FEFF included, which `trim()` keeps but Meilisearch
+reads as blank), an empty array, or an array of those (`['', []]`):
 
 ```
 tenantToken for "movies", "people": searchRules has an empty rule for "people"; give it { filter: … }, or null to search it with no filter
@@ -105,7 +106,9 @@ index and the shape, never the value:
 | a key beside `filter` | `that has a key other than filter` |
 | a `filter` that is a getter, or not enumerable | `whose filter is a getter`, `whose filter is not enumerable` |
 | a `filter` that is `NaN`, a function, a symbol | `whose filter is a number`, `… a function`, `… a symbol` |
+| a `filter` that is an object or a boolean | `whose filter is an object`, `whose filter is a boolean` |
 | an array holding something else, or nested too deep | `whose filter holds a number`, `whose filter holds an array` |
+| an array holding `undefined` or `null` | `whose filter holds undefined`, `whose filter holds null` |
 
 Each ends `; give it { filter: … }, or null to search it with no filter`.
 The SDK's `TokenIndexRules` has no key but `filter` in meilisearch-js 0.62.0,
@@ -196,7 +199,17 @@ before anything is signed, when `expiresAt` is:
 | a number past 10¹¹ | `is a number of milliseconds; it takes seconds, or a Date` |
 | a number with a fraction | `is not a whole number of seconds` |
 | an invalid `Date` | `is an invalid Date` |
-| `NaN`, `Infinity` | `is neither a Date nor a finite number` |
+| a `Date` past the year 5138 — `new Date(ms * 1000)` | `is a Date past the year 5138; was it built from milliseconds times 1000?` |
+| `NaN`, `Infinity`, or an object that only looks like a `Date` | `is neither a Date nor a finite number` |
+
+A `Date` is read **once**, with the intrinsic `Date.prototype.getTime`, and
+the whole seconds it gives are what is checked and signed — never the
+object itself, which the SDK would read again. Measured on v1.53.2 before
+this: a `Date` subclass whose `getTime` changed between calls, or an object
+given `Date.prototype` with a `getTime` of its own, signed an `exp` of
+`null` or of 10¹⁷, which the server takes as no expiry. A real `Date` whose
+own `getTime` lies signs its real time; an object that is not a `Date` has
+no time, and is refused.
 
 A missing `expiresAt` takes the same code as a wrong one, not a
 `TypeError`: it is the same option, it can come from a request body just as

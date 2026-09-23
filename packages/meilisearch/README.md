@@ -342,7 +342,8 @@ A missing rule — or one that is `undefined` — throws a `TypeError` before
 anything is signed: `tenantToken for "movies", "people": searchRules has no rule for "people"; give each index { filter: … }, or null to search it with no filter`.
 "No filter" is spelled only `null`: a rule object must carry a `filter` (in
 the types too), and one whose filter is absent, `undefined`, `null`, a blank
-string or an array of nothing (`[]`, `['']`) throws too:
+string (only whitespace, U+0085 (NEL) and U+FEFF included) or an array of nothing (`[]`,
+`['']`) throws too:
 `tenantToken for "movies", "people": searchRules has an empty rule for "people"; give it { filter: … }, or null to search it with no filter`. A `searchRules`
 key that is not the uid one of the indexes has at run time, or a
 `searchRules` that is not a plain object — a class instance, or one that
@@ -362,8 +363,12 @@ arrays of strings); anything else — an array, a class instance, a getter, a
 `expiresAt` is a `Date` or whole seconds since the epoch. One that is
 missing (`undefined` or `null`), already past, a number of milliseconds
 (which the server accepts, for millennia), a fraction of a second (which the
-server cannot decode) or an invalid `Date` throws a `SearchIndexError`
-(`INVALID_EXPIRES_AT`) before anything is signed.
+server cannot decode), an invalid `Date`, a `Date` past the year 5138 (built
+from milliseconds times 1000), or an object that only looks like a `Date`
+throws a `SearchIndexError` (`INVALID_EXPIRES_AT`) before anything is
+signed. A `Date` is read **once**, with the intrinsic
+`Date.prototype.getTime` — never its own, overridable `getTime` — and the
+whole seconds are what is signed: the SDK would otherwise read it again.
 
 ## Errors
 

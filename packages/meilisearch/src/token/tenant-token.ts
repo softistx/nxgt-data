@@ -1,8 +1,8 @@
 import type { TenantTokenGeneratorOptions, TokenIndexRules } from 'meilisearch';
 import { generateTenantToken } from 'meilisearch/token';
-import { SearchIndexError } from '../errors/search-index-error';
 import type { TypedIndex } from '../index/bind-index';
-import { copyRules } from './rules';
+import { expirySeconds } from './expiry';
+import { copyRules, quoted } from './rules';
 
 /** Every uid an index's definition may have: a union when the index is. */
 type UidsOf<Index> = Index extends {
@@ -87,8 +87,9 @@ export interface TenantTokenOptions<Indexes extends TokenIndexes> {
 	/**
 	 * When the token stops working: a `Date`, or a whole number of **seconds**
 	 * since the epoch. Required: a token without one would last as long as
-	 * its key. Refused when it is already past, or when it is a number of
-	 * milliseconds.
+	 * its key. Refused when it is already past, a number of milliseconds, or a
+	 * `Date` past the year 5138. A `Date` is read once, with the intrinsic
+	 * `Date.prototype.getTime`, and the whole seconds are what is signed.
 	 */
 	expiresAt: Date | number;
 	/** The SDK's: `HS256` by default. */
@@ -98,47 +99,6 @@ export interface TenantTokenOptions<Indexes extends TokenIndexes> {
 	 * Cloudflare Workers), which otherwise throws. `false` by default.
 	 */
 	force?: boolean;
-}
-
-// A time in seconds past this is a time in milliseconds: 10^11 seconds is
-// the year 5138, and `Date.now()` has been past 10^12 since 2001.
-const MAX_SECONDS = 1e11;
-
-/** Why `expiresAt` cannot be signed, or `undefined` when it can. */
-function expiryProblem(expiresAt: Date | number, now: number) {
-	if (expiresAt instanceof Date) {
-		const time = expiresAt.getTime();
-		if (Number.isNaN(time)) return 'is an invalid Date';
-		return time <= now ? 'is in the past' : undefined;
-	}
-	if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) {
-		return 'is neither a Date nor a finite number';
-	}
-	// Measured on v1.53.2: a fractional `exp` makes every search with the
-	// token fail to decode it, and one in milliseconds is accepted, and lasts
-	// for millennia.
-	if (!Number.isInteger(expiresAt)) return 'is not a whole number of seconds';
-	if (expiresAt > MAX_SECONDS) {
-		return 'is a number of milliseconds; it takes seconds, or a Date';
-	}
-	return expiresAt * 1000 <= now ? 'is in the past' : undefined;
-}
-
-const quoted = (uids: readonly string[]) =>
-	uids.map((uid) => `"${uid}"`).join(', ');
-
-/** Refuses an `expiresAt` that is missing, or cannot be signed. */
-function checkExpiry(expiresAt: unknown, uids: readonly string[]) {
-	const problem =
-		expiresAt === undefined || expiresAt === null
-			? 'is missing; it takes a Date, or whole seconds since the epoch'
-			: expiryProblem(expiresAt as Date | number, Date.now());
-	if (problem) {
-		throw new SearchIndexError(
-			`tenantToken for ${quoted(uids)}: expiresAt ${problem}`,
-			{ code: 'INVALID_EXPIRES_AT', indexUid: uids.join(',') },
-		);
-	}
 }
 
 /**
@@ -156,8 +116,10 @@ function checkExpiry(expiresAt: unknown, uids: readonly string[]) {
  * });
  * ```
  *
- * It fails closed. An `expiresAt` that is missing, past, or not a time
- * Meilisearch reads throws a `SearchIndexError` (`INVALID_EXPIRES_AT`). A
+ * It fails closed. An `expiresAt` that is missing, past, not a real `Date`
+ * or a finite number, or not a time Meilisearch reads throws a
+ * `SearchIndexError` (`INVALID_EXPIRES_AT`); it is read once, into the whole
+ * seconds that are signed. A
  * `TypeError` is thrown for a `searchRules` that is not a plain object, a
  * rule under a uid none of `indexes` has, an index with no rule, a rule that
  * is not `null` or a plain `{ filter }` — an array, a class instance, a
@@ -173,14 +135,15 @@ export async function tenantToken<const Indexes extends TokenIndexes>(
 	const { apiKey, apiKeyUid, indexes, expiresAt, algorithm, force } = options;
 	// An index given twice is one uid: the messages name it once.
 	const uids = [...new Set(indexes.map((index) => index.uid))];
-	checkExpiry(expiresAt, uids);
 	const call = `tenantToken for ${quoted(uids)}`;
+	// The seconds, never the caller's object: the SDK would read it again.
+	const seconds = expirySeconds(expiresAt, uids, call);
 	const searchRules = copyRules(options.searchRules, uids, call);
 	return generateTenantToken({
 		apiKey,
 		apiKeyUid,
 		searchRules,
-		expiresAt,
+		expiresAt: seconds,
 		...(algorithm === undefined ? {} : { algorithm }),
 		...(force === undefined ? {} : { force }),
 	});

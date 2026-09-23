@@ -41,9 +41,13 @@ _Nothing queued._
   rule for every index it is given, in the types and at run time: a missing
   `expiresAt` is `INVALID_EXPIRES_AT`, a missing or empty rule a
   `TypeError`, and an index searched with no filter takes an explicit
-  `null` — the only way to spell it. A token can no
-  longer become a permanent, unfiltered credential by a line left out —
-  0.5.0.
+  `null` — the only way to spell it. Each rule is read once, into a plain
+  copy that is what is checked and signed, so a getter, a `toJSON` or
+  another key is refused rather than signed; `expiresAt` is read once too,
+  with the intrinsic `Date.prototype.getTime`, into the whole seconds that
+  are signed; and an index typed as a union of uids is keyed like a dynamic
+  one in the types. A token can no longer become a permanent, unfiltered
+  credential by a line left out — 0.5.0.
 - **Tenant tokens typed by their indexes** — `tenantToken({ apiKey,
   apiKeyUid, indexes, searchRules, expiresAt })` signs a token that may search
   only the bound indexes given, with `searchRules` keyed by their uids, and
