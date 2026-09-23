@@ -10,6 +10,11 @@ import RedisMemoryServer from 'redis-memory-server';
  * `packages/redis/test/server.ts`) into `.cache/redis` and prints its path,
  * and hands that path over as `$REDIS_BIN`. So there is no version here to
  * keep in step with the packages', and no build inside a spec's timeout.
+ * The script calls `scripts/redis.ts` twice on purpose: the first call
+ * builds, and stops the chain if the build fails; only the second runs
+ * inside `$(...)`. On a cold cache redis-memory-server logs its download
+ * progress to a stdout that is not a TTY, which a single `$(...)` call would
+ * capture into `$REDIS_BIN`.
  */
 function redisBin(): string {
 	const bin = process.env.REDIS_BIN;
