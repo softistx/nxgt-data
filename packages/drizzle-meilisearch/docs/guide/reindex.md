@@ -106,6 +106,50 @@ await articleSearch.reindexAll({ pageSize: -1 });
 // number above 0, not -1
 ```
 
+## Progress
+
+`reindexAll` gives its counts once, at the end — on a large table, a long
+silence. `onPage` is called after each page, once its documents are applied,
+with the running counts:
+
+```ts
+await articleSearch.reindexAll({
+	pageSize: 500,
+	onPage: ({ pages, indexed, skipped }) => {
+		console.log(`page ${pages}: ${indexed} indexed, ${skipped} skipped`);
+	},
+});
+```
+
+| Field | |
+| --- | --- |
+| `pages` | pages read, sent and applied so far |
+| `indexed` | rows sent to the index so far |
+| `skipped` | rows the transform kept out so far |
+
+It covers the sending half of the call: the removal of what the table no
+longer gives comes after the last page, and is in the final report's
+`removed`. The counts are the same numbers the report ends with, so the last
+`onPage` and the report agree on `indexed` and `skipped`.
+
+`onPage` may be `async`, and is awaited before the next page is read — so a
+slow callback slows the reindex, and a callback that writes somewhere can
+rely on the page being in the index already.
+
+**One that throws stops the reindex.** The call rejects with a
+`SearchSyncError`, code `FAILED`, whose `cause` is what the callback threw.
+That is also how to stop a reindex on purpose — the documents already sent
+stay, and the removal never ran, as with any reindex that fails half-way:
+
+```ts
+const deadline = Date.now() + 10 * 60_000;
+await articleSearch.reindexAll({
+	onPage: () => {
+		if (Date.now() > deadline) throw new Error('out of time');
+	},
+});
+```
+
 ## When to run it
 
 - **The first time**, to fill an index from a table that already has rows.
@@ -133,7 +177,9 @@ import { articleSearch, index } from './search/articles';
 await index.sync(); // settings first: reindexing into a stale index is wasted work
 
 try {
-	const report = await articleSearch.reindexAll();
+	const report = await articleSearch.reindexAll({
+		onPage: ({ pages, indexed }) => console.log(`… page ${pages}, ${indexed} indexed`),
+	});
 	console.log(
 		`${articleSearch.name}: indexed ${report.indexed}, skipped ${report.skipped}, removed ${report.removed}`,
 	);
@@ -165,7 +211,18 @@ anywhere, so running it again starts over.
 
 ```ts
 interface SearchSync<TTable extends PgTable, I extends AnyIndexDefinition> {
-	reindexAll(options?: { pageSize?: number }): Promise<ReindexReport>;
+	reindexAll(options?: ReindexOptions): Promise<ReindexReport>;
+}
+
+interface ReindexOptions {
+	pageSize?: number;
+	onPage?: (progress: ReindexProgress) => void | Promise<void>;
+}
+
+interface ReindexProgress {
+	readonly pages: number;
+	readonly indexed: number;
+	readonly skipped: number;
 }
 
 interface ReindexReport {

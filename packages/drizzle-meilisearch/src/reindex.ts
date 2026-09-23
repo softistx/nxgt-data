@@ -3,14 +3,16 @@ import { deleteIds, sendDocuments } from './batch';
 import { type Doc, positive, type SyncContext } from './context';
 import { entryOf, keyOf } from './documents';
 import { failed } from './errors';
-import type { ReindexReport } from './types';
+import type { ReindexOptions, ReindexReport } from './types';
 
 /** Every row the repository pages through, transformed and sent. */
 async function sendAll(
 	ctx: SyncContext,
 	pageSize: number,
 	wanted: Set<string>,
+	onPage: ReindexOptions['onPage'],
 ) {
+	let pages = 0;
 	let indexed = 0;
 	let skipped = 0;
 	let after: string | null | undefined;
@@ -31,6 +33,8 @@ async function sendAll(
 		}
 		await sendDocuments(ctx, documents, true);
 		indexed += documents.length;
+		pages += 1;
+		await onPage?.({ pages, indexed, skipped });
 		after = page.nextCursor;
 	} while (after);
 	return { indexed, skipped };
@@ -81,7 +85,7 @@ async function removeUnwanted(
  */
 export async function reindex(
 	ctx: SyncContext,
-	options: { pageSize?: number } = {},
+	options: ReindexOptions = {},
 ): Promise<ReindexReport> {
 	const pageSize = positive(
 		`reindexAll on "${ctx.name}"`,
@@ -91,7 +95,12 @@ export async function reindex(
 	);
 	try {
 		const wanted = new Set<string>();
-		const { indexed, skipped } = await sendAll(ctx, pageSize, wanted);
+		const { indexed, skipped } = await sendAll(
+			ctx,
+			pageSize,
+			wanted,
+			options.onPage,
+		);
 		const removed = await removeUnwanted(ctx, wanted);
 		return { indexed, skipped, removed };
 	} catch (error) {

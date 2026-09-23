@@ -80,6 +80,29 @@ export interface SearchSyncOptions<
 	pageSize?: number;
 }
 
+/** Where a `reindexAll` is, after a page: the running counts, so far. */
+export interface ReindexProgress {
+	/** Pages read, sent and applied. */
+	readonly pages: number;
+	/** Rows sent to the index so far. */
+	readonly indexed: number;
+	/** Rows the transform kept out so far. */
+	readonly skipped: number;
+}
+
+export interface ReindexOptions {
+	/** How many rows to read per page; wins over the sync's own `pageSize`. */
+	pageSize?: number;
+	/**
+	 * Called after each page, once its documents are applied, with the
+	 * running counts — for a deployment step or a script that reports where
+	 * it is. Awaited when it returns a promise. One that throws stops the
+	 * reindex, which rejects with it as the `cause` of a `FAILED`; the
+	 * documents already sent stay, and removing the leftovers never ran.
+	 */
+	onPage?: (progress: ReindexProgress) => void | Promise<void>;
+}
+
 export interface ReindexReport {
 	/** Rows sent to the index. */
 	indexed: number;
@@ -111,7 +134,7 @@ export interface SearchSync<
 	 * It waits for each batch to be applied, because what it removes is
 	 * decided by reading the index back.
 	 */
-	reindexAll(options?: { pageSize?: number }): Promise<ReindexReport>;
+	reindexAll(options?: ReindexOptions): Promise<ReindexReport>;
 	/** One row, after a write. A transform that gives `null` takes it out. */
 	indexRow(row: Row<TTable>, options?: IndexWriteOptions): Promise<void>;
 	/** The same, for rows a `createMany` or a `findMany` gave back. */

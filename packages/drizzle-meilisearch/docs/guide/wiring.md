@@ -279,7 +279,7 @@ type ToIndexId<TTable, I> = (row: Row<TTable>) => IdOf<I>;
 
 interface SearchSync<TTable extends PgTable, I extends AnyIndexDefinition> {
 	readonly name: string;
-	reindexAll(options?: { pageSize?: number }): Promise<ReindexReport>;
+	reindexAll(options?: ReindexOptions): Promise<ReindexReport>;
 	indexRow(row: Row<TTable>, options?: IndexWriteOptions): Promise<void>;
 	indexRows(rows: readonly Row<TTable>[], options?: IndexWriteOptions): Promise<void>;
 	removeRow(row: Row<TTable>, options?: IndexWriteOptions): Promise<void>;

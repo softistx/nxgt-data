@@ -6,6 +6,8 @@ export {
 } from './errors';
 export type {
 	IndexWriteOptions,
+	ReindexOptions,
+	ReindexProgress,
 	ReindexReport,
 	SearchSync,
 	SearchSyncOptions,
