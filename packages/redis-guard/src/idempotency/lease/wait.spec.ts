@@ -82,22 +82,31 @@ describe('wait', () => {
 		const work = counted('o2');
 		const started = performance.now();
 		// Bounded here rather than by the test's timeout, so a wait that never
-		// ends fails this test alone: the first run is let go either way.
-		const error = await Promise.race([
-			rejection(waiter().run(who, work, { wait: 200 })),
-			Bun.sleep(1_500).then(() => 'still waiting'),
+		// ends fails this test alone: the first run is let go either way, and
+		// both runs settle before any assertion — a waiter still polling when
+		// the next test empties Redis would take that test's key.
+		const waiting = settled(waiter().run(who, work, { wait: 400 }));
+		const outcome = await Promise.race([
+			waiting,
+			Bun.sleep(1_500).then(() => ({ error: 'still waiting' })),
 		]);
 		const elapsed = performance.now() - started;
 		held.open();
+		const first = await held.first;
+		await waiting;
+		const error = 'error' in outcome ? outcome.error : outcome.value;
 		expect(error).toMatchObject({
 			code: 'IN_PROGRESS',
 			definition: 'orders.create',
 		});
 		expect((error as { retryAfter?: number }).retryAfter).toBeGreaterThan(0);
-		expect(elapsed).toBeGreaterThanOrEqual(195);
-		expect(elapsed).toBeLessThan(1_000);
+		// The pauses are 25, 50, 100 and 200 ms: 375 ms in, 25 are left and the
+		// next pause would be 250. Capped at what is left, the wait ends near
+		// 400 ms; uncapped, near 625. 550 leaves 150 ms for a loaded runner.
+		expect(elapsed).toBeGreaterThanOrEqual(395);
+		expect(elapsed).toBeLessThan(550);
 		expect(work.calls).toBe(0);
-		expect(await held.first).toMatchObject({ value: { replayed: false } });
+		expect(first).toMatchObject({ value: { replayed: false } });
 	});
 
 	test('a different fingerprint is MISMATCH at once, not after the wait', async () => {

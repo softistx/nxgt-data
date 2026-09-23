@@ -123,7 +123,7 @@ describe('the heartbeat', () => {
 		// A process of its own: three runs, settling each way, then the client
 		// closed. An interval nobody cleared would keep it from exiting.
 		const script = join(import.meta.dir, '../../../test/exit.ts');
-		const child = Bun.spawn(['bun', script, servers.redis.uri], {
+		const child = Bun.spawn([process.execPath, script, servers.redis.uri], {
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
@@ -135,6 +135,36 @@ describe('the heartbeat', () => {
 		expect(exited).toBe(0);
 		expect(await new Response(child.stdout).text()).toBe('settled\n');
 	}, 10_000);
+
+	test('a renewal cut off from Redis is tried again at the next beat, and the run stores', async () => {
+		// 1.5 s, renewed every 500 ms. The second client pauses writes before
+		// the first beat, so A's renewal — a script, which may write — is held
+		// on the server; killing A's connection then fails it with "Connection
+		// closed" (measured 5/5 on bun 1.4.2, Redis 7.4.1). Bun reconnects in
+		// about 50 ms, and the beat at 1 s must renew, or the key lapses at
+		// 1.5 s, before the work ends at 1.7 s.
+		const [a, b] = clients();
+		const steady = defineIdempotency({
+			...createOrder,
+			name: 'steady',
+			lease: 1_500,
+		});
+		const id = await a.send('CLIENT', ['ID']);
+		const result = await bindIdempotency(a, steady).run(who, async () => {
+			await b.send('CLIENT', ['PAUSE', '700', 'WRITE']);
+			await Bun.sleep(600);
+			await b.send('CLIENT', ['KILL', 'ID', String(id)]);
+			await Bun.sleep(1_100);
+			return { orderId: 'o1', total: 1 };
+		});
+		expect(result).toEqual({
+			value: { orderId: 'o1', total: 1, status: 'placed' },
+			replayed: false,
+		});
+		expect(await servers.redis.client.hget('steady:u1/k1', 'state')).toBe(
+			'done',
+		);
+	});
 
 	test('work that blocks the event loop for longer than the lease loses it, as nothing could renew it', async () => {
 		const short = defineIdempotency({

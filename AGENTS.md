@@ -286,31 +286,53 @@ matching key in `exports`.
   three times its lease runs once, a repeat meanwhile `IN_PROGRESS` then
   the replay; the renewals stop after a success, a throw and `LEASE_LOST`,
   read from `INFO commandstats` staying still over six beats, with the done
-  `TTL` or the key gone; a **process of its own**, `test/exit.ts`, that must
-  exit by itself after all three; and synchronous work blocking the event
-  loop past a 30 ms lease losing it — the one real lapse left), `lost` —
+  `TTL` or the key gone; a **process of its own**, `test/exit.ts`, spawned
+  with `process.execPath`, that must exit by itself after all three — with
+  a 3 s lease, so no beat fires during a 100 ms run and a timer left behind
+  first fires after `client.close()`, fails, and is retried for ever; a
+  renewal **cut off from Redis** and retried — the second client pauses
+  writes (`CLIENT PAUSE 700 WRITE`) so the first beat's `RENEW` is held on
+  the server, then `CLIENT KILL`s the run's connection, which fails that
+  renewal with `Connection closed` (5/5 measured on bun 1.4.2, Redis
+  7.4.1; Bun reconnects in about 50 ms and queues, so a renewal sent after
+  the kill never fails), and the next beat must renew before the 1.5 s
+  lease lapses; and synchronous work blocking the event loop past a 30 ms
+  lease losing it — the one real lapse left), `lost` —
   the key taken mid-run by `forget`, by a foreign token a second client
   writes, or by a second client's `DEL` and run: `LEASE_LOST`, and the other
   holder's record and `PTTL` untouched, its result the one that replays, and
   a late failure unable to release it — and `wait` (a replay, a release
   followed by running `work`, a deadline spent, `MISMATCH` at once, and
-  `MISMATCH`/`INVALID` found mid-wait; its refusals). A lease that renews
+  `MISMATCH`/`INVALID` found mid-wait; its refusals). Its deadline spec
+  waits 400 ms: after pauses of 25, 50, 100 and 200 ms, 25 are left and the
+  next pause would be 250, so a last sleep not capped at what is left ends
+  near 625 ms where the capped one ends near 400; it bounds the wait below
+  550 ms, and lets both runs settle before asserting, so a waiter still
+  polling cannot take the next test's key. A lease that renews
   cannot be lost by waiting, so the lost-lease specs **take** the key
   rather than wait for a lapse. Three mutations were measured, each failing
   exactly one test: `COMPLETE` without its token check (the take-over spec),
   `BEGIN` comparing the fingerprint only once done (`MISMATCH` while
   running), and `RELEASE` without its token check (the late-failure spec).
-  Four more with the heartbeat: `RENEW` without its token check fails two
-  of `lost`'s (the foreign token's `PTTL`, and the take-over's); `stop()`
-  without its `clearInterval` fails four of `heartbeat`'s — the three
-  commandstats specs and the process that no longer exits; never calling
-  `stop()` fails two (the success and the throw — a lost lease clears its
-  own timer); and `wait` ignoring its deadline once it is above 0 fails
-  exactly `wait`'s deadline spec, which races the waiter against 1.5 s so
-  a wait that never ends fails that test alone. The three `lease/` files
-  took the package's suite from **2.2 s to 5.5-5.7 s** over three runs,
-  nearly all of it their own waits — the work three leases long alone is
-  0.9 s — not the three extra servers.
+  Six more with the heartbeat and `wait`, each measured over at least two
+  full runs: `RENEW` without its token check fails two of `lost`'s (the
+  foreign token's `PTTL`, and the take-over's), 2/2; `stop()` without its
+  `clearInterval` fails four of `heartbeat`'s — the three commandstats
+  specs and the process that no longer exits — 2/2; **never calling
+  `stop()`** fails the exit spec 5/5, and one or two of the commandstats
+  specs only sometimes (1, 1, 0, 2, 0 of them over five runs): a stray
+  beat that finds the key done or gone clears its own timer, and may do it
+  before the baseline is read — the exit spec is the one that pins it, and
+  only since its lease became 3 s (with 30 ms it never failed, and the
+  suite failed 2, 0, 2, 0 in review); a renewal that fails to reach Redis
+  counted as lost fails exactly the cut-off spec, 5/5; `wait` ignoring its
+  deadline once it is above 0 fails exactly the deadline spec, which races
+  the waiter against 1.5 s so a wait that never ends fails that test alone,
+  5/5; and the last sleep not capped at what is left of `wait` fails
+  exactly the deadline spec (about 635 ms against 550), 5/5. The three
+  `lease/` files took the package's suite from **2.2 s to 7.35-7.45 s**
+  over three runs, nearly all of it their own waits — the cut-off spec
+  1.7 s, the work three leases long 0.9 s — not the three extra servers.
   A fourth, found in review: returning the first parse rather than the
   parse-back from JSON passed all 47 tests then; the spec with
   `z.number().transform((n) => n + 1)`, not a fixed point, now fails on it
@@ -661,10 +683,10 @@ the file.
 
 ## Known state
 
-`bun run test` is **1408 pass, 0 fail**: drizzle 152, meilisearch 117,
+`bun run test` is **1409 pass, 0 fail**: drizzle 152, meilisearch 117,
 mongo 541, drizzle-meilisearch 42, mongo-meilisearch 58, mongo-kit 101,
-mongo-search-kit 17, redis 46, redis-guard 123, redis-kit 55, s3 104,
-hono-api-example 31, scripts 21. redis-guard's 123 was measured on its own;
+mongo-search-kit 17, redis 46, redis-guard 124, redis-kit 55, s3 104,
+hono-api-example 31, scripts 21. redis-guard's 124 was measured on its own;
 the total is computed from develop's 1387 with redis-guard's 102 replaced,
 not measured by a full run. It runs one process
 per package, then the scripts' specs. Treat any failure as yours.
