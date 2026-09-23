@@ -60,9 +60,10 @@ deletion fails `index_not_found`, which counts as gone, and the message says
 `was deleted`.
 
 Not everything is wrapped. Before the next index is created, the `nextUid`
-refusals are bare `TypeError`s — the uid itself, and a next uid Meilisearch
-would refuse, such as the default `<uid>_next` of a uid over 395
-characters — and a failure to look up a leftover `_next`
+refusals are bare `TypeError`s — the uid itself, the default `<uid>_next` of
+a uid over 395 characters
+([entry](../troubleshooting.md#rebuild-on-movies-the-next-indexs-uid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_-a-uid-over-395-characters-needs-a-shorter-nextuid)), and a `nextUid` given that
+Meilisearch would refuse ([entry](../troubleshooting.md#rebuild-on-movies-nextuid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_)) — and a failure to look up a leftover `_next`
 or to delete it arrives as it comes; after the swap, so does a failure to
 delete the previous index:
 

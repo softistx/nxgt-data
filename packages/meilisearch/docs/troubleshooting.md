@@ -14,6 +14,7 @@ v1.53.2 with meilisearch-js 0.62.0.
 
 - **Install and types**
   - [`Cannot find module 'meilisearch' or its corresponding type declarations.`](#cannot-find-module-meilisearch-or-its-corresponding-type-declarations)
+  - [`Type 'string' is not assignable to type 'never'.`](#type-string-is-not-assignable-to-type-never), on a literal `uid`
   - [`Argument of type '{ sort: string[]; }' is not assignable to parameter of type 'SearchOptions<…>'`](#argument-of-type--sort-string--is-not-assignable-to-parameter-of-type-searchoptions)
   - [`Argument of type '{ readonly sortableAttributes: readonly ["year"]; … }' is not assignable to parameter of type 'Settings'.`](#argument-of-type--readonly-sortableattributes-readonly-year---is-not-assignable-to-parameter-of-type-settings)
 - **Configuration and sync**
@@ -28,6 +29,7 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`Rebuild of index "movies" sent the swap with "movies_next" and could not wait for it:`](#rebuild-of-index-movies-sent-the-swap-with-movies_next-and-could-not-wait-for-it)
   - [`rebuild on "movies": nextUid must differ from the index's own uid`](#rebuild-on-movies-nextuid-must-differ-from-the-indexs-own-uid)
   - [`rebuild on "movies": the next index's uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _; a uid over 395 characters needs a shorter nextUid`](#rebuild-on-movies-the-next-indexs-uid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_-a-uid-over-395-characters-needs-a-shorter-nextuid)
+  - [`rebuild on "movies": nextUid must be 1 to 400 characters, each an ASCII letter, a digit, - or _`](#rebuild-on-movies-nextuid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_)
   - [`The Authorization header is missing. It must use the bearer authorization method.`](#the-authorization-header-is-missing-it-must-use-the-bearer-authorization-method)
 - **Runtime**
   - [`timeout of 5000ms has exceeded on task 12 when waiting for it to be resolved.`](#timeout-of-5000ms-has-exceeded-on-task-12-when-waiting-for-it-to-be-resolved)
@@ -62,6 +64,30 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [``The API key used to generate this tenant token cannot acces the index `people`.``](#the-api-key-used-to-generate-this-tenant-token-cannot-acces-the-index-people)
 
 ## Install and types
+
+### `Type 'string' is not assignable to type 'never'.`
+
+**When:** typechecking a `defineIndex` call whose `uid` is a literal that is
+empty or holds a space, a `*`, a dot or a slash. Captured with tsc on
+`{ uid: '*' }` and `{ uid: 'movies.v2' }`; the error points at `uid`, and
+its detail says where `never` came from:
+
+```text
+error TS2322: Type 'string' is not assignable to type 'never'.
+  The expected type comes from property 'uid' which is declared here on type
+  '{ readonly uid: "*"; readonly primaryKey: "id"; } & NoExtraKeys<…> & { uid: never; } & { ...; }'
+```
+
+**Why:** Meilisearch refuses such a uid (`invalid_index_uid`), and a `*` in
+one would widen a tenant token to other indexes, so the types turn `uid`
+into `never` for the common mistakes. Only those: a unicode lookalike, 401
+characters, or a uid typed `string` compiles, and
+[`defineIndex` throws](#defineindex-the-uid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_) at run time.
+**Fix:** a uid of ASCII letters, digits, `-` and `_`:
+
+```ts
+defineIndex<Movie>()({ uid: 'movies_v2', primaryKey: 'id' });
+```
 
 ### `Cannot find module 'meilisearch' or its corresponding type declarations.`
 
@@ -348,11 +374,10 @@ await movieIndex.rebuild(fill, { nextUid: 'movies_building' });
 
 ### `rebuild on "movies": the next index's uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _; a uid over 395 characters needs a shorter nextUid`
 
-**When:** `rebuild(fill, options)` whose next uid Meilisearch would refuse:
-the default `<uid>_next` of a uid over 395 characters, which is past the
-server's 400, or a `nextUid` given with a `*`, a dot or anything else a uid
-may not hold. A bare `TypeError`, thrown before anything is sent: no index is
-created or deleted. It names the live uid, never the `nextUid`.
+**When:** `rebuild(fill)` with no `nextUid`, on an index whose uid is 396 to
+400 characters: valid, but its default `<uid>_next` is 401 to 405, past the
+server's 400. A bare `TypeError`, thrown before anything is sent: no index
+is created or deleted.
 **Why:** measured on v1.53.2, a 400-character uid is created and a
 401-character one is refused with `invalid_index_uid`; without this check the
 rebuild failed on its first request with the SDK's error.
@@ -360,6 +385,23 @@ rebuild failed on its first request with the SDK's error.
 
 ```ts
 await longIndex.rebuild(fill, { nextUid: 'reports_next' });
+```
+
+### `rebuild on "movies": nextUid must be 1 to 400 characters, each an ASCII letter, a digit, - or _`
+
+**When:** `rebuild(fill, { nextUid })` with a `nextUid` Meilisearch would
+refuse: empty, over 400 characters, or holding a `*`, a dot, a space, a
+slash, a unicode lookalike — anything but ASCII letters, digits, `-` and
+`_`. A bare `TypeError`, thrown before anything is sent: no index is created
+or deleted. It names the live uid, never the `nextUid`, which may have been
+built from something a log should not hold.
+**Why:** the server refuses such a uid with `invalid_index_uid`, and a `*`
+in a uid is a pattern to a tenant token. The rule is `defineIndex`'s.
+**Fix:** give a `nextUid` of letters, digits, `-` and `_`, or leave it out
+for `<uid>_next`:
+
+```ts
+await movieIndex.rebuild(fill, { nextUid: 'movies_building' });
 ```
 
 ### `The Authorization header is missing. It must use the bearer authorization method.`

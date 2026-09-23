@@ -211,10 +211,11 @@ deleted; the next rebuild deletes the leftover. Options: `nextUid`, and
 `wait` for each task.
 
 A next uid Meilisearch would refuse throws a `TypeError` before anything is
-sent — a `nextUid` holding a `*`, or the default `<uid>_next` of a uid over
-395 characters, which is past the server's 400; pass a shorter `nextUid`
-then:
-`rebuild on "movies": the next index's uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _; a uid over 395 characters needs a shorter nextUid`.
+sent, naming the live uid and never the `nextUid`. The default `<uid>_next`
+of a uid over 395 characters is past the server's 400 — pass a shorter
+`nextUid` then:
+`rebuild on "movies": the next index's uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _; a uid over 395 characters needs a shorter nextUid`. A `nextUid` you gave that is not a uid — a `*`, a dot, 401
+characters — gets the plain shape: `rebuild on "movies": nextUid must be 1 to 400 characters, each an ASCII letter, a digit, - or _`.
 
 `fill` is handed an index whose definition's `uid` is `movies_next`, typed
 `string` rather than `'movies'`.

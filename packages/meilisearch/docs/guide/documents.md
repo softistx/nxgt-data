@@ -18,7 +18,10 @@ const alienAgain = await movieIndex.get(1); // Movie | undefined
 ```
 
 `bindIndex` sends nothing by itself. `movieIndex.raw` is the SDK's own
-`Index`, for anything this one does not wrap.
+`Index`, for anything this one does not wrap. It checks the uid again: a
+definition written by hand, not by `defineIndex`, whose uid Meilisearch would
+refuse throws a bare `TypeError` —
+[`bindIndex: the definition's uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _`](../troubleshooting.md#bindindex-the-definitions-uid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_).
 
 ## Writing
 

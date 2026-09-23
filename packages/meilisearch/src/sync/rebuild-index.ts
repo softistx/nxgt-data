@@ -184,11 +184,15 @@ export async function rebuildIndex<Def extends AnyIndexDefinition>(
 		);
 	}
 	// Before any request: the server would refuse it on the first one, with
-	// nothing to say which uid. `<uid>_next` is too long past 395 characters.
+	// nothing to say which uid. The live uid is valid (`bindIndex` checked
+	// it), so the default `<uid>_next` fails only past 395 characters; a
+	// `nextUid` given is the caller's, and never quoted.
 	if (!isIndexUid(nextUid)) {
 		throw new TypeError(
-			`rebuild on "${uid}": the next index's uid must be ${INDEX_UID_SHAPE}; ` +
-				'a uid over 395 characters needs a shorter nextUid',
+			options.nextUid === undefined
+				? `rebuild on "${uid}": the next index's uid must be ${INDEX_UID_SHAPE}; ` +
+						'a uid over 395 characters needs a shorter nextUid'
+				: `rebuild on "${uid}": nextUid must be ${INDEX_UID_SHAPE}`,
 		);
 	}
 

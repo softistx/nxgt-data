@@ -420,14 +420,30 @@ describe('rebuild', () => {
 			expect(await uids()).toEqual([uid]);
 		});
 
-		test('a nextUid given with a * is refused, and not quoted', async () => {
+		const badNextUid =
+			'rebuild on "%s": nextUid must be 1 to 400 characters, ' +
+			'each an ASCII letter, a digit, - or _';
+
+		test('a nextUid given with a * is refused, and not quoted, with no word on 395', async () => {
 			const index = bindIndex(t.client, movies);
 			const error = await index
 				.rebuild(async () => {}, { nextUid: 'movies_*' })
 				.catch((e) => e);
 			expect(error).toBeInstanceOf(TypeError);
-			expect(error.message).toBe(tooLong.replace('%s', 'movies'));
+			expect(error.message).toBe(badNextUid.replace('%s', 'movies'));
 			expect(error.message.includes('movies_*')).toBe(false);
+			expect(await uids()).toEqual([]);
+		});
+
+		test('a nextUid given too long, beside a long uid, is the caller’s: no word on 395 either', async () => {
+			const uid = 'm'.repeat(396);
+			const index = bindIndex(t.client, moviesAs(uid));
+			const error = await index
+				.rebuild(async () => {}, { nextUid: 'n'.repeat(401) })
+				.catch((e) => e);
+			expect(error).toBeInstanceOf(TypeError);
+			expect(error.message).toBe(badNextUid.replace('%s', uid));
+			expect(error.message.includes('n'.repeat(401))).toBe(false);
 			expect(await uids()).toEqual([]);
 		});
 	});
