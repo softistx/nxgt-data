@@ -1,4 +1,4 @@
-import { and, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { whereToSql } from '../conditions';
 import {
 	type AnyRow,
@@ -8,9 +8,9 @@ import {
 	run,
 } from '../context';
 import { byId, live, requireWhere, scoped } from '../filters';
-import { touched } from '../stamp-writes';
+import { created, expecting, lockError, touched } from '../stamp-writes';
 import type { FindManyOptions } from '../types';
-import { findMany, getById } from './reads';
+import { findById, findMany, getById } from './reads';
 
 export async function create(
 	ctx: RepositoryContext,
@@ -18,7 +18,7 @@ export async function create(
 ): Promise<AnyRow> {
 	return run(ctx, async () => {
 		const { d, t } = builders(ctx);
-		const rows = await d.insert(t).values(values).returning();
+		const rows = await d.insert(t).values(created(ctx, values)).returning();
 		return rows[0] as AnyRow;
 	});
 }
@@ -32,7 +32,7 @@ export async function createMany(
 		const { d, t } = builders(ctx);
 		return d
 			.insert(t)
-			.values([...values])
+			.values(values.map((row) => created(ctx, row)))
 			.returning();
 	});
 }
@@ -40,22 +40,53 @@ export async function createMany(
 export async function update(
 	ctx: RepositoryContext,
 	id: unknown,
-	patch: AnyRow,
+	given: AnyRow,
 ): Promise<AnyRow> {
+	const { patch, expected } = expecting(ctx, 'update', given);
 	const set = touched(ctx, patch);
 	// Nothing to write, so nothing is written — and the row comes back as it
-	// stands, rather than an `UPDATE` that only raises `updatedAt`.
-	if (Object.keys(set).length === 0) return getById(ctx, id);
-	return run(ctx, async () => {
+	// stands, rather than an `UPDATE` that only raises the stamps. An expected
+	// version is still checked: the caller asked whether the row moved.
+	if (Object.keys(set).length === 0) {
+		const row = await getById(ctx, id);
+		if (expected !== undefined && ctx.info.version) {
+			if (row[ctx.info.version.key] !== expected) {
+				throw lockError(ctx, id, expected, row);
+			}
+		}
+		return row;
+	}
+	const version = ctx.info.version;
+	const rows = await run(ctx, async () => {
 		const { d, t } = builders(ctx);
-		const rows = await d
+		return d
 			.update(t)
 			.set(set)
-			.where(and(byId(ctx, id), live(ctx)))
+			.where(
+				and(
+					byId(ctx, id),
+					live(ctx),
+					expected !== undefined && version
+						? eq(version.column, expected)
+						: undefined,
+				),
+			)
 			.returning();
-		if (!rows[0]) throw notFound(ctx, id);
-		return rows[0] as AnyRow;
 	});
+	if (rows[0]) return rows[0] as AnyRow;
+	// No row matched: missing, soft-deleted, or at another version. Only a
+	// second read tells the last one apart, and only it is a lock failure.
+	// A row found at the expected version did not move: it was missing, or
+	// soft-deleted, when the update ran, and has come back since.
+	const current = expected === undefined ? undefined : await findById(ctx, id);
+	const moved =
+		current !== undefined &&
+		ctx.info.version !== undefined &&
+		current[ctx.info.version.key] !== expected;
+	if (current && expected !== undefined && moved) {
+		throw lockError(ctx, id, expected, current);
+	}
+	throw notFound(ctx, id);
 }
 
 export async function updateMany(
@@ -64,7 +95,7 @@ export async function updateMany(
 	patch: AnyRow,
 ): Promise<AnyRow[]> {
 	requireWhere(ctx, 'updateMany', where);
-	const set = touched(ctx, patch);
+	const set = touched(ctx, expecting(ctx, 'updateMany', patch).patch);
 	if (Object.keys(set).length === 0) {
 		return findMany(ctx, { where: where as FindManyOptions<any>['where'] });
 	}
@@ -97,6 +128,21 @@ export async function hardDeleteMany(
 	});
 }
 
+/** What a soft delete writes: the time, and who, when someone is acting. */
+function deletion(ctx: RepositoryContext, deletedAt: string): AnyRow {
+	const set: AnyRow = { [deletedAt]: sql`now()` };
+	const deletedBy = ctx.info.deletedBy;
+	if (deletedBy && ctx.actor !== undefined) set[deletedBy.key] = ctx.actor;
+	return set;
+}
+
+/** What a restore writes: no time, and nobody, of deletion. */
+function restoration(ctx: RepositoryContext, deletedAt: string): AnyRow {
+	const set: AnyRow = { [deletedAt]: null };
+	if (ctx.info.deletedBy) set[ctx.info.deletedBy.key] = null;
+	return set;
+}
+
 /** Soft delete when the table has the field for it, a real delete otherwise. */
 export async function deleteOne(
 	ctx: RepositoryContext,
@@ -108,7 +154,7 @@ export async function deleteOne(
 		const { d, t } = builders(ctx);
 		const rows = await d
 			.update(t)
-			.set(touched(ctx, { [deletedAt.key]: sql`now()` }))
+			.set(touched(ctx, deletion(ctx, deletedAt.key)))
 			.where(and(byId(ctx, id), live(ctx)))
 			.returning();
 		if (!rows[0]) throw notFound(ctx, id);
@@ -127,7 +173,7 @@ export async function deleteMany(
 		const { d, t } = builders(ctx);
 		return d
 			.update(t)
-			.set(touched(ctx, { [deletedAt.key]: sql`now()` }))
+			.set(touched(ctx, deletion(ctx, deletedAt.key)))
 			.where(scoped(ctx, where))
 			.returning();
 	});
@@ -145,7 +191,7 @@ export async function restore(
 		const { d, t } = builders(ctx);
 		const rows = await d
 			.update(t)
-			.set(touched(ctx, { [deletedAt.key]: null }))
+			.set(touched(ctx, restoration(ctx, deletedAt.key)))
 			.where(byId(ctx, id))
 			.returning();
 		if (!rows[0]) throw notFound(ctx, id);

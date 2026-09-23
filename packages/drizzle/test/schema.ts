@@ -6,7 +6,7 @@ import {
 	timestamp,
 	uuid,
 } from 'drizzle-orm/pg-core';
-import { id, softDelete, timestamps } from '../src/pg';
+import { actors, id, softDelete, timestamps, version } from '../src/pg';
 
 export const teams = pgTable('teams', {
 	id: id('identity'),
@@ -45,6 +45,20 @@ export const logs = pgTable('logs', {
 	message: text('message').notNull(),
 });
 
+/**
+ * Every stamp at once: a lock, the actors, soft delete, and an `updatedAt`
+ * with `$onUpdate`. `slug` is what an upsert conflicts on.
+ */
+export const tickets = pgTable('tickets', {
+	id: id(),
+	slug: text('slug').notNull().unique('tickets_slug_unique'),
+	title: text('title').notNull(),
+	...timestamps(),
+	...softDelete(),
+	...version(),
+	...actors(),
+});
+
 /** The DDL for the tables above, with named constraints the specs assert on. */
 export const DDL = `
 create table teams (
@@ -76,5 +90,17 @@ create table memberships (
 );
 create table logs (
 	message text not null
+);
+create table tickets (
+	id uuid primary key default gen_random_uuid(),
+	slug text not null constraint tickets_slug_unique unique,
+	title text not null,
+	created_at timestamptz(3) not null default now(),
+	updated_at timestamptz(3) not null default now(),
+	deleted_at timestamptz(3),
+	version integer not null default 0,
+	created_by uuid,
+	updated_by uuid,
+	deleted_by uuid
 );
 `;

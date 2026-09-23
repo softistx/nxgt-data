@@ -1,6 +1,7 @@
 import type { PgTable } from 'drizzle-orm/pg-core';
 import {
 	type AnyRow,
+	acting,
 	createContext,
 	type RepositoryContext,
 	rebound,
@@ -14,6 +15,7 @@ import {
 	findMany,
 	getById,
 } from './operations/reads';
+import { upsert } from './operations/upsert';
 import {
 	create,
 	createMany,
@@ -32,6 +34,7 @@ import type {
 	FindFirstOptions,
 	FindManyOptions,
 	HasColumn,
+	LockOf,
 	PaginateOptions,
 	PgDatabase,
 	PrimaryKeyOf,
@@ -54,20 +57,22 @@ export function createRepository<
 	TTable extends PgTable,
 	TKey extends ColumnKey<TTable> = PrimaryKeyOf<TTable>,
 	TSoft extends boolean = HasColumn<TTable, 'deletedAt'>,
+	TLock extends boolean = LockOf<TTable>,
 >(
 	db: PgDatabase,
 	table: TTable,
-	options: RepositoryOptions<TTable, TKey, TSoft> = {},
-): Repository<TTable, TKey, TSoft> {
+	options: RepositoryOptions<TTable, TKey, TSoft, TLock> = {},
+): Repository<TTable, TKey, TSoft, TLock> {
 	const info = tableInfo(table, options);
 	return build(
 		createContext(db, table, info, options),
-	) as unknown as Repository<TTable, TKey, TSoft>;
+	) as unknown as Repository<TTable, TKey, TSoft, TLock>;
 }
 
 /**
  * The methods, bound to a context. Each one lives in a subject file —
- * `operations/reads.ts`, `operations/writes.ts`, `operations/paginate.ts`;
+ * `operations/reads.ts`, `operations/writes.ts`, `operations/upsert.ts`,
+ * `operations/paginate.ts`;
  * this is only the surface they are reached by.
  */
 function build(ctx: RepositoryContext) {
@@ -75,6 +80,7 @@ function build(ctx: RepositoryContext) {
 		table: ctx.table,
 		db: ctx.db,
 		with: (other: PgDatabase) => build(rebound(ctx, other)),
+		as: (actor: unknown) => build(acting(ctx, actor)),
 
 		findById: (id: unknown, opts?: ReadOptions) => findById(ctx, id, opts),
 		getById: (id: unknown, opts?: ReadOptions) => getById(ctx, id, opts),
@@ -87,6 +93,7 @@ function build(ctx: RepositoryContext) {
 		update: (id: unknown, patch: AnyRow) => update(ctx, id, patch),
 		updateMany: (where: unknown, patch: AnyRow) =>
 			updateMany(ctx, where, patch),
+		upsert: (where: unknown, values: unknown) => upsert(ctx, where, values),
 
 		delete: (id: unknown) => deleteOne(ctx, id),
 		deleteMany: (where: unknown) => deleteMany(ctx, where),

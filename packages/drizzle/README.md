@@ -2,8 +2,8 @@
 
 The code you write around every table in a [Drizzle ORM](https://orm.drizzle.team)
 app, written once: a typed repository per table, offset and cursor pagination,
-transactions, database errors you can `instanceof`, and the columns every
-table has.
+transactions, upsert, optimistic locking, who-wrote-it stamps, database errors
+you can `instanceof`, and the columns every table has.
 
 ```ts
 const users = createRepository(db, usersTable);
@@ -67,6 +67,8 @@ export const userRepository = createRepository(db, users);
 | `primaryKey` | `'id'` | the key of the column `findById`, `update(id)` and `delete(id)` use. See [Primary keys](#primary-keys) |
 | `softDelete` | on when the table has a `deletedAt` column | `false` makes `delete` a real `DELETE`. See [Soft delete](#soft-delete) |
 | `touchUpdatedAt` | `true` | sets the `updatedAt` column to `now()` on update. See [updatedAt](#updatedat) |
+| `optimisticLock` | on when the table has an integer `NOT NULL` `version` | `false` makes `version` an ordinary column. See [Optimistic locking](#optimistic-locking) |
+| `actor` | nobody | who is writing, stamped into `createdBy`, `updatedBy`, `deletedBy`. See [Who is writing](#who-is-writing) |
 | `maxPageSize` | `100` | the largest `pageSize` or `limit` a page may ask for; a larger one is lowered to it |
 
 ## Subpaths
@@ -182,7 +184,8 @@ await users.count(undefined, { withDeleted: true });
 ### updatedAt
 
 On a table with an `updatedAt` column, `update`, `updateMany`, `delete`
-(soft) and `restore` set it to `now()`, unless the patch sets it. A column
+(soft), `restore` and the update half of `upsert` set it to `now()`, unless
+the patch sets it. A column
 declared with `$onUpdate`, as `timestamps()` declares it, is left to Drizzle.
 `touchUpdatedAt: false` turns it off.
 
@@ -197,6 +200,82 @@ await posts.update(post.id, { updatedAt: new Date(0) });  // kept: the patch win
 
 const untouched = createRepository(db, postsTable, { touchUpdatedAt: false });
 await untouched.update(post.id, { title: 'c' });          // updatedAt: still null
+```
+
+### Upsert
+
+`upsert(where, values)` inserts the row the `where` identifies, or updates the
+live one already there, in **one** statement:
+`INSERT … ON CONFLICT (<the where's columns>) DO UPDATE`.
+
+```ts
+const user = await users.upsert(
+	{ email: 'ada@example.com' }, // what identifies it: a unique constraint covers it
+	{ name: 'Ada' },              // what to write, either way
+);
+```
+
+- The `where` is **written** as well as matched, so it holds plain values —
+  no SQL, no `null` (which never conflicts) — and a unique constraint must
+  cover exactly its columns. Without one, PostgreSQL refuses the statement,
+  and the call says which columns it needed.
+- The insert half needs every required column, **even when the row is
+  there**: PostgreSQL checks the row it would insert before it looks for a
+  conflict. The types require them.
+- The update half does what `update` does — `updatedAt`, `updatedBy`, the
+  version — and never moves `createdAt`, `createdBy` or the primary key.
+- A row that is there but soft-deleted is not written over: `ConflictError`.
+  Restore it or hard-delete it first.
+- Empty `values` on a row that is there write nothing: no `updatedAt`, no
+  `updatedBy`, no version — as an empty `update`.
+
+### Optimistic locking
+
+A table with an integer `NOT NULL` `version` column — `version()` declares
+one — locks. Every update raises it by one, and the `version` given to
+`update` is not written: it is the version the row must still be at.
+
+```ts
+import { OptimisticLockError } from '@nxgt/drizzle';
+
+const ticket = await tickets.getById(id);
+try {
+	await tickets.update(id, { title: 'New title', version: ticket.version });
+} catch (error) {
+	if (error instanceof OptimisticLockError) {
+		return reply(409, 'Changed since you read it'); // error.actualVersion
+	}
+	throw error;
+}
+```
+
+`updateMany` and `upsert` take no version. `optimisticLock: false` makes
+`version` an ordinary column.
+
+### Who is writing
+
+A table with `createdBy`, `updatedBy` or `deletedBy` — `actors()` declares all
+three — stamps them from an actor. `as(actor)` gives back a repository that
+writes as that actor, and leaves the one you hold alone:
+
+```ts
+const acting = tickets.as(session.userId);
+await acting.create({ slug: 'a', title: 'A' }); // createdBy, updatedBy
+await acting.update(id, { title: 'B' });        // updatedBy
+await acting.delete(id);                        // deletedBy; restore clears it
+```
+
+`createRepository(db, table, { actor })` is the same thing up front. Nobody
+acting stamps nothing, and a stamp the values give is kept.
+
+`as(undefined)` and `as(null)` throw an `ArgumentError` — an actor that never
+arrived is a session nobody read. Check the session first, so a request
+without one is answered 401 rather than the 400 an `ArgumentError` maps to:
+
+```ts
+const userId = c.get('userId');
+if (!userId) return c.json({ error: 'Sign in' }, 401);
+await tickets.as(userId).update(id, patch);
 ```
 
 ### Running on a transaction
@@ -340,12 +419,15 @@ await withTransaction(db, fn, { isolationLevel: 'serializable' });
 
 ## Errors
 
-Every error this package throws is a `DataError`, with a `code`:
+What the **database** refused is a `DataError`, with a `code`; what the
+**call** got wrong is an `ArgumentError`, further down, and a wiring
+mistake is a bare `TypeError`:
 
 | Class | `code` | When |
 | --- | --- | --- |
 | `NotFoundError` | `NOT_FOUND` | `getById`, `update(id)`, `delete(id)`, `restore(id)`, `hardDelete(id)` found no row |
-| `ConflictError` | `CONFLICT` | a unique constraint refused the write: SQLSTATE `23505` |
+| `OptimisticLockError` | `OPTIMISTIC_LOCK` | `update` was given a `version` the row is no longer at |
+| `ConflictError` | `CONFLICT` | a unique constraint refused the write: SQLSTATE `23505`; or `upsert` met a soft-deleted row |
 | `ForeignKeyError` | `FOREIGN_KEY` | a foreign key refused it: `23503`, a missing parent or a row still referenced |
 | `CheckViolationError` | `CHECK_VIOLATION` | a `CHECK` refused it: `23514` |
 | `NotNullViolationError` | `NOT_NULL_VIOLATION` | a `NOT NULL` column got no value: `23502` |
@@ -428,9 +510,17 @@ always safe.
 ## Columns
 
 ```ts
-import { id, softDelete, timestamps } from '@nxgt/drizzle/pg';
+import { actors, id, softDelete, timestamps, version } from '@nxgt/drizzle/pg';
 
 pgTable('teams', { id: id('identity'), name: text('name').notNull() });
+pgTable('tickets', {
+	id: id(),
+	title: text('title').notNull(),
+	...timestamps(),
+	...softDelete(),
+	...version(),
+	...actors(), // uuid; actors('text') or actors('integer') for another id
+});
 ```
 
 | Helper | Gives |
@@ -439,6 +529,8 @@ pgTable('teams', { id: id('identity'), name: text('name').notNull() });
 | `id('identity')` | `id integer primary key generated by default as identity` |
 | `timestamps()` | `createdAt` and `updatedAt`, as `created_at` and `updated_at timestamptz(3) not null default now()`; `updatedAt` has `$onUpdate` |
 | `softDelete()` | `deletedAt`, as `deleted_at timestamptz(3)`, nullable |
+| `version()` | `version`, as `version integer not null default 0`: the optimistic lock |
+| `actors()` | `createdBy`, `updatedBy`, `deletedBy`, as `created_by`, `updated_by`, `deleted_by`, nullable `uuid`; `actors('text')` and `actors('integer')` for another id type |
 
 Each call returns new builders, as Drizzle needs: a builder cannot be shared
 between two tables. The timestamps are to the millisecond, as a JavaScript
@@ -453,8 +545,9 @@ between two tables. The timestamps are to the millisecond, as a JavaScript
 - `class ArgumentError extends TypeError`: `code: 'INVALID_ARGUMENT'`, `argument: string`, `key: string | undefined`. `new ArgumentError(argument, message, options?: { key?: string; cause?: unknown })`.
 - `class DataError extends Error`: `code: DataErrorCode`, `sqlState: string | undefined`, `table: string | undefined`, `constraint: string | undefined`, `columns: readonly string[]`, `detail: string | undefined`, `cause`. `new DataError(message, options?: DataErrorOptions & { code?: DataErrorCode })`.
 - `class NotFoundError extends DataError`: adds `id: unknown`. `new NotFoundError(message = 'Not found', options?)`.
+- `class OptimisticLockError extends DataError`: `code: 'OPTIMISTIC_LOCK'`, adds `id: unknown`, `expectedVersion: number | undefined`, `actualVersion: number | undefined`. `new OptimisticLockError(message = 'Version conflict', options?)`.
 - `class ConflictError`, `class ForeignKeyError`, `class CheckViolationError`, `class NotNullViolationError`, `class InvalidValueError`, `class InvalidCursorError`, all `extends DataError`, all `new X(message?, options?: DataErrorOptions)`.
-- `type DataErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'FOREIGN_KEY' | 'CHECK_VIOLATION' | 'NOT_NULL_VIOLATION' | 'INVALID_VALUE' | 'INVALID_CURSOR' | 'DATABASE'`.
+- `type DataErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'FOREIGN_KEY' | 'CHECK_VIOLATION' | 'NOT_NULL_VIOLATION' | 'OPTIMISTIC_LOCK' | 'INVALID_VALUE' | 'INVALID_CURSOR' | 'DATABASE'`.
 - `interface DataErrorOptions { cause?; sqlState?; table?; constraint?; columns?; detail? }`.
 - `toDataError(error: unknown): unknown`: the `DataError` for a database error, the error itself otherwise.
 
@@ -474,28 +567,35 @@ between two tables. The timestamps are to the millisecond, as a JavaScript
 #### `createRepository(db, table, options?)`
 
 ```ts
-function createRepository<TTable extends PgTable, TKey = 'id', TSoft = /* has deletedAt */>(
+function createRepository<
+	TTable extends PgTable,
+	TKey = 'id',
+	TSoft = /* has deletedAt */,
+	TLock = /* has an integer NOT NULL version */,
+>(
 	db: PgDatabase,
 	table: TTable,
-	options?: RepositoryOptions<TTable, TKey, TSoft>,
-): Repository<TTable, TKey, TSoft>;
+	options?: RepositoryOptions<TTable, TKey, TSoft, TLock>,
+): Repository<TTable, TKey, TSoft, TLock>;
 ```
 
-`Repository<TTable, TKey, TSoft>`, where `Row` is `TTable['$inferSelect']`
-and `Id` is `Row[TKey]`:
+`Repository<TTable, TKey, TSoft, TLock>`, where `Row` is
+`TTable['$inferSelect']` and `Id` is `Row[TKey]`:
 
 | Member | |
 | --- | --- |
 | `table`, `db` | what it was created with |
 | `with(db: PgDatabase)` | the same repository on another database or transaction |
+| `as(actor: ActorOf<TTable>)` | the same repository, stamping `createdBy`, `updatedBy`, `deletedBy`; uncallable without those columns |
 | `findById(id, options?: ReadOptions): Promise<Row \| undefined>` | |
 | `getById(id, options?: ReadOptions): Promise<Row>` | throws `NotFoundError` |
 | `findFirst(where?, options?: FindFirstOptions): Promise<Row \| undefined>` | `options.orderBy`, `options.withDeleted` |
 | `findMany(options?: FindManyOptions): Promise<Row[]>` | `where`, `orderBy`, `limit`, `offset`, `withDeleted` |
 | `create(values: Insert): Promise<Row>` | |
 | `createMany(values: readonly Insert[]): Promise<Row[]>` | |
-| `update(id, patch: Patch): Promise<Row>` | throws `NotFoundError` |
-| `updateMany(where, patch: Patch): Promise<Row[]>` | |
+| `update(id, patch: UpdatePatch): Promise<Row>` | throws `NotFoundError`; `OptimisticLockError` for a `version` the row is no longer at |
+| `updateMany(where, patch: ManyPatch): Promise<Row[]>` | no `version` on a table that locks |
+| `upsert(where: UpsertWhereOf<TTable, TLock, W>, values: UpsertValues<TTable, keyof W, TLock>): Promise<Row>`, `W extends UpsertWhere<TTable, TLock>` | `ON CONFLICT` on the where's columns; `ConflictError` on a soft-deleted row |
 | `delete(id): Promise<Row>` | soft on a table with soft delete; throws `NotFoundError` |
 | `deleteMany(where): Promise<Row[]>` | |
 | `count(where?, options?: ReadOptions): Promise<number>` | |
@@ -512,9 +612,12 @@ The types it uses:
 - `type Row<TTable>`, `type Insert<TTable>` (`PgInsertValue`), `type Patch<TTable>` (`PgUpdateSetSource`).
 - `type Where<TTable> = SQL | WhereObject<TTable> | undefined`; `type WhereObject<TTable> = { [K in keyof Row]?: Row[K] }`.
 - `type OrderBy<TTable> = SQL | SQL.Aliased | PgColumn | ReadonlyArray<SQL | SQL.Aliased | PgColumn> | { [K in keyof Row]?: 'asc' | 'desc' }`; `type OrderDirection = 'asc' | 'desc'`.
-- `interface RepositoryOptions<TTable, TKey, TSoft> { primaryKey?: TKey; softDelete?: TSoft; touchUpdatedAt?: boolean; maxPageSize?: number }`.
+- `interface RepositoryOptions<TTable, TKey, TSoft, TLock> { primaryKey?: TKey; softDelete?: TSoft; touchUpdatedAt?: boolean; optimisticLock?: TLock; actor?: ActorOf<TTable>; maxPageSize?: number }`.
+- `type UpdatePatch<TTable, TLock>`: `Patch`, with `version?: number` — the expected version — where it locks. `type ManyPatch<TTable, TLock>`: `Patch`, with no `version` where it locks.
+- `type UpsertWhere<TTable, TLock> = { [K in keyof Row]?: NonNullable<Row[K]> }`, without `version` where it locks, and `type UpsertWhereOf<TTable, TLock, W>`, the `where` `upsert` takes: `W` with no other key, and at least one; `type UpsertValues<TTable, TWhereKey, TLock>`: `Insert` without the where's keys, and without `version` where it locks.
+- `type ActorOf<TTable>`: the type of `createdBy`, else `updatedBy`, else `deletedBy`, not null; `never` without any. `type LockOf<TTable>`: whether the table has an integer `NOT NULL` `version`.
 - `interface ReadOptions { withDeleted?: boolean }`, and `FindFirstOptions`, `FindManyOptions`, `PaginateOptions`, `CursorPaginateOptions` as in the table.
-- `type BaseRepository<TTable, TKey, TSoft>` and `type SoftDeleteMethods<TTable, TKey>`, the two halves of `Repository`.
+- `type BaseRepository<TTable, TKey, TSoft, TLock>` and `type SoftDeleteMethods<TTable, TKey>`, the two halves of `Repository`.
 - `type ColumnKey<TTable>`, `type PrimaryKeyOf<TTable>` (`'id'` when the table has it, else `never`), `type HasColumn<TTable, K>`.
 
 #### `paginate(db, query, options?)`
@@ -548,6 +651,8 @@ function withTransaction<TDb extends PgDatabase, T>(
 - `id(): uuid builder`, `id('uuid')`, `id('identity'): integer builder`.
 - `timestamps(): { createdAt, updatedAt }`.
 - `softDelete(): { deletedAt }`.
+- `version(): { version }`.
+- `actors(): { createdBy, updatedBy, deletedBy }` as `uuid`, `actors('uuid' | 'text' | 'integer')`.
 
 ## Traps
 
@@ -592,6 +697,23 @@ function withTransaction<TDb extends PgDatabase, T>(
   its `where` already allows.
 - **`timestamps()` has two clocks.** `defaultNow()` is the database's
   `now()`; `$onUpdate` is `new Date()`, in your process.
+- **An upsert names every required column, even when the row is there.**
+  PostgreSQL checks the row it would insert before it looks for a conflict,
+  so a `NOT NULL` column with no default missing from the values is a
+  `NotNullViolationError` on a row that exists. The types require it.
+- **An upsert needs a unique constraint on exactly its `where`'s columns.**
+  A unique index on `(team_id, email)` serves `{ teamId, email }` and not
+  `{ email }`; a partial index, `... where deleted_at is null`, serves no
+  `ON CONFLICT` without its predicate, and this package does not send one.
+- **The version in a patch is a condition, not a value.** `{ version: 3 }`
+  never sets the version to 3: it makes `update` fail unless the row is at 3,
+  and leaves it at 4. `optimisticLock: false` is how to write it by hand.
+- **Upgrading to 0.5.0: a `version` column starts locking.** A table with an
+  integer `NOT NULL` column under the key `version` locks from 0.5.0 on:
+  `update(id, { version })` checks it instead of writing it, and every update
+  raises it. Pass `optimisticLock: false` to keep 0.4's behaviour. And
+  `DataErrorCode` gained `'OPTIMISTIC_LOCK'`, so an exhaustive
+  `Record<DataErrorCode, …>` needs the key before it compiles.
 - **An `ArgumentError` is a 400, not a 500.** Test for it *before* any
   `TypeError` branch in an error handler — it extends `TypeError`, so a
   broader branch placed first swallows it. A repository used on the database
@@ -606,6 +728,7 @@ function withTransaction<TDb extends PgDatabase, T>(
 - [docs/guide/repository.md](docs/guide/repository.md) — reads, writes, `where`, ordering, primary keys and soft delete.
 - [docs/guide/pagination.md](docs/guide/pagination.md) — offset pages, cursor pages, one page of any query.
 - [docs/guide/transactions.md](docs/guide/transactions.md) — `withTransaction`, `with(tx)`, savepoints and isolation.
+- [docs/guide/stamps.md](docs/guide/stamps.md) — `upsert`, optimistic locking and actor stamps, and how they differ from `@nxgt/mongo`'s.
 - [docs/guide/errors.md](docs/guide/errors.md) — the `DataError` classes and `toDataError`, `ArgumentError` for an argument refused before any SQL, and one handler for the app.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — an error message, and its fix.
 - [docs/roadmap.md](docs/roadmap.md) — what is next, and what is not planned.

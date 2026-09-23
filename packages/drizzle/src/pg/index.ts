@@ -1,7 +1,13 @@
 // PostgreSQL. The errors, the cursor and the page shapes come from
 // `@nxgt/drizzle` itself.
 
-export { id, softDelete, timestamps } from './columns/columns';
+export {
+	actors,
+	id,
+	softDelete,
+	timestamps,
+	version,
+} from './columns/columns';
 export type {
 	PaginatableQuery,
 	PaginateQueryOptions,
@@ -9,6 +15,7 @@ export type {
 export { paginate } from './pagination/paginate';
 export { createRepository } from './repository/create-repository';
 export type {
+	ActorOf,
 	BaseRepository,
 	ColumnKey,
 	CursorPaginateOptions,
@@ -16,6 +23,8 @@ export type {
 	FindManyOptions,
 	HasColumn,
 	Insert,
+	LockOf,
+	ManyPatch,
 	OrderBy,
 	OrderDirection,
 	PaginateOptions,
@@ -27,6 +36,10 @@ export type {
 	RepositoryOptions,
 	Row,
 	SoftDeleteMethods,
+	UpdatePatch,
+	UpsertValues,
+	UpsertWhere,
+	UpsertWhereOf,
 	Where,
 	WhereObject,
 } from './repository/types';

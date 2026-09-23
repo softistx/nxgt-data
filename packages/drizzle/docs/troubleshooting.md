@@ -8,8 +8,8 @@ words around the name. The errors this package raises are the classes
 answered, and `ArgumentError` for an argument refused before any SQL is
 built. Every one of them carries a `code` you can switch on —
 `ArgumentError`'s is `INVALID_ARGUMENT`, beside the `argument` it is about
-(`where`, `orderBy`, or `paginateByCursor` for the column a cursor page
-is ordered by) and the `key` inside it when one is at fault. It
+(`where`, `orderBy`, `patch`, `values`, `actor`, or `paginateByCursor`
+for the column a cursor page is ordered by) and the `key` inside it when one is at fault. It
 extends `TypeError`, which these refusals were before 0.2.0, so a `catch`
 written against `TypeError` still catches them. A `where` or an `orderBy`
 assembled from a query string is user input, so that is the class a handler
@@ -27,6 +27,9 @@ one.
   - [`"users" has no primary key: the methods by id need one. …`](#users-has-no-primary-key-the-methods-by-id-need-one-)
   - [`createRepository: softDelete needs a "deletedAt" column, and "users" has none`](#createrepository-softdelete-needs-a-deletedat-column-and-users-has-none)
   - [`restore: "users" has no soft delete`](#restore-users-has-no-soft-delete)
+  - [`createRepository: optimisticLock needs a "version" column, and "tickets" has none`](#createrepository-optimisticlock-needs-a-version-column-and-tickets-has-none)
+  - [`createRepository: optimisticLock needs an integer NOT NULL "version" column, and "tickets"'s is not one`](#createrepository-optimisticlock-needs-an-integer-not-null-version-column-and-ticketss-is-not-one)
+  - [`as on "teams": the table has no createdBy, updatedBy or deletedBy column to stamp`](#as-on-teams-the-table-has-no-createdby-updatedby-or-deletedby-column-to-stamp)
 - **Reading and writing**
   - [`Unique constraint "users_email_unique" violated on "users"`](#unique-constraint-users_email_unique-violated-on-users)
   - [`Foreign key "posts_author_id_fkey" violated on "posts"`](#foreign-key-posts_author_id_fkey-violated-on-posts)
@@ -40,6 +43,21 @@ one.
   - [`where: expected a Drizzle condition or an object`](#where-expected-a-drizzle-condition-or-an-object)
   - [`orderBy: "createdAt" must be 'asc' or 'desc', not DESC`](#orderby-createdat-must-be-asc-or-desc-not-desc)
   - [`orderBy: expected a Drizzle ordering, a list, or an object`](#orderby-expected-a-drizzle-ordering-a-list-or-an-object)
+- **Upsert, locking and actors**
+  - [`update on "tickets": the row is no longer at the version the patch expected: it changed since it was read`](#update-on-tickets-the-row-is-no-longer-at-the-version-the-patch-expected-it-changed-since-it-was-read)
+  - [`update on "tickets": the expected "version" must be a whole number, not a string`](#update-on-tickets-the-expected-version-must-be-a-whole-number-not-a-string)
+  - [`updateMany on "tickets": "version" is the optimistic lock, which only update checks. Leave it out; every write raises it`](#updatemany-on-tickets-version-is-the-optimistic-lock-which-only-update-checks-leave-it-out-every-write-raises-it)
+  - [`as on "tickets": the actor is undefined. Pass who is writing, or use the repository without as()`](#as-on-tickets-the-actor-is-undefined-pass-who-is-writing-or-use-the-repository-without-as)
+  - [`upsert on "tickets": the row with this (slug) is soft-deleted. Restore it, or hard-delete it, before writing over its key`](#upsert-on-tickets-the-row-with-this-slug-is-soft-deleted-restore-it-or-hard-delete-it-before-writing-over-its-key)
+  - [`upsert on "posts": no unique constraint covers exactly (title), the where's columns. Add one, or name the columns one covers`](#upsert-on-posts-no-unique-constraint-covers-exactly-title-the-wheres-columns-add-one-or-name-the-columns-one-covers)
+  - [`upsert on "tickets": the where must be an object of column values, not SQL`](#upsert-on-tickets-the-where-must-be-an-object-of-column-values-not-sql)
+  - [`upsert on "tickets": the where is empty. Name the columns a unique constraint covers`](#upsert-on-tickets-the-where-is-empty-name-the-columns-a-unique-constraint-covers)
+  - [`upsert on "tickets": the where names "nope", which is no column of the table`](#upsert-on-tickets-the-where-names-nope-which-is-no-column-of-the-table)
+  - [`upsert on "tickets": "slug" in the where is null. It is inserted as well as matched, so it must be a value, and NULL never conflicts`](#upsert-on-tickets-slug-in-the-where-is-null-it-is-inserted-as-well-as-matched-so-it-must-be-a-value-and-null-never-conflicts)
+  - [`upsert on "tickets": "version" is the optimistic lock, which only update checks. Leave it out; every write raises it`](#upsert-on-tickets-version-is-the-optimistic-lock-which-only-update-checks-leave-it-out-every-write-raises-it)
+  - [`upsert on "tickets": "version" is the optimistic lock, which the repository keeps. Leave it out`](#upsert-on-tickets-version-is-the-optimistic-lock-which-the-repository-keeps-leave-it-out)
+  - [`upsert on "tickets": the values must be an object, not an array`](#upsert-on-tickets-the-values-must-be-an-object-not-an-array)
+  - [`upsert on "tickets": "slug" is in both the where and the values. Name it in the where alone`](#upsert-on-tickets-slug-is-in-both-the-where-and-the-values-name-it-in-the-where-alone)
 - **Pagination**
   - [`Invalid cursor in paginateByCursor on "users": it cannot be decoded`](#invalid-cursor-in-paginatebycursor-on-users-it-cannot-be-decoded)
   - [`Invalid cursor in paginateByCursor on "users": unexpected shape`](#invalid-cursor-in-paginatebycursor-on-users-unexpected-shape)
@@ -158,6 +176,58 @@ export const users = pgTable('users', { /* … */ ...softDelete() });
 const users = createRepository(db, usersTable); // softDelete on, since the column is there
 ```
 
+### `createRepository: optimisticLock needs a "version" column, and "tickets" has none`
+
+**When:** at `createRepository`, with `optimisticLock: true`.
+**Why:** the lock is a `version` column the repository raises and checks, and
+the table has none under that key. The lock is on by itself whenever the
+table has an integer `NOT NULL` `version`, so `true` is only ever needed to
+assert it. A bare `TypeError`: no request can cause it.
+**Fix:**
+
+```ts
+import { version } from '@nxgt/drizzle/pg';
+
+export const tickets = pgTable('tickets', { /* … */ ...version() });
+// alter table tickets add column version integer not null default 0;
+```
+
+### `createRepository: optimisticLock needs an integer NOT NULL "version" column, and "tickets"'s is not one`
+
+**When:** at `createRepository`, with `optimisticLock: true`, on a table whose
+`version` is nullable, `text`, `bigint` in `bigint` mode, or anything but a
+JavaScript `number` integer.
+**Why:** the lock raises it with `version + 1` and compares it with the
+number a patch gives. `null + 1` is `null`, so a nullable one would check
+nothing, and a `text` one is data, not a counter. Without the option, such a
+column is simply an ordinary one.
+**Fix:**
+
+```sql
+alter table tickets alter column version type integer using version::integer;
+update tickets set version = 0 where version is null;
+alter table tickets alter column version set default 0;
+alter table tickets alter column version set not null;
+```
+
+Or leave the column alone and drop `optimisticLock: true`.
+
+### `as on "teams": the table has no createdBy, updatedBy or deletedBy column to stamp`
+
+**When:** `as(actor)` on a table with none of the three actor columns — or
+the `actor` option there, whose message starts `createRepository on`. The types refuse it already; this
+is a caller they do not reach.
+**Why:** there is nothing to stamp the actor into. A bare `TypeError`: it is
+wiring, not input.
+**Fix:**
+
+```ts
+import { actors } from '@nxgt/drizzle/pg';
+
+export const teams = pgTable('teams', { /* … */ ...actors() });
+// or drop the as() for this table
+```
+
 ## Reading and writing
 
 ### `Unique constraint "users_email_unique" violated on "users"`
@@ -227,7 +297,9 @@ reads as a rule rather than as whatever name PostgreSQL made up.
 ### `Column "email" on "users" cannot be null`
 
 **When:** a write that leaves out a `NOT NULL` column with no default, or
-sets it to `null`.
+sets it to `null`. An `upsert` too, **even when the row is there**: PostgreSQL
+checks the row it would insert before it looks for a conflict, so the values
+must name every required column the `where` does not.
 **Why:** SQLSTATE `23502`, as a `NotNullViolationError` whose `columns` holds
 the one column PostgreSQL named.
 **Fix:**
@@ -411,6 +483,194 @@ import { asc, desc } from 'drizzle-orm';
 await users.findMany({ orderBy: { createdAt: 'desc' } });        // an object
 await users.findMany({ orderBy: [desc(usersTable.createdAt), asc(usersTable.id)] });
 await users.paginateByCursor({ orderBy: 'createdAt' });          // a key, here only
+```
+
+## Upsert, locking and actors
+
+### `update on "tickets": the row is no longer at the version the patch expected: it changed since it was read`
+
+**When:** `update(id, { …, version })` on a row that another write raised
+since it was read.
+**Why:** an `OptimisticLockError`, `code: 'OPTIMISTIC_LOCK'`: the row is
+there, live, at another version, and nothing was written. It carries `id`,
+`expectedVersion` (what the patch said) and `actualVersion` (where the row
+is); the message leaves the values out.
+**Fix:** read the row again, show the person what changed, and let them
+decide; answer the request with a 409.
+
+```ts
+import { OptimisticLockError } from '@nxgt/drizzle';
+
+if (error instanceof OptimisticLockError) {
+	return c.json({ error: 'Changed since you read it', version: error.actualVersion }, 409);
+}
+```
+
+A row that is missing or soft-deleted is a `NotFoundError` instead.
+
+### `update on "tickets": the expected "version" must be a whole number, not a string`
+
+**When:** `update` on a table that locks, with a `version` that is not a whole
+number of at least 0: `'3'` from a form, `1.5`, `-1`, `null`, SQL. The
+message says which shape it was, never the value.
+**Why:** the version in a patch is the version the row must be at, compared
+in the `WHERE`; it is never written. An `ArgumentError`, `argument: 'patch'`,
+`key: 'version'` — usually a request body, so a 400.
+**Fix:**
+
+```ts
+if (!Number.isInteger(body.version) || body.version < 0) {
+	return c.json({ error: 'version must be the whole number that was read' }, 400);
+}
+await tickets.update(id, { title: body.title, version: body.version });
+```
+
+To write a version by hand, use a repository with `optimisticLock: false`.
+
+### `updateMany on "tickets": "version" is the optimistic lock, which only update checks. Leave it out; every write raises it`
+
+**When:** `updateMany` with `version` in the patch, on a table that locks.
+`upsert` says the same about its values, under its own name, below.
+**Why:** one version cannot stand for many rows, and a row an upsert may
+insert has no version to be at. Every update raises it anyway. An
+`ArgumentError`, `argument: 'patch'`, `key: 'version'`.
+**Fix:**
+
+```ts
+await tickets.updateMany({ slug }, { title: 'Closed' }); // no version
+// one row, conditionally: update(id, { …, version })
+```
+
+### `as on "tickets": the actor is undefined. Pass who is writing, or use the repository without as()`
+
+**When:** `as(undefined)` or `as(null)` — usually a session that was never
+read — or the `actor` option set to `null`, whose message starts
+`createRepository on`.
+**Why:** an actor that did not arrive would stamp nothing, silently, on
+every write. An `ArgumentError`, `argument: 'actor'`.
+**Fix:**
+
+```ts
+const userId = c.get('userId');
+if (!userId) return c.json({ error: 'Sign in' }, 401);
+await tickets.as(userId).create(values);
+// a script with nobody acting: tickets.create(values)
+```
+
+### `upsert on "tickets": the row with this (slug) is soft-deleted. Restore it, or hard-delete it, before writing over its key`
+
+**When:** `upsert` on a key whose row is there but soft-deleted.
+**Why:** the update half is scoped to live rows, like every other write, so
+nothing was written and nothing came back. A `ConflictError` with the
+`table` and the conflict `columns`: the key is taken, by a row you cannot
+see.
+**Fix:** decide which of the two you mean.
+
+```ts
+const gone = await tickets.findFirst({ slug }, { withDeleted: true });
+if (gone?.deletedAt) await tickets.restore(gone.id); // or hardDelete(gone.id)
+await tickets.upsert({ slug }, { title });
+```
+
+### `upsert on "posts": no unique constraint covers exactly (title), the where's columns. Add one, or name the columns one covers`
+
+**When:** `upsert` whose `where` names columns no unique constraint or unique
+index covers exactly — a subset of a composite one, a partial index, or
+none at all.
+**Why:** the `where`'s columns are the `ON CONFLICT` target, and PostgreSQL
+refuses a target it cannot match to a constraint (SQLSTATE `42P10`). A
+`DataError` with `code: 'DATABASE'`, `sqlState: '42P10'`, the `table` and the
+`columns`: a mistake in the code, so a 500.
+**Fix:**
+
+```sql
+alter table posts add constraint posts_title_unique unique (title);
+```
+
+Or name the columns a constraint covers: `{ teamId, email }` for
+`unique (team_id, email)`, not `{ email }`. A partial unique index
+(`… where deleted_at is null`) serves no upsert.
+
+### `upsert on "tickets": the where must be an object of column values, not SQL`
+
+**When:** `upsert` with a Drizzle condition, an array, or anything that is not
+a plain object as its `where`. The message says which.
+**Why:** the `where` is inserted as well as matched, and a condition says
+nothing an insert could write. An `ArgumentError`, `argument: 'where'`.
+**Fix:**
+
+```ts
+await tickets.upsert({ slug: 'a' }, { title: 'A' }); // not eq(tickets.slug, 'a')
+```
+
+### `upsert on "tickets": the where is empty. Name the columns a unique constraint covers`
+
+**When:** `upsert({}, values)`, usually a `where` built from a request that
+came out empty.
+**Why:** there is nothing to conflict on. An `ArgumentError`,
+`argument: 'where'`.
+**Fix:** name the key, or use `create` when every call is a new row.
+
+### `upsert on "tickets": the where names "nope", which is no column of the table`
+
+**When:** `upsert` whose `where` has a key that is no column key of the
+table. The types refuse it; this is a caller they do not reach.
+**Why:** a key that is no column can be neither written nor matched. An
+`ArgumentError`, `argument: 'where'`, with the `key`.
+**Fix:** use the column's key on the table object (`teamId`), not its SQL
+name (`team_id`).
+
+### `upsert on "tickets": "slug" in the where is null. It is inserted as well as matched, so it must be a value, and NULL never conflicts`
+
+**When:** `upsert` whose `where` holds `null`, `undefined` or SQL under a
+key — the message names which of the three.
+**Why:** a `NULL` never equals another under a unique constraint, so every
+call would insert a new row; SQL is not a value an insert can seed from. An
+`ArgumentError`, `argument: 'where'`, with the `key`.
+**Fix:**
+
+```ts
+if (!body.slug) return c.json({ error: 'slug is required' }, 400);
+await tickets.upsert({ slug: body.slug }, { title: body.title });
+```
+
+### `upsert on "tickets": "version" is the optimistic lock, which only update checks. Leave it out; every write raises it`
+
+**When:** `upsert` with `version` in the values, on a table that locks.
+**Why:** a row an upsert may insert has no version to be at, and the update
+half raises it anyway. An `ArgumentError`, `argument: 'values'`,
+`key: 'version'`.
+**Fix:** leave it out of the values; to write only while a row is at a
+version, read it and `update(id, { …, version })`.
+
+### `upsert on "tickets": "version" is the optimistic lock, which the repository keeps. Leave it out`
+
+**When:** `upsert` with `version` in the `where`, on a table that locks.
+**Why:** the version is not a key: the repository starts it at 0 and raises
+it on every update. An `ArgumentError`, `argument: 'where'`.
+**Fix:** identify the row by a unique key; check a version with `update`.
+
+### `upsert on "tickets": the values must be an object, not an array`
+
+**When:** `upsert` whose `values` are not a plain object — an array, SQL,
+`null`. The message says which.
+**Why:** the values are the columns to write. An `ArgumentError`,
+`argument: 'values'`.
+**Fix:** one call per row, `values` an object; `{}` when there is nothing
+to write beyond the `where`.
+
+### `upsert on "tickets": "slug" is in both the where and the values. Name it in the where alone`
+
+**When:** `upsert` whose `values` repeat a key the `where` names. The types
+leave it out; this is a caller they do not reach.
+**Why:** the `where` is what is inserted under that key; a second value for
+it would either be ignored or change the key of the row it matched. An
+`ArgumentError`, `argument: 'values'`, with the `key`.
+**Fix:**
+
+```ts
+const { slug, ...rest } = body;
+await tickets.upsert({ slug }, rest);
 ```
 
 ## Pagination
@@ -645,7 +905,10 @@ the same reason as `.with(db)`: the caller hands it the database by name.
 two transactions touched the same rows and PostgreSQL could not order them.
 **Why:** those levels are enforced by refusing one of the two transactions,
 not by making it wait. It arrives as a `DataError` with `code: 'DATABASE'`
-and `sqlState: '40001'`. This package does not retry: a retry re-runs the
+and `sqlState: '40001'`. A lost optimistic-lock race arrives this way too
+under those levels, when the other writer committed after this
+transaction's snapshot, rather than as an `OptimisticLockError` — see
+[Under `repeatable read` or `serializable`](guide/stamps.md#under-repeatable-read-or-serializable). This package does not retry: a retry re-runs the
 callback, and only the caller knows whether that is safe.
 **Fix:** match on `sqlState`, never on the message — PostgreSQL words it
 differently per isolation level — and retry the whole transaction, not the

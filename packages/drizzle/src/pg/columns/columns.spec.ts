@@ -9,7 +9,7 @@ import {
 import { getTableConfig, pgTable, text } from 'drizzle-orm/pg-core';
 import { createTestDb } from '../../../test/db';
 import { teams, users } from '../../../test/schema';
-import { id, softDelete, timestamps } from './columns';
+import { actors, id, softDelete, timestamps, version } from './columns';
 
 let t: Awaited<ReturnType<typeof createTestDb>>;
 
@@ -65,6 +65,33 @@ describe('the column helpers', () => {
 		expect(sqlTypes(pgTable('counted', { id: id('identity') }))).toEqual({
 			id: { type: 'integer', notNull: true, primary: true, hasDefault: true },
 		});
+	});
+
+	test('version and actors declare what their DDL says', () => {
+		const table = pgTable('stamped', { ...version(), ...actors() });
+		const nullable = (type: string) => ({
+			type,
+			notNull: false,
+			primary: false,
+			hasDefault: false,
+		});
+		expect(sqlTypes(table)).toEqual({
+			version: {
+				type: 'integer',
+				notNull: true,
+				primary: false,
+				hasDefault: true,
+			},
+			created_by: nullable('uuid'),
+			updated_by: nullable('uuid'),
+			deleted_by: nullable('uuid'),
+		});
+		expect(sqlTypes(pgTable('by_text', actors('text'))).created_by?.type).toBe(
+			'text',
+		);
+		expect(
+			sqlTypes(pgTable('by_int', actors('integer'))).deleted_by?.type,
+		).toBe('integer');
 	});
 
 	test('give fresh builders on every call', () => {

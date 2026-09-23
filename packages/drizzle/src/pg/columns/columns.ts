@@ -1,4 +1,4 @@
-import { integer, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { integer, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 function uuidId() {
 	return uuid('id').primaryKey().defaultRandom();
@@ -48,4 +48,57 @@ export function softDelete() {
 	return {
 		deletedAt: timestamp('deleted_at', precise),
 	};
+}
+
+/**
+ * `version`, as `version`: `integer not null default 0`. A repository on a
+ * table with it locks optimistically: every update raises it by one, and an
+ * `update` given the version it read writes only while the row is still at
+ * it.
+ */
+export function version() {
+	return {
+		version: integer('version').notNull().default(0),
+	};
+}
+
+function uuidActors() {
+	return {
+		createdBy: uuid('created_by'),
+		updatedBy: uuid('updated_by'),
+		deletedBy: uuid('deleted_by'),
+	};
+}
+
+function textActors() {
+	return {
+		createdBy: text('created_by'),
+		updatedBy: text('updated_by'),
+		deletedBy: text('deleted_by'),
+	};
+}
+
+function integerActors() {
+	return {
+		createdBy: integer('created_by'),
+		updatedBy: integer('updated_by'),
+		deletedBy: integer('deleted_by'),
+	};
+}
+
+/**
+ * `createdBy`, `updatedBy` and `deletedBy`, as `created_by`, `updated_by` and
+ * `deleted_by`: nullable, of the type an actor's id has — a `uuid` by
+ * default, or `'text'` or `'integer'`. A repository given an actor, through
+ * `as(actor)` or the `actor` option, stamps them. Nullable, because a row
+ * written by a script or a migration has nobody to name, and no foreign key,
+ * because the table the actors live in is the application's to say.
+ */
+export function actors(): ReturnType<typeof uuidActors>;
+export function actors(kind: 'uuid'): ReturnType<typeof uuidActors>;
+export function actors(kind: 'text'): ReturnType<typeof textActors>;
+export function actors(kind: 'integer'): ReturnType<typeof integerActors>;
+export function actors(kind: 'uuid' | 'text' | 'integer' = 'uuid') {
+	if (kind === 'text') return textActors();
+	return kind === 'integer' ? integerActors() : uuidActors();
 }

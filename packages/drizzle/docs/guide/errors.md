@@ -27,7 +27,8 @@ The classes come from `@nxgt/drizzle`; the repository, `paginate` and
 | Class | `code` | Thrown when |
 | --- | --- | --- |
 | `NotFoundError` | `NOT_FOUND` | `getById`, `update(id)`, `delete(id)`, `restore(id)` or `hardDelete(id)` matched no row |
-| `ConflictError` | `CONFLICT` | a unique constraint refused the write — SQLSTATE `23505` |
+| `OptimisticLockError` | `OPTIMISTIC_LOCK` | `update` was given a `version` the row is no longer at: someone wrote first. It carries `id`, `expectedVersion` and `actualVersion` — see [Optimistic locking](stamps.md#optimistic-locking) |
+| `ConflictError` | `CONFLICT` | a unique constraint refused the write — SQLSTATE `23505` — or `upsert` found the row soft-deleted |
 | `ForeignKeyError` | `FOREIGN_KEY` | `23503`: the parent row is missing, or a child still points at the row being deleted |
 | `CheckViolationError` | `CHECK_VIOLATION` | `23514` |
 | `NotNullViolationError` | `NOT_NULL_VIOLATION` | `23502` |
@@ -190,7 +191,10 @@ try {
 ```ts
 class ArgumentError extends TypeError {
 	readonly code: 'INVALID_ARGUMENT';
-	/** The argument it is about: `where`, `orderBy`, `paginateByCursor`. */
+	/**
+	 * The argument it is about: `where`, `orderBy`, `patch`, `values`,
+	 * `actor`, or `paginateByCursor`.
+	 */
 	readonly argument: string;
 	/** The key inside that argument, when one is at fault. */
 	readonly key: string | undefined;
@@ -216,6 +220,12 @@ gains a `code` to switch on instead of a message to match.
 | `orderBy` | — | an `orderBy` that is not an ordering, a list or an object |
 | `orderBy` | the key | a key that is not a column, or a direction that is not `'asc'` or `'desc'` |
 | `paginateByCursor` | the key | an `orderBy` column the table does not have |
+| `patch` | `version` | on a table that locks: a `version` in `updateMany`'s patch, or one in `update`'s that is not a whole number |
+| `where` | — | `upsert` with a `where` that is not an object of column values, or is empty |
+| `where` | the key | `upsert` with a key that is no column, a value that is `null`, `undefined` or SQL, or `version` |
+| `values` | — | `upsert` with values that are not an object |
+| `values` | the key | `upsert` with a key the `where` already names, or `version` on a table that locks |
+| `actor` | — | `as(undefined)`, `as(null)`, or the `actor` option set to `null` |
 
 `ArgumentError` is **not** a `DataError`: `error instanceof DataError` is
 false, and a handler that only catches `DataError` lets it through.
@@ -224,7 +234,8 @@ false, and a handler that only catches `DataError` lets it through.
 come from a request does not get this class: a repository used on the
 database an open `withTransaction` is holding is a **bare** `TypeError`
 ([Transactions](transactions.md#forgetting-it-is-refused-not-hung)), and so
-is a table with no primary key. They fall through to the 500 branch on their
+are a table with no primary key, `optimisticLock: true` on a table without an
+integer `NOT NULL` `version`, and `as()` on a table with no actor column. They fall through to the 500 branch on their
 own, and no handler has to carve an exception out of `argument`.
 
 ## One handler for the app
@@ -241,6 +252,8 @@ const STATUS: Record<DataErrorCode, 400 | 404 | 409 | 422 | 500> = {
 	FOREIGN_KEY: 422,
 	CHECK_VIOLATION: 422,
 	NOT_NULL_VIOLATION: 422,
+	// Re-read and decide again: the row moved since the client read it.
+	OPTIMISTIC_LOCK: 409,
 	// Both are the client's input rather than the query's own doing.
 	INVALID_VALUE: 400,
 	INVALID_CURSOR: 400,
@@ -272,7 +285,8 @@ log line says which listing refused, not only which option. `ArgumentError` come
 
 - **`TypeError`** is left for a mistake in the wiring rather than in a call: a
   table whose primary key needs the `primaryKey` option, a `restore` on a
-  table with no soft delete, a config on a nested
+  table with no soft delete, `optimisticLock: true` without a usable
+  `version`, `as()` or `actor` on a table with no actor column, a config on a nested
   [`withTransaction`](transactions.md#isolation). The message says what to
   change. `ArgumentError` extends it, so a `catch` on `TypeError` takes both.
 - **`RangeError`** is a `page`, `pageSize` or `limit` that is not a positive
