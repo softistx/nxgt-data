@@ -5,7 +5,7 @@ import {
 	SearchIndexError,
 } from '../errors/search-index-error';
 import type { TypedIndex } from '../index/bind-index';
-import { findIndex, type SyncReport, syncIndex } from './sync-index';
+import { findIndex, type SyncReport, syncIndexFor } from './sync-index';
 
 export interface RebuildOptions {
 	/** The uid of the index filled beside the live one: `<uid>_next` by default. */
@@ -185,7 +185,7 @@ export async function rebuildIndex<Def extends AnyIndexDefinition>(
 	let created: boolean;
 	let task: Task;
 	try {
-		sync = await syncIndex(client, nextDefinition, { wait });
+		sync = await syncIndexFor(client, nextDefinition, { wait }, 'rebuild');
 		stop = 'filling';
 		await fill(open(nextDefinition));
 		await settle(client, nextUid, sync.tasks[0]?.uid ?? 0, wait);

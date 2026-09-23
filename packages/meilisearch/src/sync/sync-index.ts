@@ -69,10 +69,23 @@ export async function findIndex(
  * (`TASK_FAILED`) for one that fails. Run it twice and the second run sends
  * nothing.
  */
-export async function syncIndex(
+export function syncIndex(
 	client: Meilisearch,
 	definition: AnyIndexDefinition,
 	options: SyncOptions = {},
+): Promise<SyncReport> {
+	return syncIndexFor(client, definition, options, 'sync');
+}
+
+/**
+ * `syncIndex`, naming in a failed task's message the call a consumer made:
+ * `rebuild` syncs its next index through here. Not exported by the package.
+ */
+export async function syncIndexFor(
+	client: Meilisearch,
+	definition: AnyIndexDefinition,
+	options: SyncOptions,
+	call: 'sync' | 'rebuild',
 ): Promise<SyncReport> {
 	const { uid, primaryKey } = definition;
 	const dryRun = options.dryRun ?? false;
@@ -82,6 +95,7 @@ export async function syncIndex(
 		tasks.push(task);
 		return task;
 	};
+	const check = (task: Task) => assertSucceeded(task, uid, call);
 
 	let created = false;
 	let primaryKeySet = false;
@@ -98,7 +112,7 @@ export async function syncIndex(
 				tasks.pop();
 				existing = await findIndex(client, uid);
 			} else {
-				assertSucceeded(task, uid, 'sync');
+				check(task);
 			}
 		}
 	}
@@ -108,11 +122,7 @@ export async function syncIndex(
 		if (actual === undefined) {
 			primaryKeySet = true;
 			if (!dryRun) {
-				assertSucceeded(
-					await wait(client.updateIndex(uid, { primaryKey })),
-					uid,
-					'sync',
-				);
+				check(await wait(client.updateIndex(uid, { primaryKey })));
 			}
 		} else if (actual !== primaryKey) {
 			throw new SearchIndexError(
@@ -141,11 +151,7 @@ export async function syncIndex(
 	const changed = Object.keys(update) as (keyof Settings)[];
 
 	if (changed.length > 0 && !dryRun) {
-		assertSucceeded(
-			await wait(client.index(uid).updateSettings(update)),
-			uid,
-			'sync',
-		);
+		check(await wait(client.index(uid).updateSettings(update)));
 	}
 
 	return { uid, created, primaryKeySet, changed, update, tasks, dryRun };

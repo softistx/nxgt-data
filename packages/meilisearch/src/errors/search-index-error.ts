@@ -59,6 +59,18 @@ export class SearchIndexError extends Error {
 	}
 }
 
+/** The calls that wait for a task, as a consumer writes them. */
+export type TaskCall =
+	| 'add'
+	| 'addInBatches'
+	| 'update'
+	| 'updateInBatches'
+	| 'delete'
+	| 'deleteByFilter'
+	| 'deleteAll'
+	| 'sync'
+	| 'rebuild';
+
 /**
  * The task, if it succeeded. Otherwise a `SearchIndexError` with the task: the
  * SDK resolves a failed task like a succeeded one.
@@ -73,7 +85,7 @@ export class SearchIndexError extends Error {
 export function assertSucceeded(
 	task: Task,
 	indexUid: string,
-	call: string,
+	call: TaskCall,
 ): Task {
 	if (task.status === 'succeeded') return task;
 	const code = task.error?.code;

@@ -62,7 +62,9 @@ error.cause.message;    // 'Document identifier `"not an id"` is invalid. …'
 
 The message names the call you made — `add`, not the task's
 `documentAdditionOrUpdate`; `deleteByFilter`, not the `documentDeletion` that
-`delete` makes too; `sync` or `rebuild` for the tasks those send — and
+`delete` makes too; `sync` for the tasks a sync sends, and `rebuild` for every
+task a rebuild waits for, the next index's creation and settings included —
+and
 Meilisearch's error code, and nothing else. Meilisearch's own sentence quotes
 the id it refused or the filter it could not apply, which came from your
 documents or a request, so it stays on `cause` and `task.error`: log the

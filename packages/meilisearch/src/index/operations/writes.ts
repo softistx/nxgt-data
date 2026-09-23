@@ -5,7 +5,10 @@ import type {
 	Task,
 	WaitOptions,
 } from 'meilisearch';
-import { assertSucceeded } from '../../errors/search-index-error';
+import {
+	assertSucceeded,
+	type TaskCall,
+} from '../../errors/search-index-error';
 import { type IndexContext, records } from '../context';
 import type { BatchWriteOptions, WriteOptions } from '../types';
 
@@ -37,7 +40,7 @@ function taskOptions(options: WriteOptions = {}) {
 // names: `delete` and `deleteByFilter` both make a `documentDeletion`.
 function settle(
 	ctx: IndexContext,
-	call: string,
+	call: TaskCall,
 	enqueued: EnqueuedTaskPromise,
 	options?: WriteOptions,
 ) {
@@ -52,7 +55,7 @@ function settle(
 // `SafeOmit`, and the declaration emit of the batch writes fails (TS2883).
 function settleAll(
 	ctx: IndexContext,
-	call: string,
+	call: TaskCall,
 	enqueued: EnqueuedTaskPromise[],
 	options?: WriteOptions,
 ): EnqueuedTaskPromise[] | Promise<Task[]> {
