@@ -213,12 +213,16 @@ await movieIndex.sync(); // applies what changed
 **Why:** Meilisearch refuses to read an empty filter as "every document", so a
 filter built from a request that turned out empty deletes nothing instead of
 everything. Nothing was deleted.
-**Fix:** build the filter before calling, and call `deleteAll` when every
-document really is meant:
+**Fix:** build the filter before calling, and leave the call out when there
+is nothing to filter on — `deleteAll` is the call for every document, and
+`delete(ids)` the one for ids you already hold:
 
 ```ts
-const filter = ids.length ? `id IN [${ids.join(', ')}]` : null;
-if (filter) await movieIndex.deleteByFilter(filter, { wait: true });
+// genres from a request: ['horror', 'noir'], or nothing
+const filter = genres.map((genre) => `genres = ${JSON.stringify(genre)}`);
+if (filter.length > 0) {
+	await movieIndex.deleteByFilter([filter], { wait: true }); // one OR group
+}
 ```
 
 ### ``Index `movies`: Attribute `year` is not sortable.``

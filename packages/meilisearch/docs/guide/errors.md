@@ -57,7 +57,10 @@ error.task.error.code;  // 'invalid_document_id'
 ```
 
 Without `wait`, nothing is checked, because nothing is awaited: the task is
-queued and the promise resolves. Waiting on the SDK's side means reading the
+queued and the promise resolves. `deleteByFilter` on an attribute that is not
+filterable is the sharpest case: the request is accepted, the task fails, and
+without `wait` nothing is deleted and nothing says so — see
+[Deleting by filter](documents.md#deleting-by-filter). Waiting on the SDK's side means reading the
 status yourself.
 
 ```ts

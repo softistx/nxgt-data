@@ -46,7 +46,7 @@ await movieIndex.deleteByFilter(['genres = scifi', 'director.name = "Ridley Scot
 Two refusals, measured on Meilisearch v1.53.2, and they arrive at different
 moments:
 
-- **An empty filter** — `''`, blanks, `[]` — is refused by the server when the
+- **An empty filter** — `''`, blanks, `[]`, `[[]]` — is refused by the server when the
   request is sent: the call rejects with the SDK's `MeilisearchApiError`, code
   `invalid_document_filter`, and nothing is deleted. There is no way to reach
   `deleteAll` by accident through it.
