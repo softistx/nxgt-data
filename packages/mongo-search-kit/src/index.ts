@@ -1,6 +1,6 @@
 // A search kit over `@nxgt/mongo-kit`: one config naming an index and a
-// transform per collection, and one `start`, `close` and `reindexAll` for all
-// of them. Each collection's sync is `@nxgt/mongo-meilisearch`'s, unchanged.
+// transform per collection, and one `syncIndexes`, `reindexAll`, `start` and
+// `close` for all of them. Each collection's sync is `@nxgt/mongo-meilisearch`'s, unchanged.
 
 export type {
 	IndexMap,

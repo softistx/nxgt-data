@@ -72,10 +72,6 @@ bun add @nxgt/mongo-search-kit @nxgt/mongo-kit @nxgt/mongo-meilisearch @nxgt/mon
 - **It does not own the Mongo kit.** Closing the search kit stops the syncs
   and nothing else: the clients, the databases and the collections are the
   Mongo kit's, and `kit.close()` is still the caller's to make.
-- **It does not sync the indexes' settings today.** Apply them with
-  `@nxgt/meilisearch`'s `syncIndex` / `syncIndexes`, as a deployment step
-  beside `kit.sync()`. A `syncIndexes()` on the kit itself is being worked
-  on: [the roadmap](docs/roadmap.md) says where it stands.
 
 ## API
 

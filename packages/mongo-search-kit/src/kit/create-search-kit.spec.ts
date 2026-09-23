@@ -88,6 +88,26 @@ describe('a search kit', () => {
 		expect(second.authors).toMatchObject({ created: false, changed: [] });
 	});
 
+	test('syncIndexes stops at the first index that throws', async () => {
+		// `articles` exists under another primary key, which no sync can fix.
+		await servers.meili.client
+			.createIndex('articles', { primaryKey: 'slug' })
+			.waitTask();
+		const held = createSearchKit(servers.kit, both())
+			.syncIndexes()
+			.then(
+				() => {
+					throw new Error('syncIndexes resolved');
+				},
+				(error: unknown) => error,
+			);
+		const error = (await held) as { code?: string };
+		expect(error.code).toBe('PRIMARY_KEY_MISMATCH');
+		expect(
+			(await servers.meili.client.getIndexes()).results.map((it) => it.uid),
+		).toEqual(['articles']);
+	});
+
 	test('reindexes every collection, and reports each under its key', async () => {
 		await servers.kit.db.articles.create({ title: 'one' });
 		await servers.kit.db.articles.create({ title: 'two', draft: true });

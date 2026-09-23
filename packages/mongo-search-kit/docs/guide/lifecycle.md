@@ -79,9 +79,12 @@ await search.syncIndexes({ wait: { timeout: 120_000 } }); // the SDK's WaitOptio
 ```
 
 Run it twice and the second run sends nothing. The first index that throws
-stops the rest — a `SearchIndexError` with `PRIMARY_KEY_MISMATCH` or
-`TASK_FAILED`, from `@nxgt/meilisearch` — so `dryRun` is the way to see every
-difference at once.
+stops the rest, and the indexes after it are not looked at: a
+`SearchIndexError` from `@nxgt/meilisearch` — `PRIMARY_KEY_MISMATCH` or
+`TASK_FAILED` — or the SDK's own error for a Meilisearch that refused or is
+not there. `dryRun` shows every **settings** difference at once, but not past
+a primary-key mismatch: that one throws in a dry run too, since no setting
+could make the index right.
 
 It is a **deployment step**, like the Mongo kit's `sync()`, and it comes
 first: `reindexAll` and `start` write documents, and an index a document write

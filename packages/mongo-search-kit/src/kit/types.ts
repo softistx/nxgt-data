@@ -24,9 +24,9 @@ export interface SearchKit<S> {
 	 * Brings every index the kit wires in line with its definition — created
 	 * with its primary key, its settings updated where they differ — one
 	 * after another, and reports each under its key. `@nxgt/meilisearch`'s
-	 * `syncIndex`, per entry; the first that throws stops the rest, so
-	 * `dryRun` is the way to see everything at once. A deployment step, run
-	 * before `reindexAll` or `start`.
+	 * `syncIndex`, per entry; the first that throws stops the rest. `dryRun`
+	 * shows every settings difference, but a primary-key mismatch throws even
+	 * then. A deployment step, run before `reindexAll` or `start`.
 	 */
 	syncIndexes(options?: SyncOptions): Promise<ByKey<S, SyncReport>>;
 	/**

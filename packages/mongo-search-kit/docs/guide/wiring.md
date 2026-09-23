@@ -122,7 +122,7 @@ The clients, the kit, the index settings, the syncs:
 
 ```ts
 // src/search/index.ts
-import { bindIndex, syncIndexes } from '@nxgt/meilisearch';
+import { bindIndex } from '@nxgt/meilisearch';
 import { createKit } from '@nxgt/mongo-kit';
 import { createSearchKit } from '@nxgt/mongo-search-kit';
 import { Meilisearch } from 'meilisearch';
@@ -137,14 +137,14 @@ export const meili = new Meilisearch({
 export async function buildSearch() {
 	const kit = await createKit(config);
 
-	// The indexes' settings are @nxgt/meilisearch's, applied as a deployment
-	// step — see the roadmap for a `syncIndexes()` on the kit itself.
-	await syncIndexes(meili, [articleIndex, authorIndex]);
-
 	const search = createSearchKit(kit, {
 		articles: { index: bindIndex(meili, articleIndex), transform: toArticleHit },
 		authors: { index: bindIndex(meili, authorIndex), transform: toAuthorHit },
 	});
+
+	// Every index created and its settings applied, before anything writes
+	// documents: a deployment step, beside `kit.sync()`.
+	await search.syncIndexes();
 
 	return { kit, search };
 }
