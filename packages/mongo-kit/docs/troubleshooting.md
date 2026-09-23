@@ -371,6 +371,43 @@ there:
 export const kit = await createKit(config);   // top level: a bad URI stops the boot
 ```
 
+### `ping: no answer in 2000ms`
+
+**When:** the `error` of a `{ ok: false }` that `kit.ping()` reported, never
+a throw.
+
+**Why:** the database did not answer within `timeoutMS`. For a database the
+kit opened from a `uri`, the driver usually answers first, with its own
+`MongoNetworkError` or `MongoServerSelectionError`; this deadline is what is
+left when it does not — typically a `client` the configuration handed over
+that was never connected, whose first connect waits
+`serverSelectionTimeoutMS` (measured on mongodb 7.6.0).
+
+**Fix:** answer 503 and look at the server. If the database is a `client` you
+handed over, connect it before `createKit`:
+
+```ts
+const client = await new MongoClient(uri).connect();
+```
+
+### `MongoTopologyClosedError: Topology is closed`
+
+**When:** every command on a database the configuration gave a `client`, and
+every `ping` of it, after one failure — at once, with no retry.
+
+**Why:** the client was handed over unconnected, its first command made the
+connect, and the connect failed. Measured on mongodb 7.6.0, the driver then
+closes that client for good, so the server coming back changes nothing.
+
+**Fix:** connect the client yourself before handing it over, so a server that
+is down fails where the application starts, and a client that connected
+reconnects on its own afterwards:
+
+```ts
+const client = await new MongoClient(uri).connect();
+export const kit = await createKit(defineConfig({ client, collections }));
+```
+
 ### `connectMongo: this URI is already connected with other options. Pass the same options everywhere, or close the first connection.`
 
 **When:** `createKit`, or a second `createKit` in the same process.
