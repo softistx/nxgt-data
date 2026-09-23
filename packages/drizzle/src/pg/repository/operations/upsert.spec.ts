@@ -9,6 +9,7 @@ import {
 import { sql } from 'drizzle-orm';
 import { integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import { createTestDb } from '../../../../test/db';
+import { rejection } from '../../../../test/rejection';
 import { posts, teams, tickets, users } from '../../../../test/schema';
 import { ArgumentError } from '../../../errors/argument-error';
 import {
@@ -25,16 +26,6 @@ beforeAll(async () => {
 });
 beforeEach(() => t.reset());
 afterAll(() => t.close());
-
-/** The rejection, taken where the promise is made. */
-function rejection(promise: Promise<unknown>): Promise<unknown> {
-	return promise.then(
-		() => {
-			throw new Error('expected a rejection');
-		},
-		(error: unknown) => error,
-	);
-}
 
 /** A unique key, and an `updatedAt` without `$onUpdate`: this file's own. */
 const labels = pgTable('labels', {

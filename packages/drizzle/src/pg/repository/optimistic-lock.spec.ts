@@ -9,6 +9,7 @@ import {
 import { sql } from 'drizzle-orm';
 import { integer, pgTable, text } from 'drizzle-orm/pg-core';
 import { createTestDb } from '../../../test/db';
+import { rejection } from '../../../test/rejection';
 import { posts, tickets } from '../../../test/schema';
 import { ArgumentError } from '../../errors/argument-error';
 import { NotFoundError, OptimisticLockError } from '../../errors/data-error';
@@ -21,16 +22,6 @@ beforeAll(async () => {
 });
 beforeEach(() => t.reset());
 afterAll(() => t.close());
-
-/** The rejection, taken where the promise is made. */
-function rejection(promise: Promise<unknown>): Promise<unknown> {
-	return promise.then(
-		() => {
-			throw new Error('expected a rejection');
-		},
-		(error: unknown) => error,
-	);
-}
 
 const seed = async () => {
 	const repo = createRepository(t.db, tickets);
