@@ -95,16 +95,39 @@ as `Argument of type 'string | null' is not assignable to parameter of type
 **Fix:** pass the input, and name it with `InputOf` where you annotate:
 
 ```ts
-import type { BoundCache, InputOf, ParamsOf, ValueOf } from '@nxgt/redis';
+import { z } from 'zod';
+import {
+	type BoundCache,
+	bindCache,
+	connectRedis,
+	defineCache,
+	type InputOf,
+	type ParamsOf,
+	type ValueOf,
+} from '@nxgt/redis';
 
-await seen.set('u1', raw);                            // the string, not the Date
-await seen.remember('u1', () => loadRaw('u1'));       // the loader returns the input too
+const seenCache = defineCache({
+	name: 'seen',
+	key: (id: string) => id,
+	ttl: 60,
+	schema: z.string().transform((s) => new Date(s)),
+});
 
 type Seen = BoundCache<
 	ParamsOf<typeof seenCache>,
 	ValueOf<typeof seenCache>,
 	InputOf<typeof seenCache>
 >;
+
+const redis = await connectRedis(process.env.REDIS_URL!);
+const seen: Seen = bindCache(redis.client, seenCache);
+
+// Wherever the raw value comes from: the string the schema accepts.
+const loadRaw = async (_id: string): Promise<string> => '2026-09-22T10:00:00Z';
+const raw = await loadRaw('u1');
+
+await seen.set('u1', raw);                            // the string, not the Date
+await seen.remember('u1', () => loadRaw('u1'));       // the loader returns the input too
 ```
 
 ## Configuration

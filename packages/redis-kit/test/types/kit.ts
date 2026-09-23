@@ -180,4 +180,58 @@ function configRefusals() {
 	defineConfig({ instances: { a: { uri, caches } } });
 }
 
-export { configRefusals, kitFromConfig, severalInstances, soleInstance };
+/**
+ * A field whose input is `unknown` — `z.coerce.number()` — takes any value,
+ * though its key is still required, and a whole `z.preprocess` schema takes
+ * anything: there, `set` is checked at run time only, by the schema.
+ */
+async function unknownInputs() {
+	const counts = defineCache({
+		name: 'count',
+		key: (id: string) => id,
+		ttl: 5,
+		schema: z.object({ n: z.coerce.number() }),
+	});
+	const parsed = defineCache({
+		name: 'parsed',
+		key: (id: string) => id,
+		ttl: 5,
+		schema: z.preprocess((value) => Number(value), z.number()),
+	});
+	const kit = await connectKit(
+		defineConfig({ uri, caches: { counts, parsed } }),
+	);
+
+	// `n` is still required: `unknown` is its value, not its key.
+	// @ts-expect-error
+	await kit.cache.counts.set('c1', {});
+
+	// A loader still gives the object, with its `n`.
+	// @ts-expect-error
+	await kit.cache.counts.remember('c1', () => ({}));
+
+	// What is read is the number the schema produces, not what was written.
+	// @ts-expect-error
+	const parsedAsString: string | undefined = await kit.cache.parsed.get('p1');
+	void parsedAsString;
+
+	// These must keep compiling.
+	await kit.cache.counts.set('c1', { n: '3' });
+	await kit.cache.counts.set('c1', { n: { not: 'a number' } });
+	await kit.cache.counts.remember('c1', () => ({ n: '3' }));
+	await kit.cache.parsed.set('p1', '3');
+	await kit.cache.parsed.set('p1', { any: 'thing' });
+	await kit.cache.parsed.set('p1', null);
+	await kit.cache.parsed.remember('p1', () => Symbol('anything'));
+	const parsedRead: number | undefined = await kit.cache.parsed.get('p1');
+	void parsedRead;
+	await kit.close();
+}
+
+export {
+	configRefusals,
+	kitFromConfig,
+	severalInstances,
+	soleInstance,
+	unknownInputs,
+};

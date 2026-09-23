@@ -96,6 +96,57 @@ void loose;
 // @ts-expect-error `null` is what it gives, not what it accepts
 blanks.set('b1', null);
 
+// A field whose input is `unknown` — `z.coerce.number()` — takes any value
+// where one is written, and its key is still required. The schema is what
+// refuses a wrong value, at run time.
+const countCache = defineCache({
+	name: 'count',
+	key: (id: string) => id,
+	schema: z.object({ n: z.coerce.number() }),
+	ttl: 60,
+});
+const counts = bindCache(client, countCache);
+counts.set('c1', { n: '3' });
+counts.set('c1', { n: { not: 'a number' } });
+counts.set('c1', { n: undefined });
+counts.remember('c1', () => ({ n: '3' }));
+const countRead: Promise<number | undefined> = counts
+	.get('c1')
+	.then((count) => count?.n);
+void countRead;
+// @ts-expect-error `n` is still required: `unknown` is its value, not its key
+counts.set('c1', {});
+// @ts-expect-error a loader still gives the object, with its `n`
+counts.remember('c1', () => ({}));
+// @ts-expect-error the value is still the object, whatever `n` holds
+counts.set('c1', '3');
+// @ts-expect-error a key the schema does not have is still refused
+counts.set('c1', { n: 1, extra: 1 });
+
+// A whole `z.preprocess` schema takes anything where a value is written…
+const parsedCache = defineCache({
+	name: 'parsed',
+	key: (id: string) => id,
+	schema: z.preprocess((value) => Number(value), z.number()),
+	ttl: 60,
+});
+const parsed = bindCache(client, parsedCache);
+parsed.set('p1', '3');
+parsed.set('p1', { any: 'thing' });
+parsed.set('p1', null);
+parsed.set('p1', undefined);
+parsed.remember('p1', () => Symbol('anything'));
+const anyInput: InputOf<typeof parsedCache> = new Date();
+void anyInput;
+// …and gives back what the schema produces.
+const parsedRead: Promise<number | undefined> = parsed.get('p1');
+void parsedRead;
+// @ts-expect-error what is read is the number, not whatever was written
+const parsedAsString: Promise<string | undefined> = parsed.get('p1');
+void parsedAsString;
+// @ts-expect-error the key is still checked: it is built from a string
+parsed.set(1, '3');
+
 // The loader may be synchronous or not; both give the schema's shape.
 const remembered: Promise<typeof ada> = users.remember('u1', async () => ada);
 void remembered;
