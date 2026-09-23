@@ -33,7 +33,7 @@
     },
     "packages/drizzle": {
       "name": "@nxgt/drizzle",
-      "version": "0.4.1",
+      "version": "0.5.0",
       "devDependencies": {
         "@electric-sql/pglite": "0.5.8",
         "@types/bun": "^1.4.0",
@@ -46,7 +46,7 @@
     },
     "packages/drizzle-meilisearch": {
       "name": "@nxgt/drizzle-meilisearch",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "devDependencies": {
         "@electric-sql/pglite": "0.5.8",
         "@nxgt/drizzle": "workspace:^",

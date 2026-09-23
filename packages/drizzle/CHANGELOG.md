@@ -1,5 +1,13 @@
 # @nxgt/drizzle
 
+## 0.5.0
+
+### Minor Changes
+
+- [#98](https://github.com/softistx/nxgt-data/pull/98) [`62c09e2`](https://github.com/softistx/nxgt-data/commit/62c09e23186a77d87fd2a6d051bd2640fdcfc929) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Upsert, optimistic locking and actor stamps, with the names and shapes `@nxgt/mongo` uses. `repository.upsert(where, values)` inserts the row the `where` identifies or updates the live one there, in one `INSERT … ON CONFLICT (<the where's columns>) DO UPDATE`; the update half stamps `updatedAt`, `updatedBy` and the version and never moves `createdAt` or `createdBy`, an upsert with empty `values` on a row that is there writes nothing (no stamps, no version), a lock column with no default gets 0 on the insert half, a soft-deleted row there is a `ConflictError`, and a `where` no unique constraint covers is a `DataError` naming the columns. A table with an integer `NOT NULL` `version` column now locks: every update raises it, and `update(id, { …, version })` writes only while the row is still at that version, throwing the new `OptimisticLockError` (`code: 'OPTIMISTIC_LOCK'`, with `id`, `expectedVersion`, `actualVersion`) when it moved; `optimisticLock: false` makes `version` an ordinary column. `repository.as(actor)` and the `actor` option stamp `createdBy`/`updatedBy` on insert, `updatedBy` on update and `deletedBy` on a soft delete, which `restore` clears. New column helpers `version()` and `actors()`, and new types `ActorOf`, `LockOf`, `UpdatePatch`, `ManyPatch`, `UpsertWhere`, `UpsertWhereOf`, `UpsertValues`; `Repository`, `BaseRepository` and `RepositoryOptions` take a fourth parameter, `TLock`, which defaults from the table.
+  
+  Two things change for an existing table. One with an integer `NOT NULL` column under the key `version` starts locking: an `update` that set `version` now checks it instead of writing it, and every update raises it — pass `optimisticLock: false` to keep the old behaviour. And `DataErrorCode` gains `'OPTIMISTIC_LOCK'`, so an exhaustive `Record<DataErrorCode, …>` needs the new key.
+
 ## 0.4.1
 
 ### Patch Changes
