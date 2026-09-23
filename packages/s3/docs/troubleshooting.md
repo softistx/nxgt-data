@@ -1,9 +1,14 @@
 # Troubleshooting
 
-This package throws one error of its own, `S3Error`, with a `code` of
+This package's error class for refusals is `S3Error`, with a `code` of
 `WRONG_TYPE`, `TOO_LARGE`, `UNMEASURABLE` or `WRONG_OPTION`, and the object
 `key` it was about — never the body. Every one of them is raised **before**
-anything is sent, so a refused write stored nothing. The service's own
+anything is sent, so a refused write stored nothing. It throws two other
+kinds, for what is not the caller's input: a `TypeError` from `defineBucket`
+for a definition that could never work, and from `presignPost` when its
+secret is not the one Bun signs with (changed or deleted since the process
+started); and a plain `Error` from `presignPost` when the URL Bun signed
+cannot be read. Each has its entry below. The service's own
 failures come back as Bun raises them; the entries below say which is which.
 A wrong `acl` is this package's own refusal on a `put` **and** on the
 presigned calls, so one class and one code cover them all. A message reports what was

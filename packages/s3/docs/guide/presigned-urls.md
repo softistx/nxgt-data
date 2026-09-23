@@ -244,10 +244,27 @@ travels as `x-amz-security-token`.
 Bun reads those variables **once, when the process starts**, and this package
 reads them when the bucket is bound, so a variable changed or deleted in
 between would leave the two with different secrets. Before signing, then,
-`presignPost` recomputes the signature Bun put on its throwaway URL with its
-own secret, and refuses with a `TypeError` when they differ — a form the
-service would refuse is never handed out. Passing `secretAccessKey` to
-`bindBucket` keeps the environment out of it.
+`presignPost` checks its secret against Bun's, and refuses — a form the
+service would refuse is never handed out:
+
+- a variable **changed** since the process started: `presignPost` recomputes
+  the signature Bun put on its throwaway URL with its own secret, and refuses
+  with a `TypeError` when they differ
+  ([the secret … is not the one Bun signs with](../troubleshooting.md#presignpost-on-avatars-the-secret-access-key-this-package-would-sign-with-is-not-the-one-bun-signs-with-so-the-service-would-refuse-the-form-));
+- a variable **deleted** since: Bun still signs with the secret it read, this
+  package has none, and `presignPost` refuses with a `TypeError`
+  ([no secret access key to sign with, while Bun has one](../troubleshooting.md#presignpost-on-avatars-no-secret-access-key-to-sign-with-while-bun-has-one-)).
+
+Passing `secretAccessKey` to `bindBucket` keeps the environment out of both.
+
+Reading that throwaway URL can fail too. When it has no credential scope, no
+probe key at the end of its path, or a query value that is a malformed `%`
+escape — an access key id holding a `%` that is not an escape (`AK%zz`), which
+Bun writes into the URL unencoded, or a Bun that signs differently from the
+1.4.2 this package was measured on — `presignPost` throws a plain `Error`
+rather than guess where to post the form or as whom
+([the URL Bun signed has no credential scope](../troubleshooting.md#presignpost-on-avatars-the-url-bun-signed-has-no-credential-scope-or-not-the-key-at-the-end-of-its-path-so-there-is-nowhere-to-post-the-form-)).
+None of the three is an `S3Error`: none is the caller's input.
 
 ## A URL is signed for the bound bucket, whatever the options say
 

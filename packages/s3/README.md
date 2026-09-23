@@ -215,9 +215,14 @@ import it from `bun` where you need to name it.
 
 ## Errors
 
-`S3Error` is what this package throws, and **every one of them is thrown
-before anything is sent**. It carries a `code` and the object `key` — never
-the body, never a credential.
+`S3Error` is this package's error class for **refusals** — a write, a
+presigned URL or a presigned POST whose input the bucket does not accept — and
+**every one of them is thrown before anything is sent**. It carries a `code`
+and the object `key` — never the body, never a credential. The package throws
+two other kinds, both below the table: a `TypeError` from `defineBucket` for a
+definition that could never work, and from `presignPost` when its secret is
+not Bun's; and a plain `Error` from `presignPost` when the URL Bun signed
+cannot be read.
 
 ```ts
 if (error instanceof S3Error && error.code === 'TOO_LARGE') {
