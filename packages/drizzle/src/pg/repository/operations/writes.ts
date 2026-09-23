@@ -8,7 +8,13 @@ import {
 	run,
 } from '../context';
 import { byId, live, requireWhere, scoped } from '../filters';
-import { created, expecting, lockError, touched } from '../stamp-writes';
+import {
+	created,
+	expecting,
+	lockError,
+	touched,
+	unmoved,
+} from '../stamp-writes';
 import type { FindManyOptions } from '../types';
 import { findById, findMany, getById } from './reads';
 
@@ -43,6 +49,7 @@ export async function update(
 	given: AnyRow,
 ): Promise<AnyRow> {
 	const { patch, expected } = expecting(ctx, 'update', given);
+	unmoved(ctx, 'update', patch);
 	const set = touched(ctx, patch);
 	// Nothing to write, so nothing is written — and the row comes back as it
 	// stands, rather than an `UPDATE` that only raises the stamps. An expected
@@ -95,6 +102,7 @@ export async function updateMany(
 	patch: AnyRow,
 ): Promise<AnyRow[]> {
 	requireWhere(ctx, 'updateMany', where);
+	unmoved(ctx, 'updateMany', patch);
 	const set = touched(ctx, expecting(ctx, 'updateMany', patch).patch);
 	if (Object.keys(set).length === 0) {
 		return findMany(ctx, { where: where as FindManyOptions<any>['where'] });

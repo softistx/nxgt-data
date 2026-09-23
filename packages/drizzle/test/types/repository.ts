@@ -2,7 +2,7 @@
 // is a call that must not compile: if it compiles, tsc reports the unused
 // directive.
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { CursorPage, Page } from '../../src';
 import {
 	createRepository,
@@ -56,6 +56,21 @@ await userRepo.update('x', { name: null });
 // @ts-expect-error email is not nullable
 await userRepo.update('x', { email: null });
 
+// No update moves a row's key: the patch has no primary key.
+// @ts-expect-error the id is the row's key, not a value to write
+await userRepo.update('x', { id: 'y' });
+// @ts-expect-error not through a variable either
+await userRepo.update('x', { name: 'Ada', id: 'y' } as {
+	name: string;
+	id: string;
+});
+// @ts-expect-error nor on many rows
+await teamRepo.updateMany({ name: 'a' }, { id: 2 });
+// @ts-expect-error nor as SQL
+await teamRepo.updateMany({ name: 'a' }, { id: sql`${teams.id} + 1` });
+// An undefined id writes nothing, as any undefined value does.
+await userRepo.update('x', { id: undefined, name: 'Ada' });
+
 // where objects are typed by column.
 await userRepo.findMany({ where: { email: 'a', name: null } });
 // @ts-expect-error email is a string
@@ -87,6 +102,12 @@ await createRepository(db, logs).delete('x');
 // …unless primaryKey names a column.
 const byRole = createRepository(db, memberships, { primaryKey: 'role' });
 await byRole.findById('owner');
+// The key a repository is given is its key: no update moves it either.
+// @ts-expect-error role is this repository's key
+await byRole.update('owner', { role: 'admin' });
+// The other columns of a composite key are refused at run time only: the
+// column types do not say which columns the key covers.
+await members.updateMany({ role: 'owner' }, { teamId: 2 });
 // @ts-expect-error no such column
 createRepository(db, memberships, { primaryKey: 'nope' });
 

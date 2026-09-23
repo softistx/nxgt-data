@@ -17,6 +17,11 @@ export interface TableInfo {
 	/** By key on the table object, which is also the key on a row. */
 	columns: Record<string, PgColumn>;
 	primaryKey: StampColumn | { error: string };
+	/**
+	 * The keys no update moves: every column of the declared primary key,
+	 * composite or not, and the column the methods by id address rows by.
+	 */
+	keys: string[];
 	deletedAt: StampColumn | undefined;
 	updatedAt: StampColumn | undefined;
 	/** The optimistic lock's column, when the repository locks. */
@@ -56,6 +61,7 @@ export function tableInfo(
 		name,
 		columns,
 		primaryKey,
+		keys: keysOf(table, columns, primaryKey),
 		deletedAt: options.softDelete !== false ? at('deletedAt') : undefined,
 		updatedAt: options.touchUpdatedAt !== false ? at('updatedAt') : undefined,
 		version: versionOf(name, at('version'), options.optimisticLock),
@@ -94,6 +100,29 @@ function versionOf(
 		);
 	}
 	return counts ? column : undefined;
+}
+
+/**
+ * The keys of the declared primary key's columns — `.primaryKey()` on one, or
+ * `primaryKey({ columns })` on several — and of the column rows are addressed
+ * by, when it is another one: `primaryKey` names it, or it is the `id` a table
+ * with no declared key falls back on.
+ */
+function keysOf(
+	table: PgTable,
+	columns: Record<string, PgColumn>,
+	addressed: TableInfo['primaryKey'],
+): string[] {
+	const composite = (getTableConfig(table).primaryKeys[0]?.columns ?? []).map(
+		(column) => column.name,
+	);
+	const keys = Object.entries(columns)
+		.filter(([, column]) => column.primary || composite.includes(column.name))
+		.map(([key]) => key);
+	if ('key' in addressed && !keys.includes(addressed.key)) {
+		keys.push(addressed.key);
+	}
+	return keys;
 }
 
 function primaryKeyOf(

@@ -72,6 +72,11 @@ await ticketRepo.update('x', { version: sql`${tickets.version} + 1` });
 await ticketRepo.updateMany({ slug: 'a' }, { title: 'b' });
 // @ts-expect-error updateMany refuses a version
 await ticketRepo.updateMany({ slug: 'a' }, { version: 3 });
+// A repository that locks refuses the primary key the same way.
+// @ts-expect-error update never moves a row's key
+await ticketRepo.update('x', { id: 'y', version: 3 });
+// @ts-expect-error nor does updateMany
+await ticketRepo.updateMany({ slug: 'a' }, { id: 'y' });
 
 // With the lock off, `version` is an ordinary column again.
 const unlocked = createRepository(db, tickets, { optimisticLock: false });

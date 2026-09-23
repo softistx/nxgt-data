@@ -10,7 +10,13 @@ import { sql } from 'drizzle-orm';
 import { integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import { createTestDb } from '../../../../test/db';
 import { rejection } from '../../../../test/rejection';
-import { posts, teams, tickets, users } from '../../../../test/schema';
+import {
+	memberships,
+	posts,
+	teams,
+	tickets,
+	users,
+} from '../../../../test/schema';
 import { ArgumentError } from '../../../errors/argument-error';
 import {
 	ConflictError,
@@ -136,6 +142,20 @@ describe('upsert', () => {
 			{ title: 'B', id: crypto.randomUUID() },
 		);
 		expect(second).toMatchObject({ id: chosen, title: 'B' });
+	});
+
+	test('no column of a composite key moves a row that is there either', async () => {
+		const repo = createRepository(t.db, memberships);
+		const first = await repo.upsert(
+			{ teamId: 1, role: 'owner' },
+			{ userId: ada },
+		);
+		const second = await repo.upsert(
+			{ teamId: 1, role: 'owner' },
+			{ userId: grace },
+		);
+		expect(second).toEqual(first);
+		expect(await repo.count()).toBe(1);
 	});
 
 	test('nothing to write leaves an $onUpdate column as it was', async () => {

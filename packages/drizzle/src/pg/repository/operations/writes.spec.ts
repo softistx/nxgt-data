@@ -8,7 +8,14 @@ import {
 } from 'bun:test';
 import { sql } from 'drizzle-orm';
 import { createTestDb } from '../../../../test/db';
-import { posts as postsTable, teams, users } from '../../../../test/schema';
+import { rejection } from '../../../../test/rejection';
+import {
+	memberships,
+	posts as postsTable,
+	teams,
+	tickets,
+	users,
+} from '../../../../test/schema';
 import { ArgumentError } from '../../../errors/argument-error';
 import {
 	ConflictError,
@@ -145,6 +152,89 @@ describe('update', () => {
 		expect(refused).toHaveProperty('argument', 'where');
 		expect(await posts.updateMany(sql`true`, { rank: 5 })).toHaveLength(3);
 		expect(await posts.updateMany({ rank: 5 }, {})).toHaveLength(3);
+	});
+});
+
+describe('the primary key', () => {
+	const moving = (key: string) =>
+		`"${key}" is a primary-key column, which an update never moves. Leave it out; a row that needs another key is a new row`;
+
+	async function refused(write: Promise<unknown>, message: string) {
+		const error = await rejection(write);
+		expect(error).toBeInstanceOf(ArgumentError);
+		expect(error).toHaveProperty('argument', 'patch');
+		expect((error as Error).message).toBe(message);
+		return error;
+	}
+
+	test('update and updateMany refuse a patch that names it, value or SQL, and write nothing', async () => {
+		const { users, teams } = repos();
+		const ada = await users.create({ email: 'ada@example.com' });
+		const other = crypto.randomUUID();
+		const error = await refused(
+			users.update(ada.id, { id: other, name: 'Ada' } as never),
+			`update on "users": ${moving('id')}`,
+		);
+		expect(error).toHaveProperty('key', 'id');
+		expect((error as Error).message).not.toContain(other);
+		const team = await teams.create({ name: 'A' });
+		await refused(
+			teams.update(team.id, { id: sql`${teams.table.id} + 1` } as never),
+			`update on "teams": ${moving('id')}`,
+		);
+		await refused(
+			teams.updateMany({ name: 'A' }, { id: 2 } as never),
+			`updateMany on "teams": ${moving('id')}`,
+		);
+		expect(await users.findMany()).toEqual([ada]);
+		expect(await teams.findMany()).toEqual([team]);
+	});
+
+	test('an undefined key writes nothing, as any undefined value does', async () => {
+		const { posts } = repos();
+		const post = await posts.create({ title: 'a', rank: 1 });
+		const updated = await posts.update(post.id, { id: undefined, title: 'b' });
+		expect(updated).toMatchObject({ id: post.id, title: 'b' });
+	});
+
+	test('a repository that locks refuses it with a version too', async () => {
+		const repo = createRepository(t.db, tickets);
+		const row = await repo.create({ slug: 'a', title: 'A' });
+		await refused(
+			repo.update(row.id, { id: crypto.randomUUID(), version: 0 } as never),
+			`update on "tickets": ${moving('id')}`,
+		);
+		expect((await repo.getById(row.id)).version).toBe(0);
+	});
+
+	test('every column of a composite key is refused, and the key a repository is given', async () => {
+		const members = createRepository(t.db, memberships);
+		const row = await members.create({
+			userId: crypto.randomUUID(),
+			teamId: 1,
+			role: 'owner',
+		});
+		for (const patch of [{ userId: crypto.randomUUID() }, { teamId: 2 }]) {
+			const [key] = Object.keys(patch) as [string];
+			await refused(
+				members.updateMany({ role: 'owner' }, patch),
+				`updateMany on "memberships": ${moving(key)}`,
+			);
+		}
+		const byRole = createRepository(t.db, memberships, { primaryKey: 'role' });
+		await refused(
+			byRole.update('owner', { role: 'admin' } as never),
+			`update on "memberships": ${moving('role')}`,
+		);
+		await refused(
+			byRole.update('owner', { teamId: 2 }),
+			`update on "memberships": ${moving('teamId')}`,
+		);
+		expect(await members.findMany()).toEqual([row]);
+		// A column outside the key is written as ever.
+		expect(
+			await members.updateMany({ role: 'owner' }, { role: 'admin' }),
+		).toEqual([{ ...row, role: 'admin' }]);
 	});
 });
 
