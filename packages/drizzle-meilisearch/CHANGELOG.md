@@ -1,5 +1,16 @@
 # @nxgt/drizzle-meilisearch
 
+## 0.2.0
+
+### Minor Changes
+
+- [#90](https://github.com/softistx/nxgt-data/pull/90) [`7fd298c`](https://github.com/softistx/nxgt-data/commit/7fd298ccb60930690864a24f597a92b0b6c27e7b) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `reindexAll({ onPage })` reports where a reindex is: after each page is applied, `onPage` is called with the running `pages`, `indexed` and `skipped`, and awaited when it returns a promise. A callback that throws stops the reindex — it rejects as a `SearchSyncError` with `FAILED`, the message `failed reporting progress: …` and the callback's error as `cause`, even when that error is itself a `SearchSyncError` — which is also how to stop one on purpose. An empty table is one page: `onPage` is called once, with zeros. `ReindexOptions` and `ReindexProgress` are exported.
+
+### Patch Changes
+
+- Updated dependencies [[`c4069fc`](https://github.com/softistx/nxgt-data/commit/c4069fcdddc6efb3e74ec352f42c094a7d285fb1)]:
+  - @nxgt/meilisearch@0.3.0
+
 ## 0.1.0
 
 ### Minor Changes

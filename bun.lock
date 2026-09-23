@@ -46,7 +46,7 @@
     },
     "packages/drizzle-meilisearch": {
       "name": "@nxgt/drizzle-meilisearch",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@electric-sql/pglite": "0.5.8",
         "@nxgt/drizzle": "workspace:^",
@@ -65,7 +65,7 @@
     },
     "packages/meilisearch": {
       "name": "@nxgt/meilisearch",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "devDependencies": {
         "@types/bun": "^1.4.0",
         "meilisearch": "0.62.0",
@@ -92,7 +92,7 @@
     },
     "packages/mongo-kit": {
       "name": "@nxgt/mongo-kit",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "devDependencies": {
         "@nxgt/mongo": "workspace:^",
         "@types/bun": "^1.4.0",
@@ -108,7 +108,7 @@
     },
     "packages/mongo-meilisearch": {
       "name": "@nxgt/mongo-meilisearch",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "devDependencies": {
         "@nxgt/meilisearch": "workspace:^",
         "@nxgt/mongo": "workspace:^",
@@ -128,7 +128,7 @@
     },
     "packages/mongo-search-kit": {
       "name": "@nxgt/mongo-search-kit",
-      "version": "0.1.7",
+      "version": "0.2.0",
       "devDependencies": {
         "@nxgt/meilisearch": "workspace:^",
         "@nxgt/mongo": "workspace:^",
@@ -152,7 +152,7 @@
     },
     "packages/redis": {
       "name": "@nxgt/redis",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "devDependencies": {
         "@types/bun": "^1.4.0",
         "redis-memory-server": "0.17.1",
@@ -165,7 +165,7 @@
     },
     "packages/redis-kit": {
       "name": "@nxgt/redis-kit",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@nxgt/redis": "workspace:^",
         "@types/bun": "^1.4.0",

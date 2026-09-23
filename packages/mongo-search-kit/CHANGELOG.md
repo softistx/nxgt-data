@@ -1,5 +1,19 @@
 # @nxgt/mongo-search-kit
 
+## 0.2.0
+
+### Minor Changes
+
+- [#88](https://github.com/softistx/nxgt-data/pull/88) [`f239d6a`](https://github.com/softistx/nxgt-data/commit/f239d6ad21fd6256e733f4326b4b78ed6d981bd2) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `search.syncIndexes(options?)` brings every index the search kit wires in line with its definition — created with its primary key when missing, only the settings that differ updated — one after another, and reports `@nxgt/meilisearch`'s `SyncReport` under each key. `dryRun` and `wait` pass through; the first index that throws stops the rest. A deployment is now `kit.sync()` and `search.syncIndexes()`, rather than one `syncIndex` per index.
+
+### Patch Changes
+
+- [#91](https://github.com/softistx/nxgt-data/pull/91) [`e780c55`](https://github.com/softistx/nxgt-data/commit/e780c55369210697254b47043b92fc4efec25af4) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Docs: each entry's sync now takes a lease on its name (from `@nxgt/mongo-meilisearch` 0.3.0), so a second process is refused with `RUNNING` and `leaseMs` is an entry option; `LEASE_LOST` can reject `failed`. The "no lock today" trap is gone.
+- Updated dependencies [[`c4069fc`](https://github.com/softistx/nxgt-data/commit/c4069fcdddc6efb3e74ec352f42c094a7d285fb1), [`01063a5`](https://github.com/softistx/nxgt-data/commit/01063a51728a7ff1b0a24281842d2e7d8bd1ea2c), [`e780c55`](https://github.com/softistx/nxgt-data/commit/e780c55369210697254b47043b92fc4efec25af4)]:
+  - @nxgt/meilisearch@0.3.0
+  - @nxgt/mongo-kit@0.3.0
+  - @nxgt/mongo-meilisearch@0.3.0
+
 ## 0.1.7
 
 ### Patch Changes

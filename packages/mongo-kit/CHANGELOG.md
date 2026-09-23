@@ -1,5 +1,11 @@
 # @nxgt/mongo-kit
 
+## 0.3.0
+
+### Minor Changes
+
+- [#87](https://github.com/softistx/nxgt-data/pull/87) [`01063a5`](https://github.com/softistx/nxgt-data/commit/01063a51728a7ff1b0a24281842d2e7d8bd1ea2c) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `kit.ping(options?)` sends `ping` to every database the kit wires, at once, and reports `@nxgt/mongo`'s `PingResult` under each database's name — `{ ok: true, latencyMs }` or `{ ok: false, error }` — for a health endpoint. It never throws and answers within `timeoutMS` (2 s by default) even for a `client` the configuration handed over unconnected, whose first connect the driver bounds by `serverSelectionTimeoutMS` instead. Every kit answers, derived ones included.
+
 ## 0.2.1
 
 ### Patch Changes
