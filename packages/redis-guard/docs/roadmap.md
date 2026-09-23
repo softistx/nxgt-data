@@ -5,18 +5,19 @@ an item shipped in is the only number on this page.
 
 ## Now
 
-_Nothing: rate limits shipped, idempotency is next._
+_Nothing: idempotency shipped; its lease heartbeat and `wait` are next._
 
 ## Next
 
-- **Idempotency** — `run(key, work)`: the first call with a key runs `work`
-  and keeps its result; a repeat with the same key gets that result back
-  instead of running it again. The request is fingerprinted, so the same key
-  sent with a different body is refused (`MISMATCH`) rather than answered with
-  somebody else's result, and a repeat that arrives while the first is still
-  running is refused (`IN_PROGRESS`) rather than run beside it. The running
-  call holds a lease, so a process that dies mid-work frees the key when the
-  lease runs out rather than never.
+- **A heartbeat for the lease** — while `work` runs, `run` renews its lease,
+  so work longer than `lease` is no longer at risk of running twice; `lease`
+  then only bounds how long a **crashed** run holds the key. `LEASE_LOST`
+  remains for a run that could not renew — a connection lost for longer than
+  the lease.
+- **`wait`** — an option for `run` to wait for a running key's result,
+  up to a deadline, instead of rejecting at once with `IN_PROGRESS`: a
+  repeat then gets the replay, or `work` if the first run failed and gave the
+  key back.
 
 ## Later
 
@@ -25,8 +26,8 @@ _Nothing: rate limits shipped, idempotency is next._
   [HTTP recipe](guide/rate-limits.md#http-headers-for-any-framework): until
   then the recipe is a dozen lines for any framework, and a subpath would be
   one more peer to keep in step.
-- **Wiring in `@nxgt/redis-kit`** — rate limits bound under the kit's
-  instances and prefixes, as its caches are.
+- **Wiring in `@nxgt/redis-kit`** — rate limits and idempotent operations
+  bound under the kit's instances and prefixes, as its caches are.
 
 ## Not planned
 
@@ -39,7 +40,14 @@ _Nothing: rate limits shipped, idempotency is next._
   per key, with no counter per window and no sorted set per caller.
 - **An in-memory fallback** — a limit that silently becomes per-process when
   Redis is down is not the limit you defined. A failed call fails, with
-  Redis's own error.
+  Redis's own error. The same holds for idempotency.
+- **Storing thrown errors** — an error from `work` gives the key back, so the
+  next call runs again. A failure that must replay is a result: a union member
+  of the schema, which the types check and a replay parses like any other.
+- **Treating an unreadable stored result as a miss** — as a cache would. A
+  stored result stands for work that already happened; running it again
+  would do it twice. It is `INVALID`, and `forget` is the deliberate way to
+  run again.
 
 ## Shipped
 
@@ -48,3 +56,11 @@ _Nothing: rate limits shipped, idempotency is next._
   `enforce`, `peek` and `reset`, a `cost` per call, and results as delays in
   milliseconds, counted in exact integers. Its error is `GuardError`, with
   `RATE_LIMITED` and `COST` — 0.1.0.
+- **Idempotency** — `defineIdempotency` / `bindIdempotency`, with `run` and
+  `forget`: the first call with a key runs `work` and keeps its result, checked
+  by a zod schema; a repeat gets that result back without running it again. A
+  different fingerprint is refused (`MISMATCH`), a repeat during the first run
+  is refused (`IN_PROGRESS`, with `retryAfter`), and an error thrown by `work`
+  is never stored. The running call holds a lease, not yet renewed, so a
+  process that dies mid-work frees the key when the lease runs out rather
+  than never. `zod` became a required peer — 0.2.0.
