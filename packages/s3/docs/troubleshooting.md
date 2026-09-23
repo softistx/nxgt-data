@@ -35,6 +35,7 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [``presignPost on "avatars": this bucket accepts image/png, image/jpeg, and a prefix would let another type through. …``](#presignpost-on-avatars-this-bucket-accepts-imagepng-imagejpeg-and-a-prefix-would-let-another-type-through-pass-one-of-them-as-type-)
   - [`presignPost on "uploads": type is a content type or { startsWith }; got a number`](#presignpost-on-uploads-type-is-a-content-type-or--startswith--got-a-number)
   - [`"avatars" accepts image/png, image/jpeg, not application/pdf (presignPost)`](#avatars-accepts-imagepng-imagejpeg-not-applicationpdf-presignpost)
+  - [`presignPost on "avatars": no secret access key to sign with. …`](#presignpost-on-avatars-no-secret-access-key-to-sign-with-pass-secretaccesskey-to-bindbucket-or-set-s3_secret_access_key-or-aws_secret_access_key)
 - **The service**
   - [`Missing S3 credentials. 'accessKeyId', 'secretAccessKey', 'bucket', and 'endpoint' are required`](#missing-s3-credentials-accesskeyid-secretaccesskey-bucket-and-endpoint-are-required)
   - [`The AWS Access Key Id you provided does not exist in our records.`](#the-aws-access-key-id-you-provided-does-not-exist-in-our-records)
@@ -226,7 +227,7 @@ authenticated-read, bucket-owner-read, bucket-owner-full-control,
 log-delivery-write; got "everyone"
 ```
 
-**When:** `put`, `presignGet` or `presignPut` with an `acl` that is not one
+**When:** `put`, `presignGet`, `presignPut` or `presignPost` with an `acl` that is not one
 of those. Both paths go through the same allowlist since 0.3.0; before it,
 `presign` handed the value to the client, which refused it with a plain
 `TypeError` that quoted **every accepted value** (`must be one of "private",
@@ -245,8 +246,8 @@ const url = avatars.presignPut({ userId }, { acl: 'private', expiresIn: 300 });
 
 ### `expiresIn is seconds, and must be above 0 and at most 604800 (seven days, which is S3's own limit); got 1000000000000`
 
-**When:** `presignGet` or `presignPut` with an `expiresIn` that is not a
-finite number of seconds inside S3's range.
+**When:** `presignGet`, `presignPut` or `presignPost` with an `expiresIn`
+that is not a finite number of seconds inside S3's range.
 **Why:** an `S3Error` with `code: 'WRONG_OPTION'`, raised before anything is
 signed. Measured on bun 1.4.2, the client refuses `0` and below with a
 `TypeError` of its own and **signs** `1e12` happily — a URL the service then
@@ -264,9 +265,11 @@ anyone can forward.
 
 Every entry here is an `S3Error` from `presignPost`, raised before anything
 is signed, so no form was handed out. The option values usually come off a
-request body: answer `WRONG_OPTION` and `WRONG_TYPE` with a 400. A message
-from these checks reports the **shape** of what it was given — `a string`,
-`a fraction` — never the value.
+request body: answer `WRONG_OPTION` and `WRONG_TYPE` with a 400. The size
+and `type`-shape messages below report the **shape** of what they were given
+— `a string`, `a fraction` — not the value. The checks `presignPost` shares
+with `put` still quote it: a refused content type (`not application/pdf`), and
+an `acl` or an `expiresIn` (`got "everyone"`), whose entries are above.
 
 ### ``presignPost on "uploads": this bucket has no maxSize, and a presigned POST is a bound on what a browser uploads. Pass `maxSize`, in bytes``
 
@@ -340,6 +343,18 @@ is the default; with several, the caller says which one this upload is.
 const form = avatars.presignPost({ userId }, { type: 'image/jpeg' });
 ```
 
+### ``presignPost on "avatars": no secret access key to sign with. Pass `secretAccessKey` to bindBucket, or set S3_SECRET_ACCESS_KEY or AWS_SECRET_ACCESS_KEY``
+
+**When:** not through `bindBucket` — a `TypeError`, not an `S3Error`, and it
+guards a bucket context built some other way. `bindBucket` resolves the secret
+from the same option and the same two variables Bun reads, when the client is
+made, so a missing secret is Bun's `ERR_S3_MISSING_CREDENTIALS` first (the
+next section) — both are pinned in `presign-post.spec.ts`.
+**Why:** a POST policy is signed with the secret, and Bun's client never hands
+its own back.
+**Fix:** give `bindBucket` a `secretAccessKey`, or set one of the variables
+before binding.
+
 ## The service
 
 ### `Missing S3 credentials. 'accessKeyId', 'secretAccessKey', 'bucket', and 'endpoint' are required`
@@ -408,7 +423,10 @@ big".
 `<Code>AccessDenied</Code>`, measured on SeaweedFS 4.47 for each of: another
 `Content-Type`, the same type in another case (`IMAGE/PNG`) or with a
 parameter (`;charset=utf-8`), another `key`, another `acl`, and a
-`Content-Type` field missing when the policy names one.
+`Content-Type` field missing when the policy fixes one or holds it to a
+prefix. A bucket that names no type, signed with no `type`, is the exception:
+its form posts with no `Content-Type` field — measured, `204`, stored as
+`application/octet-stream`.
 **Why:** the policy compares each field **exactly**. The usual cause is code
 that rebuilds the form instead of posting `fields` as given — or a
 `{ startsWith }` form posted without the browser's own `Content-Type` field.

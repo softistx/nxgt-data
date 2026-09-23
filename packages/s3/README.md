@@ -148,12 +148,13 @@ const body = new FormData();
 for (const [name, value] of Object.entries(fields)) body.append(name, value);
 body.append('file', input.files[0]);
 const response = await fetch(url, { method: 'POST', body });
-// 204 when stored; 400 EntityTooLarge over maxSize; 403 AccessDenied otherwise
+// 204 when stored; 400 EntityTooLarge over maxSize, 400 EntityTooSmall under
+// minSize; 403 AccessDenied for another type, key or acl, or once expired
 ```
 
 | `PresignPostOptions` | |
 | --- | --- |
-| `expiresIn` | seconds, 1 to 604 800, as for the other presigned calls. A day when left out |
+| `expiresIn` | seconds: above 0 and at most 604 800, as for the other presigned calls. A day when left out |
 | `maxSize` | the biggest body in bytes. Defaults to the bucket's `maxSize` and cannot be above it; a bucket without one **requires** it |
 | `minSize` | the smallest body in bytes, `0` by default |
 | `type` | the one content type the form carries, or `{ startsWith: 'image/' }`. Defaults to the bucket's `contentType` when that is a single type; a bucket that names several needs one of them. A prefix is only for a bucket that names none, and the browser then appends its own `Content-Type` field before the file |
@@ -165,7 +166,15 @@ a body over the range is refused `400 EntityTooLarge`, under it
 `400 EntityTooSmall`, and another type, another key or an expired form
 `403 AccessDenied`. Bun's `S3Client` has no POST presigning, so this package
 signs the policy itself (SigV4, `node:crypto`), for the same endpoint, region
-and credentials Bun signs a `presignPut` for.
+and access key Bun signs a `presignPut` for. The secret is the one
+`bindBucket` was given, or else `S3_SECRET_ACCESS_KEY`, then
+`AWS_SECRET_ACCESS_KEY` — the variables Bun reads.
+
+On a bucket that names no content type, and with no `type`, `fields` carries
+no `Content-Type` and the form above works as written — measured, `204`. The
+object is then stored as `application/octet-stream`, whatever the file part
+says: append `body.append('Content-Type', file.type)` before the file to keep
+its type.
 
 ### Listing
 
@@ -268,9 +277,9 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   type matters, use `presignPost`**, whose policy the service enforces.
 - **A presigned POST's type is compared exactly, not on its essence.** The
   service matches the form's `Content-Type` field against the policy byte for
-  byte — measured, `IMAGE/PNG` is refused for `image/png`, and
-  `text/plain;charset=utf-8` for `text/plain`. The field is in `fields`, so post it as given; do not let the
-  browser rewrite it. `put`'s own guard is the lenient one.
+  byte — measured, `IMAGE/PNG` and `image/png;charset=utf-8` are both
+  refused for `image/png`. The field is in `fields`, so post it as given; do
+  not let the browser rewrite it. `put`'s own guard is the lenient one.
 - **Post the file last.** S3 documents that a field after the file is
   ignored, so `fields` go first and `file` after them.
 - **A body whose size cannot be known is refused, not streamed.** With

@@ -21,16 +21,17 @@ const csv = () => bindBucket(reports, servers.s3.options);
 /**
  * What a browser does with the form: every field, then the file, last. The
  * service's answer is XML; its `<Code>` and `<Message>` are what is asserted,
- * as measured against SeaweedFS 4.47.
+ * as measured against SeaweedFS 4.47. `change` replaces a field, adds one,
+ * or — given `undefined` — leaves one out.
  */
 async function upload(
 	form: PresignedPost,
 	body: Blob,
-	change: Record<string, string> = {},
+	change: Record<string, string | undefined> = {},
 ) {
 	const data = new FormData();
 	for (const [name, value] of Object.entries({ ...form.fields, ...change })) {
-		data.append(name, value);
+		if (value !== undefined) data.append(name, value);
 	}
 	data.append('file', body);
 	const response = await fetch(form.url, { method: 'POST', body: data });
@@ -109,7 +110,56 @@ describe('a presigned POST, against the service', () => {
 		expect(
 			await upload(form, blob(10), { 'Content-Type': 'IMAGE/PNG' }),
 		).toEqual(denied);
+		expect(
+			await upload(form, blob(10), {
+				'Content-Type': 'image/png;charset=utf-8',
+			}),
+		).toEqual(denied);
+		// Leaving the field out is not leaving the condition out.
+		expect(await upload(form, blob(10), { 'Content-Type': undefined })).toEqual(
+			denied,
+		);
 		expect(await bucket.exists({ userId: 'u1' })).toBe(false);
+	});
+
+	test('is refused by the service for another acl', async () => {
+		const form = store().presignPost(
+			{ userId: 'u1' },
+			{ type: 'image/png', acl: 'private' },
+		);
+		expect(await upload(form, blob(10), { acl: 'public-read' })).toMatchObject({
+			status: 403,
+			code: 'AccessDenied',
+			message: 'Invalid according to Policy: Policy Condition failed',
+		});
+	});
+
+	test('is refused by the service for a field the policy does not name', async () => {
+		const form = store().presignPost({ userId: 'u1' }, { type: 'image/png' });
+		expect(await upload(form, blob(10), { 'x-amz-meta-foo': 'bar' })).toEqual({
+			status: 403,
+			code: 'AccessDenied',
+			message:
+				'Invalid according to Policy: Extra input fields: X-Amz-Meta-Foo',
+		});
+	});
+
+	test('works exactly as the README posts it, on a bucket that names no type', async () => {
+		// `fields`, then the file — nothing appended. The policy's
+		// `starts-with $Content-Type ""` does not require the field: measured,
+		// 204. The file part's own type is **not** what is stored.
+		const bucket = anything();
+		const params = { folder: 'f', name: 'readme' };
+		const form = bucket.presignPost(params, { maxSize: 100 });
+		expect(form.fields['Content-Type']).toBeUndefined();
+		const body = new FormData();
+		for (const [name, value] of Object.entries(form.fields)) {
+			body.append(name, value);
+		}
+		body.append('file', new Blob(['0123456789'], { type: 'image/png' }));
+		const response = await fetch(form.url, { method: 'POST', body });
+		expect(response.status).toBe(204);
+		expect((await bucket.stat(params))?.type).toBe('application/octet-stream');
 	});
 
 	test('is refused by the service for another key', async () => {
@@ -130,6 +180,10 @@ describe('a presigned POST, against the service', () => {
 		expect(form.fields['Content-Type']).toBeUndefined();
 		expect(
 			await upload(form, blob(10), { 'Content-Type': 'text/plain' }),
+		).toMatchObject({ status: 403, code: 'AccessDenied' });
+		// A prefix other than "" needs the field: without it, refused.
+		expect(
+			await upload(form, new Blob([bytes(10)], { type: 'image/png' })),
 		).toMatchObject({ status: 403, code: 'AccessDenied' });
 		expect(
 			await upload(form, blob(10), { 'Content-Type': 'image/gif' }),
@@ -326,5 +380,44 @@ describe('a presigned POST, on a clock of its own', () => {
 		};
 		expect(expiry({ expiresIn: 60 })).toBe('2026-01-01T00:01:00.000Z');
 		expect(expiry()).toBe('2026-01-02T00:00:00.000Z');
+	});
+});
+
+describe('a presigned POST with no secret to sign with', () => {
+	// The environment could supply one; these hold only where it does not.
+	const unset = !Bun.env.S3_SECRET_ACCESS_KEY && !Bun.env.AWS_SECRET_ACCESS_KEY;
+
+	test.if(unset)('is Bun’s own error, as for the other presigned calls', () => {
+		const bucket = bindBucket(avatars, {
+			endpoint: servers.s3.endpoint,
+			accessKeyId: 'a-key',
+		});
+		let caught: unknown;
+		try {
+			bucket.presignPost({ userId: 'u1' }, { type: 'image/png' });
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).not.toBeInstanceOf(S3Error);
+		expect((caught as { code?: string }).code).toBe(
+			'ERR_S3_MISSING_CREDENTIALS',
+		);
+	});
+
+	test('is a TypeError when only the context lacks it', () => {
+		// Not reachable through `bindBucket`, which resolves the secret as Bun
+		// does. A context put together by hand is the only way here.
+		const client = new S3Client({ ...servers.s3.options, bucket: 'avatars' });
+		const context = {
+			...bucketContext(client, avatars, 'unused'),
+			secretAccessKey: undefined,
+		};
+		expect(() =>
+			presignPostForm(context, { userId: 'u1' }, { type: 'image/png' }),
+		).toThrow(
+			'presignPost on "avatars": no secret access key to sign with. Pass ' +
+				'`secretAccessKey` to bindBucket, or set S3_SECRET_ACCESS_KEY or ' +
+				'AWS_SECRET_ACCESS_KEY',
+		);
 	});
 });

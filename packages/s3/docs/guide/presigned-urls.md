@@ -129,7 +129,7 @@ stores anything: the key, a size range and the content type.
 presignPost(params: P, options?: PresignPostOptions): PresignedPost;
 
 interface PresignPostOptions {
-	expiresIn?: number;                         // seconds, 1..604800; a day by default
+	expiresIn?: number;                         // seconds, above 0, at most 604800; a day by default
 	maxSize?: number;                           // bytes; the bucket's maxSize by default
 	minSize?: number;                           // bytes; 0 by default
 	type?: string | { startsWith: string };     // the bucket's single type by default
@@ -167,6 +167,18 @@ body.append('file', file);                      // last: S3 ignores fields after
 const response = await fetch(form.url, { method: 'POST', body });
 response.status;                                // 204 when stored
 ```
+
+`fields` carries the access key id, in `x-amz-credential`, and a session
+token when one is set, in `x-amz-security-token` — as a presigned URL carries
+them in its query string. Never the secret: the policy is signed with it, and
+the signature is all that travels.
+
+On a bucket that names no type, with no `type` given, `fields` has no
+`Content-Type`, and the form posts as written: measured, `204`. The object is
+stored as `application/octet-stream` — SeaweedFS does not take the file part's
+own type — so append `body.append('Content-Type', file.type)` before the file
+when the type matters. With `{ startsWith }` that field is **required**:
+measured, a form posted without it is refused `403 AccessDenied`.
 
 ### What each option becomes
 
@@ -207,7 +219,8 @@ Measured against SeaweedFS 4.47's S3 gateway, each one in
 | within the policy | `204` | — | — |
 | over `maxSize` | `400` | `EntityTooLarge` | `Your proposed upload exceeds the maximum allowed object size.` |
 | under `minSize` | `400` | `EntityTooSmall` | `Your proposed upload is smaller than the minimum allowed object size.` |
-| another `Content-Type`, another `key` | `403` | `AccessDenied` | `Invalid according to Policy: Policy Condition failed` |
+| another `Content-Type` (another case, a `;charset`), none where the policy names one, another `key`, another `acl` | `403` | `AccessDenied` | `Invalid according to Policy: Policy Condition failed` |
+| a field the policy does not name | `403` | `AccessDenied` | `Invalid according to Policy: Extra input fields: X-Amz-Meta-Foo` |
 | after `expiresIn` | `403` | `AccessDenied` | `Invalid according to Policy: Policy expired` |
 
 `maxSize` is inclusive: exactly `maxSize` bytes is stored. The type is
@@ -253,7 +266,7 @@ there too: `form.url` is still the bound bucket's.
 
 ```ts
 import { Hono } from 'hono';
-import { bindBucket, defineBucket } from '@nxgt/s3';
+import { bindBucket, defineBucket, S3Error } from '@nxgt/s3';
 
 const avatars = defineBucket({
 	bucket: 'avatars',
@@ -270,7 +283,13 @@ const app = new Hono();
 app.post('/users/:id/avatar/upload-form', async (c) => {
 	const userId = c.req.param('id');
 	const { type } = await c.req.json<{ type: string }>();
-	return c.json(store.presignPost({ userId }, { type, expiresIn: 120 }));
+	try {
+		return c.json(store.presignPost({ userId }, { type, expiresIn: 120 }));
+	} catch (error) {
+		// A type off the request body the bucket does not accept.
+		if (error instanceof S3Error) return c.json({ error: error.code }, 400);
+		throw error;
+	}
 });
 
 // …and the browser is told, later, where to read it.

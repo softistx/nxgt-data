@@ -211,7 +211,11 @@ await store.put({ userId: 'u1' }, body, { type: 'image/png' });
 
 The guards are `put`'s, not the bucket's: `store.file(params).writer()`,
 `store.client` and anyone holding a [presigned PUT](presigned-urls.md) write
-whatever they are given. Set the service's own policy too where it matters.
+whatever they are given. For a browser upload that must respect the size and
+the type, hand out a
+[presigned POST](presigned-urls.md#a-presigned-post-the-service-holds-the-size-and-the-type)
+instead: its policy carries `maxSize` and `contentType` to the service, which
+enforces them.
 
 ## Deleting
 
@@ -268,6 +272,7 @@ discriminate with `instanceof S3Error` on this package's class, never with
 ## Next
 
 - [Reading](reads.md) — reading back what was written.
-- [Presigned URLs](presigned-urls.md) — letting a browser upload directly,
-  and what that does *not* constrain.
+- [Presigned URLs](presigned-urls.md) — letting a browser upload directly:
+  what a presigned PUT does *not* constrain, and the presigned POST that
+  does.
 - [Troubleshooting](../troubleshooting.md) — each error with its fix.

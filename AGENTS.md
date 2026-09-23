@@ -391,7 +391,7 @@ the file.
   came back at **+13 s** on a 5 s suite, one SeaweedFS per file — before
   `stop()` took SeaweedFS down with `SIGKILL`. Its second server file,
   `operations/presign-post.spec.ts`, measured the cost again: the suite went
-  from **9.1 s** to **10.5-15.3 s** over four runs, 2.1 s of it the expiry
+  from **9.1 s** to **10.5-15.4 s** over five runs, 2.1 s of it the expiry
   spec's own wait, against a file that would have taken `bind-bucket.spec.ts`
   past 850 lines. Measure before splitting, and say the number. `collection/` has
   fourteen, beside the code they test: `id`, `coerce`, `upsert`,

@@ -188,11 +188,15 @@ function signerOf<P>(context: BucketContext<P>): PostSigner {
 	);
 	const scope = (probe.searchParams.get('X-Amz-Credential') ?? '').split('/');
 	const { secretAccessKey } = context;
+	// Not reachable through `bindBucket`: the context reads the same option
+	// and the same two variables Bun does, at the same moment, so Bun's own
+	// `ERR_S3_MISSING_CREDENTIALS` comes first — measured, even with the
+	// variable set after binding. It guards a context built any other way.
 	if (scope.length < 5 || !secretAccessKey) {
 		throw new TypeError(
-			`${callOn(context)}: no secret access key ` +
-				'to sign with. Pass `secretAccessKey` to bindBucket, or set ' +
-				'S3_SECRET_ACCESS_KEY',
+			`${callOn(context)}: no secret access key to sign with. Pass ` +
+				'`secretAccessKey` to bindBucket, or set S3_SECRET_ACCESS_KEY ' +
+				'or AWS_SECRET_ACCESS_KEY',
 		);
 	}
 	return {
