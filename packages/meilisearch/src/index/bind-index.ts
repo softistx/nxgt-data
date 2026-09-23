@@ -1,26 +1,17 @@
-import {
-	type DocumentOptions,
-	type EnqueuedTaskPromise,
-	type Filter,
-	type Index,
-	type Meilisearch,
-	MeilisearchApiError,
-	type RecordAny,
-	type SearchParams,
-	type Task,
-	type WaitOptions,
-} from 'meilisearch';
+import type { Filter, Index, Meilisearch, RecordAny } from 'meilisearch';
 import type {
 	AnyIndexDefinition,
 	DocumentOf,
 	IdOf,
 } from '../definition/define-index';
-import { assertSucceeded } from '../errors/search-index-error';
 import {
 	type SyncOptions,
 	type SyncReport,
 	syncIndex,
 } from '../sync/sync-index';
+import { createContext } from './context';
+import * as reads from './operations/reads';
+import * as writes from './operations/writes';
 import type {
 	BatchWriteOptions,
 	BatchWriteResult,
@@ -112,15 +103,6 @@ export interface TypedIndex<Def extends AnyIndexDefinition> {
 	): Promise<SearchResult<Def, O>>;
 }
 
-/** The SDK types documents as mutable records; they are only read. */
-function records(documents: readonly unknown[]): RecordAny[] {
-	return documents as RecordAny[];
-}
-
-function waitOptions(wait: boolean | WaitOptions | undefined) {
-	return wait === true ? {} : wait || undefined;
-}
-
 /**
  * Binds a definition to a client: the typed index. Nothing is sent: call
  * `sync` to create the index and apply its settings.
@@ -134,135 +116,32 @@ export function bindIndex<Def extends AnyIndexDefinition>(
 	client: Meilisearch,
 	definition: Def,
 ): TypedIndex<Def> {
-	const { uid, primaryKey } = definition;
-	const raw = client.index<RecordAny>(uid);
-
-	// Every write names the primary key: an index a write creates, before any
-	// `sync`, then gets the definition's instead of one Meilisearch guesses.
-	const documentOptions = (options: WriteOptions = {}): DocumentOptions => ({
-		primaryKey,
-		...(options.customMetadata === undefined
-			? {}
-			: { customMetadata: options.customMetadata }),
-	});
-	const taskOptions = (options: WriteOptions = {}) =>
-		options.customMetadata === undefined
-			? undefined
-			: { customMetadata: options.customMetadata };
-
-	const settle = (enqueued: EnqueuedTaskPromise, options?: WriteOptions) => {
-		const wait = waitOptions(options?.wait);
-		if (wait === undefined) return enqueued;
-		return enqueued
-			.waitTask(wait)
-			.then((task: Task) => assertSucceeded(task, uid));
-	};
-	const settleAll = (
-		enqueued: EnqueuedTaskPromise[],
-		options?: WriteOptions,
-	) => {
-		const wait = waitOptions(options?.wait);
-		if (wait === undefined) return enqueued;
-		return Promise.all(
-			enqueued.map((task) =>
-				task.waitTask(wait).then((done) => assertSucceeded(done, uid)),
-			),
-		);
-	};
-
+	const ctx = createContext(client, definition);
 	const index: TypedIndex<Def> = {
-		uid,
+		uid: ctx.uid,
 		definition,
 		client,
-		raw: raw as TypedIndex<Def>['raw'],
+		raw: ctx.raw as TypedIndex<Def>['raw'],
 
 		sync: (options) => syncIndex(client, definition, options),
 
-		add: (documents, options) =>
-			settle(
-				raw.addDocuments(records(documents), documentOptions(options)),
-				options,
-			) as any,
+		add: (documents, options) => writes.add(ctx, documents, options) as any,
 		addInBatches: (documents, options) =>
-			settleAll(
-				raw.addDocumentsInBatches(
-					records(documents),
-					options?.batchSize,
-					documentOptions(options),
-				),
-				options,
-			) as any,
+			writes.addInBatches(ctx, documents, options) as any,
 		update: (documents, options) =>
-			settle(
-				raw.updateDocuments(records(documents), documentOptions(options)),
-				options,
-			) as any,
+			writes.update(ctx, documents, options) as any,
 		updateInBatches: (documents, options) =>
-			settleAll(
-				raw.updateDocumentsInBatches(
-					records(documents),
-					options?.batchSize,
-					documentOptions(options),
-				),
-				options,
-			) as any,
-		delete: (ids, options) =>
-			settle(
-				Array.isArray(ids)
-					? raw.deleteDocuments(ids as string[], taskOptions(options))
-					: raw.deleteDocument(ids as string | number, taskOptions(options)),
-				options,
-			) as any,
+			writes.updateInBatches(ctx, documents, options) as any,
+		delete: (ids, options) => writes.remove(ctx, ids, options) as any,
 		deleteByFilter: (filter, options) =>
-			settle(
-				raw.deleteDocuments({ filter }, taskOptions(options)),
-				options,
-			) as any,
-		deleteAll: (options) =>
-			settle(raw.deleteAllDocuments(taskOptions(options)), options) as any,
+			writes.deleteByFilter(ctx, filter, options) as any,
+		deleteAll: (options) => writes.deleteAll(ctx, options) as any,
 
-		get: async (id, options) => {
-			try {
-				return (await raw.getDocument(
-					id as string | number,
-					options?.fields ? { fields: [...options.fields] } : undefined,
-				)) as any;
-			} catch (error) {
-				if (
-					error instanceof MeilisearchApiError &&
-					error.cause?.code === 'document_not_found'
-				) {
-					return undefined;
-				}
-				throw error;
-			}
-		},
-		getMany: async (ids, options) => {
-			if (ids.length === 0) return [];
-			const { results } = await raw.getDocuments<RecordAny>({
-				ids: [...ids] as string[],
-				limit: ids.length,
-				...(options?.fields ? { fields: [...options.fields] } : {}),
-			});
-			return results as any;
-		},
-		list: async (query = {}) => {
-			const { fields, sort, ...rest } = query;
-			const page = await raw.getDocuments<RecordAny>({
-				...rest,
-				...(fields ? { fields: [...fields] } : {}),
-				...(sort ? { sort: [...sort] } : {}),
-			});
-			return {
-				results: page.results,
-				total: page.total,
-				offset: page.offset ?? query.offset ?? 0,
-				limit: page.limit ?? query.limit ?? page.results.length,
-			} as any;
-		},
+		get: (id, options) => reads.get(ctx, id, options) as any,
+		getMany: (ids, options) => reads.getMany(ctx, ids, options) as any,
+		list: (query) => reads.list(ctx, query) as any,
 
-		search: (query, options) =>
-			raw.search(query, options as SearchParams | undefined) as any,
+		search: (query, options) => reads.search(ctx, query, options) as any,
 	};
 	return index;
 }
