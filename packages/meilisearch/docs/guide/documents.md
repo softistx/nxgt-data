@@ -27,8 +27,33 @@ await movieIndex.add([alien, heat]);            // adds, or replaces by id
 await movieIndex.update([{ id: 1, rating: 9 }]); // merges into document 1
 await movieIndex.delete(1);
 await movieIndex.delete([2, 3]);
+await movieIndex.deleteByFilter('year < 1980'); // what the filter matches
 await movieIndex.deleteAll();                    // keeps the index and its settings
 ```
+
+### Deleting by filter
+
+`deleteByFilter` takes out every document a filter matches, in one task, with
+no ids read first. The filter is Meilisearch's own, a string or an array, as
+`list` and `search` take it, and it may only name the definition's
+`filterableAttributes`:
+
+```ts
+await movieIndex.deleteByFilter('year < 1980', { wait: true });
+await movieIndex.deleteByFilter(['genres = scifi', 'director.name = "Ridley Scott"']);
+```
+
+Two refusals, measured on Meilisearch v1.53.2, and they arrive at different
+moments:
+
+- **An empty filter** — `''`, blanks, `[]`, `[[]]`, `['']` — is refused by the server when the
+  request is sent: the call rejects with the SDK's `MeilisearchApiError`, code
+  `invalid_document_filter`, and nothing is deleted. There is no way to reach
+  `deleteAll` by accident through it.
+- **A filter on an attribute that is not filterable** is accepted and queued,
+  and the *task* fails with `invalid_document_filter`. With `wait` that is a
+  `SearchIndexError` with `code: 'TASK_FAILED'`; without it, the call resolves
+  and nothing is deleted. Wait when it matters that the documents are gone.
 
 `add` replaces a document whole; `update` merges the attributes given into
 the one with that id, and adds it when there is none. A patch is
@@ -209,6 +234,7 @@ interface TypedIndex<Def> {
 	update<O extends WriteOptions>(documents: readonly DocumentPatch<Def>[], options?: O): WriteResult<O>;
 	updateInBatches<O extends BatchWriteOptions>(documents: readonly DocumentPatch<Def>[], options?: O): BatchWriteResult<O>;
 	delete<O extends WriteOptions>(ids: IdOf<Def> | readonly IdOf<Def>[], options?: O): WriteResult<O>;
+	deleteByFilter<O extends WriteOptions>(filter: Filter, options?: O): WriteResult<O>;
 	deleteAll<O extends WriteOptions>(options?: O): WriteResult<O>;
 
 	get<F extends FieldOf<Def>>(id: IdOf<Def>, options?: FieldsOptions<F>): Promise<Selected<DocumentOf<Def>, F> | undefined>;

@@ -1,6 +1,7 @@
 import {
 	type DocumentOptions,
 	type EnqueuedTaskPromise,
+	type Filter,
 	type Index,
 	type Meilisearch,
 	MeilisearchApiError,
@@ -72,6 +73,16 @@ export interface TypedIndex<Def extends AnyIndexDefinition> {
 	/** Deletes a document by id, or several by their ids. */
 	delete<const O extends WriteOptions = Record<never, never>>(
 		ids: IdOf<Def> | readonly IdOf<Def>[],
+		options?: O,
+	): WriteResult<O>;
+	/**
+	 * Deletes every document the filter matches, in one task, without reading
+	 * their ids first. The filter is Meilisearch's, on the definition's
+	 * `filterableAttributes`; an empty one is refused by the server when the
+	 * request is sent, and one on another attribute fails the task.
+	 */
+	deleteByFilter<const O extends WriteOptions = Record<never, never>>(
+		filter: Filter,
 		options?: O,
 	): WriteResult<O>;
 	/** Deletes every document, and keeps the index and its settings. */
@@ -200,6 +211,11 @@ export function bindIndex<Def extends AnyIndexDefinition>(
 				Array.isArray(ids)
 					? raw.deleteDocuments(ids as string[], taskOptions(options))
 					: raw.deleteDocument(ids as string | number, taskOptions(options)),
+				options,
+			) as any,
+		deleteByFilter: (filter, options) =>
+			settle(
+				raw.deleteDocuments({ filter }, taskOptions(options)),
 				options,
 			) as any,
 		deleteAll: (options) =>

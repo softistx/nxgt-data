@@ -157,6 +157,13 @@ const waited = index.add([movie], { wait: true });
 assertType<Equal<typeof waited, Promise<Task>>>(true);
 const timed = index.delete(1, { wait: { timeout: 1000 } });
 assertType<Equal<typeof timed, Promise<Task>>>(true);
+const filtered = index.deleteByFilter('year > 1990', { wait: true });
+assertType<Equal<typeof filtered, Promise<Task>>>(true);
+assertType<Equal<ReturnType<typeof index.deleteByFilter>, EnqueuedTaskPromise>>(
+	true,
+);
+// @ts-expect-error a filter is a string or an array, not an object
+index.deleteByFilter({ year: 1990 });
 const batches = index.addInBatches([movie], { batchSize: 10, wait: true });
 assertType<Equal<typeof batches, Promise<Task[]>>>(true);
 

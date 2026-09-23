@@ -5,9 +5,7 @@ an item shipped in is the only number on this page.
 
 ## Now
 
-- **Deleting documents by filter** — take every document a filter matches out
-  of the index in one call, instead of reading their ids first and deleting
-  them by id.
+_Nothing in progress._
 
 ## Next
 
@@ -33,6 +31,10 @@ _Nothing queued._
 
 ## Shipped
 
+- **Deleting documents by filter** — `deleteByFilter(filter)` takes every
+  document a filter matches out of the index in one task, instead of reading
+  their ids first and deleting them by id; an empty filter is refused by the
+  server before anything is deleted — 0.3.0.
 - **`diffSettings` takes a definition's own settings** — a definition's
   settings go straight in, with no cast: the first parameter is the exported
   `WantedSettings`, every list `readonly` and every value allowed to be

@@ -186,7 +186,10 @@ await syncIndexes(client, [movies, books]);
 ### ``Index `movies`: Attribute `year` is not filterable.``
 
 **When:** a search with `filter`, `facets` or `distinct` on an attribute the
-live index has not been told about.
+live index has not been told about. From `deleteByFilter` the same sentence
+arrives inside a `SearchIndexError` with `code: 'TASK_FAILED'`, and only with
+`wait`: the request is accepted and the *task* fails, so without `wait`
+nothing is deleted and nothing says so.
 **Why:** the types check the attribute against the **definition**, and the
 server checks it against the settings it actually holds. They differ until
 `sync` has run — or when `filterableAttributes` names a wildcard pattern such
@@ -200,6 +203,26 @@ export const movies = defineIndex<Movie>()({
 	settings: { filterableAttributes: ['genres', 'year'] },
 });
 await movieIndex.sync(); // applies what changed
+```
+
+### `Sending an empty filter is forbidden.`
+
+**When:** `deleteByFilter('')`, or with blanks, `[]` or `[[]]`. The SDK's
+`MeilisearchApiError` is thrown when the request is sent, with
+`cause.code` `invalid_document_filter`.
+**Why:** Meilisearch refuses to read an empty filter as "every document", so a
+filter built from a request that turned out empty deletes nothing instead of
+everything. Nothing was deleted.
+**Fix:** build the filter before calling, and leave the call out when there
+is nothing to filter on — `deleteAll` is the call for every document, and
+`delete(ids)` the one for ids you already hold:
+
+```ts
+// genres from a request: ['horror', 'noir'], or nothing
+const filter = genres.map((genre) => `genres = ${JSON.stringify(genre)}`);
+if (filter.length > 0) {
+	await movieIndex.deleteByFilter([filter], { wait: true }); // one OR group
+}
 ```
 
 ### ``Index `movies`: Attribute `year` is not sortable.``

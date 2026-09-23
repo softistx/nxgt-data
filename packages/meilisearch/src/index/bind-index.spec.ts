@@ -92,6 +92,46 @@ describe('writes', () => {
 		).toEqual(['rating', 'year']);
 	});
 
+	test('deleteByFilter deletes what the filter matches, and nothing else', async () => {
+		const index = await filled();
+		const task = await index.deleteByFilter('year > 1990', { wait: true });
+		expect(task.type).toBe('documentDeletion');
+		expect(task.details?.deletedDocuments).toBe(2);
+		expect((await index.list()).results.map((m) => m.id)).toEqual([1, 2]);
+		await index.deleteByFilter(['genres = scifi', 'year < 1980'], {
+			wait: true,
+		});
+		expect((await index.list()).results.map((m) => m.id)).toEqual([2]);
+	});
+
+	test('deleteByFilter on an attribute that is not filterable throws TASK_FAILED', async () => {
+		const index = await filled();
+		const error = await index
+			.deleteByFilter('rating > 8', { wait: true })
+			.catch((e) => e);
+		expect(error).toBeInstanceOf(SearchIndexError);
+		expect(error.code).toBe('TASK_FAILED');
+		expect(error.task.error.code).toBe('invalid_document_filter');
+		expect(error.message).toStartWith(
+			'Task ' +
+				error.task.uid +
+				' (documentDeletion) on index "movies" failed: ',
+		);
+		expect(error.message).toContain('Attribute `rating` is not filterable.');
+		expect((await index.list()).total).toBe(4);
+	});
+
+	test('deleteByFilter with an empty filter is refused by the server', async () => {
+		const index = await filled();
+		for (const filter of ['', '  ', [], [[]], [''], [[], []]] as const) {
+			const error = await index.deleteByFilter(filter as never).catch((e) => e);
+			expect(error).toBeInstanceOf(MeilisearchApiError);
+			expect(error.cause?.code).toBe('invalid_document_filter');
+			expect(error.message).toBe('Sending an empty filter is forbidden.');
+		}
+		expect((await index.list()).total).toBe(4);
+	});
+
 	test('addInBatches and updateInBatches send one task per batch', async () => {
 		const index = bindIndex(t.client, movies);
 		await index.sync();
