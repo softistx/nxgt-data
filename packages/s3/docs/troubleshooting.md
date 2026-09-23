@@ -8,11 +8,14 @@ failures come back as Bun raises them; the entries below say which is which.
 A wrong `acl` is this package's own refusal on a `put` **and** on the
 presigned calls, so one class and one code cover them all. A message reports what was
 wrong by its **shape** — `another string`, `a fraction`, `the type given` —
-and never quotes the value, which can come off a request body; a refusal from
-every refusal ends with the call and the bucket it was on —
+and never quotes the value, which can come off a request body. Every
+refusal also names the call and the bucket it was on, so a log line says which
+of an application's buckets and calls produced it, in one of two forms: the
+refusals shared with `put` and the other presigned calls **end** with it —
 `(put on "avatars")`, `(presignGet on "avatars")`, `(presignPut on …)`,
-`(presignPost on …)` — so a log line says which of an application's buckets
-and calls produced it. Bun names its own *service*
+`(presignPost on …)` — while `presignPost`'s own refusals, and its two
+`TypeError`s and its plain `Error`, **lead** with it:
+`presignPost on "avatars": …`. Bun names its own *service*
 failures `S3Error` as well, so it is `instanceof S3Error` against the class
 this package exports that tells those apart — never `error.name`. (Bun's
 refusal of a wrong argument is a different thing again: a plain `TypeError`,
@@ -286,9 +289,13 @@ anyone can forward.
 
 ## Presigned POSTs refused before they are signed
 
-Every entry here is an `S3Error` from `presignPost`, raised before anything
-is signed, so no form was handed out. The option values usually come off a
-request body: answer `WRONG_OPTION` and `WRONG_TYPE` with a 400. Every
+Every entry here comes from `presignPost`, raised before anything is signed,
+so no form was handed out. The refusals of an option or a type are
+`S3Error`s; the option values usually come off a request body, so answer
+`WRONG_OPTION` and `WRONG_TYPE` with a 400. The last three entries are not:
+two `TypeError`s when this package's secret is not Bun's, and a plain `Error`
+when the URL Bun signed cannot be read — none of them is the caller's input,
+so answer them with a 500. Every
 message reports the **shape** of what it was given — `a string`,
 `a fraction`, `the type given` — never the value. An `acl` or an `expiresIn`
 refused here is the entry above, ending with `(presignPost on "avatars")`.
@@ -415,7 +422,11 @@ Bun's own `ERR_S3_MISSING_CREDENTIALS` comes first (next section).
 ### `presignPost on "avatars": the URL Bun signed has no credential scope, or not the key at the end of its path, so there is nowhere to post the form. …`
 
 **When:** only with a Bun that signs a presigned URL differently from the
-1.4.2 this package was measured on. A plain `Error`, not an `S3Error`.
+1.4.2 this package was measured on, or with an access key id holding a `%`
+that is not an escape (`AK%zz`): Bun writes the id into the URL unencoded, so
+it cannot be read back. A plain `Error`, not an `S3Error`. An access key id
+with a `=`, a `&`, a space or a non-ASCII character is not supported either:
+Bun's own presigned URL is malformed for it.
 **Why:** `presignPost` asks Bun where the bucket is by signing a throwaway
 key (`nxgt-probe`) and reading the URL: the bucket's URL is the path before
 that key, and the region and access key are in `X-Amz-Credential`. A URL

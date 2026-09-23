@@ -234,7 +234,16 @@ if (error instanceof S3Error && error.code === 'TOO_LARGE') {
 
 `defineBucket` throws a `TypeError` for a definition that could never work: an
 empty `bucket`, a `maxSize` that is not a positive number, an empty list of
-content types. S3's own failures come back as they are, from Bun's client —
+content types. `presignPost` throws three errors that are not `S3Error`s,
+since none is the caller's input: a `TypeError` when this package's secret is
+not the one Bun signs with (`the secret access key this package would sign
+with is not the one Bun signs with`), a `TypeError` when it has none while
+Bun has one (`no secret access key to sign with, while Bun has one`) — both
+after `S3_SECRET_ACCESS_KEY` or `AWS_SECRET_ACCESS_KEY` changed under a
+running process; pass `secretAccessKey` to `bindBucket` — and a plain `Error`
+when the URL Bun signed cannot be read (`the URL Bun signed has no credential
+scope`), which only a Bun that signs differently, or an access key id with a
+stray `%`, produces. S3's own failures come back as they are, from Bun's client —
 and **Bun names those `S3Error` too**, with S3's codes (`NoSuchKey` and the
 rest). Discriminate with `instanceof S3Error` on this package's class, never
 with `error.name`.

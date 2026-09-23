@@ -15,8 +15,11 @@ The form goes to the endpoint, region and access key that Bun signs a `presignPu
 - `acl` and `storageClass`: `…; got another string (put on "avatars")` (was `…; got "everyone"`);
 - `expiresIn`: `…; got a number above that`, `zero`, `NaN`… (was the value).
 
-Every refusal now ends with the call and the bucket, for example `(put on "avatars")` or `(presignPut on "avatars")`. That includes `TOO_LARGE` and `UNMEASURABLE` from `put`.
+Every refusal now names the call and the bucket, in one of two forms. The refusals shared with `put` and the other presigned calls end with it, for example `(put on "avatars")` or `(presignPut on "avatars")`; that includes `TOO_LARGE` and `UNMEASURABLE` from `put`. `presignPost`'s own refusals, and the three errors below, lead with it: `presignPost on "avatars": …`.
 
-Two errors from `presignPost` are not `S3Error`s, because neither is a refusal of the caller's input:
-- a plain `Error` when the URL Bun signed has no credential scope, or does not end in the probe key, so there is nowhere to post the form. Only a Bun that signs differently from 1.4.2 would do this;
-- a `TypeError` when the secret this package would sign with is not the one Bun signs with. Bun reads `S3_SECRET_ACCESS_KEY` and `AWS_SECRET_ACCESS_KEY` once, when the process starts, and this package reads them at `bindBucket`. If a variable is changed or deleted in between, the form would be signed with one secret while Bun signs with another, and the service would refuse it only when posted. `presignPost` recomputes the signature Bun put on a throwaway URL with its own secret, and refuses before signing when the two differ. Passing `secretAccessKey` to `bindBucket` avoids it.
+Three errors from `presignPost` are not `S3Error`s, because none is a refusal of the caller's input:
+- a plain `Error` when the URL Bun signed has no credential scope, or does not end in the probe key, so there is nowhere to post the form. Only a Bun that signs differently from 1.4.2 would do this, or an access key id holding a `%` that is not an escape. An id with a `=`, a `&`, a space or a non-ASCII character is not supported: Bun's own presigned URL is malformed for it;
+- a `TypeError`, `the secret access key this package would sign with is not the one Bun signs with`, when the environment variable was changed after start-up;
+- a `TypeError`, `no secret access key to sign with, while Bun has one`, when it was deleted after start-up.
+
+For both `TypeError`s: Bun reads `S3_SECRET_ACCESS_KEY` and `AWS_SECRET_ACCESS_KEY` once, when the process starts, and this package reads them at `bindBucket`. If a variable is changed or deleted in between, the form would be signed with one secret while Bun signs with another, and the service would refuse it only when posted. `presignPost` recomputes the signature Bun put on a throwaway URL with its own secret, and refuses before signing when it has no secret or the two differ. Passing `secretAccessKey` to `bindBucket` avoids both.

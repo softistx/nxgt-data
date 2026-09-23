@@ -46,8 +46,8 @@ _Nothing queued._
   **service** refuses an upload that breaks it, which a presigned PUT cannot
   do. With it, every refusal reports a value by its **shape** — `another
   string`, `a number above that`, `the type given` — and never quotes it, since
-  it can come off a request body; and a refusal from `presignGet`,
-  `presignPut` or `presignPost` ends with the call's name — 0.4.0.
+  it can come off a request body; and every refusal names the call and the
+  bucket it was on, such as `put on "avatars"` — 0.4.0.
 - **An option's own value is refused before anything is sent or signed** —
   `code: 'WRONG_OPTION'` for an `acl` or a `storageClass` a write names, for
   an `acl` on a presigned URL, and for an `expiresIn` outside the seven days
