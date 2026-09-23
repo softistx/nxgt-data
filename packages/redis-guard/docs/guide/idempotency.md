@@ -62,7 +62,7 @@ result.
 | --- | --- |
 | nothing | takes it, calls `work`, stores the result, resolves `{ value, replayed: false }` |
 | a finished result, same fingerprint | resolves `{ value, replayed: true }`; `work` is **not** called |
-| a run still going, same fingerprint | waits up to `wait` ms for it — see [Waiting for a running key](#waiting-for-a-running-key) — then rejects with `IN_PROGRESS` and `retryAfter` |
+| a run still going, same fingerprint | waits up to `wait` ms for it — see [Waiting for a running key](#waiting-for-a-running-key) — then, if it is still running, rejects with `IN_PROGRESS` and `retryAfter` |
 | anything, with a different fingerprint | rejects with `MISMATCH` — whether it is finished or still running |
 | a record `run` could not have written | rejects with `INVALID`, and leaves it where it is |
 

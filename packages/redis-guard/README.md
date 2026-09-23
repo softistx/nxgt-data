@@ -181,9 +181,10 @@ async function postOrder(request: Request, user: string): Promise<Response> {
 The first call with a key runs `work` and stores what it returned; every
 repeat within `ttl` gets that result back — `replayed: true` — and `work` is
 not called. A repeat that arrives while the first is still running waits up
-to `wait` milliseconds for it — and gets its result, or runs `work` itself if
-the first one threw — and is then refused with `IN_PROGRESS`; one with a
-different fingerprint is refused with `MISMATCH` at once. While `work` runs,
+to `wait` milliseconds (default 0) — getting its result, or running `work`
+itself if the first gave the key back or crashed and its lease lapsed — and is
+refused with `IN_PROGRESS` only if the first is still running when `wait` runs
+out; one with a different fingerprint is refused with `MISMATCH` at once. While `work` runs,
 its lease is renewed every third of `lease`, so work of any length runs
 once. **An error thrown by `work` is never stored**: the key is given
 back and the error passes through as it is, so the next call runs again.

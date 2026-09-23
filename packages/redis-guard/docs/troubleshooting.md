@@ -201,8 +201,10 @@ ttl: 86_400,   // a day, in seconds
 **When:** at import, on a `lease` that is given and is not a whole number of
 at least 1.
 **Why:** `lease` is how long the in-flight marker lives, in **milliseconds**.
-**Fix:** leave it out for the default of 10 s, or give it in milliseconds,
-above the longest the work can take:
+**Fix:** leave it out for the default of 10 s, or give it in milliseconds.
+The heartbeat renews it while `work` runs, so it need not cover the work —
+only how long a crashed run may hold the key; keep it above the longest the
+event loop may be blocked or Redis unreachable:
 
 ```ts
 lease: 30_000,
