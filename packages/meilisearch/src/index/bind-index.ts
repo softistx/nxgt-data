@@ -57,9 +57,12 @@ export interface TypedIndex<Def extends AnyIndexDefinition> {
 	 * 4. swaps it with the live index, in one atomic task — or renames it,
 	 *    when there is no live index yet — and deletes the previous one.
 	 *
-	 * When `fill` throws, or a task it left fails, or the swap fails, the next
-	 * index is deleted, the live one is left as it was, and a
-	 * `SearchIndexError` (`REBUILD_FAILED`) is thrown with the cause.
+	 * When creating the next index or applying its settings fails, `fill`
+	 * throws, a task it left fails, or the swap task comes back failed, the
+	 * next index is deleted — or the error says it could not — the live one is
+	 * left as it was, and a `SearchIndexError` (`REBUILD_FAILED`) is thrown
+	 * with the cause. When the swap was sent and could not be waited for, its
+	 * outcome is unknown: nothing is deleted, and the error says so.
 	 */
 	rebuild(
 		fill: RebuildFill<Def>,

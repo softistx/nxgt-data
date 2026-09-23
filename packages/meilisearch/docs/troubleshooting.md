@@ -2,9 +2,10 @@
 
 This package throws one error class of its own, `SearchIndexError`, with a
 `code` of `PRIMARY_KEY_MISMATCH`, `TASK_FAILED`, `REBUILD_FAILED` or
-`INVALID_EXPIRES_AT`, and three bare `TypeError`s for a call it refuses before
+`INVALID_EXPIRES_AT`, and bare `TypeError`s for a call it refuses before
 sending or signing anything: `rebuild`'s `nextUid`, and `tenantToken`'s
-unmatched and inherited `searchRules`. Everything else comes from the
+index uid that is not a Meilisearch uid, missing rule, empty rule, unmatched rule, `searchRules` that is not a plain
+object, and rule that is not `null` or a plain `{ filter }`. Everything else comes from the
 official SDK as it is: `MeilisearchApiError` (whose `cause.code` is
 Meilisearch's own error code) and `MeilisearchTaskTimeOutError`. The headings
 below are what each one prints; the Meilisearch messages were measured on
@@ -20,6 +21,7 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`The provided API key is invalid.`](#the-provided-api-key-is-invalid)
   - [`Rebuild of index "movies" stopped while filling "movies_next":`](#rebuild-of-index-movies-stopped-while-filling-movies_next)
   - [`Rebuild of index "movies" stopped while creating "movies_next":`](#rebuild-of-index-movies-stopped-while-creating-movies_next)
+  - [`Rebuild of index "movies" stopped while swapping "movies_next":`](#rebuild-of-index-movies-stopped-while-swapping-movies_next)
   - [`Rebuild of index "movies" sent the swap with "movies_next" and could not wait for it:`](#rebuild-of-index-movies-sent-the-swap-with-movies_next-and-could-not-wait-for-it)
   - [`rebuild on "movies": nextUid must differ from the index's own uid`](#rebuild-on-movies-nextuid-must-differ-from-the-indexs-own-uid)
   - [`The Authorization header is missing. It must use the bearer authorization method.`](#the-authorization-header-is-missing-it-must-use-the-bearer-authorization-method)
@@ -33,10 +35,22 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [``Inside `.queries[1]`: Index `nobody` not found.``](#inside-queries1-index-nobody-not-found)
   - [A search right after a write finds nothing](#a-search-right-after-a-write-finds-nothing)
 - **Tenant tokens**
+  - [`tenantToken for "movies": expiresAt is missing; it takes a Date, or whole seconds since the epoch`](#tenanttoken-for-movies-expiresat-is-missing-it-takes-a-date-or-whole-seconds-since-the-epoch)
+  - [`tenantToken for "movies", "people": searchRules has no rule for "people"; give each index { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-people-searchrules-has-no-rule-for-people-give-each-index--filter---or-null-to-search-it-with-no-filter)
+  - [`tenantToken for "movies", "people": searchRules has an empty rule for "people"; give it { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-people-searchrules-has-an-empty-rule-for-people-give-it--filter---or-null-to-search-it-with-no-filter)
+  - [`tenantToken for "movies": searchRules has a rule for "movies" that is not a plain object; give it { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-searchrules-has-a-rule-for-movies-that-is-not-a-plain-object-give-it--filter---or-null-to-search-it-with-no-filter)
+  - [`tenantToken for "movies": searchRules has a rule for "movies" whose filter is a getter; give it { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-searchrules-has-a-rule-for-movies-whose-filter-is-a-getter-give-it--filter---or-null-to-search-it-with-no-filter)
+  - [`tenantToken for "movies": searchRules has a rule for "movies" that has a toJSON; give it { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-searchrules-has-a-rule-for-movies-that-has-a-tojson-give-it--filter---or-null-to-search-it-with-no-filter)
+  - [`tenantToken for "movies": searchRules has a rule for "movies" whose filter is a number; give it { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-searchrules-has-a-rule-for-movies-whose-filter-is-a-number-give-it--filter---or-null-to-search-it-with-no-filter)
   - [`tenantToken for "movies": expiresAt is in the past`](#tenanttoken-for-movies-expiresat-is-in-the-past)
+  - [`tenantToken for "movies": expiresAt is not a whole number of seconds`](#tenanttoken-for-movies-expiresat-is-not-a-whole-number-of-seconds)
+  - [`tenantToken for "movies": expiresAt is an invalid Date`](#tenanttoken-for-movies-expiresat-is-an-invalid-date)
+  - [`tenantToken for "movies": expiresAt is neither a Date nor a finite number`](#tenanttoken-for-movies-expiresat-is-neither-a-date-nor-a-finite-number)
+  - [`tenantToken for "movies": expiresAt is a Date past the year 5138; was it built from milliseconds times 1000?`](#tenanttoken-for-movies-expiresat-is-a-date-past-the-year-5138-was-it-built-from-milliseconds-times-1000)
   - [`tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date`](#tenanttoken-for-movies-expiresat-is-a-number-of-milliseconds-it-takes-seconds-or-a-date)
   - [`tenantToken for "movies_next": searchRules names "movies", which is not the uid of any of its indexes`](#tenanttoken-for-movies_next-searchrules-names-movies-which-is-not-the-uid-of-any-of-its-indexes)
-  - [`tenantToken for "movies": searchRules must be a plain object, not one that inherits its rules`](#tenanttoken-for-movies-searchrules-must-be-a-plain-object-not-one-that-inherits-its-rules)
+  - [`tenantToken: an index uid is not a valid Meilisearch uid (letters, digits, - and _ only), and a * in it would widen the token to other indexes`](#tenanttoken-an-index-uid-is-not-a-valid-meilisearch-uid-letters-digits---and-_-only-and-a--in-it-would-widen-the-token-to-other-indexes)
+  - [`tenantToken for "movies": searchRules must be a plain object`](#tenanttoken-for-movies-searchrules-must-be-a-plain-object)
   - [`the uid of your key is not a valid UUIDv4`](#the-uid-of-your-key-is-not-a-valid-uuidv4)
   - [`failed to detect a server-side environment; do not generate tokens on the frontend in production!`](#failed-to-detect-a-server-side-environment-do-not-generate-tokens-on-the-frontend-in-production)
   - [``Tenant token expired. Was valid up to `1790139850` and we're now `1790139910`.``](#tenant-token-expired-was-valid-up-to-1790139850-and-were-now-1790139910)
@@ -178,11 +192,10 @@ every token it signed.
 ### `Rebuild of index "movies" stopped while filling "movies_next":`
 
 The line goes on: *"movies_next" was deleted, and "movies" is as it was.
-The cause is on `cause`.* The word after *while* is `swapping` when the swap
-task itself came back `failed`; for `creating`, see the next entry. When
-the next index could not be deleted — a key without `indexes.delete`,
-measured — *was deleted* reads *could not be deleted; the next rebuild
-deletes it first*.
+The cause is on `cause`.* For `creating` and `swapping`, see the next two
+entries. When the next index could not be deleted — a key without
+`indexes.delete`, measured — *was deleted* reads *could not be deleted; the
+next rebuild deletes it first*.
 
 **When:** `rebuild(fill)`, when `fill` threw, or when a write it left on the
 next index — waited for or only enqueued — ended `failed`.
@@ -207,8 +220,11 @@ The cause is on `cause`.*
 
 **When:** `rebuild(fill)`, before `fill` runs: creating `movies_next` or
 applying the definition's settings to it failed. Measured with a key
-lacking `settings.update`: `cause` is the SDK's `MeilisearchApiError`
-`The provided API key is invalid.` (`invalid_api_key`).
+lacking `settings.update`, and with one lacking `indexes.create`: `cause` is
+the SDK's `MeilisearchApiError` `The provided API key is invalid.`
+(`invalid_api_key`). When the creation itself was refused there is nothing
+to delete — the deletion fails `index_not_found`, which counts as gone —
+and the line still says *was deleted*.
 **Why:** the next index is created by the same `syncIndex` as `sync()`, so
 it needs the same actions; the half-made index is deleted so that nothing
 of it is swapped in later.
@@ -222,6 +238,29 @@ const key = await admin.createKey({
 	indexes: ['*'],
 	expiresAt: null,
 });
+```
+
+### `Rebuild of index "movies" stopped while swapping "movies_next":`
+
+The line goes on: *"movies_next" was deleted, and "movies" is as it was.
+The cause is on `cause`.* — or *could not be deleted; the next rebuild
+deletes it first*, as for `filling`.
+
+**When:** `rebuild(fill)`, after `fill` and its tasks succeeded: looking up
+the live index before the swap failed, or the swap task was read back and
+had ended `failed` or `canceled`. `cause` is the SDK's error, or a
+`TASK_FAILED` `SearchIndexError` whose `task` — the swap — is copied onto
+this error. Not measured against a server: v1.53.2 fails no swap of two
+indexes that exist, and this package sends no other.
+**Why:** a swap that failed changed nothing — it is one atomic task — so
+the live index is as it was, and the next one is deleted like any other
+stop before the swap. It is not the *unknown* case below: here the task was
+read back.
+**Fix:** read `task.error.code` and `cause`, then rebuild again:
+
+```ts
+const error = await movieIndex.rebuild(fill).catch((e) => e);
+if (error.code === 'REBUILD_FAILED') console.error(error.task?.error?.code, error.cause);
 ```
 
 ### `Rebuild of index "movies" sent the swap with "movies_next" and could not wait for it:`
@@ -430,26 +469,196 @@ resolving quietly.
 
 ## Tenant tokens
 
+### `tenantToken for "movies": expiresAt is missing; it takes a Date, or whole seconds since the epoch`
+
+**When:** `tenantToken` with no `expiresAt`, or with `undefined` or `null` —
+a field a request body left out. A `SearchIndexError` with
+`code: 'INVALID_EXPIRES_AT'`, like the other refused times, thrown before
+anything is signed. Since 0.5.0; before, the token was signed.
+**Why:** a token without `exp` lasts as long as its key — for a browser
+token, that is a credential nobody meant to be permanent.
+**Fix:** give every token an end:
+
+```ts
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { movies: { filter } }, expiresAt: new Date(Date.now() + 60 * 60 * 1000) });
+```
+
+### `tenantToken for "movies", "people": searchRules has no rule for "people"; give each index { filter: … }, or null to search it with no filter`
+
+**When:** `tenantToken` whose `searchRules` has no rule for one of its
+`indexes` — the key left out, set to `undefined`, or `searchRules` left out
+altogether. A bare `TypeError`, thrown before anything is signed. The types
+refuse it too for an index whose uid is a literal; for a rebuild's next
+index, typed `string`, or an index typed as a union of uids —
+`cond ? movieIndex : peopleIndex` — only this check sees it. Since 0.5.0.
+**Why:** an index with no rule would be searched with **no filter** by
+anyone holding the token. That has to be asked for, with `null`, never
+reached by leaving a line out. The message names the uids, never a rule.
+**Fix:** a rule per index, `null` for one that may be read in full:
+
+```ts
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex, peopleIndex], searchRules: { movies: { filter }, people: null }, expiresAt });
+```
+
+### `tenantToken for "movies", "people": searchRules has an empty rule for "people"; give it { filter: … }, or null to search it with no filter`
+
+**When:** `tenantToken` with a rule object that filters nothing: no
+`filter`, `filter: undefined` or `null`, a blank string (blank as the server reads it: Rust's `White_Space`, which is JavaScript's `\s` plus U+0085 (NEL), measured on v1.53.2; U+FEFF, which `\s` holds, is refused too), an empty array, or an array of those (`['', []]`,
+`['\u0085']`) — typically a filter built from a value that
+came back empty. A bare `TypeError`, thrown before anything is signed; every
+empty rule is named. The types refuse a rule with no `filter`, an
+`undefined` or a `null` one; an empty string or array compiles, since the
+SDK's `Filter` is any string or array, and only this check sees it. Since
+0.5.0.
+**Why:** a rule that filters nothing signs the same unfiltered token as a
+missing one. "No filter" is spelled only `null`, where a reviewer sees it.
+The message names the uids, never the rule.
+**Fix:** a filter that filters, or `null` if the index may be read in full:
+
+```ts
+const filter = user.tenant ? `tenant = ${JSON.stringify(user.tenant)}` : undefined;
+if (!filter) throw new Error('no tenant'); // do not sign a token that reads everything
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex, peopleIndex], searchRules: { movies: { filter }, people: null }, expiresAt });
+```
+
+### `tenantToken for "movies": searchRules has a rule for "movies" that is not a plain object; give it { filter: … }, or null to search it with no filter`
+
+**When:** `tenantToken` with a rule that is not `null` or a plain object: a
+class instance, or `Object.create({ filter })`, whose `filter` is inherited.
+Siblings end the same line differently: `that is an array` (`['']`, whose
+`filter` would have been `Array.prototype.filter`), `that is a string`,
+`that is a number`. A bare `TypeError`, before anything is signed. A class
+whose `filter` is a getter compiles — TypeScript cannot tell a getter from
+a property — and only this check sees it.
+**Why:** each rule is read once into a plain copy, and that copy is signed.
+The SDK signs `JSON.stringify` of its rules, which leaves out an inherited
+`filter`: measured on v1.53.2, that signed an unfiltered token.
+**Fix:** a plain object literal, or `null`:
+
+```ts
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { movies: { filter: rule.filter } }, expiresAt });
+```
+
+### `tenantToken for "movies": searchRules has a rule for "movies" whose filter is a getter; give it { filter: … }, or null to search it with no filter`
+
+**When:** a rule whose `filter` is a getter. Siblings: `whose filter is not
+enumerable` (`Object.defineProperty` without `enumerable: true`),
+`that is a getter` (a getter on `searchRules` itself), and `that is not
+enumerable`. A bare `TypeError`, before anything is signed; the getter is
+never called.
+**Why:** a getter can answer one value to the check and another when the
+SDK serialises the rule — measured on v1.53.2, one that changed between
+reads signed an unfiltered token — and a non-enumerable `filter` is left out
+of the JSON the SDK signs.
+**Fix:** compute the filter first, and pass it as a value:
+
+```ts
+const filter = `tenant = ${JSON.stringify(user.tenant)}`;
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { movies: { filter } }, expiresAt });
+```
+
+### `tenantToken for "movies": searchRules has a rule for "movies" that has a toJSON; give it { filter: … }, or null to search it with no filter`
+
+**When:** a rule with a `toJSON` method. Siblings: `whose filter has a
+toJSON` (an array filter carrying one), and `that has a key other than
+filter` — the SDK's rule, in meilisearch-js 0.62.0, has no other key. A
+bare `TypeError`, before anything is signed.
+**Why:** the SDK signs `JSON.stringify` of the rule, and a `toJSON` decides
+what that is: measured on v1.53.2, one returning `null` signed an unfiltered
+token.
+**Fix:** pass `{ filter }` alone.
+
+### `tenantToken for "movies": searchRules has a rule for "movies" whose filter is a number; give it { filter: … }, or null to search it with no filter`
+
+**When:** a `filter` that is not a string or an array of strings: `NaN` or
+`Infinity` (`whose filter is a number`), a function, a symbol, an object
+(`whose filter is an object`), a boolean (`whose filter is a boolean`), or
+an array holding one of those (`whose filter holds a number`), holding
+`undefined` or `null` (`whose filter holds undefined`, `whose filter holds
+null`), or nested past the SDK's two levels (`whose filter holds an
+array`). A bare `TypeError`,
+before anything is signed.
+**Why:** `JSON.stringify` writes `NaN` as `null` and leaves a function or a
+symbol out: measured on v1.53.2, a `NaN` filter signed an unfiltered token.
+**Fix:** build the filter as a string — `JSON.stringify` any value inside
+it:
+
+```ts
+searchRules: { movies: { filter: `year > ${Number(minYear)}` } },
+```
+
 ### `tenantToken for "movies": expiresAt is in the past`
 
-Three siblings end the same line differently: `is not a whole number of
-seconds`, `is an invalid Date`, and `is neither a Date nor a finite number`
-(`NaN`, `Infinity`, or a value that is neither, from a request).
-
-**When:** `tenantToken({ …, expiresAt })` with a time already past, a number
-of seconds with a fraction, or a `Date` built from something unparseable.
-It is a `SearchIndexError` with `code: 'INVALID_EXPIRES_AT'`, thrown before
-anything is signed; `indexUid` holds the token's uids joined by `,`.
-**Why:** a past token would be refused by the server on its first search,
-and — measured on v1.53.2 — a fractional `exp` makes every search with the
-token fail: *Could not decode tenant token, JSON error: invalid type:
-floating point …, expected i64*. The message never repeats the value.
+**When:** `tenantToken({ …, expiresAt })` with a `Date` or a number of
+seconds already past. It is a `SearchIndexError` with
+`code: 'INVALID_EXPIRES_AT'`, thrown before anything is signed; `indexUid`
+holds the token's uids joined by `,`.
+**Why:** a past token would be refused by the server on its first search.
+The message never repeats the value.
 **Fix:** a `Date` in the future, or whole seconds:
 
 ```ts
 expiresAt: new Date(Date.now() + 60 * 60 * 1000),
 // or
 expiresAt: Math.floor(Date.now() / 1000) + 3600,
+```
+
+### `tenantToken for "movies": expiresAt is not a whole number of seconds`
+
+**When:** `expiresAt` is a number with a fraction — `Date.now() / 1000 + 60`
+without `Math.floor`. `INVALID_EXPIRES_AT`, before anything is signed.
+**Why:** measured on v1.53.2, a fractional `exp` makes every search with the
+token fail: *Could not decode tenant token, JSON error: invalid type:
+floating point …, expected i64*.
+**Fix:**
+
+```ts
+expiresAt: Math.floor(Date.now() / 1000) + 3600,
+```
+
+### `tenantToken for "movies": expiresAt is an invalid Date`
+
+**When:** `expiresAt` is a `Date` whose time is `NaN` — `new Date(value)`
+from something unparseable, such as a field a request sent.
+`INVALID_EXPIRES_AT`, before anything is signed.
+**Why:** an invalid `Date` has no time to sign.
+**Fix:** check the value where it is parsed, or build the `Date` yourself:
+
+```ts
+const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+```
+
+### `tenantToken for "movies": expiresAt is neither a Date nor a finite number`
+
+**When:** `expiresAt` is `NaN`, `Infinity`, or neither a `Date` nor a number
+— a string from a request, say, or an object given `Date.prototype` without
+being a `Date`. `INVALID_EXPIRES_AT`, before anything is signed.
+**Why:** the token's `exp` is a whole number of seconds, and nothing else is
+read by the server. A `Date` is read with the intrinsic
+`Date.prototype.getTime`, which only a real `Date` answers: measured on
+v1.53.2, an object that merely looked like one signed an `exp` the server
+took as no expiry.
+**Fix:** a `Date`, or whole seconds:
+
+```ts
+expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+// or
+expiresAt: Math.floor(Date.now() / 1000) + 3600,
+```
+
+### `tenantToken for "movies": expiresAt is a Date past the year 5138; was it built from milliseconds times 1000?`
+
+**When:** `expiresAt` is a `Date` whose time, in seconds, is past 10¹¹ —
+the year 5138 — typically `new Date(Date.now() * 1000)`, a time in
+milliseconds multiplied as if it were seconds. `INVALID_EXPIRES_AT`, before
+anything is signed.
+**Why:** the same mistake as a number is refused as milliseconds; as a
+`Date`, it would sign a token that lasts some 56 000 years. The message
+never holds the date.
+**Fix:** build the `Date` from milliseconds:
+
+```ts
+expiresAt: new Date(Date.now() + 60 * 60 * 1000),
 ```
 
 ### `tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date`
@@ -471,7 +680,9 @@ expiresAt: new Date(Date.now() + 3_600_000),
 its `indexes` **has** at run time. A bare `TypeError`, thrown before
 anything is signed. The typical case is inside a rebuild's `fill`: its index
 is `movies_next`, and a rule written for `movies` does not apply to it —
-the types cannot tell, since that index's uid is typed `string`.
+the types cannot tell, since that index's uid is typed `string`. The same
+goes for an index typed as a union of uids, `cond ? movieIndex :
+peopleIndex`, whose rule the types let you key by either.
 **Why:** Meilisearch reads a token's rules by uid. A rule under another uid
 would be dropped, and its index searched **with no filter** — so it is
 refused instead.
@@ -479,21 +690,43 @@ refused instead.
 
 ```ts
 await movieIndex.rebuild(async (next) => {
-	await tenantToken({ apiKey, apiKeyUid, indexes: [next], searchRules: { [next.uid]: { filter } } });
+	await tenantToken({ apiKey, apiKeyUid, indexes: [next], searchRules: { [next.uid]: { filter } }, expiresAt });
 });
 ```
 
-### `tenantToken for "movies": searchRules must be a plain object, not one that inherits its rules`
+### `tenantToken: an index uid is not a valid Meilisearch uid (letters, digits, - and _ only), and a * in it would widen the token to other indexes`
+
+**When:** `tenantToken` with an index whose uid is not a Meilisearch index
+uid — `*`, `movies*`, an empty uid, or one with a space — typically an index
+bound under a uid built from a request: `docs_${tenant}`. A bare
+`TypeError`, before anything is signed. It names no uid.
+**Why:** Meilisearch reads a token's rule keys as index **patterns**.
+Measured on v1.53.2: an index bound as `*` with a `null` rule signed a token
+that searched every other index. A rule keyed by a pattern beside valid
+indexes is refused as an unmatched key, above.
+**Fix:** check a uid built from a request before binding it:
+
+```ts
+const uid = `docs_${tenant}`;
+// The whole uid, not the tenant alone: the prefix counts toward the 400.
+if (!/^[A-Za-z0-9_-]{1,400}$/.test(uid)) throw new Error('bad tenant');
+const docs = bindIndex(client, defineIndex<Doc>()({ uid, primaryKey: 'id' }));
+```
+
+### `tenantToken for "movies": searchRules must be a plain object`
 
 **When:** `tenantToken` with a `searchRules` whose prototype is neither
 `Object.prototype` nor `null` — `Object.create(defaults)`, or an instance of
 a class. A bare `TypeError`, thrown before anything is signed.
 **Why:** only a rule that is an **own** key is read. An inherited one would
-be dropped, and its index searched with no filter.
+be dropped, and its index searched with no filter; a class instance is
+refused with it, since its prototype can hold a rule — a getter — that is
+not an own key either. An object made with `Object.create(null)` is plain,
+and accepted.
 **Fix:** spread it into a plain object:
 
 ```ts
-await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { ...defaults, ...rules } });
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { ...defaults, ...rules }, expiresAt });
 ```
 
 ### `the uid of your key is not a valid UUIDv4`
@@ -507,7 +740,7 @@ the server looks the key up by it.
 
 ```ts
 const searchKey = await admin.getKey(process.env.MEILI_SEARCH_KEY_UID!);
-await tenantToken({ apiKey: searchKey.key, apiKeyUid: searchKey.uid, indexes: [movieIndex] });
+await tenantToken({ apiKey: searchKey.key, apiKeyUid: searchKey.uid, indexes: [movieIndex], searchRules: { movies: { filter } }, expiresAt });
 ```
 
 ### `failed to detect a server-side environment; do not generate tokens on the frontend in production!`
@@ -526,7 +759,7 @@ who opens the page.
 not recognise, `force: true` skips the check:
 
 ```ts
-await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], expiresAt, force: true });
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { movies: { filter } }, expiresAt, force: true });
 ```
 
 ### ``Tenant token expired. Was valid up to `1790139850` and we're now `1790139910`.``
@@ -544,10 +777,10 @@ searches.
 **When:** a search, with the token, on an index that was not in its
 `indexes`. `cause.code` `invalid_api_key`, status 403.
 **Why:** the token may search exactly the indexes it names, and no other.
-**Fix:** add the index to `indexes`, with its own rule if it needs one:
+**Fix:** add the index to `indexes`, with its own rule — `null` if it may be read in full:
 
 ```ts
-await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex, peopleIndex], searchRules: { movies: { filter } } });
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex, peopleIndex], searchRules: { movies: { filter }, people: null }, expiresAt });
 ```
 
 ### ``The API key used to generate this tenant token cannot acces the index `people`.``

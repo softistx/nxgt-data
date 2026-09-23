@@ -37,6 +37,17 @@ _Nothing queued._
 
 ## Shipped
 
+- **Tenant tokens fail closed** — `tenantToken` requires `expiresAt` and a
+  rule for every index it is given, in the types and at run time: a missing
+  `expiresAt` is `INVALID_EXPIRES_AT`, a missing or empty rule a
+  `TypeError`, and an index searched with no filter takes an explicit
+  `null` — the only way to spell it. Each rule is read once, into a plain
+  copy that is what is checked and signed, so a getter, a `toJSON` or
+  another key is refused rather than signed; `expiresAt` is read once too,
+  with the intrinsic `Date.prototype.getTime`, into the whole seconds that
+  are signed; and an index typed as a union of uids is keyed like a dynamic
+  one in the types. A token can no longer become a permanent, unfiltered
+  credential by a line left out — 0.5.0.
 - **Tenant tokens typed by their indexes** — `tenantToken({ apiKey,
   apiKeyUid, indexes, searchRules, expiresAt })` signs a token that may search
   only the bound indexes given, with `searchRules` keyed by their uids, and
@@ -54,8 +65,10 @@ _Nothing queued._
   `<uid>_next` with the definition's settings, waits for every task the fill
   left, swaps it with the live index in one atomic task and deletes the old
   one; the first run renames it in, a leftover from a crashed run is deleted
-  first, and a failure deletes the next index and leaves the live one
-  untouched, as `REBUILD_FAILED` — 0.4.0.
+  first, and a failure deletes the next index — or says it could not — and
+  leaves the live one untouched, as `REBUILD_FAILED`; once the swap is sent,
+  a failure to wait for it says the outcome is unknown and deletes nothing
+  — 0.4.0.
 - **Deleting documents by filter** — `deleteByFilter(filter)` takes every
   document a filter matches out of the index in one task, instead of reading
   their ids first and deleting them by id; an empty filter is refused by the

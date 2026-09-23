@@ -62,6 +62,7 @@ export type { SyncOptions, SyncReport } from './sync/sync-index';
 export { syncIndex, syncIndexes } from './sync/sync-index';
 export type {
 	TenantTokenOptions,
+	TenantTokenRule,
 	TenantTokenRules,
 	TokenIndexes,
 } from './token/tenant-token';

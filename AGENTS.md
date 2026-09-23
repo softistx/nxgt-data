@@ -11,7 +11,7 @@ registry:
 | --- | --- |
 | `@nxgt/drizzle` | an SDK over Drizzle ORM: typed repositories (`createRepository`), offset and cursor pagination, `withTransaction`, `upsert` as one `INSERT … ON CONFLICT` on the `where`'s columns, optimistic locking on an integer `NOT NULL` `version` (`OptimisticLockError`), actor stamps from `as(actor)` or the `actor` option, its own errors with `toDataError`, and the `id()`, `timestamps()`, `softDelete()`, `version()`, `actors()` columns. PostgreSQL first |
 | `@nxgt/drizzle-meilisearch` | keeps a Meilisearch index in step with a PostgreSQL table: `createSearchSync` with a `transform` and a `toIndexId` typed by both sides, `reindexAll`, and one call per write — `indexRow`, `indexRows`, `removeRow`, `remove`, `removeMany`. Deliberately smaller than the Mongo bridge: PostgreSQL has no change feed a library could follow without owning the deployment, so there is no `start`, no resume point and nothing followed. Its one error is `SearchSyncError` |
-| `@nxgt/meilisearch` | a typed Meilisearch index on the official SDK: `defineIndex<Doc>()({ uid, primaryKey, settings })`, `syncIndex`/`syncIndexes` applying the settings idempotently, and `bindIndex` for typed documents and searches, with `rebuild` filling `<uid>_next` beside the live index and swapping it in atomically, `multiSearch` returning a tuple of results each typed by its own index, and `tenantToken` signing a token whose `searchRules` are keyed by the uids of the bound indexes it is given, over the SDK's `meilisearch/token`. Its one error is `SearchIndexError` |
+| `@nxgt/meilisearch` | a typed Meilisearch index on the official SDK: `defineIndex<Doc>()({ uid, primaryKey, settings })`, `syncIndex`/`syncIndexes` applying the settings idempotently, and `bindIndex` for typed documents and searches, with `rebuild` filling `<uid>_next` beside the live index and swapping it in atomically, `multiSearch` returning a tuple of results each typed by its own index, and `tenantToken` signing a token whose `searchRules` are keyed by the uids of the bound indexes it is given, over the SDK's `meilisearch/token` — failing closed: `expiresAt` and a rule per index (`null` for no filter) are required, in the types and at run time. Its one error is `SearchIndexError` |
 | `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection` with its stamps and MongoDB's own collection options, `syncCollection`/`syncAll` applying the `$jsonSchema` validator, the collection options and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, `withTransaction`, `upsert` as one atomic pipeline update, migrations in code under the `./migrations` subpath, and files under `./gridfs` — a bucket described once, typed metadata, `Range`-aware serving, and chunk documents written by the package itself so that a file write can run in a transaction, which the driver's GridFS cannot. A string that arrives from outside is converted from the **schema** — a 24-hex string to `ObjectId` where the schema says `objectId()`, a date string to `Date` where it says `z.date()`, in ids, filters and writes alike — unless `coerce: false`. Its errors are `DataError` and its subclasses |
 | `@nxgt/mongo-meilisearch` | keeps a Meilisearch index in step with a MongoDB collection: `createSearchSync` with a `transform` typed by both definitions, `reindex`, and `start`, which follows the collection's changes in batches from a resume point kept in MongoDB. Its one error is `SearchSyncError` |
 | `@nxgt/mongo-kit` | an application's MongoDB wiring in one object: `defineConfig` checking a configuration of one or several databases, and `createKit` giving a `db` that is the driver's `Db` with every `@nxgt/mongo` collection typed on it — and every `@nxgt/mongo/gridfs` bucket the config's `buckets` wires, beside them, in the kit's session so a file write joins a transaction — plus the actor, the session, transactions, `sync`, `syncBuckets` (bucket indexes, which `sync` leaves alone), `ping` and `close`. `discoverCollections` reads definitions from a glob, for scripts |
@@ -55,7 +55,7 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   SDK may break its types in a minor. Raise both together, after reading its
   `indexes.d.ts` and `types/types.d.ts`, where `Settings` and `SearchParams`
   live, and `token.d.ts`: `tenantToken` imports `generateTenantToken` from
-  the SDK's `meilisearch/token` subpath, which the peer range must keep.
+  the SDK's `meilisearch/token` subpath, which the peer range must keep. `src/token/rules.ts` copies a rule's keys by name — `filter` only, the one key of `TokenIndexRules` in 0.62.0 — so a new key there is refused until it is added.
   The SDK's errors reach the caller as they are — except inside a
   `REBUILD_FAILED`, which carries the one that stopped a rebuild as its
   `cause`; the package's only error of its own is `SearchIndexError`.
@@ -155,7 +155,7 @@ matching key in `exports`.
   `.cache/meilisearch/<version>/meilisearch`, and prints its path; the
   package's `test` script runs it first. `$MEILISEARCH_BIN` names another
   binary, for Intel macOS, which v1.53 no longer ships a community build
-  for. `test/server.ts` starts one server per spec file, on a free port,
+  for. The tenant token's refusals are the exception, with no server at all — `src/token/rules.spec.ts`, `rule-shape.spec.ts`, `uid.spec.ts` and `expiry.spec.ts`: nothing is sent, and a token is decoded rather than used. `test/server.ts` starts one server per spec file, on a free port,
   with a temporary `--db-path` and a master key, waits for `/health`, and
   kills it in `afterAll`; `reset` deletes every index between tests. CI
   caches `.cache/meilisearch`, keyed on the hash of the script, so raising
@@ -551,7 +551,7 @@ the file.
 
 ## Known state
 
-`bun run test` is **1248 pass, 0 fail**: drizzle 152, meilisearch 83,
+`bun run test` is **1282 pass, 0 fail**: drizzle 152, meilisearch 117,
 mongo 541, drizzle-meilisearch 42, mongo-meilisearch 58, mongo-kit 101,
 mongo-search-kit 17, redis 46, redis-kit 55, s3 104, hono-api-example 31,
 scripts 18. It runs one process

@@ -54,12 +54,15 @@ leaves the live one as it was, and throws a `SearchIndexError` with
 failed task when there was one. When the next index could not be deleted —
 a key without `indexes.delete`, measured — the message says
 `"movies_next" could not be deleted; the next rebuild deletes it first`
-instead of `was deleted`.
+instead of `was deleted`. When creating it was the refused step — a key
+without `indexes.create`, measured — there is nothing to delete: the
+deletion fails `index_not_found`, which counts as gone, and the message says
+`was deleted`.
 
 Not everything is wrapped. Before the next index is created, the `nextUid`
-refusal is a bare `TypeError` and a failure to delete a leftover `_next`
-arrives as it comes; after the swap, so does a failure to delete the
-previous index:
+refusal is a bare `TypeError`, and a failure to look up a leftover `_next`
+or to delete it arrives as it comes; after the swap, so does a failure to
+delete the previous index:
 
 ```ts
 import { SearchIndexError } from '@nxgt/meilisearch';

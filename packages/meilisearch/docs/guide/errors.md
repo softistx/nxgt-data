@@ -25,7 +25,7 @@ try {
 | `PRIMARY_KEY_MISMATCH` | [`sync`](sync.md) found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
 | `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error`, whose sentence the message leaves out — it can quote a filter or a document id |
 | `REBUILD_FAILED` | [`rebuild`](rebuild.md) stopped before the swap, its swap task came back `failed`, or it sent the swap and could not wait for it | `cause`: what stopped it; `task` when a task failed |
-| `INVALID_EXPIRES_AT` | [`tenantToken`](tenant-tokens.md) was given an `expiresAt` it will not sign | `indexUid`: the token's uids, joined by `,` |
+| `INVALID_EXPIRES_AT` | [`tenantToken`](tenant-tokens.md) was given no `expiresAt`, or one it will not sign | `indexUid`: the token's uids, joined by `,` |
 
 ```ts
 class SearchIndexError extends Error {
@@ -102,8 +102,8 @@ again.
 ### `REBUILD_FAILED`
 
 [`rebuild`](rebuild.md) fills `<uid>_next` and swaps it in. Anything that
-stops it before the swap deletes `<uid>_next` and leaves the live index as
-it was; `cause` is the reason — what `fill` threw, or a `TASK_FAILED`
+stops it before the swap deletes `<uid>_next`, or says it could not, and
+leaves the live index as it was; `cause` is the reason — what `fill` threw, or a `TASK_FAILED`
 `SearchIndexError` for a task `fill` left that failed, whose `task` is also
 copied onto this error:
 
@@ -120,14 +120,18 @@ index is whole either way.
 
 ### `INVALID_EXPIRES_AT`
 
-[`tenantToken`](tenant-tokens.md) refuses, before signing, an `expiresAt`
-already past, a number of milliseconds, a fraction of a second, or an
-invalid `Date` — the last three measured to be accepted wrongly, or not
+[`tenantToken`](tenant-tokens.md) refuses, before signing, a missing
+`expiresAt` (a token without one would last as long as its key), one
+already past, a number of milliseconds, a fraction of a second, an
+invalid `Date`, a `Date` past the year 5138 (built from milliseconds times
+1000), or an object that is not a real `Date` — which the intrinsic
+`Date.prototype.getTime` refuses to read. The number of milliseconds, the
+fraction and the fake `Date` were measured to be accepted wrongly, or not
 decoded, by the server. An `expiresAt` can come from a request, so it has a
 code a handler can answer 400 to:
 
 ```ts
-const error = await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], expiresAt: Date.now() }).catch((e) => e);
+const error = await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { movies: null }, expiresAt: Date.now() }).catch((e) => e);
 error.code;     // 'INVALID_EXPIRES_AT'
 error.message;  // 'tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date'
 error.indexUid; // 'movies'
@@ -166,9 +170,22 @@ Three places where this package steps in front of the SDK, and only three:
 - `rebuild` wraps whatever stops it between creating the next index and
   reading back its swap task — the SDK's error included — in a
   `REBUILD_FAILED`, as `cause`, because it cleaned up after it. Not
-  wrapped: the `nextUid` refusal (a bare `TypeError`) and a failure to
-  delete a leftover `_next`, both before; a failure to delete the previous
-  index, after the swap.
+  wrapped: the `nextUid` refusal (a bare `TypeError`), and a failure to look
+  up a leftover `_next` or to delete it, all before; a failure to delete the
+  previous index, after the swap.
+
+Besides `SearchIndexError`, the package throws bare `TypeError`s for a call
+it refuses before sending or signing anything, with no code: `rebuild`'s
+`nextUid` equal to the uid, `tenantToken`'s index uid that is not a valid
+Meilisearch uid (a `*` in it would make it a pattern), and its
+`searchRules` that is not a plain object, names a uid none of its indexes has, misses a rule for one of
+them, holds an empty rule, or holds a rule that is not `null` or a plain
+`{ filter }` — an array, a class instance, a getter, a `toJSON`, another
+key, or a filter inherited, hidden, or not a string or an array of
+strings. They come from code, not from a request. Each message is in
+troubleshooting.md: `rebuild`'s under
+[Configuration and sync](../troubleshooting.md#rebuild-on-movies-nextuid-must-differ-from-the-indexs-own-uid),
+`tenantToken`'s under [Tenant tokens](../troubleshooting.md#tenant-tokens).
 
 ## One handler for the app
 
