@@ -1,5 +1,11 @@
 # @nxgt/redis
 
+## 0.3.1
+
+### Patch Changes
+
+- [#109](https://github.com/softistx/nxgt-data/pull/109) [`546eceb`](https://github.com/softistx/nxgt-data/commit/546eceb7234bce77b1c03ec10fde02ac7b60cb5a) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The troubleshooting entry for `Argument of type 'Date' is not assignable to parameter of type 'string'.` now has a complete Fix snippet. It declares the cache, the bound `seen`, `raw` and `loadRaw` that it used to leave undeclared, so it can be copied and typechecked as it is. The docs say a `z.coerce.number()` field takes any value but still needs its key, and that a whole `z.preprocess` schema takes anything. Both claims are now `@ts-expect-error` and positive cases in the type tests of `@nxgt/redis` and `@nxgt/redis-kit`. Nothing public moved.
+
 ## 0.3.0
 
 ### Minor Changes

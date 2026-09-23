@@ -1,5 +1,11 @@
 # @nxgt/s3
 
+## 0.4.1
+
+### Patch Changes
+
+- [#108](https://github.com/softistx/nxgt-data/pull/108) [`433dea2`](https://github.com/softistx/nxgt-data/commit/433dea2c4bb24303e5656343e23288547998a531) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The docs no longer say `S3Error` is the only error this package throws. The README, the troubleshooting page and `S3Error`'s own doc comment now call it the error class for refusals, and name the other kinds: a `TypeError` from `defineBucket` and from `presignPost` when its secret is not Bun's, and a plain `Error` when the URL Bun signed cannot be read. The presigned-URL guide now covers the deleted-secret `TypeError` and that plain `Error`, and links each one to its troubleshooting entry.
+
 ## 0.4.0
 
 ### Minor Changes
