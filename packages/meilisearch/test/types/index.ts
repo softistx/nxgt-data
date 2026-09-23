@@ -280,3 +280,47 @@ await index.rebuild((next) => {
 });
 // @ts-expect-error nextUid is a string
 await index.rebuild(async () => {}, { nextUid: 42 });
+
+// A literal uid that is empty or holds a space, a `*`, a dot or a slash does
+// not compile: a cheap denylist. Anything else a uid may not hold — a unicode
+// lookalike, a 401st character — compiles and is refused at run time, as is
+// a uid typed `string` or a union of literals.
+const versioned = defineIndex<Movie>()({
+	uid: 'movies_2026-v2',
+	primaryKey: 'id',
+});
+// The check keeps the literal: it types a tenant token's rule key.
+assertType<Equal<(typeof versioned)['uid'], 'movies_2026-v2'>>(true);
+// @ts-expect-error a * would widen a tenant token
+defineIndex<Movie>()({ uid: '*', primaryKey: 'id' });
+// @ts-expect-error a * anywhere in it
+defineIndex<Movie>()({ uid: 'movies*', primaryKey: 'id' });
+// @ts-expect-error a space
+defineIndex<Movie>()({ uid: 'my movies', primaryKey: 'id' });
+// @ts-expect-error a dot
+defineIndex<Movie>()({ uid: 'movies.v2', primaryKey: 'id' });
+// @ts-expect-error a slash
+defineIndex<Movie>()({ uid: 'tenant/movies', primaryKey: 'id' });
+// @ts-expect-error empty
+defineIndex<Movie>()({ uid: '', primaryKey: 'id' });
+declare const someUid: string;
+defineIndex<Movie>()({ uid: someUid, primaryKey: 'id' });
+defineIndex<Movie>()({ uid: 'movies＊', primaryKey: 'id' });
+
+// A generic uid compiles, as it did before the check: runtime only.
+function moviesUnder<U extends string>(uid: U) {
+	return defineIndex<Movie>()({ uid, primaryKey: 'id' });
+}
+function docsOf<U extends `docs_${string}`>(uid: U) {
+	return defineIndex<Movie>()({ uid, primaryKey: 'id' });
+}
+assertType<Equal<ReturnType<typeof moviesUnder<'m'>>['uid'], 'm'>>(true);
+assertType<Equal<ReturnType<typeof docsOf<'docs_a'>>['uid'], 'docs_a'>>(true);
+
+// A union of literals keeps its members, and compiles even with a bad one
+// among them: `define-index.spec.ts` shows the run time refusing it.
+declare const either: 'a' | 'b';
+const eitherIndex = defineIndex<Movie>()({ uid: either, primaryKey: 'id' });
+assertType<Equal<(typeof eitherIndex)['uid'], 'a' | 'b'>>(true);
+declare const oneBad: 'movies' | '*';
+defineIndex<Movie>()({ uid: oneBad, primaryKey: 'id' });

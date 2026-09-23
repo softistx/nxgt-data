@@ -9,6 +9,7 @@ import {
 import { Meilisearch, MeilisearchApiError } from 'meilisearch';
 import { type Movie, movies, sampleMovies } from '../../test/movies';
 import { startMeilisearch, type TestServer } from '../../test/server';
+import { defineIndex } from '../definition/define-index';
 import { SearchIndexError } from '../errors/search-index-error';
 import { bindIndex } from '../index/bind-index';
 import { tenantToken } from '../token/tenant-token';
@@ -379,5 +380,71 @@ describe('rebuild', () => {
 			'rebuild on "movies": nextUid must differ from the index\'s own uid',
 		);
 		expect(await uids()).toEqual([]);
+	});
+
+	describe('a next uid Meilisearch would refuse', () => {
+		const tooLong =
+			'rebuild on "%s": the next index\'s uid must be 1 to 400 characters, ' +
+			'each an ASCII letter, a digit, - or _; ' +
+			'a uid over 395 characters needs a shorter nextUid';
+		/** A definition like the movies', under `uid`. */
+		const moviesAs = (uid: string) =>
+			defineIndex<Movie>()({ uid, primaryKey: 'id' });
+
+		test('395 characters rebuild under the default <uid>_next, which is 400', async () => {
+			const uid = 'm'.repeat(395);
+			const index = bindIndex(t.client, moviesAs(uid));
+			const report = await index.rebuild(async (next) => {
+				await next.add(remade);
+			});
+			expect(report.nextUid).toHaveLength(400);
+			expect(report.created).toBe(true);
+			expect(await uids()).toEqual([uid]);
+		});
+
+		test('396 characters are refused before anything is sent, unless nextUid is shorter', async () => {
+			const uid = 'm'.repeat(396);
+			const index = bindIndex(t.client, moviesAs(uid));
+			const error = await index.rebuild(async () => {}).catch((e) => e);
+			expect(error).toBeInstanceOf(TypeError);
+			expect(error.message).toBe(tooLong.replace('%s', uid));
+			expect(await uids()).toEqual([]);
+
+			const report = await index.rebuild(
+				async (next) => {
+					await next.add(remade);
+				},
+				{ nextUid: 'movies_next' },
+			);
+			expect(report.created).toBe(true);
+			expect(await uids()).toEqual([uid]);
+		});
+
+		const badNextUid =
+			'rebuild on "%s": nextUid must be 1 to 400 characters, ' +
+			'each an ASCII letter, a digit, - or _';
+
+		test('a nextUid given with a * is refused, and not quoted, with no word on 395', async () => {
+			const index = bindIndex(t.client, movies);
+			const error = await index
+				.rebuild(async () => {}, { nextUid: 'movies_*' })
+				.catch((e) => e);
+			expect(error).toBeInstanceOf(TypeError);
+			expect(error.message).toBe(badNextUid.replace('%s', 'movies'));
+			expect(error.message.includes('movies_*')).toBe(false);
+			expect(await uids()).toEqual([]);
+		});
+
+		test('a nextUid given too long, beside a long uid, is the caller’s: no word on 395 either', async () => {
+			const uid = 'm'.repeat(396);
+			const index = bindIndex(t.client, moviesAs(uid));
+			const error = await index
+				.rebuild(async () => {}, { nextUid: 'n'.repeat(401) })
+				.catch((e) => e);
+			expect(error).toBeInstanceOf(TypeError);
+			expect(error.message).toBe(badNextUid.replace('%s', uid));
+			expect(error.message.includes('n'.repeat(401))).toBe(false);
+			expect(await uids()).toEqual([]);
+		});
 	});
 });

@@ -166,19 +166,28 @@ await tenantToken({ apiKey, apiKeyUid, indexes: [index], searchRules: { [index.u
 
 Meilisearch reads the keys of a token's rules as index **patterns**, not
 names: measured on v1.53.2, an index bound under the uid `*` with a `null`
-rule signed a token that searched every other index. An index is
-therefore refused unless its uid is a Meilisearch index uid:
+rule signed a token that searched every other index. So a uid that is not
+a Meilisearch index uid — 1 to 400 ASCII letters, digits, `-` and `_` — is
+refused **before a token can be asked for**, by the same rule at each step:
 
-| Index uid | Refused as |
-| --- | --- |
-| `*`, `movies*`, `docs_${tenant}` where the tenant holds a `*` | `tenantToken: an index uid is not a valid Meilisearch uid (letters, digits, - and _ only), and a * in it would widen the token to other indexes` |
-| `''`, or one with a space or any other character | the same |
+| Where | Refuses `*`, `movies*`, `docs_${tenant}` with a `*` in the tenant, `''`, a space, a dot… | As |
+| --- | --- | --- |
+| `defineIndex` | at definition, before any request | [`defineIndex: the uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _`](../troubleshooting.md#defineindex-the-uid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_) |
+| `bindIndex` | a definition that did not come from `defineIndex` | [`bindIndex: the definition's uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _`](../troubleshooting.md#bindindex-the-definitions-uid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_) |
+| `tenantToken` | an index that did not come from `bindIndex`, or whose `uid` was reassigned after it | [`tenantToken: an index uid is not a valid Meilisearch uid (letters, digits, - and _ only), and a * in it would widen the token to other indexes`](../troubleshooting.md#tenanttoken-an-index-uid-is-not-a-valid-meilisearch-uid-letters-digits---and-_-only-and-a--in-it-would-widen-the-token-to-other-indexes) |
 
-The message names no uid, since one built from a request could hold
-anything. A rule keyed by a pattern beside valid indexes is refused as an
-unmatched key. `defineIndex` does not check the uid today; build a uid from
-a request only after checking the whole uid, prefix included, against
-`/^[A-Za-z0-9_-]{1,400}$/`.
+None of the messages names the uid, since one built from a request could
+hold anything. A rule keyed by a pattern beside valid indexes is refused as
+an unmatched key. To turn a bad tenant into your own error rather than a
+`TypeError`, check the whole uid, prefix included, before defining it — to
+395 characters if the index is to be [rebuilt](rebuild.md) under
+`<uid>_next`, 400 otherwise:
+
+```ts
+const uid = `docs_${tenant}`;
+if (!/^[A-Za-z0-9_-]{1,395}$/.test(uid)) throw new Error('bad tenant');
+const docs = bindIndex(client, defineIndex<Doc>()({ uid, primaryKey: 'id' }));
+```
 
 ## What was measured
 

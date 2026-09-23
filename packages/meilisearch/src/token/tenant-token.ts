@@ -1,5 +1,6 @@
 import type { TenantTokenGeneratorOptions, TokenIndexRules } from 'meilisearch';
 import { generateTenantToken } from 'meilisearch/token';
+import { isIndexUid } from '../definition/uid';
 import type { TypedIndex } from '../index/bind-index';
 import { expirySeconds } from './expiry';
 import { copyRules, quoted } from './rules';
@@ -101,17 +102,18 @@ export interface TenantTokenOptions<Indexes extends TokenIndexes> {
 	force?: boolean;
 }
 
-/** A Meilisearch index uid: nothing else may key a token's rules. */
-const INDEX_UID = /^[A-Za-z0-9_-]{1,400}$/;
-
 /**
  * Refuses a uid that is not an index uid. Meilisearch reads a token's rule
  * keys as index **patterns**: measured on v1.53.2, a uid of `*` with a `null`
  * rule signed a token that searched every other index. A uid built from a
  * request — `docs_${tenant}` — can hold one. The message names no uid.
+ *
+ * `defineIndex` and `bindIndex` refuse such a uid first, with the same
+ * function; this one still fires for an index that did not come from
+ * `bindIndex`, or whose `uid` was reassigned after it.
  */
 function checkUids(uids: readonly string[]) {
-	if (uids.every((uid) => typeof uid === 'string' && INDEX_UID.test(uid))) {
+	if (uids.every(isIndexUid)) {
 		return;
 	}
 	throw new TypeError(

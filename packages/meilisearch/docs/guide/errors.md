@@ -170,21 +170,29 @@ Three places where this package steps in front of the SDK, and only three:
 - `rebuild` wraps whatever stops it between creating the next index and
   reading back its swap task — the SDK's error included — in a
   `REBUILD_FAILED`, as `cause`, because it cleaned up after it. Not
-  wrapped: the `nextUid` refusal (a bare `TypeError`), and a failure to look
+  wrapped: the `nextUid` refusals (bare `TypeError`s), and a failure to look
   up a leftover `_next` or to delete it, all before; a failure to delete the
   previous index, after the swap.
 
 Besides `SearchIndexError`, the package throws bare `TypeError`s for a call
-it refuses before sending or signing anything, with no code: `rebuild`'s
-`nextUid` equal to the uid, `tenantToken`'s index uid that is not a valid
+it refuses before sending or signing anything, with no code: a uid that is
+not a Meilisearch uid, from `defineIndex` at definition and from `bindIndex`
+for a definition that did not come from `defineIndex`; `rebuild`'s
+`nextUid` equal to the uid, and its next uid that Meilisearch would refuse —
+the default `<uid>_next` of a uid over 395 characters, or a `nextUid` given
+that is not a uid; `tenantToken`'s index uid that is not a valid
 Meilisearch uid (a `*` in it would make it a pattern), and its
 `searchRules` that is not a plain object, names a uid none of its indexes has, misses a rule for one of
 them, holds an empty rule, or holds a rule that is not `null` or a plain
 `{ filter }` — an array, a class instance, a getter, a `toJSON`, another
 key, or a filter inherited, hidden, or not a string or an array of
 strings. They come from code, not from a request. Each message is in
-troubleshooting.md: `rebuild`'s under
-[Configuration and sync](../troubleshooting.md#rebuild-on-movies-nextuid-must-differ-from-the-indexs-own-uid),
+troubleshooting.md: under Configuration and sync,
+[`defineIndex`'s](../troubleshooting.md#defineindex-the-uid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_),
+[`bindIndex`'s](../troubleshooting.md#bindindex-the-definitions-uid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_), and `rebuild`'s
+[`nextUid` equal to the uid](../troubleshooting.md#rebuild-on-movies-nextuid-must-differ-from-the-indexs-own-uid),
+[default next uid too long](../troubleshooting.md#rebuild-on-movies-the-next-indexs-uid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_-a-uid-over-395-characters-needs-a-shorter-nextuid) and
+[`nextUid` not a uid](../troubleshooting.md#rebuild-on-movies-nextuid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_);
 `tenantToken`'s under [Tenant tokens](../troubleshooting.md#tenant-tokens).
 
 ## One handler for the app

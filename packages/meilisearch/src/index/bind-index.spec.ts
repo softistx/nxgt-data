@@ -314,3 +314,48 @@ describe('search', () => {
 		expect(result.hits[0]?._formatted?.overview).toContain('<em>space</em>');
 	});
 });
+
+describe('the uid', () => {
+	/** Every uid `defineIndex` and `bindIndex` refuse, one of each kind. */
+	const refusedUids = [
+		'a'.repeat(401),
+		'*',
+		'docs_acme*',
+		'my movies',
+		'movies.v2',
+		'tenant/movies',
+		'movies＊',
+		'mоvies',
+		'',
+	];
+
+	test('a definition that did not come from defineIndex is checked by bindIndex', () => {
+		for (const uid of refusedUids) {
+			// A definition written by hand: nothing refused it before.
+			const definition = { uid, primaryKey: 'id' } as typeof movies;
+			let error: unknown;
+			try {
+				bindIndex(t.client, definition);
+			} catch (e) {
+				error = e;
+			}
+			expect(error).toBeInstanceOf(TypeError);
+			expect((error as TypeError).message).toBe(
+				"bindIndex: the definition's uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _",
+			);
+		}
+	});
+
+	test('the server agrees: it refuses each of them, and takes 400 characters', async () => {
+		for (const uid of refusedUids) {
+			const error = await t.client
+				.createIndex(uid)
+				.waitTask()
+				.catch((e) => e);
+			expect(error).toBeInstanceOf(MeilisearchApiError);
+			expect(error.cause.code).toBe('invalid_index_uid');
+		}
+		const task = await t.client.createIndex(`${'a'.repeat(398)}-_`).waitTask();
+		expect(task.status).toBe('succeeded');
+	});
+});

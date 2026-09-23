@@ -1,5 +1,6 @@
 import type { Embedders, FacetOrder, ProximityPrecision } from 'meilisearch';
 import type { AttributePattern, DocumentPath } from './paths';
+import { INDEX_UID_SHAPE, isIndexUid } from './uid';
 
 /**
  * The keys of a document that can be its primary key: those whose value is a
@@ -87,7 +88,11 @@ export interface IndexSettings<Doc> {
 
 /** What `defineIndex<Doc>()` takes. */
 export interface IndexConfig<Doc> {
-	/** The index's uid on the server. */
+	/**
+	 * The index's uid on the server: 1 to 400 characters, each an ASCII
+	 * letter, a digit, `-` or `_`. Anything else throws a `TypeError`. Keep it
+	 * to 395 to `rebuild` under the default `<uid>_next`.
+	 */
 	uid: string;
 	/** The attribute that identifies a document; it types every id. */
 	primaryKey: PrimaryKeyOf<Doc>;
@@ -174,6 +179,28 @@ type NoExtraKeys<Given, Allowed> = {
 };
 
 /**
+ * What the types allow a uid to be, looked up by the uid itself: `never` for
+ * a literal that is empty or holds a space, a `*`, a dot or a slash — the
+ * mistakes a uid is most likely to be given — and `unknown` for anything
+ * else. Only a cheap denylist: a unicode lookalike or a 401st character
+ * compiles, and is refused at run time.
+ *
+ * A lookup, not a conditional type, on purpose: a conditional on a generic
+ * uid (`<U extends string>(uid: U) => defineIndex…({ uid })`) stays deferred
+ * and refuses it. An indexed access on a type parameter is let through, as a
+ * `string` is, and a union of literals reads `unknown` as soon as one member
+ * is valid: those are checked at run time only.
+ */
+interface UidAllowed {
+	[uid: string]: unknown;
+	[uid: `${string}*${string}`]: never;
+	[uid: `${string} ${string}`]: never;
+	[uid: `${string}.${string}`]: never;
+	[uid: `${string}/${string}`]: never;
+	'': never;
+}
+
+/**
  * Defines an index: its uid, its primary key and its settings, typed by the
  * document it holds.
  *
@@ -181,6 +208,11 @@ type NoExtraKeys<Given, Allowed> = {
  * all of a call's type arguments or none: given `Movie`, it would no longer
  * infer the settings, and their literal types, which type the searches and
  * sorts of the index, would widen to `string`.
+ *
+ * A uid Meilisearch would refuse — empty, over 400 characters, or holding
+ * anything but ASCII letters, digits, `-` and `_` — throws a `TypeError`
+ * here, before any request: a `*` in it would otherwise widen a tenant token
+ * to other indexes. The message names no uid.
  *
  * ```ts
  * export const movies = defineIndex<Movie>()({
@@ -194,11 +226,18 @@ export function defineIndex<Doc extends object>() {
 	return <const Config extends IndexConfig<Doc>>(
 		config: Config &
 			NoExtraKeys<Config, IndexConfig<Doc>> & {
+				uid: UidAllowed[Config['uid']];
+			} & {
 				settings?: NoExtraKeys<
 					NonNullable<Config['settings']>,
 					IndexSettings<Doc>
 				>;
 			},
-	): IndexDefinition<Doc, Config> =>
-		Object.freeze({ ...config }) as IndexDefinition<Doc, Config>;
+	): IndexDefinition<Doc, Config> => {
+		// The message names no uid: one built from a request stays out of logs.
+		if (!isIndexUid(config.uid)) {
+			throw new TypeError(`defineIndex: the uid must be ${INDEX_UID_SHAPE}`);
+		}
+		return Object.freeze({ ...config }) as IndexDefinition<Doc, Config>;
+	};
 }

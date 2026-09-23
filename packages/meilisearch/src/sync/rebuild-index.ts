@@ -1,5 +1,6 @@
 import type { IndexSwap, Meilisearch, Task, WaitOptions } from 'meilisearch';
 import type { AnyIndexDefinition } from '../definition/define-index';
+import { INDEX_UID_SHAPE, isIndexUid } from '../definition/uid';
 import {
 	assertSucceeded,
 	SearchIndexError,
@@ -8,7 +9,11 @@ import type { TypedIndex } from '../index/bind-index';
 import { findIndex, type SyncReport, syncIndexFor } from './sync-index';
 
 export interface RebuildOptions {
-	/** The uid of the index filled beside the live one: `<uid>_next` by default. */
+	/**
+	 * The uid of the index filled beside the live one: `<uid>_next` by
+	 * default, which is refused for a uid over 395 characters — pass a shorter
+	 * one then.
+	 */
 	nextUid?: string;
 	/** How long to wait for each task, and how often to ask. The SDK's. */
 	wait?: WaitOptions;
@@ -176,6 +181,18 @@ export async function rebuildIndex<Def extends AnyIndexDefinition>(
 	if (nextUid === uid) {
 		throw new TypeError(
 			`rebuild on "${uid}": nextUid must differ from the index's own uid`,
+		);
+	}
+	// Before any request: the server would refuse it on the first one, with
+	// nothing to say which uid. The live uid is valid (`bindIndex` checked
+	// it), so the default `<uid>_next` fails only past 395 characters; a
+	// `nextUid` given is the caller's, and never quoted.
+	if (!isIndexUid(nextUid)) {
+		throw new TypeError(
+			options.nextUid === undefined
+				? `rebuild on "${uid}": the next index's uid must be ${INDEX_UID_SHAPE}; ` +
+						'a uid over 395 characters needs a shorter nextUid'
+				: `rebuild on "${uid}": nextUid must be ${INDEX_UID_SHAPE}`,
 		);
 	}
 

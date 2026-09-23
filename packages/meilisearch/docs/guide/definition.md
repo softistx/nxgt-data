@@ -32,6 +32,56 @@ Nothing is sent: `defineIndex` returns the frozen config. The server is
 brought in line by [`sync`](sync.md), and the documents and searches are
 typed by passing this definition to [`bindIndex`](documents.md).
 
+## The uid
+
+A uid is what Meilisearch accepts, measured on v1.53.2: **1 to 400
+characters, each an ASCII letter, a digit, `-` or `_`**. `defineIndex`
+refuses anything else with a bare `TypeError`, at definition, before any
+request — the message names the call and the shape, never the uid, since one
+built from a request should stay out of logs:
+
+```ts
+defineIndex<Movie>()({ uid: 'movies_2026-v2', primaryKey: 'id' }); // fine
+
+const tenant = 'acme*'; // from a request
+defineIndex<Movie>()({ uid: `docs_${tenant}`, primaryKey: 'id' });
+// TypeError: defineIndex: the uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _
+```
+
+Refused: an empty string, 401 characters, a `*`, a space, a dot, a slash, a
+unicode lookalike (`＊`, a Cyrillic `о`, a no-break space), a trailing
+newline, and anything that is not a string. The server refuses each of them
+with `invalid_index_uid`; the check moves that refusal to where the uid is
+written. A `*` matters beyond the server: a [tenant
+token](tenant-tokens.md) reads its rule keys as index **patterns**, so a uid
+holding one would widen a token to other indexes.
+
+The types catch the common mistakes in a literal — an empty uid, or one
+holding a space, a `*`, a dot or a slash — and nothing more:
+
+```ts
+// @ts-expect-error: a * would widen a tenant token
+defineIndex<Movie>()({ uid: '*', primaryKey: 'id' });
+// @ts-expect-error: a dot
+defineIndex<Movie>()({ uid: 'movies.v2', primaryKey: 'id' });
+```
+
+A unicode lookalike or a 401st character compiles, as does every uid typed
+`string`, a generic uid — `<U extends string>(uid: U) =>
+defineIndex<Movie>()({ uid, primaryKey: 'id' })` — and a union of literals
+with one valid member (`'movies' | '*'`); those are refused at run time
+only. A full
+check in the types would walk the uid character by character, for a
+refusal the run time already gives at the first call.
+
+**395, to rebuild.** [`rebuild`](rebuild.md) fills `<uid>_next`, five
+characters longer: a uid of 396 to 400 characters is valid, but its default
+next uid is not, and `rebuild` throws a `TypeError` before sending anything.
+Keep uids to 395, or pass a shorter `nextUid`.
+
+`bindIndex` checks the uid again with the same rule, for a definition that
+did not come from `defineIndex`.
+
 ## Why the empty `()`
 
 TypeScript infers all of a call's type arguments or none.
@@ -194,7 +244,7 @@ function defineIndex<Doc extends object>(): <const Config extends IndexConfig<Do
 ) => IndexDefinition<Doc, Config>;
 
 interface IndexConfig<Doc> {
-	/** The index's uid on the server. */
+	/** 1 to 400 ASCII letters, digits, - and _; anything else throws a TypeError. */
 	uid: string;
 	/** The attribute that identifies a document; it types every id. */
 	primaryKey: PrimaryKeyOf<Doc>;

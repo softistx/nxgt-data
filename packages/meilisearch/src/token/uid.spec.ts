@@ -17,12 +17,20 @@ describe('a uid that is not an index uid is refused, since a rule key is a patte
 		'tenantToken: an index uid is not a valid Meilisearch uid ' +
 		'(letters, digits, - and _ only), and a * in it would widen the token ' +
 		'to other indexes';
-	/** The refusal for an index bound under `uid`, with a null rule. */
+	/**
+	 * The refusal for an index under `uid`, with a null rule. `defineIndex`
+	 * and `bindIndex` refuse such a uid first, so the index is a bound one
+	 * whose `uid` was replaced after: tenantToken's own check is what is left.
+	 */
 	const refused = async (uid: string) => {
 		const index = bindIndex(
 			client,
-			defineIndex<{ slug: string }>()({ uid, primaryKey: 'slug' }),
+			defineIndex<{ slug: string }>()({
+				uid: 'docs' as string,
+				primaryKey: 'slug',
+			}),
 		);
+		(index as { uid: string }).uid = uid;
 		const error = await tenantToken({
 			apiKey,
 			apiKeyUid: 'not-a-uuid',
