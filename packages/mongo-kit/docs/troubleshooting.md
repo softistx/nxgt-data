@@ -28,9 +28,9 @@ try {
 | Area | Entries |
 | --- | --- |
 | [Install](#install) | [ERESOLVE](#npm-error-eresolve-unable-to-resolve-dependency-tree) · [incorrect peer dependency](#warn-incorrect-peer-dependency-nxgtmongo0140) · [TS2307](#error-ts2307-cannot-find-module-nxgtmongo-or-its-corresponding-type-declarations) |
-| [Types](#types) | [a key the `Db` has](#command-is-a-member-of-the-drivers-db-wire-this-collection-under-another-key) · [options for a key that is not wired](#posts-is-not-wired-by-this-database-there-are-no-options-for-it) |
-| [Configuration](#configuration) | [no configuration at all](#defineconfig-a-configuration-object-is-required) · [`databases` is not an object of databases by name](#defineconfig-databases-must-be-an-object-of-databases-by-name-as--databases--main----one-database-is-the-configuration-itself-and-names-itself-with-database) · [neither a uri nor a client](#defineconfig-database-main-has-neither-a-uri-nor-a-client) · [both](#defineconfig-database-main-has-both-a-uri-and-a-client-pass-the-one-it-should-use) · [client options](#defineconfig-database-main-has-client-options-beside-a-client-it-did-not-open-pass-them-where-the-client-is-made) · [no definition in it](#defineconfig-database-main-has-a-collections-object-with-no-definition-in-it-pass-the-module-as-in-import--as-collections) · [two keys, one collection](#defineconfig-database-main-wires-users-and-people-to-the-same-collection-users) · [an option the kit decides](#defineconfig-database-main-has-session-in-options-which-the-kit-decides-) · [options for a key it does not wire](#defineconfig-database-main-has-options-for-posts-which-it-does-not-wire) · [no databases](#defineconfig-databases-names-none-give-it-at-least-one-as--databases--main---) |
-| [Runtime](#runtime) | [a key the `Db` has, at creation](#createkit-database-main-wires-a-collection-under-command-which-is-a-member-of-the-drivers-db-it-would-be-unreachable-export-that-definition-under-another-name) · [ECONNREFUSED](#mongoserverselectionerror-connect-econnrefused-12700127017) · [one URI, two option sets](#connectmongo-this-uri-is-already-connected-with-other-options-pass-the-same-options-everywhere-or-close-the-first-connection) · [`kit.db` with several databases](#kitdb-this-kit-has-several-databases-read-the-one-you-mean-as-kitdatabasesmain) · [an unknown database](#this-kit-has-no-database-reporting-it-has-main-analytics) · [closing a derived kit](#close-this-kit-came-from-as-withsession-or-a-transaction-close-the-kit-createkit-returned--the-clients-are-shared) · [`sync()` and privileges](#not-authorized-on-app-to-execute-command--collmod-users--) |
+| [Types](#types) | [a key the `Db` has](#command-is-a-member-of-the-drivers-db-wire-this-collection-under-another-key) · [options for a key that is not wired](#posts-is-not-wired-by-this-database-there-are-no-options-for-it) · [a bucket under a key the `Db` has](#watch-is-a-member-of-the-drivers-db-wire-this-bucket-under-another-key) · [a bucket under a collection's key](#users-is-also-a-collection-of-this-database-wire-this-bucket-under-another-key) · [a bucket option the kit decides](#autosync-is-the-kits-to-decide-withsession-and-transactions-carry-the-session-and-autosync-is-the-databases) |
+| [Configuration](#configuration) | [no configuration at all](#defineconfig-a-configuration-object-is-required) · [`databases` is not an object of databases by name](#defineconfig-databases-must-be-an-object-of-databases-by-name-as--databases--main----one-database-is-the-configuration-itself-and-names-itself-with-database) · [neither a uri nor a client](#defineconfig-database-main-has-neither-a-uri-nor-a-client) · [both](#defineconfig-database-main-has-both-a-uri-and-a-client-pass-the-one-it-should-use) · [client options](#defineconfig-database-main-has-client-options-beside-a-client-it-did-not-open-pass-them-where-the-client-is-made) · [no definition in it](#defineconfig-database-main-has-a-collections-object-with-no-definition-in-it-pass-the-module-as-in-import--as-collections) · [two keys, one collection](#defineconfig-database-main-wires-users-and-people-to-the-same-collection-users) · [an option the kit decides](#defineconfig-database-main-has-session-in-options-which-the-kit-decides-) · [options for a key it does not wire](#defineconfig-database-main-has-options-for-posts-which-it-does-not-wire) · [no databases](#defineconfig-databases-names-none-give-it-at-least-one-as--databases--main---) · [no bucket in `buckets`](#defineconfig-database-main-has-a-buckets-object-with-no-bucket-definition-in-it-pass-the-module-as-in-import--as-buckets) · [a key both a collection and a bucket](#defineconfig-database-main-wires-users-as-both-a-collection-and-a-bucket-export-one-of-them-under-another-name) · [two keys, one bucket](#defineconfig-database-main-wires-avatars-and-pictures-to-the-same-bucket-avatars) · [a bucket option the kit decides](#defineconfig-database-main-has-session-in-bucketoptions-which-the-kit-decides-) |
+| [Runtime](#runtime) | [a key the `Db` has, at creation](#createkit-database-main-wires-a-collection-under-command-which-is-a-member-of-the-drivers-db-it-would-be-unreachable-export-that-definition-under-another-name) · [a bucket key the `Db` has, at creation](#createkit-database-main-wires-a-bucket-under-watch-which-is-a-member-of-the-drivers-db-it-would-be-unreachable-export-that-definition-under-another-name) · [ECONNREFUSED](#mongoserverselectionerror-connect-econnrefused-12700127017) · [one URI, two option sets](#connectmongo-this-uri-is-already-connected-with-other-options-pass-the-same-options-everywhere-or-close-the-first-connection) · [`kit.db` with several databases](#kitdb-this-kit-has-several-databases-read-the-one-you-mean-as-kitdatabasesmain) · [an unknown database](#this-kit-has-no-database-reporting-it-has-main-analytics) · [closing a derived kit](#close-this-kit-came-from-as-withsession-or-a-transaction-close-the-kit-createkit-returned--the-clients-are-shared) · [`sync()` and privileges](#not-authorized-on-app-to-execute-command--collmod-users--) |
 | [Transactions](#transactions) | [more than one client](#transaction-this-kit-holds-more-than-one-client-and-a-transaction-lives-on-one-name-the-database-it-runs-on-as--on-main-) · [already in a session](#transaction-this-kit-is-already-in-a-session-which-this-call-joins-so-on-has-no-client-left-to-choose) · [a session from another client](#clientsession-must-be-from-the-same-mongoclient) · [no replica set](#this-mongodb-deployment-does-not-support-retryable-writes-please-add-retrywritesfalse-to-your-connection-string) |
 | [Scripts](#scripts) | [`Bun is not defined`](#referenceerror-bun-is-not-defined) · [no glob](#discovercollections-a-glob-is-required) · [two files, one collection](#discovercollections-srcmodelsonemodelts-and-srcmodelstwomodelts-both-define-the-collection-twice) · [no definition of that name](#discovercollections-srcmodelsnotests-exports-no-definition-named-definition) |
 
@@ -148,6 +148,63 @@ defineConfig({
 	uri: process.env.MONGO_URI!,
 	collections,                       // `import * as collections from './models'`
 	optionsFor: { articles: { maxPageSize: 200 } },  // a key `collections` exports
+});
+```
+
+### `"watch" is a member of the driver's Db: wire this bucket under another key`
+
+**When:** compiling a `defineConfig` whose `buckets` exports a bucket under
+a name the driver's `Db` answers to.
+
+**Why:** a bucket sits on the scope beside the collections, so it has the
+same problem as a
+[collection under such a key](#command-is-a-member-of-the-drivers-db-wire-this-collection-under-another-key):
+`kit.db.watch` would be the driver's method, never your bucket.
+
+**Fix:** export it under another name. The export name is the key; the
+bucket's `name` is what the server sees, and need not change.
+
+```ts
+// src/files/index.ts
+export const watchClips = defineBucket({ name: 'watch' });
+```
+
+### `"users" is also a collection of this database: wire this bucket under another key`
+
+**When:** compiling a `defineConfig` whose `buckets` and `collections`
+export something under the same name.
+
+**Why:** both would be `kit.db.users`. Usually one module of models and one
+of files that grew the same export name, or one module passed as both.
+
+**Fix:** rename one of the two exports.
+
+```ts
+export const userPhotos = defineBucket({ name: 'users' });
+//           ^ the key on `kit.db`: `kit.db.users` stays the collection
+```
+
+### `"autoSync" is the kit's to decide: withSession and transactions carry the session, and autoSync is the database's`
+
+The same message names `"session"` when that is the key at fault.
+
+**When:** compiling a `defineConfig` whose `bucketOptions` holds `session`
+or `autoSync`.
+
+**Why:** a bucket takes its session from the kit — `withSession`, or the
+transaction a `kit.transaction` body runs in — and its `autoSync` from the
+database. Pinned in the config, either would outrank the kit, and a file
+would be written outside the transaction around it.
+
+**Fix:**
+
+```ts
+defineConfig({
+	uri: process.env.MONGO_URI!,
+	collections,
+	buckets,
+	autoSync: true,                    // the database's, for tests and development
+	bucketOptions: { hash: false },    // only validate, coerce and hash
 });
 ```
 
@@ -339,6 +396,77 @@ typically built from environment variables that were not set.
 defineConfig({ databases: { main: { uri, collections } } });
 ```
 
+### `` defineConfig: database "main" has a buckets object with no bucket definition in it: pass the module, as in `import * as buckets` ``
+
+**When:** calling `defineConfig` with a `buckets` that holds no
+`defineBucket` — or that is not an object at all.
+
+**Why:** a bucket is told by its shape, and nothing in the object had it.
+Usually the collections passed as `buckets` by mistake, a module of types
+only, or a default export.
+
+**Fix:**
+
+```ts
+// src/files/index.ts
+export const avatars = defineBucket({ name: 'avatars' });
+
+// src/db.ts
+import * as buckets from './files';
+defineConfig({ uri, collections, buckets });
+```
+
+Leave `buckets` out when the database has none; an empty object is refused.
+
+### `defineConfig: database "main" wires "users" as both a collection and a bucket: export one of them under another name`
+
+**When:** calling `defineConfig`, when the types were bypassed — an
+`as never`, a config built at run time, or JavaScript.
+
+**Why:** the same cause as the
+[type error](#users-is-also-a-collection-of-this-database-wire-this-bucket-under-another-key):
+two exports would both be `kit.db.users`. `error.key` is the key.
+
+**Fix:** rename one export, as above.
+
+### `defineConfig: database "main" wires "avatars" and "pictures" to the same bucket, "avatars"`
+
+**When:** calling `defineConfig`.
+
+**Why:** two exports carry buckets with the same `name`, so two keys on
+`kit.db` would write to one pair of server collections, `avatars.files` and
+`avatars.chunks`, perhaps with two metadata schemas. Usually a
+copy-and-pasted `defineBucket` whose `name` was not changed.
+
+**Fix:**
+
+```ts
+export const pictures = defineBucket({ name: 'pictures' });
+//                                     ^ one `name` per bucket
+```
+
+### `defineConfig: database "main" has "session" in bucketOptions, which the kit decides: …`
+
+The full message:
+
+```text
+defineConfig: database "main" has "session" in bucketOptions, which the kit
+decides: `withSession` and transactions carry the session, and `autoSync` is
+the database's
+```
+
+It reads `has "autoSync" in bucketOptions` for the other one.
+
+**When:** calling `defineConfig`, when the types were bypassed.
+
+**Why:** the same cause as the
+[type error](#autosync-is-the-kits-to-decide-withsession-and-transactions-carry-the-session-and-autosync-is-the-databases):
+a session pinned for every bucket would put file writes outside the
+transaction around them.
+
+**Fix:** take it out, and set `autoSync` on the database beside
+`collections` if you want it.
+
 ## Runtime
 
 ### `createKit: database "main" wires a collection under "command", which is a member of the driver's Db: it would be unreachable. Export that definition under another name.`
@@ -355,6 +483,24 @@ your key already uses.
 
 **Fix:** rename the export, as above. If the driver added the member, raising
 `mongodb` is what surfaced it — the check is deliberate, not a regression.
+
+### `createKit: database "main" wires a bucket under "watch", which is a member of the driver's Db: it would be unreachable. Export that definition under another name.`
+
+**When:** `await createKit(config)`, with the connections opened before it
+given back.
+
+**Why:** the bucket form of the collision above, asked of the live `Db`:
+the types refuse it
+[where the config is written](#watch-is-a-member-of-the-drivers-db-wire-this-bucket-under-another-key),
+and this catches the config that bypassed them, or a member a later driver
+adds. `code: 'COLLISION'`, with the `database` and the `key`.
+`defineConfig` cannot ask it: it has no `Db` until `createKit` connects.
+
+**Fix:** rename the export.
+
+```ts
+export const watchClips = defineBucket({ name: 'watch' });
+```
 
 ### `MongoServerSelectionError: connect ECONNREFUSED 127.0.0.1:27017`
 

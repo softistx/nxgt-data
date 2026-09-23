@@ -9,10 +9,7 @@ _Nothing in progress._
 
 ## Next
 
-- **Files beside the collections** — a bucket declared in the configuration
-  and reached off the kit the way a collection is today, in the kit's session
-  and under its actor, so a file write joins a transaction with the documents
-  around it.
+_Nothing queued._
 
 ## Later
 
@@ -40,6 +37,13 @@ _Nothing queued._
 
 ## Shipped
 
+- **Files beside the collections** — `@nxgt/mongo/gridfs` buckets declared
+  in the configuration as `buckets`, reached off the kit the way a collection
+  is, typed by their metadata and in the kit's session, so a file write
+  joins a transaction with the documents around it; `bucketOptions` for
+  every bucket of a database, and `syncBuckets()` creating their indexes
+  beside `sync()`. A bucket has no actor to stamp, so only the session
+  carries over — 0.4.0.
 - **`ping()`** — one call that says whether each database the kit wires
   answers, and how long it took, under its name, for a health endpoint that
   does not reach for the driver itself; it never throws, and keeps its

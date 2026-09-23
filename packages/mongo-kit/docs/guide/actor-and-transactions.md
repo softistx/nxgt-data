@@ -63,8 +63,10 @@ other set.
 
 ## `transaction(fn, options?)`
 
-The body is given a kit whose collections are **all** in the transaction:
-nothing has to be threaded through.
+The body is given a kit whose collections — and [buckets](files.md#in-a-transaction),
+when the config wires some — are **all** in the transaction: nothing has to
+be threaded through, and a file written there commits or rolls back with the
+documents beside it.
 
 ```ts
 const written = await kit.as(actor).transaction(async (tx) => {

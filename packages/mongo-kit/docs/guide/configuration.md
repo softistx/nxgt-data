@@ -70,7 +70,9 @@ checked again against the object at `createKit`.
 | `collections` | module object | — | `import * as collections from './models'` |
 | `options` | `KitCollectionOptions<AnyCollectionDefinition>` | `{}` | `@nxgt/mongo`'s collection options, for every collection of this database |
 | `optionsFor` | `{ [key]?: KitCollectionOptions<Def> }` | `{}` | The same, per key, merged **over** `options` |
-| `autoSync` | `boolean` | `false` | Sync each collection before its first operation |
+| `autoSync` | `boolean` | `false` | Sync each collection before its first operation, and create each bucket's indexes before its first call |
+| `buckets` | module object | — | `import * as buckets from './files'`: [GridFS buckets](files.md), on the scope beside the collections |
+| `bucketOptions` | `KitBucketOptions` | `{}` | `@nxgt/mongo/gridfs`'s `validate`, `coerce` and `hash`, for every bucket of this database |
 
 `options` and `optionsFor` take `@nxgt/mongo`'s own collection options —
 `maxPageSize`, `coerce`, `validate`, `softDelete`, `touchUpdatedAt`,
@@ -184,7 +186,11 @@ defineConfig({ collections });
   default export, or an object of schemas rather than of definitions;
 - two keys wiring the same server collection;
 - `optionsFor` under a key the database does not wire;
-- `db`, `session`, `actor` or `autoSync` inside `options` or `optionsFor`.
+- `db`, `session`, `actor` or `autoSync` inside `options` or `optionsFor`;
+- a `buckets` object with no bucket definition in it, a bucket key a
+  collection of the same database already holds, two keys wiring the same
+  bucket, and `session` or `autoSync` inside `bucketOptions` — see
+  [Files](files.md#declaring-the-buckets).
 
 [Troubleshooting](../troubleshooting.md) has each message with its fix.
 
@@ -199,7 +205,7 @@ type KitConfigInput =
 	| DatabaseConfig<object>
 	| { databases: Record<string, DatabaseConfig<object>> };
 
-interface DatabaseConfig<C> {
+interface DatabaseConfig<C, B = object> {
 	uri?: string;
 	client?: MongoClient;
 	clientOptions?: MongoClientOptions;
@@ -210,7 +216,11 @@ interface DatabaseConfig<C> {
 		[K in keyof CollectionsOf<C>]?: KitCollectionOptions<CollectionsOf<C>[K]>;
 	};
 	autoSync?: boolean;
+	buckets?: B;
+	bucketOptions?: KitBucketOptions;
 }
+
+type KitBucketOptions = Omit<BucketOptions, 'session' | 'autoSync'>;
 
 type KitCollectionOptions<Def> = Omit<
 	CollectionOptions<Def>,
