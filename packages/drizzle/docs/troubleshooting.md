@@ -905,7 +905,10 @@ the same reason as `.with(db)`: the caller hands it the database by name.
 two transactions touched the same rows and PostgreSQL could not order them.
 **Why:** those levels are enforced by refusing one of the two transactions,
 not by making it wait. It arrives as a `DataError` with `code: 'DATABASE'`
-and `sqlState: '40001'`. This package does not retry: a retry re-runs the
+and `sqlState: '40001'`. A lost optimistic-lock race arrives this way too
+under those levels, when the other writer committed after this
+transaction's snapshot, rather than as an `OptimisticLockError` — see
+[Under `repeatable read` or `serializable`](guide/stamps.md#under-repeatable-read-or-serializable). This package does not retry: a retry re-runs the
 callback, and only the caller knows whether that is safe.
 **Fix:** match on `sqlState`, never on the message — PostgreSQL words it
 differently per isolation level — and retry the whole transaction, not the

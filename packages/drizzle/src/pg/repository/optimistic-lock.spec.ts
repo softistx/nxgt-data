@@ -103,18 +103,18 @@ describe('optimistic locking', () => {
 		expect(deleted).toBeInstanceOf(NotFoundError);
 	});
 
-	test('a soft-deleted row at the expected version is a NotFoundError', async () => {
-		// Deleted without raising the version, so the patch's version still
-		// matches the stored one. A row that comes back live between the update
-		// and the second read — the case writes.ts guards with `moved` — needs
-		// a second connection, which PGlite does not have.
+	test('a row that comes back at the expected version is a NotFoundError: it did not move', async () => {
+		// Deleted and restored without raising the version. PGlite runs queued
+		// statements in order, so the restore lands between the UPDATE, which
+		// misses the soft-deleted row, and the second read, which finds it live
+		// at the version the patch expected.
 		const { repo, ticket } = await seed();
-		await createRepository(t.db, tickets, { optimisticLock: false }).delete(
-			ticket.id,
-		);
-		const error = await rejection(
-			repo.update(ticket.id, { title: 'x', version: 0 }),
-		);
+		const off = createRepository(t.db, tickets, { optimisticLock: false });
+		await off.delete(ticket.id);
+		const [error] = await Promise.all([
+			rejection(repo.update(ticket.id, { title: 'x', version: 0 })),
+			off.restore(ticket.id),
+		]);
 		expect(error).toBeInstanceOf(NotFoundError);
 	});
 

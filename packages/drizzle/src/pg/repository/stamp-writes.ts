@@ -97,8 +97,10 @@ export function expecting(
 }
 
 /**
- * The row is there and its version moved. The values are on the error, not in
- * the message: the id is a caller's, and a log line is not the place for it.
+ * The row is there and its version moved. The message names the call and the
+ * table; the id and both versions are on the error, where a handler reads
+ * them. An id is structure and may be printed — `notFound` does — but the
+ * sentence stays the same for every row, which is what makes it searchable.
  */
 export function lockError(
 	ctx: RepositoryContext,

@@ -236,14 +236,19 @@ update on "tickets": the expected "version" must be a whole number, not a string
 
 ### Under `repeatable read` or `serializable`
 
-The lock is checked by the `UPDATE` itself. Inside a `repeatable read` or
-`serializable` transaction, PostgreSQL refuses to update a row another
-transaction changed since this one's snapshot before the `WHERE` is even
-applied, so the loser of the race gets a `DataError` with
-`code: 'DATABASE'` and `sqlState: '40001'` — a serialization failure — and
-**not** an `OptimisticLockError`. Retry the transaction, or treat `40001` as
-the same 409 in the handler. Under the default `read committed`, the lost
-race is an `OptimisticLockError`.
+The lock is checked by the `UPDATE` itself, and PostgreSQL applies its
+`WHERE` to the row as the transaction's snapshot sees it. A version that was
+already stale when the snapshot was taken is therefore still an
+`OptimisticLockError`, at any isolation level. Only a race lost **after** the
+snapshot — another transaction commits a change to the row between this
+one's snapshot and its `UPDATE` — is different under `repeatable read` or
+`serializable`: PostgreSQL refuses the update with a serialization failure,
+a `DataError` with `code: 'DATABASE'` and `sqlState: '40001'`, not an
+`OptimisticLockError`. Retry the transaction, or answer `40001` with the same
+409. This follows PostgreSQL's documented behaviour and is **not measured**
+here: the specs run on PGlite, which has one connection and cannot hold two
+transactions open. See
+[A `serializable` transaction fails with `sqlState: '40001'`](../troubleshooting.md#a-serializable-transaction-fails-with-sqlstate-40001).
 
 ### Existing tables: new in 0.5.0
 

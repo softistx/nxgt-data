@@ -226,6 +226,8 @@ const user = await users.upsert(
   version — and never moves `createdAt`, `createdBy` or the primary key.
 - A row that is there but soft-deleted is not written over: `ConflictError`.
   Restore it or hard-delete it first.
+- Empty `values` on a row that is there write nothing: no `updatedAt`, no
+  `updatedBy`, no version — as an empty `update`.
 
 ### Optimistic locking
 
