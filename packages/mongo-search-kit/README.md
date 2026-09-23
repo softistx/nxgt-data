@@ -166,8 +166,9 @@ refusal it goes with.
   process stalled for longer than an entry's `leaseMs` (30 s) may find another
   has taken that name over; the sync stops rather than run beside it.
 - **`reindexAll()` and `start()` can reject with `LEASE_LOST` too**, when a
-  sync's reindex finds its lease taken over. That reindex has recorded nothing
-  and removed nothing more; treat it like `RUNNING` — wait, then try again.
+  sync's reindex finds its lease taken over. That reindex has recorded nothing,
+  and removed nothing unless the lease went while the removal itself ran;
+  treat it like `RUNNING` — wait, then try again.
 - **`flush()` stops at the first sync that fails, like `reindexAll()`.** A
   sync that has already fallen over rejects `flush` at once, and the syncs
   after it in the config are then neither sent nor recorded — on restart

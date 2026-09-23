@@ -192,6 +192,21 @@ describe('the lease on a sync name', () => {
 		);
 	});
 
+	test('a lease check that cannot reach MongoDB stops the reindex before it removes', async () => {
+		await collection().create({ title: 'a' });
+		await index()
+			.raw.addDocuments([{ id: 'theirs', title: 'kept' }])
+			.waitTask();
+		// The take, then the check before removing: the check fails.
+		await servers.mongo.failNext(['update'], { errorCode: 13 });
+		const error = await rejection(sync({ leaseMs: 60_000 }).reindex());
+		expect(error.code).toBe('FAILED');
+		expect(error.message).toStartWith(
+			'Search sync "articles:articles" failed checking its lease:',
+		);
+		expect((await indexed()).map(([id]) => id)).toContain('theirs');
+	});
+
 	test('two names do not share a lease', async () => {
 		await start();
 		track(await sync({ name: 'articles:other' }).start());

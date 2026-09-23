@@ -108,8 +108,12 @@ const articleSearch = createSearchSync({ collection, index, transform, leaseMs: 
   `start()` right after it succeeds. A `start()` that fails lets go too.
 - **A process that dies keeps the name** until its lease lapses, at most
   `leaseMs` later. The next `start()` after that takes it over.
-- **A renewal that cannot reach MongoDB is tried again** at the next beat;
-  the lease lapses only if none reaches it for a whole `leaseMs`.
+- **A timed renewal that cannot reach MongoDB is tried again** at the next
+  beat; the lease lapses only if none reaches it for a whole `leaseMs`. The
+  checks a reindex makes before removing and before recording are not: one
+  that cannot reach MongoDB stops the reindex with `FAILED` (`failed checking
+  its lease`), since what comes next must not run on a lease nobody
+  confirmed.
 - **The lease is a document in `stateCollection`**:
   `{ _id: { lease: <name> }, holder, acquiredAt, expiresAt }`, every time
   the server's own clock, so hosts whose clocks disagree still agree on when

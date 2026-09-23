@@ -133,7 +133,18 @@ export async function confirmLease(
 	ctx: SyncContext,
 	lease: HeldLease,
 ): Promise<void> {
-	await renew(ctx, lease);
+	let result: { matchedCount: number };
+	try {
+		result = await ctx.leases.updateOne(
+			{ _id: idOf(ctx), holder: lease.holder },
+			[{ $set: { expiresAt: { $add: ['$$NOW', ctx.leaseMs] } } }],
+		);
+	} catch (error) {
+		// Unlike a timed renewal, not tried again later: what comes next must
+		// not run on a lease nobody could confirm.
+		throw failed(ctx.name, 'checking its lease', error);
+	}
+	if (result.matchedCount === 0) lease.lost = true;
 	if (lease.lost) throw leaseLost(ctx);
 }
 
