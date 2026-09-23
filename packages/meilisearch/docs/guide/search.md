@@ -137,6 +137,59 @@ const defaults = {
 const result = await movieIndex.search(query, defaults);
 ```
 
+## Several indexes in one request
+
+`multiSearch(client, queries)` sends several searches in one request — the
+SDK's `client.multiSearch({ queries })` — and resolves to a tuple: one result
+per query, in the same order, each typed by **its own** index.
+
+```ts
+import { bindIndex, multiSearch } from '@nxgt/meilisearch';
+
+const movieIndex = bindIndex(client, movies);
+const peopleIndex = bindIndex(client, people); // defineIndex<Person>, sortable 'born', filterable 'country'
+
+const [films, persons] = await multiSearch(client, [
+	{ index: movieIndex, q: 'alien', filter: 'genres = scifi', sort: ['year:desc'], facets: ['genres'] },
+	{ index: peopleIndex, q: 'scott', filter: 'country = UK', sort: ['born:desc'] },
+]);
+films.hits;     // Hit<Movie>[]
+persons.hits;   // Hit<Person>[]
+films.indexUid; // 'movies'
+```
+
+Each query is `{ index, q?, …options }`, where `index` is a bound index and
+the options are exactly those of [`search`](#what-the-definition-types),
+typed by that index's definition — `sort: ['year:desc']` on the people
+query does not compile, nor does a misspelt option. `page`/`hitsPerPage`
+switch the pagination of that result only:
+
+```ts
+const [numbered, offset] = await multiSearch(client, [
+	{ index: movieIndex, page: 2, hitsPerPage: 20 }, // totalPages, totalHits…
+	{ index: peopleIndex, limit: 5 },                // estimatedTotalHits, offset…
+]);
+```
+
+What was measured, on v1.53.2:
+
+- one query Meilisearch refuses fails **the whole request**, with the SDK's
+  `MeilisearchApiError`; its message names the query by position —
+  ``Inside `.queries[1]`: Index `nobody` not found.``, or
+  ``Inside `.queries[1]`: Index `movies`: Attribute `name` is not sortable.``
+  followed by the sortable attributes the index has;
+- `multiSearch(client, [])` resolves to `[]`;
+- the same index twice is two results.
+
+**Federated search is not wrapped.** With `federation`, Meilisearch merges
+every query's hits into one ranked list, so a hit is a document of any of
+the indexes, told apart only by `_federation.indexUid`, and
+`facetsByIndex`, `mergeFacets` and a federated `distinct` would need typing
+per uid too. Call `client.multiSearch({ federation: {}, queries })` for it.
+
+The `client` passed is the one the request goes out on, whatever client each
+index was bound with.
+
 ## In a Hono route
 
 ```ts
@@ -197,6 +250,19 @@ type SortExpression<Def> =
 type SearchResult<Def, Options>;
 ```
 
-For `searchForFacetValues`, `searchSimilarDocuments`, multi-search or index
+```ts
+function multiSearch<const Queries extends readonly { index: TypedIndex<any> }[]>(
+	client: Meilisearch,
+	queries: Queries & { readonly [K in keyof Queries]: CheckedQuery<Queries[K]> },
+): Promise<MultiSearchResults<Queries>>;
+
+/** One query: `search`'s options for that index, plus the index and `q`. */
+type MultiSearchQuery<Def> = SearchOptions<Def> & { index: TypedIndex<Def>; q?: string | null };
+
+/** One result per query, in order: `SearchResult<Def, Query> & { indexUid: string }`. */
+type MultiSearchResults<Queries>;
+```
+
+For `searchForFacetValues`, `searchSimilarDocuments`, federated search or index
 stats, `movieIndex.raw` is the SDK's `Index` and `movieIndex.client` its
 `Meilisearch`.

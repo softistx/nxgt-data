@@ -1,12 +1,19 @@
 import type { Task } from 'meilisearch';
 
 /** What went wrong, as a string a caller can switch on. */
-export type SearchIndexErrorCode = 'PRIMARY_KEY_MISMATCH' | 'TASK_FAILED';
+export type SearchIndexErrorCode =
+	| 'PRIMARY_KEY_MISMATCH'
+	| 'TASK_FAILED'
+	| 'REBUILD_FAILED'
+	| 'INVALID_EXPIRES_AT';
 
 export interface SearchIndexErrorOptions {
 	code: SearchIndexErrorCode;
 	indexUid: string;
-	/** The task that failed or was canceled, for `TASK_FAILED`. */
+	/**
+	 * The task that failed or was canceled, for `TASK_FAILED`, and for a
+	 * `REBUILD_FAILED` that a task of the next index caused.
+	 */
 	task?: Task | undefined;
 	/** The primary key the definition names, for `PRIMARY_KEY_MISMATCH`. */
 	expectedPrimaryKey?: string | undefined;
@@ -22,6 +29,12 @@ export interface SearchIndexErrorOptions {
  * - `PRIMARY_KEY_MISMATCH`: `sync` found the index with another primary key.
  * - `TASK_FAILED`: a task this package waited for ended `failed` or
  *   `canceled`; `task` is the task, and `cause` is its `error`.
+ * - `REBUILD_FAILED`: `rebuild` stopped before the swap, deleted the next
+ *   index and left the live one as it was — or sent the swap and could not
+ *   wait for it, and deleted nothing; `cause` is what stopped it.
+ * - `INVALID_EXPIRES_AT`: `tenantToken` was given an `expiresAt` that is past,
+ *   or not a time Meilisearch reads; nothing was signed. `indexUid` holds the
+ *   token's uids, joined by `,`.
  */
 export class SearchIndexError extends Error {
 	override name = 'SearchIndexError';

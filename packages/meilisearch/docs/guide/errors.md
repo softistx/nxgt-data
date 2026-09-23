@@ -1,8 +1,9 @@
 # Errors
 
 Almost every failure here is the SDK's: this package adds one error,
-`SearchIndexError`, for the two things it does that the SDK does not —
-checking a primary key, and failing a task that failed.
+`SearchIndexError`, for the four things it does that the SDK does not —
+checking a primary key, failing a task that failed, a rebuild that stopped
+before its swap, and refusing a tenant token's `expiresAt`.
 
 ```ts
 import { SearchIndexError } from '@nxgt/meilisearch';
@@ -23,15 +24,17 @@ try {
 | --- | --- | --- |
 | `PRIMARY_KEY_MISMATCH` | [`sync`](sync.md) found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
 | `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error` |
+| `REBUILD_FAILED` | [`rebuild`](rebuild.md) stopped before the swap, its swap task came back `failed`, or it sent the swap and could not wait for it | `cause`: what stopped it; `task` when a task failed |
+| `INVALID_EXPIRES_AT` | [`tenantToken`](tenant-tokens.md) was given an `expiresAt` it will not sign | `indexUid`: the token's uids, joined by `,` |
 
 ```ts
 class SearchIndexError extends Error {
-	readonly code: SearchIndexErrorCode;      // 'PRIMARY_KEY_MISMATCH' | 'TASK_FAILED'
+	readonly code: SearchIndexErrorCode;      // 'PRIMARY_KEY_MISMATCH' | 'TASK_FAILED' | 'REBUILD_FAILED' | 'INVALID_EXPIRES_AT'
 	readonly indexUid: string;
 	readonly task: Task | undefined;
 	readonly expectedPrimaryKey: string | undefined;
 	readonly actualPrimaryKey: string | undefined;
-	// cause: the task's error, for TASK_FAILED
+	// cause: the task's error, for TASK_FAILED; what stopped it, for REBUILD_FAILED
 }
 ```
 
@@ -84,6 +87,42 @@ The fix is a decision, not a retry: either the definition takes the server's
 key, or the index is deleted and re-synced and the documents are written
 again.
 
+### `REBUILD_FAILED`
+
+[`rebuild`](rebuild.md) fills `<uid>_next` and swaps it in. Anything that
+stops it before the swap deletes `<uid>_next` and leaves the live index as
+it was; `cause` is the reason — what `fill` threw, or a `TASK_FAILED`
+`SearchIndexError` for a task `fill` left that failed, whose `task` is also
+copied onto this error:
+
+```ts
+const error = await movieIndex.rebuild(fill).catch((e) => e);
+error.code;              // 'REBUILD_FAILED'
+error.cause;             // what fill threw, or a TASK_FAILED SearchIndexError
+error.task?.error?.code; // 'invalid_document_id', when a task failed
+```
+
+When the swap was sent and could not be waited for, the message says the
+outcome is unknown, and nothing is deleted. The swap is atomic, so the live
+index is whole either way.
+
+### `INVALID_EXPIRES_AT`
+
+[`tenantToken`](tenant-tokens.md) refuses, before signing, an `expiresAt`
+already past, a number of milliseconds, a fraction of a second, or an
+invalid `Date` — the last three measured to be accepted wrongly, or not
+decoded, by the server. An `expiresAt` can come from a request, so it has a
+code a handler can answer 400 to:
+
+```ts
+const error = await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], expiresAt: Date.now() }).catch((e) => e);
+error.code;     // 'INVALID_EXPIRES_AT'
+error.message;  // 'tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date'
+error.indexUid; // 'movies'
+```
+
+The message never holds the key, nor the time it was given.
+
 ## The SDK's errors, unchanged
 
 | Error | When |
@@ -105,13 +144,19 @@ try {
 }
 ```
 
-Two places where this package steps in front of the SDK, and only two:
+Three places where this package steps in front of the SDK, and only three:
 
 - `get` turns `document_not_found` into `undefined`. A missing index is
   still thrown — an empty result and a missing index are not the same
   answer.
 - `sync` treats `index_not_found` while reading as "create it", and an
   `index_already_exists` from a racing creation as "use theirs".
+- `rebuild` wraps whatever stops it between creating the next index and
+  reading back its swap task — the SDK's error included — in a
+  `REBUILD_FAILED`, as `cause`, because it cleaned up after it. Not
+  wrapped: the `nextUid` refusal (a bare `TypeError`) and a failure to
+  delete a leftover `_next`, both before; a failure to delete the previous
+  index, after the swap.
 
 ## One handler for the app
 
@@ -122,7 +167,16 @@ import { MeilisearchApiError, MeilisearchRequestError } from 'meilisearch';
 
 export const app = new Hono().onError((error, c) => {
 	if (error instanceof SearchIndexError) {
-		console.error({ code: error.code, uid: error.indexUid, task: error.task?.uid });
+		// An expiresAt from the request: the caller's input.
+		if (error.code === 'INVALID_EXPIRES_AT') return c.json({ error: 'expiresAt' }, 400);
+		// A rebuild carries what stopped it — often the SDK's error — as cause.
+		const cause = error.code === 'REBUILD_FAILED' ? error.cause : undefined;
+		console.error({
+			code: error.code,
+			uid: error.indexUid,
+			task: error.task?.uid,
+			cause: cause instanceof MeilisearchApiError ? cause.cause?.code : cause,
+		});
 		return c.json({ error: 'Search is not available' }, 503);
 	}
 	if (error instanceof MeilisearchRequestError) {

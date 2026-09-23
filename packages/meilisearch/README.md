@@ -161,6 +161,37 @@ if (report.created || report.changed.length > 0) process.exitCode = 1; // a CI c
 await movieIndex.sync({ wait: { timeout: 120_000 } });
 ```
 
+## Rebuild
+
+```ts
+const report = await movieIndex.rebuild(async (next) => {
+	// `next` is a TypedIndex<RebuildDefinition<typeof movies>> on 'movies_next'
+	await next.addInBatches(await loadAllMovies(), { batchSize: 1000 });
+});
+// { uid: 'movies', nextUid: 'movies_next', created: false, leftoverDeleted: false, sync, tasks: [indexSwap, indexDeletion] }
+```
+
+`rebuild` fills a second index beside the live one and swaps it in, so a
+search sees the old documents until the swap and the new ones after it —
+never a half-filled index, as `deleteAll` then `add` would give. It deletes a
+`movies_next` left by a crashed run, creates `movies_next` with the
+definition's primary key and settings (through `syncIndex`), hands it to
+`fill`, waits for every task `fill` left there, swaps the two in one atomic
+task and deletes the previous one. With no live index yet, the first run
+renames `movies_next` instead.
+
+If creating `movies_next` fails, or `fill` throws, or a task it left fails,
+or the swap task itself fails, `movies_next` is deleted, the live index is
+untouched, and a `SearchIndexError` (`REBUILD_FAILED`) carries the cause.
+Once the swap request is **sent**, a failure to read its task back — a
+timeout, a lost response, a key that cannot read it — may hide a swap that
+happened: `REBUILD_FAILED` then says the outcome is unknown, and nothing is
+deleted; the next rebuild deletes the leftover. Options: `nextUid`, and
+`wait` for each task.
+
+`fill` is handed an index whose definition's `uid` is `movies_next`, typed
+`string` rather than `'movies'`.
+
 ## Documents
 
 ### Writing
@@ -250,11 +281,60 @@ page.totalPages; // number
 For anything else (`searchForFacetValues`, `searchSimilarDocuments`, stats,
 a single setting), `movieIndex.raw` is the SDK's own `Index`.
 
+### Several indexes in one request
+
+```ts
+import { multiSearch } from '@nxgt/meilisearch';
+
+const [films, persons] = await multiSearch(client, [
+	{ index: movieIndex, q: 'alien', sort: ['year:desc'], facets: ['genres'] },
+	{ index: peopleIndex, q: 'scott', filter: 'country = UK', sort: ['born:desc'] },
+]);
+// films.hits: Hit<Movie>[]; persons.hits: Hit<Person>[]
+```
+
+One request, the SDK's `client.multiSearch({ queries })`, and a tuple of
+results in the same order, each typed by its own index: the options of each
+query are `search`'s for that index, so a sort on another index's attribute
+does not compile. One query Meilisearch refuses fails the whole request, with
+the SDK's error naming it (``Inside `.queries[1]`: …``). Federated search is
+not wrapped: call `client.multiSearch({ federation, queries })`.
+
+## Tenant tokens
+
+```ts
+import { tenantToken } from '@nxgt/meilisearch';
+
+// on the server, per user; `searchKey` holds the `search` action on 'movies'
+const token = await tenantToken({
+	apiKey: searchKey.key,
+	apiKeyUid: searchKey.uid,
+	indexes: [movieIndex],
+	searchRules: { movies: { filter: `genres = ${JSON.stringify(user.genre)}` } },
+	expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+});
+// in the browser: new Meilisearch({ host, apiKey: token }) searches only that genre's movies
+```
+
+`tenantToken` signs a token with the SDK's `generateTenantToken` (from
+`meilisearch/token`) and sends nothing. The token may search only the bound
+`indexes` given, and `searchRules` is keyed by their uids — a rule for
+another index, or a misspelt uid, does not compile. The filter is **added**
+to every search made with the token, measured on v1.53.2.
+
+`expiresAt` is a `Date` or whole seconds since the epoch. One that is already
+past, a number of milliseconds (which the server accepts, for millennia), a
+fraction of a second (which the server cannot decode) or an invalid `Date`
+throws a `SearchIndexError` (`INVALID_EXPIRES_AT`) before anything is signed.
+
 ## Errors
 
 The SDK's errors reach you as they are: a request Meilisearch refuses throws
 its `MeilisearchApiError`, with `cause.code`, a timeout its
-`MeilisearchTaskTimeOutError`.
+`MeilisearchTaskTimeOutError`. The one exception is `rebuild`: what stops it between creating the next index and reading back its swap
+task reaches you as the `cause` of a `REBUILD_FAILED`. Before that — the
+`nextUid` refusal, a bare `TypeError`, and deleting a leftover `_next` —
+and after it — deleting the previous index — errors arrive unwrapped.
 
 This package throws one error of its own, `SearchIndexError`:
 
@@ -262,6 +342,8 @@ This package throws one error of its own, `SearchIndexError`:
 | --- | --- | --- |
 | `PRIMARY_KEY_MISMATCH` | `sync` found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
 | `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error` |
+| `REBUILD_FAILED` | `rebuild` stopped before the swap, its swap task came back `failed`, or it could not wait for the swap | `cause`: what stopped it; `task` when a task failed |
+| `INVALID_EXPIRES_AT` | `tenantToken` was given an `expiresAt` past, in milliseconds, fractional or invalid | `indexUid`: the token's uids, joined by `,` |
 
 ```ts
 import { SearchIndexError } from '@nxgt/meilisearch';
@@ -280,7 +362,8 @@ try {
 
 - **A typed filter builder.** `filter` is the SDK's string or array.
 - **A tasks or errors layer.** Tasks and errors are the SDK's; the only error
-  added is `SearchIndexError`.
+  added is `SearchIndexError`, and only `REBUILD_FAILED` wraps one of the
+  SDK's, as its `cause`.
 - **Syncing documents from a database**, with `@nxgt/drizzle` or anything
   else. Write the documents with `add` or `update` where your data changes.
 
@@ -329,6 +412,7 @@ is `IdOf<Def>`:
 | `uid`, `definition`, `client` | what it was bound with |
 | `raw: Index<Doc>` | the SDK's index |
 | `sync(options?: SyncOptions): Promise<SyncReport>` | `syncIndex` for this definition |
+| `rebuild(fill: (next: TypedIndex<RebuildDefinition<Def>>) => Promise<void>, options?: RebuildOptions): Promise<RebuildReport>` | fills `<uid>_next` and swaps it in; see [Rebuild](#rebuild) |
 | `add(documents: readonly Doc[], options?: WriteOptions): WriteResult` | adds or replaces |
 | `update(documents: readonly DocumentPatch<Def>[], options?: WriteOptions): WriteResult` | merges; each needs its id |
 | `addInBatches(documents, options?: BatchWriteOptions): BatchWriteResult` | `batchSize`, 1000 by default |
@@ -343,6 +427,7 @@ is `IdOf<Def>`:
 
 The types it uses:
 
+- `interface RebuildOptions { nextUid?: string; wait?: WaitOptions }`; `interface RebuildReport { uid: string; nextUid: string; leftoverDeleted: boolean; created: boolean; sync: SyncReport; tasks: Task[] }`; `type RebuildFill<Def> = (next: TypedIndex<RebuildDefinition<Def>>) => Promise<void>`; `type RebuildDefinition<Def> = Omit<Def, 'uid'> & { readonly uid: string }`.
 - `interface WriteOptions { wait?: boolean | WaitOptions; customMetadata?: string }`; `interface BatchWriteOptions extends WriteOptions { batchSize?: number }`.
 - `type WriteResult<Options>`: `Promise<Task>` when `Options` has `wait`, else `EnqueuedTaskPromise`. `type BatchWriteResult<Options>`: the same, one per batch.
 - `type DocumentPatch<Def> = Partial<Doc> & Pick<Doc, PrimaryKeyNameOf<Def>>`.
@@ -352,10 +437,33 @@ The types it uses:
 - `interface ListQuery<Def, Fields>`, `interface DocumentPage<T> { results: T[]; total: number; offset: number; limit: number }`.
 - `type FieldOf<Def>`, `type Selected<Doc, Fields>`, `interface FieldsOptions<Fields>`.
 
+### `multiSearch(client, queries)`
+
+```ts
+function multiSearch<const Queries extends readonly { index: TypedIndex<any> }[]>(
+	client: Meilisearch,
+	queries: Queries & { readonly [K in keyof Queries]: CheckedQuery<Queries[K]> },
+): Promise<MultiSearchResults<Queries>>;
+```
+
+- `type MultiSearchQuery<Def> = SearchOptions<Def> & { index: TypedIndex<Def>; q?: string | null }`: one query.
+- `type CheckedQuery<Q>`: the query as its own index allows it, with any other key refused.
+- `type MultiSearchResults<Queries>`: a tuple, `SearchResult<Def, Query> & { indexUid: string }` per query.
+
+### `tenantToken(options)`
+
+```ts
+function tenantToken<const Indexes extends TokenIndexes>(options: TenantTokenOptions<Indexes>): Promise<string>;
+```
+
+- `interface TenantTokenOptions<Indexes> { apiKey: string; apiKeyUid: string; indexes: Indexes; searchRules?: TenantTokenRules<Indexes>; expiresAt?: Date | number; algorithm?: 'HS256' | 'HS384' | 'HS512'; force?: boolean }`. A `searchRules` key that is not the runtime uid of one of `indexes` throws a `TypeError`.
+- `type TokenIndexes = readonly [TypedIndex<any>, ...TypedIndex<any>[]]`: at least one bound index.
+- `type TenantTokenRules<Indexes>`: `{ [uid]?: { filter?: Filter } | null }`, keyed by the uids of `Indexes`.
+
 ### `SearchIndexError`
 
 - `class SearchIndexError extends Error`: `code: SearchIndexErrorCode`, `indexUid: string`, `task: Task | undefined`, `expectedPrimaryKey: string | undefined`, `actualPrimaryKey: string | undefined`, `cause`.
-- `type SearchIndexErrorCode = 'PRIMARY_KEY_MISMATCH' | 'TASK_FAILED'`.
+- `type SearchIndexErrorCode = 'PRIMARY_KEY_MISMATCH' | 'TASK_FAILED' | 'REBUILD_FAILED' | 'INVALID_EXPIRES_AT'`.
 
 ## Traps
 
@@ -382,6 +490,9 @@ The types it uses:
   do not narrow the hits.** A hit is typed as the whole document, even when
   Meilisearch returns part of it. `get`, `getMany` and `list` do narrow to
   their `fields`.
+- **`multiSearch` sends every query on the `client` it is given**, not on
+  the client each index was bound with; and one refused query fails them
+  all — there is no partial result.
 - **`getMany` returns documents in Meilisearch's order**, not in the order
   of the ids.
 - **An embedder's `apiKey` is not compared.** Meilisearch reads it back
@@ -391,6 +502,30 @@ The types it uses:
   is accepted as a pattern, and names no attribute for `facets` or
   `distinct`. Neither are dot paths past four levels, nor the keys of an
   index signature: `Record<string, …>` accepts any path.
+- **`rebuild` carries over only the definition's settings.** A setting the
+  definition leaves out, changed on the live index by hand, is back to its
+  default after the swap. And a write sent to the live index during `fill`
+  is gone after it: the swap replaces the whole index.
+- **`rebuild` needs a key on every index** (`indexes: ['*']`), with
+  `indexes.swap`, `indexes.delete` and `documents.add` besides `sync`'s
+  actions. Measured, in the specs: a key on `['movies', 'movies_next']` or
+  `['movies*']` sends the swap, which happens, but cannot read its task, and
+  the rebuild throws `REBUILD_FAILED` saying the outcome is unknown.
+- **`rebuild` deletes whatever is under `nextUid` first**, as a leftover of
+  a crashed run: a `nextUid` naming another live index deletes that index.
+- **Two rebuilds of one index at once collide**: the second deletes the
+  first one's `movies_next` as a leftover. Run it from one job.
+- **A tenant token with no `expiresAt` and no rule is a permanent,
+  unfiltered credential.** Without `expiresAt` it lives as long as its key;
+  an index given no rule is searched with no filter. Handed to a browser,
+  that is every document of the index, for as long as the key exists.
+- **`tenantToken` refuses to run in a browser** — the SDK's
+  `failed to detect a server-side environment` — unless `force: true`.
+  Sign on the server.
+- **A tenant token's filter is a string you build.** Put a value from a
+  request in through `JSON.stringify`, or it can change the filter; and
+  sign with a search-only key, never the master key. A token lives no longer
+  than its key: deleting the key revokes every token it signed.
 - **`sync` needs a key that may create indexes and change settings**:
   `indexes.create`, `indexes.get`, `indexes.update`, `settings.get`,
   `settings.update` and `tasks.get`. A search-only key is enough for the
@@ -401,8 +536,10 @@ The types it uses:
 - [docs/README.md](docs/README.md) — the guide index.
 - [docs/guide/definition.md](docs/guide/definition.md) — `defineIndex`, the settings, and the types a definition gives back.
 - [docs/guide/sync.md](docs/guide/sync.md) — `syncIndex`, the report, dry runs, and how the settings are compared.
+- [docs/guide/rebuild.md](docs/guide/rebuild.md) — `rebuild`: filling an index beside the live one and swapping it in, and what was measured.
 - [docs/guide/documents.md](docs/guide/documents.md) — `bindIndex`, writes, waiting for a task, reads by id, `list`.
-- [docs/guide/search.md](docs/guide/search.md) — filters, sorts, facets, highlighting and the two paginations.
+- [docs/guide/search.md](docs/guide/search.md) — filters, sorts, facets, highlighting, the two paginations, and `multiSearch` over several indexes.
+- [docs/guide/tenant-tokens.md](docs/guide/tenant-tokens.md) — `tenantToken`: searches scoped per user, the rules, `expiresAt`, and what the server answers.
 - [docs/guide/errors.md](docs/guide/errors.md) — `SearchIndexError`, the SDK's errors, one handler for the app.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — an error message, and its fix.
 - [docs/roadmap.md](docs/roadmap.md) — what is next, and what is not planned.

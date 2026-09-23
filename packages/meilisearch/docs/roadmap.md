@@ -17,20 +17,45 @@ _Nothing queued._
 
 ## Not planned
 
+- **A typed federated search** — with `federation`, Meilisearch merges every
+  query's hits into one list, so a hit is a document of any of the indexes,
+  told apart only by `_federation.indexUid`. `multiSearch` wraps the
+  per-query form; the federated one stays the SDK's
+  `client.multiSearch({ federation, queries })`.
 - **A typed filter builder** — `filter` is handed to Meilisearch as the SDK
   takes it, a string or an array. What is typed instead is the definition: the
   searchable, sortable and filterable attribute lists, and the `sort` and
   `facets` a search may use, which is where a wrong attribute name actually
   costs something.
 - **A tasks or errors layer** — tasks and errors come back as the SDK's own.
-  The only error this package adds is `SearchIndexError`, for a request
-  Meilisearch refuses.
+  The only error this package adds is `SearchIndexError`, and the one place
+  it wraps the SDK's is a rebuild that stopped, whose `REBUILD_FAILED`
+  carries it as `cause`.
 - **Syncing documents from a database** — writing documents stays the
   caller's, with `add` and `update` where the data changes. For MongoDB,
   `@nxgt/mongo-meilisearch` keeps an index in step with a collection.
 
 ## Shipped
 
+- **Tenant tokens typed by their indexes** — `tenantToken({ apiKey,
+  apiKeyUid, indexes, searchRules, expiresAt })` signs a token that may search
+  only the bound indexes given, with `searchRules` keyed by their uids, and
+  refuses an `expiresAt` that is past, in milliseconds, fractional or invalid
+  before signing, as `INVALID_EXPIRES_AT`; a rule under a uid none of the
+  indexes has, or inherited from a prototype, is refused rather than
+  dropped, which would leave its index unfiltered; the SDK's `force` is
+  passed through — 0.4.0.
+- **Several indexes in one typed request** — `multiSearch(client, [{ index,
+  q, …options }, …])` sends the SDK's multi-search and resolves to a tuple,
+  each result typed by its own index, and each query's `sort`, `facets`,
+  `distinct` and attribute lists checked against its own definition —
+  0.4.0.
+- **Rebuilding an index without a gap** — `rebuild(fill)` fills
+  `<uid>_next` with the definition's settings, waits for every task the fill
+  left, swaps it with the live index in one atomic task and deletes the old
+  one; the first run renames it in, a leftover from a crashed run is deleted
+  first, and a failure deletes the next index and leaves the live one
+  untouched, as `REBUILD_FAILED` — 0.4.0.
 - **Deleting documents by filter** — `deleteByFilter(filter)` takes every
   document a filter matches out of the index in one task, instead of reading
   their ids first and deleting them by id; an empty filter is refused by the
