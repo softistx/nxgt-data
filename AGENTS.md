@@ -18,7 +18,7 @@ registry:
 | `@nxgt/mongo-search-kit` | a search kit over the wiring kit: `createSearchKit(kit, config)` takes one entry per collection — an index and a transform, under the key the kit wires that collection under — and gives one `reindexAll`, one `start` and one `close` for all of them. Each entry's sync is `@nxgt/mongo-meilisearch`'s, unchanged |
 | `@nxgt/redis` | Redis on Bun's own `RedisClient`, with no third-party driver: `connectRedis`/`closeRedis` sharing one client per URI, `defineCache`/`bindCache` with the key built by a typed function and the value checked by its schema both ways, `withLock` over `SET NX PX` released by a compare-and-delete script, and `defineChannel`/`publish`/`subscribe` typed the same way. Its one error is `RedisError` |
 | `@nxgt/redis-kit` | an application's Redis wiring in one object: `defineConfig` checking a configuration of one or several Redis instances, and `connectKit` opening the clients and giving `kit.cache.<key>` and `kit.channels.<key>` — every `@nxgt/redis` cache and channel typed under the key it is exported as, renamed under the instance's prefix — plus the subscriptions it tracks and closes, `lock`, `ping` and `close`. It has no error of its own: its refusals are bare `TypeError`s, and what a caller catches at run time is `@nxgt/redis`'s `RedisError` |
-| `@nxgt/s3` | S3 on Bun's own `S3Client`, with no AWS SDK: `defineBucket` naming the bucket, the key-building function, the content types and the maximum size, and `bindBucket` giving `put`/`bytes`/`text`/`exists`/`stat`/`delete`, a `list` in this repository's cursor shape, and `presignGet`/`presignPut` from the same definition. The content type and the size are refused **before** the request goes out. Its one error is `S3Error` |
+| `@nxgt/s3` | S3 on Bun's own `S3Client`, with no AWS SDK: `defineBucket` naming the bucket, the key-building function, the content types and the maximum size, and `bindBucket` giving `put`/`bytes`/`text`/`exists`/`stat`/`delete`, a `list` in this repository's cursor shape, and `presignGet`/`presignPut`/`presignPost` from the same definition. The content type and the size are refused **before** the request goes out; `presignPost` signs an S3 POST policy itself (SigV4, `node:crypto` — Bun has no POST presigning), so the **service** holds a browser upload to a size range and a content type. Its one error is `S3Error` |
 
 `examples/` holds applications, not packages: they are `private`, unscoped,
 and the release scripts never see them — `publish.ts` and
@@ -388,8 +388,12 @@ the file.
   and a spec file is not free: it opens a database of its own. Measured,
   `createTestDb` costs 0.8-2.0 s cold and far less warm, so two more files
   cost **+0.5 s**; `@nxgt/s3` was left whole because the same measurement
-  came back at **+13 s** on a 5 s suite, one SeaweedFS per file. Measure
-  before splitting, and say the number. `collection/` has
+  came back at **+13 s** on a 5 s suite, one SeaweedFS per file — before
+  `stop()` took SeaweedFS down with `SIGKILL`. Its second server file,
+  `operations/presign-post.spec.ts`, measured the cost again: the suite went
+  from **9.1 s** to **10.5-15.3 s** over four runs, 2.1 s of it the expiry
+  spec's own wait, against a file that would have taken `bind-bucket.spec.ts`
+  past 850 lines. Measure before splitting, and say the number. `collection/` has
   fourteen, beside the code they test: `id`, `coerce`, `upsert`,
   `optimistic-lock`, `soft-delete`, `stamp-writes`, `driver-methods`,
   `auto-sync` and the general one at the root,
@@ -527,9 +531,9 @@ the file.
 
 ## Known state
 
-`bun run test` is **1106 pass, 0 fail**: drizzle 113, meilisearch 45,
+`bun run test` is **1157 pass, 0 fail**: drizzle 113, meilisearch 45,
 mongo 532, drizzle-meilisearch 42, mongo-meilisearch 55, mongo-kit 100,
-mongo-search-kit 17, redis 46, redis-kit 55, s3 52, hono-api-example 31,
+mongo-search-kit 17, redis 46, redis-kit 55, s3 103, hono-api-example 31,
 scripts 18. It runs one process
 per package, then the scripts' specs. Treat any failure as yours.
 

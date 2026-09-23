@@ -97,6 +97,7 @@ stateless HTTP, so there is no connection to share and nothing to close.
 | `list({ prefix, limit, cursor })` | one `ObjectPage` |
 | `presignGet(params, { expiresIn, acl })` | a signed URL that reads it |
 | `presignPut(params, { expiresIn, acl })` | a signed URL that writes it. It takes no `type` — see the Traps |
+| `presignPost(params, { expiresIn, maxSize, minSize, type, acl })` | `{ url, fields }`, the form a browser posts to upload it. The **service** holds the upload to a size range and a content type — see below |
 
 ### What a write may say
 
@@ -125,6 +126,47 @@ goes, or how it gets there — see the Traps.
 Given both here and to `bindBucket`, the one on the write wins: it is the
 last thing handed to the client.
 
+### Uploading from a browser
+
+`presignPost` signs an S3 **POST policy**: a form the browser posts straight to
+the bucket, whose size and content type the service itself enforces. Use it
+over `presignPut` whenever either matters.
+
+```ts
+// On the server: the bounds default to the bucket's own.
+const form = store.presignPost(
+	{ userId: 'u1' },
+	{ type: 'image/png', expiresIn: 300 },     // maxSize: avatars' 2 MiB
+);
+return c.json(form);                           // { url, fields }
+```
+
+```ts
+// In the browser: every field, then the file — last.
+const { url, fields } = await (await fetch('/avatar-upload')).json();
+const body = new FormData();
+for (const [name, value] of Object.entries(fields)) body.append(name, value);
+body.append('file', input.files[0]);
+const response = await fetch(url, { method: 'POST', body });
+// 204 when stored; 400 EntityTooLarge over maxSize; 403 AccessDenied otherwise
+```
+
+| `PresignPostOptions` | |
+| --- | --- |
+| `expiresIn` | seconds, 1 to 604 800, as for the other presigned calls. A day when left out |
+| `maxSize` | the biggest body in bytes. Defaults to the bucket's `maxSize` and cannot be above it; a bucket without one **requires** it |
+| `minSize` | the smallest body in bytes, `0` by default |
+| `type` | the one content type the form carries, or `{ startsWith: 'image/' }`. Defaults to the bucket's `contentType` when that is a single type; a bucket that names several needs one of them. A prefix is only for a bucket that names none, and the browser then appends its own `Content-Type` field before the file |
+| `acl` | fixed by the policy, from the same list as a write's |
+
+The policy fixes the key with `eq`, the size with `content-length-range`, and
+the content type with `eq` (or `starts-with`). Measured against SeaweedFS 4.47,
+a body over the range is refused `400 EntityTooLarge`, under it
+`400 EntityTooSmall`, and another type, another key or an expired form
+`403 AccessDenied`. Bun's `S3Client` has no POST presigning, so this package
+signs the policy itself (SigV4, `node:crypto`), for the same endpoint, region
+and credentials Bun signs a `presignPut` for.
+
 ### Listing
 
 ```ts
@@ -150,6 +192,8 @@ it carries.
 | `ObjectPage` | `{ items: StoredObject[]; nextCursor: string \| null }` |
 | `StoredObject` | `{ key: string; size: number \| undefined; lastModified: Date \| undefined; eTag: string \| undefined }` — S3 does not promise the last three, so they are optional here |
 | `PresignOptions` | `{ expiresIn?: number; acl?: … }` |
+| `PresignPostOptions` | `{ expiresIn?; maxSize?; minSize?; type?: string \| { startsWith: string }; acl? }` |
+| `PresignedPost` | `{ url: string; fields: Record<string, string> }` — post `fields`, then the file |
 | `ParamsOf<D>` | what a definition's `key` takes, for a caller writing its own helper |
 | `PutBody` | everything Bun's `write` takes |
 | `PutOptions` | what one write may say about the object — see above |
@@ -171,10 +215,10 @@ if (error instanceof S3Error && error.code === 'TOO_LARGE') {
 
 | `S3ErrorCode` | |
 | --- | --- |
-| `WRONG_TYPE` | the body's content type is not one this bucket accepts — or the write named none and the bucket names some |
+| `WRONG_TYPE` | the body's content type is not one this bucket accepts — or the write named none and the bucket names some. From `presignPost` too, and for a `{ startsWith }` on a bucket that names its types |
 | `TOO_LARGE` | the body is bigger than `maxSize` |
 | `UNMEASURABLE` | `maxSize` is set and the body's size cannot be known before sending |
-| `WRONG_OPTION` | an option's own value is not one the service accepts: `acl` or `storageClass` on a write, `acl` or `expiresIn` on a presigned URL |
+| `WRONG_OPTION` | an option's own value is not one the service accepts: `acl` or `storageClass` on a write, `acl` or `expiresIn` on a presigned URL. On `presignPost`, also a `maxSize` or `minSize` that is not a whole number of bytes, a `maxSize` above the bucket's own or missing on a bucket without one, a `minSize` above the `maxSize`, and a `type` that is neither a string nor `{ startsWith }` |
 
 `defineBucket` throws a `TypeError` for a definition that could never work: an
 empty `bucket`, a `maxSize` that is not a positive number, an empty list of
@@ -195,6 +239,9 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   and a `put` is one PUT.
 - A `presignPut` given a `type`: a presigned PUT constrains no content type,
   so it takes none.
+- A `presignPost` without its params, naming a `bucket`, an `endpoint` or a
+  `region`, with a `maxSize` that is not a number, a `type` that is neither a
+  string nor `{ startsWith }`, or an `acl` the service does not have.
 - A definition with no `bucket`, no `key`, a `key` that gives something other
   than a string, a `maxSize` that is not a number, or a misspelt option.
 - A presigned URL asked for without the params that identify the object, or
@@ -209,15 +256,23 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   and they catch the honest mistake, but nothing else on the object goes
   through them: `store.file(params).writer()` and `store.client` are Bun's own
   and write whatever they are given, and **anyone holding a presigned PUT can
-  ignore them entirely**. Set the service's own policy too where it matters.
+  ignore them entirely**. A presigned **POST** is the exception: its policy
+  carries the size and the type to the service, which enforces them.
 - **A presigned PUT constrains the key and the deadline, and nothing else.**
   Not the size, not the content type — measured on Bun 1.4: `presign`'s `type`
   only adds `response-content-type`, which is S3's override for what a
   *download* is labelled, and `X-Amz-SignedHeaders` stays `host`, so the
   uploader's `Content-Type` is never signed. A URL signed for a `text/csv`
   bucket stores a zip happily. That is why `presignPut` takes no `type` at
-  all: it would read as a guarantee it cannot make. Check with `stat` after
-  the upload, or enforce it in the bucket's own policy.
+  all: it would read as a guarantee it cannot make. **When the size or the
+  type matters, use `presignPost`**, whose policy the service enforces.
+- **A presigned POST's type is compared exactly, not on its essence.** The
+  service matches the form's `Content-Type` field against the policy byte for
+  byte — measured, `IMAGE/PNG` is refused for `image/png`, and
+  `text/plain;charset=utf-8` for `text/plain`. The field is in `fields`, so post it as given; do not let the
+  browser rewrite it. `put`'s own guard is the lenient one.
+- **Post the file last.** S3 documents that a field after the file is
+  ignored, so `fields` go first and `file` after them.
 - **A body whose size cannot be known is refused, not streamed.** With
   `maxSize` set, a `Response`, a `Request` or another `S3File` throws
   `UNMEASURABLE`: nothing can check a length it has not read — an `S3File`
