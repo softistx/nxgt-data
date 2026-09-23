@@ -34,8 +34,8 @@ async function handleLogin(ip: string): Promise<Response> {
 }
 ```
 
-> **0.x.** Rate limits and idempotency are here; an idempotent run's lease is
-> not renewed yet, and waiting for a running key is next — see the
+> **0.x.** Rate limits and idempotency are here, with a lease renewed while
+> the work runs and `wait` for a running key — see the
 > [roadmap](docs/roadmap.md).
 
 ## Install
@@ -139,7 +139,7 @@ export const createOrder = defineIdempotency({
 	name: 'orders.create',
 	key: (p: { user: string; key: string }) => `${p.user}/${p.key}`,
 	ttl: 86_400,        // SECONDS a finished result is replayed
-	lease: 30_000,      // MILLISECONDS the work may take — see Traps
+	lease: 30_000,      // MILLISECONDS a crashed run holds the key — see Traps
 	schema: z.object({
 		orderId: z.string(),
 		status: z.string().default('placed'),
@@ -156,7 +156,7 @@ async function postOrder(request: Request, user: string): Promise<Response> {
 		const { value, replayed } = await orders.run(
 			{ user, key },
 			() => placeOrder(JSON.parse(body)),   // returns { orderId }
-			{ fingerprint: body },               // the raw body, hashed
+			{ fingerprint: body, wait: 2_000 },  // the raw body, hashed; ms to wait
 		);
 		return Response.json(value, {
 			status: 201,
@@ -180,9 +180,13 @@ async function postOrder(request: Request, user: string): Promise<Response> {
 
 The first call with a key runs `work` and stores what it returned; every
 repeat within `ttl` gets that result back — `replayed: true` — and `work` is
-not called. A repeat that arrives while the first is still running is
-refused with `IN_PROGRESS`, and one with a different fingerprint with
-`MISMATCH`. **An error thrown by `work` is never stored**: the key is given
+not called. A repeat that arrives while the first is still running waits up
+to `wait` milliseconds (default 0) — getting its result, or running `work`
+itself if the first gave the key back or crashed and its lease lapsed — and is
+refused with `IN_PROGRESS` only if the first is still running when `wait` runs
+out; one with a different fingerprint is refused with `MISMATCH` at once. While `work` runs,
+its lease is renewed every third of `lease`, so work of any length runs
+once. **An error thrown by `work` is never stored**: the key is given
 back and the error passes through as it is, so the next call runs again.
 
 A failure the client should get back on every repeat — a card declined, not a
@@ -208,8 +212,9 @@ const { value } = await bindIdempotency(redis, chargeCard).run(key, async () => 
 });
 ```
 
-Each step is one Lua script over one hash: taking the key, storing the
-result under this run's own token, and giving the key back. The
+Each step is one Lua script over one hash: taking the key, renewing its
+lease, storing the result under this run's own token, and giving the key
+back. The
 [idempotency guide](docs/guide/idempotency.md) has the storage, the
 fingerprint, choosing `ttl` and `lease`, and the HTTP recipe in full.
 
@@ -258,17 +263,21 @@ between two clocks. Waiting `retryAfter` is always enough.
 | `name` | the key's prefix. A stored key is `` `<name>:<key(params)>` `` |
 | `key(params)` | the rest of the key — usually the client's `Idempotency-Key`, scoped to its user |
 | `ttl` | how long a finished result is replayed, **in seconds**. A whole number, at least 1 |
-| `lease` | how long the work may take before a repeat may run it again, **in milliseconds**. Default `10_000`. Not renewed — see Traps |
+| `lease` | how long a run holds the key unless renewed, **in milliseconds**. Default `10_000`. Renewed every third of it while `work` runs, so it bounds how long a **crashed** run holds the key, not how long `work` may take |
 | `schema` | a zod schema for the result, checked on the way in and on every replay |
 
 | `BoundIdempotency<P, T, I>` | |
 | --- | --- |
 | `keyFor(params)` | the key it would use |
-| `run(params, work, { fingerprint? })` | runs `work` once per key, and replays its result. `work` returns what the schema accepts (`I`); `run` resolves to `{ value, replayed }`, `value` as the schema gives it back (`T`) |
+| `run(params, work, { fingerprint?, wait? })` | runs `work` once per key, and replays its result. `work` returns what the schema accepts (`I`); `run` resolves to `{ value, replayed }`, `value` as the schema gives it back (`T`) |
 | `forget(params)` | deletes the key, finished or running. `true` when something was there |
 
 `fingerprint` is a string or an `ArrayBufferView` — the raw body, usually.
-Only its SHA-256 is stored.
+Only its SHA-256 is stored. `wait` is how long to wait for a run of the same
+key that is still going, **in milliseconds** — a whole number, default `0`:
+`run` polls the key until it is done (a replay), free (it runs `work`), or
+the time is spent (`IN_PROGRESS`). A `MISMATCH` or an `INVALID` ends it at
+once.
 
 | Type | |
 | --- | --- |
@@ -278,7 +287,7 @@ Only its SHA-256 is stored.
 | `IdempotencyDefinition<P, S>` | what `defineIdempotency` takes and gives back |
 | `BoundIdempotency<P, T, I>` | what `bindIdempotency` gives back |
 | `Idempotent<T>` | what `run` resolves to: `{ value, replayed }` |
-| `RunOptions` | `run`'s options: `{ fingerprint? }` |
+| `RunOptions` | `run`'s options: `{ fingerprint?, wait? }` |
 | `GuardError`, `GuardErrorCode` | the error, and its codes |
 
 ## Errors
@@ -291,10 +300,10 @@ came from a request.
 | --- | --- | --- |
 | `RATE_LIMITED` | `enforce` found the limit spent. Carries `retryAfter`, in milliseconds | `enforce on "login": the limit of 5 per 60000ms is spent; retryAfter says when to try again` |
 | `COST` | a cost that is not a whole number from 1 (0 for `peek`) to the burst | `consume on "login": a cost must be a whole number from 1 to the burst of 5` |
-| `IN_PROGRESS` | `run` found the key still running. Carries `retryAfter`: milliseconds until its lease ends | `run on "orders.create": the same key is still running; retryAfter says when its lease ends` |
+| `IN_PROGRESS` | `run` found the key still running — at once, or when its `wait` ran out. Carries `retryAfter`: milliseconds until that run's lease lapses **unless renewed**, which a live run does | `run on "orders.create": the same key is still running; retryAfter is when its lease lapses unless renewed` |
 | `MISMATCH` | `run` found the key first used with a different fingerprint — or with one where this call has none, or the reverse | `run on "orders.create": this key was first used with a different fingerprint; a repeat must send the same request` |
 | `INVALID` | what `work` returned does not match the schema — not stored, key given back; or what was stored no longer does — kept, and `work` **not** run again; or the record at the key is not one `run` wrote | `run on "orders.create": the result does not match the schema, so it was not stored (invalid_type)` |
-| `LEASE_LOST` | `work` finished after its lease lapsed, so a repeat may have run it too. Its result was not stored | `run on "orders.create": the work outlasted its lease of 30000ms, so a repeat may have run it too; its result was not stored` |
+| `LEASE_LOST` | the key was taken from the run before it finished — `forget`, or its lease lapsed because no renewal reached Redis for a whole lease — so a repeat may have run `work` too. Its result was not stored | `run on "orders.create": the key was taken from this run before it finished (forgotten, or its lease of 30000ms went unrenewed), so a repeat may have run it too; its result was not stored` |
 
 An `INVALID` message lists zod's issue **codes** only — never zod's messages
 nor the paths, which can quote what the value held.
@@ -307,8 +316,9 @@ refuses an empty `name`, a `key` that is not a function, a `limit`, `per` or
 take more than ten years to refill from empty; `defineIdempotency` (and
 `bindIdempotency`) refuses an empty `name`, a `key` that is not a function, a
 `ttl` or `lease` that is not a whole number of at least 1, and a missing
-`schema`. A `fingerprint` that is neither a string nor an `ArrayBufferView`
-rejects with a `TypeError` before anything is sent. Redis's own failures come back as
+`schema`. A `fingerprint` that is neither a string nor an `ArrayBufferView`,
+and a `wait` that is not a whole number of 0 or more, reject with a
+`TypeError` before anything is sent. Redis's own failures come back as
 they are, from Bun's client. Every message is in
 [troubleshooting](docs/troubleshooting.md).
 
@@ -330,8 +340,9 @@ In `test/types/idempotency.ts`:
 
 - A `work` that returns what the schema does not accept — a field of the
   wrong type, a required field left out, a union member the schema lacks.
-- A `fingerprint` that is a number, params missing a field, `forget` with a
-  bare string, and a result written to.
+- A `fingerprint` that is a number, a `wait` given as a string or a boolean,
+  a `timeout` for `wait`, params missing a field, `forget` with a bare
+  string, and a result written to.
 - A definition without `ttl` or `schema`, a `ttl` given as a string, an
   option it does not have — `timeout` for `lease` — a `lease` given as a
   string, a definition changed after it is defined, and `bindIdempotency`
@@ -382,12 +393,19 @@ In `test/types/idempotency.ts`:
 
 Idempotency:
 
-- **The lease is not renewed yet.** A run holds its key for `lease`
-  milliseconds (default 10 s); work that runs longer loses it, and a repeat
-  that arrives after that **runs the work a second time**. The first run then
-  fails with `LEASE_LOST` and stores nothing, and the second one's result is
-  what replays. Set `lease` above the longest the work can take. A heartbeat
-  that renews it is on the [roadmap](docs/roadmap.md).
+- **The lease is renewed by a timer, so synchronous work can lose it.**
+  While `work` runs, `run` renews the key's lease every third of `lease`
+  (default 10 s). A timer cannot fire while synchronous code holds the event
+  loop, nor a renewal reach a Redis that is unreachable: after a whole
+  `lease` of either, the key lapses, a repeat **runs the work a second
+  time**, and the first run fails with `LEASE_LOST` and stores nothing. Keep
+  `lease` above the longest the loop may be blocked or Redis unreachable, and
+  treat `LEASE_LOST` as "this may have happened twice". `forget` during a run
+  does the same, on purpose.
+- **`lease` is how long a crash holds the key.** A process that dies
+  mid-work stops renewing, and the key stays `IN_PROGRESS` until its lease
+  lapses. `retryAfter` is that bound — a live run renews it, so a retry after
+  it can still find the key running.
 - **`ttl` is seconds; `lease` is milliseconds.** `ttl` follows Redis's
   `EXPIRE` and `@nxgt/redis`'s `defineCache`; `lease` follows every other
   duration in this package. `ttl: 86_400` is a day; `lease: 86_400` is under
@@ -418,9 +436,11 @@ Idempotency:
   lost between `work` and the store leaves the key running until its lease
   lapses, and the error is Redis's. A repeat within the lease gets
   `IN_PROGRESS`; after it, the work runs again.
-- **A running key cannot be waited for yet.** A repeat during the first run
-  gets `IN_PROGRESS` and its `retryAfter`; waiting for the result instead is
-  on the roadmap.
+- **`wait` holds the request open.** A repeat with `wait` polls the key
+  every 25 ms at first, then up to every 250 ms, until it is done, free, or
+  `wait` is spent — each poll one script on the server. Keep it under your
+  HTTP timeout; without it, a repeat during the first run gets `IN_PROGRESS`
+  at once.
 
 ## Documentation
 

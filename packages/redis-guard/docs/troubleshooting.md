@@ -41,15 +41,16 @@ call instead.
   - [Every limited caller has to wait much longer than `per`](#every-limited-caller-has-to-wait-much-longer-than-per)
   - [`WRONGTYPE Operation against a key holding the wrong kind of value`](#wrongtype-operation-against-a-key-holding-the-wrong-kind-of-value)
 - **Runtime: idempotency**
-  - [`run on "orders.create": the same key is still running; retryAfter says when its lease ends`](#run-on-orderscreate-the-same-key-is-still-running-retryafter-says-when-its-lease-ends)
+  - [`run on "orders.create": the same key is still running; retryAfter is when its lease lapses unless renewed`](#run-on-orderscreate-the-same-key-is-still-running-retryafter-is-when-its-lease-lapses-unless-renewed)
   - [`run on "orders.create": this key was first used with a different fingerprint; a repeat must send the same request`](#run-on-orderscreate-this-key-was-first-used-with-a-different-fingerprint-a-repeat-must-send-the-same-request)
   - [`run on "orders.create": the result does not match the schema, so it was not stored (invalid_type)`](#run-on-orderscreate-the-result-does-not-match-the-schema-so-it-was-not-stored-invalid_type)
   - [`run on "orders.create": the result does not match the schema once stored as JSON, so it was not stored (invalid_type)`](#run-on-orderscreate-the-result-does-not-match-the-schema-once-stored-as-json-so-it-was-not-stored-invalid_type)
   - [`run on "orders.create": the result has no JSON form, so it was not stored`](#run-on-orderscreate-the-result-has-no-json-form-so-it-was-not-stored)
   - [`run on "orders.create": the stored result no longer matches the schema, and the work was not run again (invalid_type)`](#run-on-orderscreate-the-stored-result-no-longer-matches-the-schema-and-the-work-was-not-run-again-invalid_type)
   - [`run on "orders.create": the stored record is not one this package wrote, and the work was not run again`](#run-on-orderscreate-the-stored-record-is-not-one-this-package-wrote-and-the-work-was-not-run-again)
-  - [`run on "orders.create": the work outlasted its lease of 30000ms, so a repeat may have run it too; its result was not stored`](#run-on-orderscreate-the-work-outlasted-its-lease-of-30000ms-so-a-repeat-may-have-run-it-too-its-result-was-not-stored)
+  - [`run on "orders.create": the key was taken from this run before it finished (forgotten, or its lease of 30000ms went unrenewed), so a repeat may have run it too; its result was not stored`](#run-on-orderscreate-the-key-was-taken-from-this-run-before-it-finished-forgotten-or-its-lease-of-30000ms-went-unrenewed-so-a-repeat-may-have-run-it-too-its-result-was-not-stored)
   - [`run: a fingerprint is a string or an ArrayBufferView, such as the raw body`](#run-a-fingerprint-is-a-string-or-an-arraybufferview-such-as-the-raw-body)
+  - [`run on "orders.create": wait is a whole number of milliseconds, 0 or more`](#run-on-orderscreate-wait-is-a-whole-number-of-milliseconds-0-or-more)
   - [The same request ran twice](#the-same-request-ran-twice)
   - [`WRONGTYPE Operation against a key holding the wrong kind of value`](#wrongtype-operation-against-a-key-holding-the-wrong-kind-of-value) — a key that is not a hash; the entry is under rate limits
 
@@ -200,8 +201,10 @@ ttl: 86_400,   // a day, in seconds
 **When:** at import, on a `lease` that is given and is not a whole number of
 at least 1.
 **Why:** `lease` is how long the in-flight marker lives, in **milliseconds**.
-**Fix:** leave it out for the default of 10 s, or give it in milliseconds,
-above the longest the work can take:
+**Fix:** leave it out for the default of 10 s, or give it in milliseconds.
+The heartbeat renews it while `work` runs, so it need not cover the work —
+only how long a crashed run may hold the key; keep it above the longest the
+event loop may be blocked or Redis unreachable:
 
 ```ts
 lease: 30_000,
@@ -349,29 +352,40 @@ const loginLimit = defineRateLimit({
 
 ## Runtime: idempotency
 
-### `run on "orders.create": the same key is still running; retryAfter says when its lease ends`
+### `run on "orders.create": the same key is still running; retryAfter is when its lease lapses unless renewed`
 
 **When:** `run` found the key taken by a run that has not finished — the
-client retried before the first request was answered, or sent two at once.
-It is a `GuardError` with code `IN_PROGRESS` and `retryAfter`, the
-milliseconds left on the running call's lease. `work` was not called.
+client retried before the first request was answered, or sent two at once —
+and either no `wait` was given, or the first run was still going when it ran
+out. It is a `GuardError` with code `IN_PROGRESS` and `retryAfter`, the
+milliseconds before the running call's lease lapses **if it stops being
+renewed**. `work` was not called.
 **Why:** running it beside the first is what idempotency exists to prevent,
-and there is no result yet to replay. Waiting for it inside `run` is not in
-this version.
-**Fix:** answer 409 with `Retry-After`, in whole seconds rounded up:
+and there is no result yet to replay. A live run renews its lease every
+third of it, so `retryAfter` is not when the work will finish: it is the
+longest a crashed run can hold the key.
+**Fix:** give `run` a `wait`, so most repeats get the replay rather than
+this error, and answer what is left with 409 and `Retry-After`, in whole
+seconds rounded up:
 
 ```ts
-if (error instanceof GuardError && error.code === 'IN_PROGRESS') {
-	return new Response('Still running', {
-		status: 409,
-		headers: { 'Retry-After': String(Math.ceil((error.retryAfter ?? 0) / 1000)) },
-	});
+try {
+	return await orders.run(who, work, { fingerprint: body, wait: 2_000 });
+} catch (error) {
+	if (error instanceof GuardError && error.code === 'IN_PROGRESS') {
+		return new Response('Still running', {
+			status: 409,
+			headers: { 'Retry-After': String(Math.ceil((error.retryAfter ?? 0) / 1000)) },
+		});
+	}
+	throw error;
 }
 ```
 
-If it comes long after the first request, and `retryAfter` is close to the
-whole `lease`, a run is holding the key it does not use — a process that died
-mid-work frees it only when the lease lapses.
+If it keeps coming long after the first request, a run is holding the key
+without finishing: `work` is stuck — the renewals keep its key alive for as
+long as it runs — or a process died mid-work, and the key frees itself once
+`retryAfter` has passed. `forget` frees it at once, when you know which.
 
 ### `run on "orders.create": this key was first used with a different fingerprint; a repeat must send the same request`
 
@@ -459,23 +473,30 @@ whatever it stood for; reading it as a mismatch would blame the client.
 **Fix:** give the operation a name nothing else uses as a prefix, and
 `forget` the key once you know what it was.
 
-### `run on "orders.create": the work outlasted its lease of 30000ms, so a repeat may have run it too; its result was not stored`
+### `run on "orders.create": the key was taken from this run before it finished (forgotten, or its lease of 30000ms went unrenewed), so a repeat may have run it too; its result was not stored`
 
-**When:** `work` finished, but its lease had lapsed by then, and the key had
-either expired or been taken by another run. Code `LEASE_LOST`. Nothing was
-stored by this run.
-**Why:** the lease is not renewed in this version. Once it lapsed, a repeat
-could take the key and run `work` too — so the side effect may have happened
-twice. Storing this result anyway could overwrite the other run's, so it is
-refused.
-**Fix:** raise `lease` above the longest `work` can take, and treat this
-error as "check for a duplicate":
+**When:** `work` finished, but the key had been taken from this run while it
+ran, so nothing was stored. Code `LEASE_LOST`. One of:
+
+- `forget` was called for the key during the run, or something else deleted
+  it;
+- no renewal reached Redis for a whole `lease`, so the key lapsed — Redis
+  unreachable that long, or the event loop **blocked by synchronous work**
+  that long, since the renewal timer cannot fire meanwhile. A repeat may then
+  have taken the key and run `work` too.
+
+**Why:** the lease is renewed every third of it while `work` runs, and each
+renewal checks the key still holds this run's token. Once one finds the key
+gone or another run's, nothing can give it back, and storing this result
+could overwrite the other run's — so it is refused. `work` itself is not
+interrupted.
+**Fix:** treat it as "check for a duplicate". Move long synchronous work off
+the event loop — a `Worker`, or `await` between chunks — and keep `lease`
+above the longest Redis may be unreachable:
 
 ```ts
-defineIdempotency({ ...createOrder, lease: 120_000 });
+defineIdempotency({ ...createOrder, lease: 30_000 });
 ```
-
-A heartbeat that renews the lease is on the [roadmap](roadmap.md).
 
 ### `run: a fingerprint is a string or an ArrayBufferView, such as the raw body`
 
@@ -485,19 +506,34 @@ sent.
 **Fix:** pass the body as text or bytes; to fingerprint an object, pass the
 text it was parsed from.
 
+### `run on "orders.create": wait is a whole number of milliseconds, 0 or more`
+
+**When:** `run`'s `wait` was not a whole number of 0 or more — a negative
+number, a fraction, `NaN`, `Infinity`, a string such as `'2s'`, or `null` —
+past the types. A bare `TypeError`; the promise rejects before anything is
+sent. The message quotes no value.
+**Fix:** pass milliseconds as a whole number, or leave `wait` out for none:
+
+```ts
+await orders.run(who, work, { wait: 2_000 });
+```
+
 ### The same request ran twice
 
 **When:** two requests with the same key both ran `work`.
 **Why**, one of:
 
-- the first ran longer than `lease`, and the second arrived after it lapsed —
-  the first then failed with `LEASE_LOST`;
+- the first lost its key — no renewal reached Redis for a whole `lease`
+  (Redis unreachable, or the event loop blocked by synchronous work), or it
+  was `forget`-ed — and the second arrived after that; the first then failed
+  with `LEASE_LOST`;
 - the first **threw**, which gives the key back, so the second ran again (by
   design: an error is not a result);
 - the second came after `ttl` seconds;
 - the two keys were not the same: `key(params)` differs, or the two
   definitions have different `name`s.
 
-**Fix:** a longer `lease`; a failure that must replay returned as a union
+**Fix:** synchronous work off the event loop, and a `lease` above the
+longest outage; a failure that must replay returned as a union
 member rather than thrown; a longer `ttl`. `keyFor(params)` shows the key a
 call would use.

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach } from 'bun:test';
-import type { RedisClient } from 'bun';
+import { RedisClient } from 'bun';
 import { z } from 'zod';
 import { defineIdempotency } from '../src/idempotency/define-idempotency';
 import { defineRateLimit } from '../src/rate-limit/define-rate-limit';
@@ -90,6 +90,57 @@ export function useRedis() {
 	});
 
 	return servers;
+}
+
+/**
+ * Two more clients of the spec file's Redis, opened after it starts: two
+ * connections, as two processes would have. Bun pipelines one client's
+ * commands in order, so a race on one client alone could pass with a step
+ * that is not atomic. Call it after `useRedis`, whose server it needs.
+ */
+export function useClients(servers: { redis: TestServer }) {
+	const clients: RedisClient[] = [];
+
+	beforeAll(async () => {
+		for (let i = 0; i < 2; i += 1) {
+			const client = new RedisClient(servers.redis.uri);
+			await client.connect();
+			clients.push(client);
+		}
+	});
+
+	afterAll(() => {
+		for (const client of clients.splice(0)) client.close();
+	});
+
+	/** The first and the second client, for binding one definition twice. */
+	return () => {
+		const [a, b] = clients;
+		if (!a || !b) throw new Error('two clients expected');
+		return [a, b] as const;
+	};
+}
+
+/** A promise with its resolver outside, for work that waits to be let go. */
+export function gate() {
+	let open = () => {};
+	const opened = new Promise<void>((resolve) => {
+		open = resolve;
+	});
+	return { opened, open };
+}
+
+/**
+ * How a promise settled, taken where it is made — as `rejection` does, for a
+ * promise that should resolve but must not reject unheld if it does not.
+ */
+export function settled<T>(
+	promise: Promise<T>,
+): Promise<{ value: T } | { error: unknown }> {
+	return promise.then(
+		(value) => ({ value }),
+		(error: unknown) => ({ error }),
+	);
 }
 
 /**

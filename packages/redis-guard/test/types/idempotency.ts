@@ -47,6 +47,21 @@ charges.run('c1', () => ({ ok: false, chargeId: 'ch_1' }));
 // @ts-expect-error a fingerprint is a string or bytes, not a number
 orders.run(who, () => ({ orderId: 'o1', total: 1 }), { fingerprint: 42 });
 
+// `wait` is a number of milliseconds, beside the fingerprint.
+orders.run(who, () => ({ orderId: 'o1', total: 1 }), {
+	fingerprint: 'body',
+	wait: 2_000,
+});
+
+// @ts-expect-error `wait` is a number of milliseconds, not a duration string
+orders.run(who, () => ({ orderId: 'o1', total: 1 }), { wait: '2s' });
+
+// @ts-expect-error nor a flag: how long to wait is the caller's to say
+orders.run(who, () => ({ orderId: 'o1', total: 1 }), { wait: true });
+
+// @ts-expect-error there is no `timeout`: waiting for a running key is `wait`
+orders.run(who, () => ({ orderId: 'o1', total: 1 }), { timeout: 2_000 });
+
 // @ts-expect-error the params are the key function's: `key` is missing
 orders.run({ user: 'u1' }, () => ({ orderId: 'o1', total: 1 }));
 

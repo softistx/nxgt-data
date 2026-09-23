@@ -1,8 +1,10 @@
 import type { RedisClient } from 'bun';
 import type { z } from 'zod';
 import { GuardError } from '../errors/guard-error';
+import { keepLease } from './lease/heartbeat';
+import { beginOrWait, checkWait } from './lease/wait';
 import { corrupt, fromStored, toStored } from './result';
-import { begin, complete, newToken, release } from './scripts';
+import { type Begun, complete, newToken, release } from './scripts';
 import type { Idempotent, RunOptions } from './types';
 
 /** What a bound operation resolved from its definition. */
@@ -11,7 +13,7 @@ export interface Context {
 	readonly name: string;
 	/** Seconds a finished result is kept. */
 	readonly ttl: number;
-	/** Milliseconds the in-flight marker lives. */
+	/** Milliseconds the in-flight marker lives unless renewed. */
 	readonly lease: number;
 	readonly schema: z.ZodType;
 }
@@ -41,7 +43,7 @@ export function fingerprintOf(given: RunOptions['fingerprint']): string {
 /** Why `run` did not start: every answer of `BEGIN` but `started`. */
 async function notStarted<T>(
 	ctx: Context,
-	found: Awaited<ReturnType<typeof begin>>,
+	found: Begun,
 ): Promise<Idempotent<T>> {
 	const { name } = ctx;
 	switch (found.state) {
@@ -54,7 +56,7 @@ async function notStarted<T>(
 			throw new GuardError(
 				'IN_PROGRESS',
 				name,
-				`run on "${name}": the same key is still running; retryAfter says when its lease ends`,
+				`run on "${name}": the same key is still running; retryAfter is when its lease lapses unless renewed`,
 				{ retryAfter: found.pttl },
 			);
 		case 'mismatch':
@@ -69,14 +71,27 @@ async function notStarted<T>(
 	}
 }
 
+/** The error of a run whose key was taken from it before it could store. */
+function leaseLost(ctx: Context): GuardError {
+	return new GuardError(
+		'LEASE_LOST',
+		ctx.name,
+		`run on "${ctx.name}": the key was taken from this run before it finished ` +
+			`(forgotten, or its lease of ${ctx.lease}ms went unrenewed), so a ` +
+			'repeat may have run it too; its result was not stored',
+	);
+}
+
 /**
- * One `run`: take the key, or replay or refuse what holds it; run `work`;
- * store its result if this run still holds the key.
+ * One `run`: take the key — waiting up to `wait` for a running one — or
+ * replay or refuse what holds it; run `work`, renewing the lease every third
+ * of it; store its result if this run still holds the key.
  *
  * Whatever `work` throws, and a result the schema refuses, gives the key
  * back before the error leaves — never stored, so the next call runs again.
  * A failure to give it back must not replace that error: the marker then
- * lapses with its lease.
+ * lapses with its lease. The renewals stop before `run` settles, whichever
+ * way it does.
  */
 export async function run<T, I>(
 	ctx: Context,
@@ -85,24 +100,31 @@ export async function run<T, I>(
 	options?: RunOptions,
 ): Promise<Idempotent<T>> {
 	const fingerprint = fingerprintOf(options?.fingerprint);
+	const wait = checkWait(ctx.name, options?.wait);
 	const token = newToken();
-	const found = await begin(ctx.client, key, token, fingerprint, ctx.lease);
+	const { client, lease } = ctx;
+	const found = await beginOrWait(client, key, token, fingerprint, lease, wait);
 	if (found.state !== 'started') return await notStarted<T>(ctx, found);
 
+	const heartbeat = keepLease(client, key, token, lease);
 	let stored: { json: string; value: T };
 	try {
 		stored = await toStored<T>(ctx.name, ctx.schema, await work());
 	} catch (error) {
-		await release(ctx.client, key, token).catch(() => undefined);
+		heartbeat.stop();
+		await release(client, key, token).catch(() => undefined);
 		throw error;
+	} finally {
+		heartbeat.stop();
 	}
-	if (!(await complete(ctx.client, key, token, stored.json, ctx.ttl))) {
-		throw new GuardError(
-			'LEASE_LOST',
-			ctx.name,
-			`run on "${ctx.name}": the work outlasted its lease of ${ctx.lease}ms, ` +
-				'so a repeat may have run it too; its result was not stored',
-		);
+	// A renewal that found the key gone or another run's already knows that
+	// `COMPLETE` would refuse; one still in flight at the stop is `COMPLETE`'s
+	// to find.
+	if (
+		heartbeat.lost ||
+		!(await complete(client, key, token, stored.json, ctx.ttl))
+	) {
+		throw leaseLost(ctx);
 	}
 	return { value: stored.value, replayed: false };
 }

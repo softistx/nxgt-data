@@ -14,7 +14,7 @@ export const createOrder = defineIdempotency({
 	name: 'orders.create',
 	key: (p: { user: string; key: string }) => `${p.user}/${p.key}`,
 	ttl: 86_400,         // seconds
-	lease: 30_000,       // milliseconds
+	lease: 30_000,       // milliseconds a crashed run holds the key
 	schema: z.object({ orderId: z.string(), status: z.string().default('placed') }),
 });
 
@@ -39,7 +39,7 @@ import rather than at the first request.
 | `name` | the key's prefix. Two operations must not share one — nor a rate limit or a cache |
 | `key(params)` | the rest of the key. A function, so a renamed parameter is a compile error |
 | `ttl` | how long a finished result is replayed, **in seconds** |
-| `lease` | how long the work may take, **in milliseconds**. Default `10_000` |
+| `lease` | how long a run holds the key unless renewed, **in milliseconds**. Default `10_000`. Renewed while `work` runs — see [The lease](#the-lease) |
 | `schema` | a zod schema for the result |
 
 A stored key is `` `<name>:<key(params)>` `` — the same shape as a rate
@@ -56,21 +56,21 @@ result.
 
 ## What `run` does
 
-`run(params, work, { fingerprint })` answers in one of five ways:
+`run(params, work, { fingerprint, wait })` answers in one of five ways:
 
 | The key holds | `run` |
 | --- | --- |
 | nothing | takes it, calls `work`, stores the result, resolves `{ value, replayed: false }` |
 | a finished result, same fingerprint | resolves `{ value, replayed: true }`; `work` is **not** called |
-| a run still going, same fingerprint | rejects with `IN_PROGRESS` and `retryAfter`, the lease left in ms |
+| a run still going, same fingerprint | waits up to `wait` ms for it — see [Waiting for a running key](#waiting-for-a-running-key) — then, if it is still running, rejects with `IN_PROGRESS` and `retryAfter` |
 | anything, with a different fingerprint | rejects with `MISMATCH` — whether it is finished or still running |
 | a record `run` could not have written | rejects with `INVALID`, and leaves it where it is |
 
 When `work` has run:
 
 - **It returned a result the schema accepts** — the result is stored for
-  `ttl` seconds and resolved. If the lease lapsed while `work` ran, the store
-  is refused and `run` rejects with `LEASE_LOST`: see
+  `ttl` seconds and resolved. If the key was taken from this run while
+  `work` ran, the store is refused and `run` rejects with `LEASE_LOST`: see
   [The lease](#the-lease).
 - **It returned a result the schema refuses** — nothing is stored, the key
   is given back, and `run` rejects with `INVALID`.
@@ -150,33 +150,82 @@ request said, and a repeat whose fingerprint differs is `MISMATCH`.
 ## The lease
 
 While `work` runs, the key holds a marker that lives `lease` milliseconds,
-timed by the Redis server. A process that dies mid-work therefore frees the
-key when the lease lapses, rather than never.
+timed by the Redis server, and **`run` renews it every third of `lease`** —
+a compare-and-renew on this run's own random token, so it only ever extends
+its own marker. Work of any length therefore runs once, and a repeat during
+it gets `IN_PROGRESS` (or waits, with `wait`). The renewals stop before
+`run` settles, however it settles, and leave no timer behind.
 
-**In this version nothing renews it.** Work that runs longer than `lease`
-loses the key, and a repeat that arrives after that runs `work` a second
-time. The first run then finds its token gone when it tries to store, rejects
-with `LEASE_LOST`, and stores nothing: the second run's result is what
-replays. So:
+`lease` is then how long a **crashed** run holds the key: a process that
+dies mid-work stops renewing, and the key is free again at most `lease`
+milliseconds later rather than never. A shorter lease frees it sooner and
+renews more often — one small script per third of it, per running call.
 
-- set `lease` above the longest `work` can take, with room to spare;
+The lease can still be lost, and `run` then rejects with `LEASE_LOST` and
+stores nothing, when:
+
+- **no renewal reaches Redis for a whole lease** — a connection down that
+  long (a renewal that fails is tried again at the next beat), or an event
+  loop **blocked by synchronous work** that long, since a timer cannot fire
+  meanwhile. The key lapses, and a repeat after that runs `work` a second
+  time;
+- **the key was removed or taken** — `forget` during the run, or anything
+  else that deletes it. The next renewal finds it gone or holding another
+  run's token, and the run is marked lost; `work` is not interrupted, but
+  its result will not be stored.
+
+So:
+
+- keep `lease` above the longest the event loop may be blocked or Redis
+  unreachable, and offload long synchronous work to a `Worker`;
 - treat `LEASE_LOST` as "this may have happened twice" — reconcile, alert, or
   both.
 
-A heartbeat that renews the lease while `work` runs is next on the
-[roadmap](../roadmap.md).
+A late run cannot damage the one that took over: renewing, storing and
+giving the key back all compare this run's own token, in the same script as
+the write, so none can extend, overwrite or delete another run's marker.
 
-A late run cannot damage the one that took over: storing and giving the key
-back both compare this run's own random token, in the same script as the
-write, so neither can overwrite or delete another run's marker.
+## Waiting for a running key
+
+Without `wait`, a repeat that arrives during the first run is refused at
+once with `IN_PROGRESS`. With it, `run` waits — for the replay, usually:
+
+```ts
+const { value, replayed } = await orders.run(who, () => placeOrder(body), {
+	fingerprint: body,
+	wait: 5_000,   // milliseconds
+});
+```
+
+It polls the key with the same script that takes it, until one of:
+
+| The key becomes | `run` |
+| --- | --- |
+| done | resolves the stored result, `replayed: true`; `work` is not called |
+| free — the first run threw and gave it back, or crashed and its lease lapsed | takes it and runs `work` itself, `replayed: false` |
+| still running when `wait` is spent | rejects with `IN_PROGRESS`, as without `wait` |
+| another fingerprint, or a record `run` could not have written | rejects with `MISMATCH` or `INVALID` at once |
+
+The first poll comes 25 ms after the first refusal, and the pause doubles up
+to 250 ms, never past the key's `retryAfter` nor the end of `wait`: a run
+that finishes is noticed within a quarter of a second. The host's clock only
+paces the sleeps and says when `wait` is spent; whether the key is free, done
+or running is the server's answer every time.
+
+`wait` is a whole number of milliseconds, `0` (the default) or more; any
+other value — a negative number, a fraction, `NaN`, a string — rejects with
+a `TypeError` before anything is sent. Keep it below whatever timeout the
+request itself has.
 
 ## Choosing `ttl` and `lease`
 
 - **`ttl` — seconds.** As long as a client might still retry: a day is
   common for payments, an hour for most forms. After it, a repeat runs again.
-- **`lease` — milliseconds.** Above the slowest `work` you expect. Too short
-  risks a second run; too long makes a repeat after a crash wait longer for
-  `IN_PROGRESS` to clear.
+- **`lease` — milliseconds.** How long a crash may hold the key: renewals
+  keep it alive while `work` runs, whatever `work` takes. Too short renews
+  more often and loses the key to a shorter blocked event loop or outage;
+  too long makes a repeat after a crash wait longer for `IN_PROGRESS` to
+  clear. The default, 10 s, suits most.
 
 The units differ on purpose: `ttl` is Redis's `EXPIRE` and `@nxgt/redis`'s
 `defineCache`; `lease` is every other duration in this package, and
@@ -204,20 +253,22 @@ One Redis hash per key, in one of two shapes, each exactly three fields:
 
 | State | Fields | Expiry |
 | --- | --- | --- |
-| running | `state` = `running`, `token` (32 hex, this run's), `fp` | `PEXPIRE lease` |
+| running | `state` = `running`, `token` (32 hex, this run's), `fp` | `PEXPIRE lease`, renewed every third of it |
 | done | `state` = `done`, `fp`, `value` (JSON) | `EXPIRE ttl` |
 
-`fp` is the fingerprint's SHA-256 in hex, or `''` for none. Three scripts,
+`fp` is the fingerprint's SHA-256 in hex, or `''` for none. Four scripts,
 each over one key:
 
 - **begin** takes the key — `HSET` and `PEXPIRE` in the same step — or reads
   what holds it;
+- **renew** pushes a running key's `PEXPIRE lease` back, only if it is still
+  running under this run's token;
 - **complete** stores the result only if the key is still running under this
   run's token, removes the token, and sets the `ttl`;
 - **release** deletes the key only if it is still this run's.
 
 Each is one Lua script, so two processes cannot both take a key, and a late
-run cannot store over or delete an earlier one's successor. Nothing reads a
+run cannot renew, store over or delete an earlier one's successor. Nothing reads a
 host's clock: every expiry is the server's, and `retryAfter` is the key's
 `PTTL`.
 
@@ -239,7 +290,7 @@ client makes up a key per operation and sends it with every retry.
 | --- | --- | --- |
 | `{ replayed: false }` | the operation's own — 201 for a creation | it ran |
 | `{ replayed: true }` | the **same** status as the first time | a retry must not be able to tell, except by a header if you want one |
-| `IN_PROGRESS` | **409 Conflict**, with `Retry-After` | the first request has not finished |
+| `IN_PROGRESS` | **409 Conflict**, with `Retry-After` | the first request has not finished, within `wait` if you gave one |
 | `MISMATCH` | **422 Unprocessable Content** | the key was used for another request |
 | `INVALID` | 500 | a server-side problem: the schema and what was stored disagree |
 | `LEASE_LOST` | 500, and an alert | the work may have run twice |
@@ -262,7 +313,10 @@ export async function idempotent<T>(
 		const { value, replayed } = await bound.run(
 			{ user, key },
 			() => work(body),
-			{ fingerprint: `${request.method} ${new URL(request.url).pathname}\n${body}` },
+			{
+				fingerprint: `${request.method} ${new URL(request.url).pathname}\n${body}`,
+				wait: 2_000,   // a repeat during the first run gets its replay, mostly
+			},
 		);
 		return Response.json(value, {
 			status,
@@ -289,9 +343,11 @@ export async function idempotent<T>(
 ```
 
 `Retry-After` is in whole seconds, rounded up from `retryAfter`'s
-milliseconds, so a client that waits that long finds the lease over: the
-first run has finished, and a replay is waiting, or it lapsed, and the
-repeat runs.
+milliseconds: when the first run's lease lapses **unless it is renewed**.
+A crashed run's key is free by then; a live one renews it, so a client that
+retries then may be told 409 again, with a new `Retry-After`. Giving `run` a
+`wait` answers most repeats with the replay instead, and leaves 409 for work
+that outlasts it.
 
 The same function works in Hono, Elysia or `Bun.serve`, since each hands you
 the standard `Request` (`c.req.raw` in Hono).
@@ -300,11 +356,11 @@ the standard `Request` (`c.req.raw` in Hono).
 
 | Code | When | What happened to the key |
 | --- | --- | --- |
-| `IN_PROGRESS` | the key is running elsewhere | untouched |
+| `IN_PROGRESS` | the key is running elsewhere, and `wait` (if any) ran out | untouched |
 | `MISMATCH` | another fingerprint | untouched |
 | `INVALID` | `work`'s result refused | given back |
 | `INVALID` | the stored result refused, or a record `run` could not have written | kept; `work` not called |
-| `LEASE_LOST` | `work` outlasted its lease | whatever the run that took over made of it |
+| `LEASE_LOST` | the key was taken from the run: `forget`, or no renewal reached Redis for a whole lease | whatever the run that took over made of it |
 
 Each message names the operation — `run on "orders.create": …` — and never
 the key, the fingerprint or the value, which came from a request. An

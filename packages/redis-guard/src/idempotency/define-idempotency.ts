@@ -52,7 +52,7 @@ export function checkIdempotency<P, S extends z.ZodType>(
  * 	name: 'orders.create',
  * 	key: (p: { user: string; key: string }) => `${p.user}/${p.key}`,
  * 	ttl: 86_400,                   // seconds a result is replayed
- * 	lease: 30_000,                 // milliseconds the work may take
+ * 	lease: 30_000,                 // milliseconds a crashed run holds the key
  * 	schema: z.object({ orderId: z.string() }),
  * });
  * ```
