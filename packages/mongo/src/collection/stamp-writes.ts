@@ -118,6 +118,37 @@ function touchedBy(patch: Fields): Touched {
 }
 
 /**
+ * Refuses a patch that names `_id`, as a field or through any operator —
+ * `$set`, `$unset`, `$rename` onto it or away from it, a path under it — and
+ * even as `undefined`, which `withoutUndefined` would otherwise drop.
+ *
+ * MongoDB never changes an `_id`: a new one comes back from the server as
+ * `ImmutableField` (66) — measured on mongod 8.2, the upsert's message quotes
+ * the new value — and the same one is sent for nothing. An upsert's values
+ * are written on both halves, so the id an insert gets is said in its filter
+ * instead. Only this package's own calls go through here; the driver's
+ * `updateOne` and the rest, and `raw`, still send what they are given. The
+ * message names the call and the collection, never the value, which came off
+ * a request body more often than not.
+ */
+export function refuseId(
+	ctx: CollectionContext,
+	method: 'update' | 'updateMany' | 'upsert',
+	patch: unknown,
+): void {
+	if (!isRecord(patch) || !touchedBy(patch).written.has('_id')) return;
+	const tail =
+		method === 'upsert'
+			? 'Name it in the filter, which is what an inserted document is seeded from'
+			: 'Leave it out; a document that needs another _id is a new document';
+	throw new TypeError(
+		`${method} on "${ctx.name}": "_id" is immutable, and ${
+			method === 'upsert' ? 'an upsert' : 'an update'
+		} never writes it. ${tail}`,
+	);
+}
+
+/**
  * Refuses a patch that writes a stamp the collection keeps, or takes the
  * updated stamp away, and answers the fields it writes.
  */

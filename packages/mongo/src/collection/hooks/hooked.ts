@@ -13,7 +13,7 @@ import {
 	update,
 	updateMany,
 } from '../operations/writes';
-import { keptByCollection } from '../stamp-writes';
+import { keptByCollection, refuseId } from '../stamp-writes';
 import type { WriteOperation } from './types';
 
 /**
@@ -137,6 +137,10 @@ export async function hookedUpsert(
 	filter: unknown,
 	values: unknown,
 ): Promise<Fields> {
+	// The caller's own values are checked before any hook sees them, as the
+	// filters are in `hookedUpdateMany`; what a hook returns is checked again
+	// by the operation.
+	refuseId(ctx, 'upsert', values);
 	const context = contextOf(ctx, self, 'upsert');
 	const args = await before(
 		ctx,
@@ -166,6 +170,7 @@ export async function hookedUpdate(
 	id: unknown,
 	patch: unknown,
 ): Promise<Fields> {
+	refuseId(ctx, 'update', patch);
 	const context = contextOf(ctx, self, 'update');
 	const args = await before(
 		ctx,
@@ -188,6 +193,7 @@ export async function hookedUpdateMany(
 	// it turns `{}` into a filter that is no longer empty, and the guard would
 	// then let an update of every document through.
 	requireFilter(ctx, 'updateMany', filter);
+	refuseId(ctx, 'updateMany', patch);
 	const context = contextOf(ctx, self, 'updateMany');
 	const args = await before(
 		ctx,

@@ -160,6 +160,27 @@ options. `raw` is the way to set a stamp by hand.
 `validate: 'off'` does not parse, so the collection fills the stamps it keeps
 itself — the ones a caller can no longer give.
 
+#### `_id` never changes
+
+MongoDB never changes an `_id`, so `update`, `updateMany` and `upsert` never
+write one. A patch naming `_id` — as a field, through any operator, under a
+path, even as `undefined` — is a compile error and, for a caller the types do
+not reach, a `TypeError` before anything is sent or any hook runs. An
+upsert's insert takes its `_id` from the filter:
+
+```ts
+const { _id, ...patch } = body;
+await users.update(id, patch);
+await posts.upsert({ _id: chosen }, { title: 'a', rank: 1 });
+
+await users.update(id, { _id: other });
+// TypeError: update on "users": "_id" is immutable, and an update never writes it. Leave it out; a document that needs another _id is a new document
+```
+
+The driver's own `updateOne`, `findOneAndUpdate`, `replaceOne`, `bulkWrite`
+and `raw` are not this package's calls: they check nothing, and the server
+refuses a changed `_id` there with code 66, as it always did.
+
 ### MongoDB's own collection options
 
 `options` is what MongoDB is given when the collection is created, keyed on the
@@ -403,8 +424,9 @@ fills `_id` with something that is not an `ObjectId`: the server generates
 one before the pipeline runs, so an upsert cannot apply that default and asks
 for the id rather than landing a document `create` would not have landed.
 
-In the **values**, `_id` compiles — as it does in a patch — and the server
-refuses it on the update half as an immutable field. Put it in the filter.
+In the **values**, `_id` is refused — a compile error, and a `TypeError`
+before anything is sent — as it is in a patch: the values are written on both
+halves, and an update never changes an `_id`. Put it in the filter.
 
 Naming `_id` in the filter has one cost, in the Traps: it is what tells an
 insert from an update, so an upsert that names it fills a matched document's
@@ -1254,6 +1276,9 @@ await collection.create({ email, createdAt: '2024' });   // a timestamp is a Dat
 await collection.update(id, { createdAt: new Date() });  // fixed once created
 await collection.update(id, { $inc: { version: 1 } });   // not through an operator either
 await collection.update(id, { deletedAt: null });        // `delete` and `restore`
+await collection.update(id, { _id: other });             // an _id never changes
+await collection.update(id, { $set: { _id: other } });   // through any operator
+await collection.upsert({ email }, { _id: other });      // it goes in the filter
 await collection.upsert({ email }, { nope: 1 });         // no such field to write
 await collection.upsert({ email }, { version: 1 });      // the collection keeps it
 await collection.upsert({ email }, { createdAt: date }); // a create's to give, not this
@@ -1288,6 +1313,10 @@ operator, and getting it subtly wrong is worse than being honest about it.
 - **A document that was read is not a create.** It carries its version, its
   `deletedAt` and its actors, which a create refuses. Take the stamps out
   first, or copy it with `raw`.
+- **A body carrying its own `_id` is not a patch.** `update`, `updateMany` and
+  `upsert` refuse any `_id` in what they write, even the document's own and
+  even `undefined` (since 0.18.0). Take it out before the write; an upsert
+  names it in its filter.
 - **A version in an update is a condition, not a value.** `{ version: 3 }`
   never sets the version to 3: it makes the update fail unless the document is
   at 3, and the update then leaves it at 4.

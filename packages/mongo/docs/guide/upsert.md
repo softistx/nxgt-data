@@ -49,8 +49,10 @@ document with the id you chose. It is **required** there when the schema
 fills `_id` with something that is not an `ObjectId`: the server generates
 one before the pipeline runs, so an upsert cannot apply that default.
 
-In the **values**, `_id` compiles — as it does in a patch — and the server
-refuses it on the update half as an immutable field. Put it in the filter.
+In the **values**, `_id` is refused — a compile error, and a `TypeError`
+before anything is sent — as it is in a patch: the values are written on both
+halves, and an update never changes an `_id`. Put it in the filter. See
+[What it throws](#what-it-throws).
 
 ## What each half writes
 
@@ -148,8 +150,24 @@ app.post('/webhooks/contact', async (c) => {
 ## What it throws
 
 Everything `upsert` refuses about the **call** — a filter that seeds nothing,
-a stamp in the values, an expected version — is a `TypeError`, raised before
-anything is sent. There is one exception, and it is not the caller's mistake:
+a stamp in the values, an expected version, an `_id` in the values — is a
+`TypeError`, raised before anything is sent.
+
+The values are written on both halves, so they never carry `_id`, even as
+`undefined` (since 0.18.0; before, it chose the id of an insert and failed
+with `ImmutableField` on an update that changed it). The `_id` an insert
+gets goes in the **filter**, which seeds the inserted document:
+
+```ts
+await posts.upsert({ _id: chosen }, { title: 'a', rank: 1 });
+
+// @ts-expect-error `_id` goes in the filter
+await posts.upsert({ title: 'a' }, { _id: chosen, rank: 1 });
+// upsert on "posts": "_id" is immutable, and an upsert never writes it. Name it in the filter, which is what an inserted document is seeded from
+```
+
+There is one exception to the `TypeError`s, and it is not the caller's
+mistake:
 
 ```ts
 import { DataError } from '@nxgt/mongo';
@@ -188,7 +206,7 @@ upsert(filter: FilterOf<Def>, values: UpsertOf<Def>): Promise<ReadDocumentOf<Def
 
 /** The document's own writable fields, each optional — and no operators. */
 type UpsertOf<Def> = Partial<WritableDocumentOf<Def>> & {
-	[K in FixedOnUpdate<Def>]?: never;   // the stamps the collection keeps
+	[K in FixedOnUpdate<Def>]?: never;   // the stamps the collection keeps, and `_id`
 };
 ```
 

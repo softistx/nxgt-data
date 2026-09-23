@@ -27,10 +27,15 @@ export type SetByCollection<Def> = StampNameOf<
 	'deletedAt' | 'version' | 'createdBy' | 'updatedBy' | 'deletedBy'
 >;
 
-/** What an update may not write: those, and `createdAt`, which never moves. */
+/**
+ * What an update may not write: those, `createdAt`, which never moves, and
+ * `_id`, which MongoDB never changes — `update`, `updateMany` and `upsert`
+ * refuse it before anything is sent, so their types leave it out too.
+ */
 export type FixedOnUpdate<Def> =
 	| SetByCollection<Def>
-	| StampNameOf<Def, 'createdAt'>;
+	| StampNameOf<Def, 'createdAt'>
+	| '_id';
 
 /**
  * What a create takes: the documents before their defaults are filled, less

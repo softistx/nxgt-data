@@ -4,7 +4,7 @@
 
 import type { Db, ObjectId } from 'mongodb';
 import { getCollection, type NewDocumentOf } from '../../src';
-import { tickets, users } from '../schema';
+import { type Post, posts, tickets, users } from '../schema';
 
 type Equal<A, B> =
 	(<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
@@ -116,3 +116,60 @@ await people.updateMany({ name: null }, { name: 'x', updatedAt: at });
 await people.updateMany({ name: null }, { name: 'x', version: 1 });
 // @ts-expect-error createdAt never moves
 await people.updateMany({ name: null }, { createdAt: at });
+
+// --- _id ----------------------------------------------------------------
+// MongoDB never changes an `_id`, and no update-shaped call of this package
+// writes one: `update`, `updateMany` and `upsert` refuse it in the types, in
+// every operator, and at run time. `delete`, `hardDelete` and `restore` take
+// no patch. The driver's own `updateOne` and `raw` are not this package's.
+declare const post: Post;
+const board = getCollection(db, posts);
+await board.update(id, { title: 'y' });
+// @ts-expect-error no update writes `_id`
+await people.update(id, { _id: id });
+// @ts-expect-error …as the string it arrived as either
+await people.update(id, { _id: '507f1f77bcf86cd799439011' });
+// @ts-expect-error …beside an expected version
+await people.update(id, { _id: id, name: 'Ada', version: 3 });
+// @ts-expect-error …on a collection with no stamps at all
+await board.update(id, { _id: id, title: 'y' });
+// @ts-expect-error …where a whole document used to fit
+await board.update(id, post);
+// @ts-expect-error …through `$set`
+await people.update(id, { $set: { _id: id } });
+// @ts-expect-error …through `$setOnInsert`
+await people.update(id, { $setOnInsert: { _id: id } });
+// @ts-expect-error …through `$unset`
+await people.update(id, { $unset: { _id: '' } });
+// @ts-expect-error …by renaming it away
+await people.update(id, { $rename: { _id: 'name' } });
+// @ts-expect-error …or a field onto it
+await people.update(id, { $rename: { name: '_id' } });
+// @ts-expect-error …through `$min`
+await people.update(id, { $min: { _id: id } });
+// @ts-expect-error …through `$max`
+await people.update(id, { $max: { _id: id } });
+// @ts-expect-error …through `$currentDate`
+await people.update(id, { $currentDate: { _id: true } });
+// @ts-expect-error …nor under a path
+await people.update(id, { $set: { '_id.x': 1 } });
+// @ts-expect-error …whatever the operator
+await people.update(id, { $inc: { '_id.x': 1 } });
+// @ts-expect-error …on a collection acting for someone
+await people.as(id).update(id, { _id: id });
+// @ts-expect-error …or bound to a session
+await people.withSession(undefined).update(id, { _id: id });
+// @ts-expect-error `updateMany` refuses it the same way
+await people.updateMany({ name: null }, { _id: id });
+// @ts-expect-error …through an operator too
+await people.updateMany({ name: null }, { $set: { _id: id } });
+// @ts-expect-error an upsert's values are written on both halves
+await board.upsert({ title: 'a' }, { _id: id, rank: 1 });
+// The filter is where an upsert names the `_id` an insert gets.
+await board.upsert({ _id: id }, { title: 'a', rank: 1 });
+// A document that was read is written back without its `_id`.
+const { _id, ...fields } = post;
+await board.update(id, fields);
+// The driver's own `updateOne` is the driver's: this package types nothing
+// of its own there.
+await people.updateOne({ _id: id }, { $set: { name: 'Ada' } });

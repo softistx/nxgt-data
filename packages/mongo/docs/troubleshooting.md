@@ -34,6 +34,7 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`Document failed validation in "users": email bsonType`](#document-failed-validation-in-users-email-bsontype)
   - [`Document 6721… of "users" is at version 4, not 3: it changed since it was read`](#document-6721-of-users-is-at-version-4-not-3-it-changed-since-it-was-read)
   - [`create: "version" is kept by "users" itself and cannot be written.`](#create-version-is-kept-by-users-itself-and-cannot-be-written)
+  - [`update on "users": "_id" is immutable, and an update never writes it. Leave it out; a document that needs another _id is a new document`](#update-on-users-_id-is-immutable-and-an-update-never-writes-it-leave-it-out-a-document-that-needs-another-_id-is-a-new-document)
   - [`update: "users" has no field "emial" in its schema`](#update-users-has-no-field-emial-in-its-schema)
   - [`deleteMany needs a filter. Pass { _id: { $exists: true } } to target every document of "users".`](#deletemany-needs-a-filter-pass--_id--exists-true---to-target-every-document-of-users)
   - [`upsert: "users" cannot upsert on "rank": it is matched rather than given a value`](#upsert-users-cannot-upsert-on-rank-it-is-matched-rather-than-given-a-value)
@@ -398,6 +399,47 @@ await users.create(values);
 // or, when it really must be written by hand:
 await users.raw.insertOne(document);
 ```
+
+### `update on "users": "_id" is immutable, and an update never writes it. Leave it out; a document that needs another _id is a new document`
+
+**When:** `update` or `updateMany` with a patch that names `_id` — as a
+field, through any operator (`$set`, `$setOnInsert`, `$unset`, `$rename`
+onto it or away from it, `$currentDate`, `$min`…), under a path such as
+`_id.x`, or as `undefined`. `updateMany on …` is the same refusal from
+`updateMany`. `upsert` has its own tail — `upsert on "users": "_id" is
+immutable, and an upsert never writes it. Name it in the filter, which is
+what an inserted document is seeded from` — for an `_id` in its values.
+It is checked on the caller's patch before any hook runs, and again on what
+a `before` hook returns. Nothing is sent. The types refuse the same patches;
+this is the run-time half, for a body that came from JSON or through a cast.
+**Why:** MongoDB never changes an `_id`. Before 0.18.0 the patch reached the
+server: a new `_id` came back as a plain `DataError` with `serverCode: 66`
+(`ImmutableField`) — on an upsert, in a message that quoted the value — and
+the same `_id` went through as no change, sent for nothing. A bare
+`TypeError`, like every refused argument here; the message names the call
+and the collection, never the value.
+**Fix:** leave it out. A body that carries the document's own id should not
+be handed to a write as it is:
+
+```ts
+const { _id, id, ...patch } = body;
+await users.update(userId, patch);
+
+// an upsert chooses the id of an insert in its filter
+await users.upsert({ _id: chosen }, { email: 'ada@example.com' });
+
+// another id: a new document, in one transaction
+await withTransaction(client, async (session) => {
+	const tx = users.withSession(session);
+	const { _id: _, id: __, ...rest } = await tx.getById(oldId, { withDeleted: true });
+	await tx.raw.insertOne({ ...rest, _id: newId }, { session });
+	await tx.hardDelete(oldId);
+});
+```
+
+`raw.insertOne` because `create` refuses the stamps a read document carries;
+the copy keeps them. The driver's own `updateOne` and `raw` are not checked
+here: a changed `_id` sent through them is refused by the server, as before.
 
 ### `update: "users" has no field "emial" in its schema`
 
