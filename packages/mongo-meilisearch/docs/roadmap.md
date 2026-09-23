@@ -5,10 +5,7 @@ version an item shipped in is the only number on this page.
 
 ## Now
 
-- **A lease on a sync name, renewed while it runs** — a follower holds the
-  sync's name for a bounded time and renews it as it works, so a process that
-  dies is taken over once its lease expires rather than leaving the index
-  behind, and a name nothing is following no longer blocks the next start.
+_Nothing in progress._
 
 ## Next
 
@@ -35,6 +32,14 @@ _Nothing queued._
 
 ## Shipped
 
+- **A lease on a sync name, renewed while it runs** — `start()` and
+  `reindex()` take a lease on the sync's name, kept in the state collection
+  and timed by the server, renewed every third of the new `leaseMs` option
+  (default 30 s); a second process gets `RUNNING` naming the holder, a process
+  that dies is taken over once its lease lapses, and a sync whose lease was
+  taken stops with the new `LEASE_LOST` code; a reindex asks the server that
+  the lease is still its own before it removes documents or records where
+  following resumes — 0.3.0.
 - **A transform that gives back something that is not a document has its own
   code** — `SearchSyncErrorCode` gains `NOT_A_DOCUMENT`, naming the sync and
   the document and reporting the shape of what came back, never its value, so

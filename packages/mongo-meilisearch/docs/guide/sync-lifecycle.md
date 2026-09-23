@@ -105,11 +105,12 @@ message reports its shape rather than its value.
 | `index` | `TypedIndex<I>` | — | Where they go: from `bindIndex` |
 | `transform` | `Transform<C, I>` | — | The document as the index holds it, or `null` to keep it out |
 | `toIndexId` | `ToIndexId<C, I>` | `String` | The index id of a `_id`. Optional while the index's ids are strings, required otherwise |
-| `name` | `string` | `'<collection>:<index uid>'` | What the resume point is recorded under. Two syncs under one name share it |
-| `stateCollection` | `string` | `'nxgt_search_sync'` | Where the resume point is kept, in the collection's database |
+| `name` | `string` | `'<collection>:<index uid>'` | What the resume point and the lease are recorded under. Two syncs under one name share both |
+| `stateCollection` | `string` | `'nxgt_search_sync'` | Where the resume point and the lease are kept, in the collection's database |
 | `batchSize` | `number` | `500` | Changes, or documents, sent to Meilisearch at once |
 | `flushIntervalMs` | `number` | `1000` | How long a change waits for others; `0` sends at the next tick |
 | `positionIntervalMs` | `number` | `60000` | How often a sync with nothing to send records where the stream is |
+| `leaseMs` | `number` | `30000` | How long the lease on the name lasts unrenewed; a running sync renews it every third of that. See [the lease](following-changes.md#one-process-per-name-the-lease) |
 | `pageSize` | `number` | `100` | Documents a reindex reads per page; above the collection's `maxPageSize`, lowered to it |
 | `onHistoryLost` | `'reindex' \| 'fail'` | `'reindex'` | What `start` does when the resume point is older than the server's change history |
 
@@ -144,12 +145,14 @@ await sync.state();
 // { _id: 'articles:public', resumeToken: …, updatedAt: …, reindexedAt: … }
 ```
 
-`state()` is `undefined` until the first reindex records something.
+`state()` is `undefined` until the first reindex records something. The same
+collection holds the name's lease, under `_id: { lease: 'articles:public' }`,
+while a process follows or reindexes it.
 
 ### `batchSize`, `flushIntervalMs`, `pageSize`
 
-`batchSize`, `positionIntervalMs` and `pageSize` must be whole numbers above
-zero and `flushIntervalMs` a whole number of milliseconds, or
+`batchSize`, `positionIntervalMs`, `leaseMs` and `pageSize` must be whole
+numbers above zero and `flushIntervalMs` a whole number of milliseconds, or
 `createSearchSync` throws a `TypeError` before anything runs — as it does for
 an empty `name` or a `transform` that is not a function.
 

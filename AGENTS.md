@@ -168,8 +168,10 @@ matching key in `exports`.
 - **`@nxgt/mongo-meilisearch`'s specs run against both**: its `test/`
   holds a copy of each sibling's server (`mongo.ts`, `meilisearch.ts`), and
   `test/fixtures.ts` starts one of each per spec file. Its specs are
-  `create-search-sync` (the options and errors, no server), `reindex` and
-  `follow`. Its `test` script
+  `create-search-sync` (the options and errors, no server), `reindex`,
+  `follow` and `lease` — the last makes a second process by creating a
+  second sync under the same name, and steals a lease by rewriting its
+  holder. Its `test` script
   downloads Meilisearch first, as `@nxgt/meilisearch`'s does, and passes
   `--timeout 30000`: Meilisearch takes about half a second to apply each
   write, measured, so a test that writes a few batches outlasts Bun's 5 s.
@@ -317,7 +319,8 @@ publishes to npm.
 | `test/server.ts` of `@nxgt/mongo` and of `@nxgt/meilisearch`, as `test/mongo.ts` and `test/meilisearch.ts` in `@nxgt/mongo-meilisearch` and again in `@nxgt/mongo-search-kit`, as `test/server.ts` in `@nxgt/mongo-kit`, and once more in `examples/hono-api/test/kit.ts` | a package reaches no sibling's tests, and an example reaches no package's. Keep `MONGOD_VERSION` equal in all five mongod copies: CI keys the mongod cache on the hash of those five files |
 | `test/server.ts` of `@nxgt/meilisearch`, a **fourth** time as `test/meilisearch.ts` in `@nxgt/drizzle-meilisearch` | the same rule. The Meilisearch cache key hashes `scripts/meilisearch.ts` alone — the script pins the version, and the copies only start the binary it prints — so a new copy needs no CI change |
 | `test/db.ts` of `@nxgt/drizzle`, copied into `@nxgt/drizzle-meilisearch` | the PGlite helper: one database per spec file, `reset` between tests. The copy carries this package's own `test/schema.ts` — one `articles` table instead of five — so only the four lines around `createTestDb` are the same |
-| `batch.ts`, `documents.ts`, `errors.ts` and `reindex.ts`'s `sendAll`/`removeUnwanted`, in `@nxgt/mongo-meilisearch` and `@nxgt/drizzle-meilisearch` | the two bridges write to Meilisearch the same way: chunking by `batchSize`, one `Entry` per id so adds and deletes cannot race, `keyOf` telling `1` from `'1'`, the same `SearchSyncError`/`failed` pair, and the same read-back of the index 1 000 ids at a time to find what to take out — `LIST_LIMIT`, `missingIndex` and `removeUnwanted` are identical. **A fix in one is a fix to make in the other.** What deliberately differs: `entryOf` takes a row and reads its id through the caller's required `toIndexId` instead of taking a Mongo `_id`; the batch helpers take a `wait` flag, because only `reindexAll` waits here; `reindexAll` takes a per-call `pageSize` where the Mongo one reads `ctx.pageSize`, and an `onPage` progress callback the Mongo one has not (its reindex runs inside `start` as often as from a script), and takes no resume token before the scan and saves no state after it; the Drizzle error has no `HISTORY_LOST` or `RUNNING`, since nothing is followed; and **the dedup by `Entry.key` sits on the other side** — the Mongo bridge's follower buffers into a `Map` before calling `send`, while here the list of rows is the caller's, so `indexRows` keys it itself, last one wins |
+| `batch.ts`, `documents.ts`, `errors.ts` and `reindex.ts`'s `sendAll`/`removeUnwanted`, in `@nxgt/mongo-meilisearch` and `@nxgt/drizzle-meilisearch` | the two bridges write to Meilisearch the same way: chunking by `batchSize`, one `Entry` per id so adds and deletes cannot race, `keyOf` telling `1` from `'1'`, the same `SearchSyncError`/`failed` pair, and the same read-back of the index 1 000 ids at a time to find what to take out — `LIST_LIMIT`, `missingIndex` and `removeUnwanted` are identical. **A fix in one is a fix to make in the other.** What deliberately differs: `entryOf` takes a row and reads its id through the caller's required `toIndexId` instead of taking a Mongo `_id`; the batch helpers take a `wait` flag, because only `reindexAll` waits here; `reindexAll` takes a per-call `pageSize` where the Mongo one reads `ctx.pageSize`, and an `onPage` progress callback the Mongo one has not (its reindex runs inside `start` as often as from a script), and takes no resume token before the scan and saves no state after it; the Drizzle error has no `HISTORY_LOST`, `RUNNING` or `LEASE_LOST`, since nothing is followed and nothing is leased; and **the dedup by `Entry.key` sits on the other side** — the Mongo bridge's follower buffers into a `Map` before calling `send`, while here the list of rows is the caller's, so `indexRows` keys it itself, last one wins |
+| `lease.ts` in `@nxgt/mongo-meilisearch`, after `migrations/lock.ts` in `@nxgt/mongo` | a bridge takes no sibling's internals, and the lock is not exported. Both keep one document timed by the server (`$$NOW`), name the holder `host:pid:<ObjectId>`, renew with an update filtered on the holder, and release with a `deleteOne` on it. **What deliberately differs is the taking**: the lease is one `findOneAndUpdate` with `upsert` whose pipeline update keeps a live holder's fields and writes its own when the lease lapsed — no `$documents`/`$merge` `aggregate`, which a failpoint on the change stream's `aggregate` also caught; and a lease found lost stops the running sync, or the reindex before it removes or records, with `LEASE_LOST`, where the lock only fails the migration run. A fix to renewal or release in one is a fix to consider in the other |
 
 ## Keeping the code maintainable
 
@@ -521,8 +524,8 @@ the file.
 
 ## Known state
 
-`bun run test` is **1066 pass, 0 fail**: drizzle 113, meilisearch 45,
-mongo 532, drizzle-meilisearch 42, mongo-meilisearch 40, mongo-kit 76,
+`bun run test` is **1081 pass, 0 fail**: drizzle 113, meilisearch 45,
+mongo 532, drizzle-meilisearch 42, mongo-meilisearch 55, mongo-kit 76,
 mongo-search-kit 16, redis 46, redis-kit 55, s3 52, hono-api-example 31,
 scripts 18. It runs one process
 per package, then the scripts' specs. Treat any failure as yours.
@@ -557,6 +560,10 @@ per package, then the scripts' specs. Treat any failure as yours.
   - `$documents` on a **collection's** `aggregate` (it needs
     `{ aggregate: 1 }`), so the insert is `db.aggregate([{ $documents }, { $merge,
     whenMatched: 'fail' }])`, which answers 11000 when the lock exists.
+  - `@nxgt/mongo-meilisearch`'s lease on a sync name gets round the first
+    one differently: its upsert filters on `_id` alone and puts the decision
+    in a **pipeline update** (`$cond` on `$expiresAt <= $$NOW`), which the
+    server accepts; two racing inserts answer 11000 to the loser.
 
 - **Meilisearch answers `succeeded` to a settings update whatever it holds**:
   measured on v1.53.2 with an unknown ranking rule, an empty dictionary entry

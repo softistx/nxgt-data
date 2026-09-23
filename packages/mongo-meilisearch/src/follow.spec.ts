@@ -5,6 +5,12 @@ import { SearchSyncError } from './errors';
 const { servers, collection, index, sync, start, track, indexed } =
 	useServers('follow');
 
+/** The lease on the default sync's name, or `null` once it was let go. */
+const leaseOf = () =>
+	servers.mongo.db
+		.collection('nxgt_search_sync')
+		.findOne({ _id: { lease: 'articles:articles' } } as object);
+
 const rejection = (promise: Promise<unknown>) =>
 	promise.then(
 		() => {
@@ -219,6 +225,7 @@ describe('when the history is gone', () => {
 		expect(error.sync).toBe('articles:articles');
 		expect(error.message).toContain('Reindex it');
 		expect((error.cause as { serverCode?: number }).serverCode).toBe(280);
+		expect(await leaseOf()).toBeNull();
 	});
 
 	test('a failure of the reindexed start is reported as such', async () => {
@@ -227,6 +234,7 @@ describe('when the history is gone', () => {
 		await servers.mongo.failNext(['aggregate'], { errorCode: 286 }, 3);
 		const error = await rejection(search.start());
 		expect(error.code).toBe('FAILED');
+		expect(await leaseOf()).toBeNull();
 	});
 });
 

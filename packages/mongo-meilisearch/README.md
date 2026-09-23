@@ -120,7 +120,8 @@ it: deleted, turned away by the transform, or never from this collection.
 It first records where the collection's changes are, and saves that point
 when it is done: a change made while it reads is followed again from there,
 so none falls between the reindex and the stream. A reindex that fails
-records nothing.
+records nothing, and one that finds its lease taken over stops before it
+removes anything more (see *One process per sync name*).
 
 ## Following changes
 
@@ -154,6 +155,59 @@ await running.close(); // flushes, then stops; or `await using running = …`
   `'invalidated'` — and its recorded point goes with it, since nothing could
   resume from inside a collection that no longer exists. The next `start`
   reindexes what the recreated collection holds.
+
+### One process per sync name
+
+`start` takes a **lease** on the sync's name before anything else, the first
+reindex included, and a running sync renews it every third of `leaseMs`
+(30 s). A second process that starts the same name is refused with
+`RUNNING`, naming who holds it and until when. Run it as a standby that
+tries again — on `RUNNING`, and on `LEASE_LOST`, which a `start()` whose
+first reindex lost the name to another process rejects with:
+
+```ts
+import { type RunningSearchSync, SearchSyncError } from '@nxgt/mongo-meilisearch';
+
+// The name is held elsewhere, or was taken over while this start reindexed.
+const heldElsewhere = (error: unknown) =>
+	error instanceof SearchSyncError &&
+	(error.code === 'RUNNING' || error.code === 'LEASE_LOST');
+
+async function follow(): Promise<RunningSearchSync> {
+	for (;;) {
+		try {
+			return await articleSearch.start();
+		} catch (error) {
+			if (!heldElsewhere(error)) throw error;
+			await new Promise((resolve) => setTimeout(resolve, 10_000));
+		}
+	}
+}
+```
+
+A restart inside a crashed follower's `leaseMs` gets `RUNNING` too: run this
+loop rather than exit.
+
+- **`close()` lets go of the name**, and resolves once it has: a `start` or a
+  `reindex` right after finds it free. A `start` that fails lets go too.
+- **A process that dies keeps the name** until its lease lapses, at most
+  `leaseMs` later; the next `start` then takes it over.
+- **`reindex()` on its own takes the lease** for as long as it runs, so it
+  cannot run beside a follower in another process. `start()` renews it
+  during its first reindex too.
+- **A sync that loses its lease stops.** When a renewal finds the name held
+  by someone else — this process stalled for longer than `leaseMs`, and
+  another took over — `closed` rejects with `LEASE_LOST`, and nothing more is
+  sent.
+- **A reindex that loses its lease stops too.** `reindex()`, and `start()`
+  while it reindexes, check the lease after each page, and ask the server
+  before removing documents and again before recording the resume point;
+  `start()` asks once more before it opens the follower. They reject with
+  `LEASE_LOST` having recorded nothing, and removed nothing unless the lease
+  went while the removal itself ran; the pages already sent stay in the index.
+
+The lease is a document in `stateCollection`, `_id: { lease: <name> }`, its
+times the server's own: no new collection and no new privilege.
 
 ### When the history is gone
 
@@ -204,7 +258,8 @@ This package throws `SearchSyncError`; what caused it is its `cause`.
 | `HISTORY_LOST` | `start` with `onHistoryLost: 'fail'`, and the recorded point is older than the server's history. `cause` is `@nxgt/mongo`'s `DataError`, `serverCode` 286 or 280 |
 | `ID_MISMATCH` | the transform gave a document whose primary key is not its index id |
 | `NOT_A_DOCUMENT` | the transform gave back something that is neither a document nor `null` — a string, a number, an array. The message says its shape, never its value |
-| `RUNNING` | `reindex()` or a second `start()` while this sync is already following changes in this process. A reindex beside its own follower would remove what the follower has just indexed |
+| `RUNNING` | the name is taken. On this sync object: `reindex()` or a second `start()` while it is already following. Through the lease: `start()` or `reindex()` while another process holds the name — or another `createSearchSync` with the same name in this process, whose holder then starts with this process's own `host:pid`. The message names the holder and when its lease ends |
+| `LEASE_LOST` | the name's lease is no longer this sync's: it was not renewed within `leaseMs` and another process took it over, or it was removed. `closed` rejects with it, and nothing more is sent; `reindex()` and `start()` reject with it while reindexing, having recorded nothing, and removed nothing unless the lease went while the removal itself ran |
 | `FAILED` | anything else: the transform threw, MongoDB or Meilisearch refused. The message says what the sync was doing |
 
 A running sync that meets one stops: `closed` rejects with it, and `flush`
@@ -227,11 +282,11 @@ out of range, an empty `name`, or a `transform` that is not a function.
 
 ## Not included
 
-- **Several processes sharing one sync — not yet.** There is no lock today,
-  so run **one** follower per sync name. Two do the same writes twice, and a
-  `reindex` in one while the other follows removes documents the follower has
-  already indexed and will not send again. A lease on a sync name is being
-  worked on: [the roadmap](docs/roadmap.md) says where it stands.
+- **Sharing one name's work between processes.** One process follows a
+  name at a time; the others wait for its lease. To spread the load, give
+  each process its own collection and name.
+- **Fencing.** The lease keeps a second process out, but does not stop a
+  stalled one mid-write; see *Traps*.
 - **Partial updates.** A change sends the whole document the transform
   gives, never a patch.
 - **Keeping the index's settings.** That is `@nxgt/meilisearch`'s `sync`.
@@ -261,6 +316,7 @@ function createSearchSync<C extends AnyCollectionDefinition, I extends AnyIndexD
 | `batchSize: number` | `500` | changes sent at once |
 | `flushIntervalMs: number` | `1000` | how long a change waits for others; `0` sends at the next tick |
 | `positionIntervalMs: number` | `60000` | how often a sync with nothing to send records where the stream is |
+| `leaseMs: number` | `30000` | how long the lease on the name lasts unrenewed; a running sync renews it every third of that |
 | `pageSize: number` | `100` | documents a reindex reads per page; above the collection's `maxPageSize`, lowered to it |
 | `onHistoryLost: 'reindex' \| 'fail'` | `'reindex'` | |
 
@@ -283,7 +339,7 @@ function createSearchSync<C extends AnyCollectionDefinition, I extends AnyIndexD
 | `close(): Promise<void>` | flushes, then stops |
 
 `class SearchSyncError extends Error`: `code: SearchSyncErrorCode`
-(`'HISTORY_LOST' | 'ID_MISMATCH' | 'NOT_A_DOCUMENT' | 'RUNNING' | 'FAILED'`),
+(`'HISTORY_LOST' | 'ID_MISMATCH' | 'NOT_A_DOCUMENT' | 'RUNNING' | 'LEASE_LOST' | 'FAILED'`),
 `sync: string`,
 `cause`. Its constructor takes `(message, options: SearchSyncErrorOptions)`,
 that is `{ code, sync, cause? }`; both types are exported.
@@ -323,10 +379,16 @@ Each is a `@ts-expect-error` case in this package's type tests.
 - **Without post-images, a change carries the document as it is now**, not
   as the change left it (`@nxgt/mongo`'s change streams). For an index, where
   only the latest state counts, that is what you want.
-- **Only one process per sync name**, while there is no lock; see *Not
-  included*. Inside one process this package refuses it: `reindex()` and a
-  second `start()` throw `RUNNING` while a sync of the same object is
-  following.
+- **A lease is not fencing.** A stalled process learns it lost the name at
+  its next renewal (up to `leaseMs / 3` after it wakes), and a flush already
+  in flight still finishes. It may send an older version of a document after
+  the new holder sent a newer one; the index then holds the stale one until
+  that document's next change or the next reindex. A reindex removes and
+  records nothing once it finds its lease lost, but a page it already sent may
+  still land. Keep `leaseMs` well above the longest pause a process may take
+  (garbage collection, a blocked event loop).
+- **Two syncs over the same collection and index share a name**, and so a
+  lease: give them different `name`s when both are meant to run.
 - **A dropped collection stops the sync** (`'invalidated'`) and leaves the
   index as it was. What the collection had is removed by the reindex the
   next `start` runs.
@@ -350,7 +412,7 @@ Each is a `@ts-expect-error` case in this package's type tests.
 - [Following changes](docs/guide/following-changes.md) — batches, the resume
   point, and how a sync stops.
 - [What it leaves out](docs/guide/boundaries.md) — the settings, the joins,
-  and the one follower per sync name.
+  and the lease that keeps one follower per sync name.
 - [Troubleshooting](docs/troubleshooting.md) — the errors, by their message.
 - [Roadmap](docs/roadmap.md) — what is next, and what is not planned.
 

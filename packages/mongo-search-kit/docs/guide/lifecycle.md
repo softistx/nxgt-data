@@ -105,9 +105,17 @@ with the rejection.** A reindex removes what a collection no longer gives, so
 a half-finished run is not a state to keep going from: read the error, fix
 it, run it again — a reindex that succeeded is idempotent.
 
-It cannot run beside its own follower: `@nxgt/mongo-meilisearch` throws
+It cannot run beside a follower: `@nxgt/mongo-meilisearch` throws
 `SearchSyncError` with the code `RUNNING` for a sync of the same object that
-is already following, and the kit passes it through.
+is already following, or whose name another process holds the lease on, and
+the kit passes it through.
+
+Each reindex holds its sync's lease while it runs. One that finds the lease
+taken over — the process stalled past `leaseMs`, or the lease was removed —
+rejects with `LEASE_LOST`, having recorded nothing, and removed nothing unless
+the lease went while the removal itself ran; the pages it already sent stay in
+the index. `reindexAll()` passes that through, and stops there like any other
+failure.
 
 ## `start()`
 
@@ -133,6 +141,35 @@ A sync with nothing recorded reindexes as it starts, which on a real
 collection is minutes — the syncs started before it are following changes
 throughout, which is why a failure closes them rather than leaving them
 behind.
+
+Each sync takes the lease on its own name as it starts, so a second process
+running the same kit is refused at the first name the other holds — a
+`SearchSyncError` with the code `RUNNING`, naming the holder and when its
+lease ends — and lets go of the names it had already taken:
+
+```ts
+import { SearchSyncError } from '@nxgt/mongo-meilisearch';
+
+try {
+	await search.start();
+} catch (error) {
+	const held =
+		error instanceof SearchSyncError &&
+		(error.code === 'RUNNING' || error.code === 'LEASE_LOST');
+	if (held) {
+		// Another process follows these collections, or took one over while
+		// this start reindexed: wait, and try again.
+	} else throw error;
+}
+```
+
+A lease lasts each entry's `leaseMs` (30 s) unrenewed, so a process that
+died holds its names that long at most. `start()` itself rejects with
+`LEASE_LOST` when a sync's first reindex finds its lease taken over, and
+closes the syncs already started, as for any failure. A running sync whose
+lease another process took over stops, and `failed` rejects with
+`LEASE_LOST`. The lease
+itself is [`@nxgt/mongo-meilisearch`'s](https://www.npmjs.com/package/@nxgt/mongo-meilisearch).
 
 ## `failed`
 

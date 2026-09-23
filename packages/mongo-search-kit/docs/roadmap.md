@@ -23,12 +23,18 @@ _Nothing queued._
 - **Owning the Mongo kit** — closing the search kit stops the syncs and
   nothing else: the clients, the databases and the collections belong to the
   Mongo kit, and `kit.close()` stays the caller's.
-- **A lock of its own** — how followers of one sync name coordinate belongs to
-  `@nxgt/mongo-meilisearch`'s sync. This package wires the syncs a kit needs
-  and does not move that boundary.
+- **A lock of its own** — the bridge's lease already provides it: each sync
+  `@nxgt/mongo-meilisearch` builds takes a lease on its name, so a second
+  process starting the same kit is refused with `RUNNING`. This package wires
+  the syncs a kit needs and does not move that boundary.
 
 ## Shipped
 
+- **One follower per sync name, across processes** — each entry's sync takes
+  `@nxgt/mongo-meilisearch` 0.3.0's lease on its name, so a second process's
+  `start()` or `reindexAll()` is refused with `RUNNING`, a sync whose lease
+  was taken stops with `LEASE_LOST`, and `leaseMs` is an entry option like
+  the others — 0.2.0.
 - **`syncIndexes()`** — one call that brings every index the kit wires in step
   with its definition, the way the Mongo kit's `sync()` does for the
   collections, so a deployment step is two calls and not one per index; each

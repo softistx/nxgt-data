@@ -7,7 +7,8 @@ name is written as it comes out by default — `<collection>:<index uid>`, here
 
 Each sync is [`@nxgt/mongo-meilisearch`](https://www.npmjs.com/package/@nxgt/mongo-meilisearch)'s,
 unchanged, so its errors are this package's errors: a `SearchSyncError` with a
-`code` (`HISTORY_LOST`, `ID_MISMATCH`, `RUNNING`, `FAILED`), the sync's `name`
+`code` (`HISTORY_LOST`, `ID_MISMATCH`, `NOT_A_DOCUMENT`, `RUNNING`,
+`LEASE_LOST`, `FAILED`), the sync's `name`
 and the original error as `cause`. **Its own `docs/troubleshooting.md` covers
 the transform, the ids, the resume point and the privileges a sync needs**;
 what is below is what this kit adds — the config, and the syncs started and
@@ -18,7 +19,7 @@ stopped together.
 | [Install](#install) | [ERESOLVE](#npm-error-eresolve-unable-to-resolve-dependency-tree) · [incorrect peer dependency](#warn-incorrect-peer-dependency-nxgtmongo-kit010) · [TS2307](#error-ts2307-cannot-find-module-nxgtmongo-meilisearch-or-its-corresponding-type-declarations) |
 | [Types](#types) | [a key the kit does not wire](#mongo-search-kit-this-kit-wires-no-collection-called-comments) |
 | [Configuration](#configuration) | [the same, at run time](#createsearchkit-this-kit-wires-no-collection-called-comments) · [several databases](#createsearchkit-this-kit-holds-2-databases-main-analytics-and-a-search-kit-follows-the-collections-of-one) |
-| [Starting](#starting) | [no replica set](#search-sync-articlesarticles-failed-starting-the-changestream-stage-is-only-supported-on-replica-sets) · [started twice](#search-sync-articlesarticles-is-already-following-changes-in-this-process-close-it-before-you-start-it-twice) · [a partial reindex](#search-sync-authorsauthors-failed-reindexing-) |
+| [Starting](#starting) | [no replica set](#search-sync-articlesarticles-failed-starting-the-changestream-stage-is-only-supported-on-replica-sets) · [started twice](#search-sync-articlesarticles-is-already-following-changes-in-this-process-close-it-before-you-start-it-twice) · [held by another process](#search-sync-articlesarticles-is-held-by--until--wait-for-it-to-close-or-for-its-lease-to-lapse-before-you-start-it) · [the lease lost](#search-sync-articlesarticles-lost-its-lease-another-process-holds-the-name-now-or-the-lease-was-removed-it-lapses-when-not-renewed-within-30000-ms-it-stopped-rather-than-run-beside-it) · [a partial reindex](#search-sync-authorsauthors-failed-reindexing-) |
 | [While running](#while-running) | [a silent failure](#one-index-stops-updating-and-nothing-is-thrown) · [`failed` never resolves](#await-runningfailed-never-resolves) · [a dropped collection is silent](#a-sync-stops-and-nothing-settles) |
 | [Stopping](#stopping) | [`close()` rejects](#closing-rejects-with-an-error-failed-never-reported) |
 
@@ -185,13 +186,16 @@ mongod --replSet rs0 --dbpath ./data   # then, once: rs.initiate()
 Code `RUNNING`. `reindexAll()` while the kit is running ends
 `… before you reindex.`
 
-**When:** a second `start()` on the same search kit, a `reindexAll()` while it
-is running, or two search kits built over the same collections in one process.
+**When:** a second `start()` on the same search kit, or a `reindexAll()` while
+it is running.
 
 **Why:** a reindex removes what the index holds and the collection no longer
 gives it — including what the running follower has just indexed, which it will
-never send again. The refusal is the bridge's, passed through, and it covers
-**one process**: two processes following one sync name is yours to prevent.
+never send again. The refusal is the bridge's, passed through, and is the sync
+object's own. Another process, or a second search kit over the same
+collections in this one, is refused by the lease on the sync's name instead,
+with
+[`… is held by …`](#search-sync-articlesarticles-is-held-by--until--wait-for-it-to-close-or-for-its-lease-to-lapse-before-you-start-it).
 
 **Fix:** close before reindexing or starting again:
 
@@ -202,13 +206,78 @@ await running.close();
 await search.reindexAll();
 ```
 
-Two search kits over one collection share the recorded point, because the name
-defaults to `<collection>:<index uid>`. Give `name` per entry if you mean them
-to be different:
+### `Search sync "articles:articles" is held by … until …: wait for it to close, or for its lease to lapse, before you start it.`
+
+Code `RUNNING`. The holder is written `<host>:<pid>:<24 hex digits>`, and the
+date is ISO, in UTC. From `reindexAll()` it ends `… before you reindex.`
+
+**When:** `start()` or `reindexAll()`, while another process — or another
+search kit in this one — follows or reindexes the same sync name. Also after a
+process that held it died without closing, until its lease lapses (`leaseMs`,
+default `30000`). `start()` closes the syncs it had already started before
+this comes back.
+
+**Why:** each sync takes a lease on its name, and the bridge's lease is what
+keeps two followers off one name. Its full entry is the bridge's:
+[`… is held by …`](https://github.com/softistx/nxgt-data/blob/develop/packages/mongo-meilisearch/docs/troubleshooting.md#search-sync-articlesarticles-is-held-by--until--wait-for-it-to-close-or-for-its-lease-to-lapse-before-you-start-it).
+
+**Fix:** run one kit per set of names, and let a second replica wait and retry
+`start()`:
+
+```ts
+import { SearchSyncError } from '@nxgt/mongo-meilisearch';
+
+// Another process holds a name, or took one over while this start reindexed.
+const heldElsewhere = (error: unknown) =>
+	error instanceof SearchSyncError &&
+	(error.code === 'RUNNING' || error.code === 'LEASE_LOST');
+
+async function follow() {
+	for (;;) {
+		try {
+			return await search.start();
+		} catch (error) {
+			if (!heldElsewhere(error)) throw error;
+			await new Promise((resolve) => setTimeout(resolve, 10_000));
+		}
+	}
+}
+
+const running = await follow();
+```
+
+Two search kits over one collection share the name, because it defaults to
+`<collection>:<index uid>` — and with it the recorded point and the lease. Give
+`name` per entry if you mean them to be different:
 
 ```ts
 createSearchKit(kit, {
 	articles: { index, transform, name: 'articles-secondary' },
+});
+```
+
+### `Search sync "articles:articles" lost its lease: another process holds the name now, or the lease was removed (it lapses when not renewed within 30000 ms). It stopped rather than run beside it.`
+
+Code `LEASE_LOST`; the number is that entry's `leaseMs`.
+
+**When:** while running, `failed` rejects with it once a renewal finds the
+lease taken over — the process stalled for longer than `leaseMs`, or the lease
+was deleted by hand. `reindexAll()` and `start()` reject with it when a sync's
+reindex finds the lease lost: that reindex has recorded nothing, and has
+removed nothing unless the lease went while the removal itself ran; the pages
+it already sent stay in the index. `start()` closes the syncs it had already
+started before it comes back.
+
+**Why:** another process may be following that name now, and the sync stops
+rather than run beside it. The full entry is the bridge's:
+[`… lost its lease …`](https://github.com/softistx/nxgt-data/blob/develop/packages/mongo-meilisearch/docs/troubleshooting.md#search-sync-articlesarticles-lost-its-lease-another-process-holds-the-name-now-or-the-lease-was-removed-it-lapses-when-not-renewed-within-30000-ms-it-stopped-rather-than-run-beside-it).
+
+**Fix:** give `leaseMs` room above the longest pause a process may take, and
+start again — the retry loop above waits while the new holder runs:
+
+```ts
+createSearchKit(kit, {
+	articles: { index, transform, leaseMs: 120_000 },
 });
 ```
 

@@ -79,6 +79,14 @@ export type SearchSyncOptions<
 	 */
 	positionIntervalMs?: number;
 	/**
+	 * How long, in ms, the lease on this sync's name lasts without being
+	 * renewed. Default `30000`. A running sync — and a `reindex` — holds it,
+	 * renewed every third of it, so a second process refuses to follow the
+	 * same name beside it; a process that dies leaves the name free once its
+	 * lease lapses, and not before.
+	 */
+	leaseMs?: number;
+	/**
 	 * How many documents a reindex reads per page; above the collection's
 	 * `maxPageSize`, lowered to it. Default `100`.
 	 */
