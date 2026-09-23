@@ -5,6 +5,7 @@ import { createContext } from './context';
 import { reindex } from './reindex';
 import type {
 	IndexWriteOptions,
+	ReindexOptions,
 	ReindexReport,
 	SearchSync,
 	SearchSyncOptions,
@@ -44,7 +45,7 @@ export function createSearchSync<
 		rows as unknown as readonly Record<string, unknown>[];
 	return {
 		name: ctx.name,
-		reindexAll: (opts?: { pageSize?: number }): Promise<ReindexReport> =>
+		reindexAll: (opts?: ReindexOptions): Promise<ReindexReport> =>
 			reindex(ctx, opts),
 		indexRow: (row: Row<TTable>, opts?: IndexWriteOptions) =>
 			indexRows(ctx, rowsOf([row]), opts),

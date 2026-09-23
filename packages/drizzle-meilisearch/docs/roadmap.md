@@ -11,15 +11,11 @@ below is where that line is drawn, and why.
 
 ## Now
 
-_Nothing in progress._ The first release is what is in flight.
+_Nothing in progress._
 
 ## Next
 
-- **A reindex that says where it is** — `reindexAll` pages the whole table,
-  waits for every batch to be applied and gives its counts only when it is
-  done, so a large table is a long silence. A callback per page, carrying the
-  running counts, would let a deployment step or a script report progress
-  without changing what the call does.
+_Nothing queued._
 
 ## Later
 
@@ -66,6 +62,11 @@ _Nothing in progress._ The first release is what is in flight.
 
 ## Shipped
 
+- **A reindex that says where it is** — `reindexAll({ onPage })` calls back
+  after each page is applied with the running `pages`, `indexed` and
+  `skipped`, so a deployment step or a script reports progress on a large
+  table instead of a long silence; a callback that throws stops the reindex,
+  which is also how to stop one on purpose — 0.2.0.
 - **First release** — `createSearchSync`, which builds nothing and opens
   nothing: the repository and the index are already bound, and no call reaches
   PostgreSQL or Meilisearch until a method is used. `reindexAll` pages every

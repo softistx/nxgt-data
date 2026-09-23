@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { type Article, useServers } from '../test/fixtures';
 import { SearchSyncError } from './errors';
+import type { ReindexProgress } from './types';
 
 const { repository, index, sync, indexed } = useServers();
 
@@ -62,6 +63,86 @@ describe('reindexAll', () => {
 		const report = await sync({ pageSize: 2 }).reindexAll();
 		expect(report.indexed).toBe(5);
 		expect(await indexed()).toHaveLength(5);
+	});
+
+	test('reports each page with the running counts, after it is applied', async () => {
+		await seed([
+			{ title: 'a' },
+			{ title: 'b', draft: true },
+			{ title: 'c' },
+			{ title: 'd' },
+			{ title: 'e' },
+		]);
+		const seen: { progress: ReindexProgress; there: number }[] = [];
+		const report = await sync().reindexAll({
+			pageSize: 2,
+			onPage: async (progress) => {
+				// Applied, not only sent: the index already holds the page.
+				seen.push({ progress, there: (await indexed()).length });
+			},
+		});
+		// The cursor pages by id, so where the draft falls is not fixed: what
+		// is, is that every page is counted once it is in the index.
+		expect(seen.map(({ progress }) => progress)).toMatchObject([
+			{ pages: 1 },
+			{ pages: 2 },
+			{ pages: 3 },
+		]);
+		for (const [i, { progress, there }] of seen.entries()) {
+			const { indexed, skipped } = progress;
+			expect(there).toBe(indexed);
+			expect(indexed + skipped).toBe(Math.min(5, 2 * (i + 1)));
+		}
+		expect(seen.at(-1)?.progress).toEqual({ pages: 3, indexed: 4, skipped: 1 });
+		expect(report).toEqual({ indexed: 4, skipped: 1, removed: 0 });
+	});
+
+	test('an onPage that throws stops the reindex, as the cause of FAILED', async () => {
+		await seed(Array.from({ length: 4 }, (_, i) => ({ title: `t${i}` })));
+		const stop = new Error('stop');
+		let calls = 0;
+		const error = (await sync()
+			.reindexAll({
+				pageSize: 2,
+				onPage: () => {
+					calls += 1;
+					throw stop;
+				},
+			})
+			.catch((e: unknown) => e)) as SearchSyncError;
+		expect(error).toBeInstanceOf(SearchSyncError);
+		expect(error.code).toBe('FAILED');
+		expect(error.cause).toBe(stop);
+		expect(calls).toBe(1);
+		expect(await indexed()).toHaveLength(2);
+	});
+
+	test("a SearchSyncError thrown by onPage is still this reindex's FAILED", async () => {
+		await seed([{ title: 'a' }]);
+		const other = new SearchSyncError('from another sync', {
+			code: 'FAILED',
+			sync: 'other',
+		});
+		const error = (await sync()
+			.reindexAll({
+				onPage: () => {
+					throw other;
+				},
+			})
+			.catch((e: unknown) => e)) as SearchSyncError;
+		expect(error).not.toBe(other);
+		expect(error.code).toBe('FAILED');
+		expect(error.sync).toBe(sync().name);
+		expect(error.message).toBe(
+			`Search sync "${sync().name}" failed reporting progress: from another sync`,
+		);
+		expect(error.cause).toBe(other);
+	});
+
+	test('an empty table is still one page, with nothing in it', async () => {
+		const seen: ReindexProgress[] = [];
+		await sync().reindexAll({ onPage: (progress) => void seen.push(progress) });
+		expect(seen).toEqual([{ pages: 1, indexed: 0, skipped: 0 }]);
 	});
 
 	test('a pageSize given to the call wins over the one given to the sync', async () => {

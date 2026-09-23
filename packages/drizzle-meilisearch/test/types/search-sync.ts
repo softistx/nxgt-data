@@ -205,3 +205,23 @@ export async function results() {
 	const name: string = search.name;
 	return { report, name };
 }
+
+// `onPage` is handed the running counts, and may be async.
+const progressing = createSearchSync({
+	repository,
+	index,
+	toIndexId: toId,
+	transform: (article) => ({ id: article.id, title: article.title }),
+});
+void progressing.reindexAll({
+	onPage: async ({ pages, indexed, skipped }) => {
+		const counts: number = pages + indexed + skipped;
+		void counts;
+	},
+});
+void progressing.reindexAll({
+	// @ts-expect-error the counts are `indexed`, not `sent`
+	onPage: ({ sent }) => void sent,
+});
+// @ts-expect-error the option is `onPage`
+void progressing.reindexAll({ onProgress: () => undefined });

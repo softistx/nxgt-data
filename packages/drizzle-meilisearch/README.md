@@ -152,6 +152,16 @@ transform turned away, documents that were never this table's.
 by reading the index back. [Reindexing](docs/guide/reindex.md) has the
 details.
 
+A large table is a long call, so `onPage` reports where it is, after each page
+is applied:
+
+```ts
+await articleSearch.reindexAll({
+	onPage: ({ pages, indexed, skipped }) =>
+		console.log(`page ${pages}: ${indexed} indexed, ${skipped} skipped`),
+});
+```
+
 ## Errors
 
 Every failure of a write or a reindex is a `SearchSyncError`, with the sync's
@@ -218,7 +228,7 @@ function createSearchSync<TTable extends PgTable, I extends AnyIndexDefinition>(
 | Member | |
 | --- | --- |
 | `name: string` | |
-| `reindexAll(options?: { pageSize?: number }): Promise<ReindexReport>` | `ReindexReport` is `{ indexed, skipped, removed }`, all `number`. Always waits |
+| `reindexAll(options?: ReindexOptions): Promise<ReindexReport>` | `ReindexOptions` is `{ pageSize?, onPage? }`; `onPage` gets a `ReindexProgress`, `{ pages, indexed, skipped }` so far, after each page is applied, and one that throws stops the reindex as the `cause` of a `FAILED`. `ReindexReport` is `{ indexed, skipped, removed }`, all `number`. Always waits |
 | `indexRow(row: Row<TTable>, options?: IndexWriteOptions): Promise<void>` | the transform decides: a document, or `null` to take the row out |
 | `indexRows(rows: readonly Row<TTable>[], options?): Promise<void>` | deduplicated by index id, last one wins |
 | `removeRow(row: Row<TTable>, options?): Promise<void>` | by the id `toIndexId` gives for the row |
