@@ -20,10 +20,10 @@ const task = (overrides: Partial<Task>): Task => ({
 describe('assertSucceeded', () => {
 	test('returns a succeeded task', () => {
 		const done = task({});
-		expect(assertSucceeded(done, 'movies')).toBe(done);
+		expect(assertSucceeded(done, 'movies', 'add')).toBe(done);
 	});
 
-	test('throws TASK_FAILED with the task and its error', () => {
+	test('throws TASK_FAILED with the task and its error, and names the call', () => {
 		const error = {
 			message: 'Document identifier `"a b"` is invalid.',
 			code: 'invalid_document_id',
@@ -33,7 +33,7 @@ describe('assertSucceeded', () => {
 		const failed = task({ status: 'failed', error });
 		const thrown = (() => {
 			try {
-				assertSucceeded(failed, 'movies');
+				assertSucceeded(failed, 'movies', 'add');
 			} catch (e) {
 				return e;
 			}
@@ -44,16 +44,16 @@ describe('assertSucceeded', () => {
 		expect(thrown.task).toBe(failed);
 		expect(thrown.cause).toBe(error);
 		expect(thrown.message).toBe(
-			'Task 7 (documentAdditionOrUpdate) on index "movies" failed: ' +
-				'Document identifier `"a b"` is invalid.',
+			'Task 7 (add) on index "movies" failed: invalid_document_id',
 		);
+		// The server's sentence quotes the id: it stays on the cause.
+		expect(thrown.message).not.toContain('a b');
+		expect((thrown.cause as { message: string }).message).toContain('"a b"');
 	});
 
 	test('throws for a canceled task, which has no error', () => {
 		expect(() =>
-			assertSucceeded(task({ status: 'canceled' }), 'movies'),
-		).toThrow(
-			'Task 7 (documentAdditionOrUpdate) on index "movies" canceled: it was canceled',
-		);
+			assertSucceeded(task({ status: 'canceled' }), 'movies', 'add'),
+		).toThrow(/^Task 7 \(add\) on index "movies" canceled$/);
 	});
 });

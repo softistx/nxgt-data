@@ -17,7 +17,7 @@ are refused with a `TypeError` before anything is opened.
 | [Options](#options) | [transform](#createsearchsync-transform-must-be-a-function) · [batchSize](#createsearchsync-batchsize-must-be-a-whole-number-above-0-not-0) · [flushIntervalMs](#createsearchsync-flushintervalms-must-be-a-whole-number-of-milliseconds-not--1) · [name](#createsearchsync-name-must-not-be-empty) |
 | [Starting](#starting) | [no replica set](#search-sync-articlesarticles-failed-starting-the-changestream-stage-is-only-supported-on-replica-sets) · [privileges](#search-sync-articlesarticles-failed-reindexing-not-authorized-on-app-to-execute-command--aggregate-articles-pipeline---changestream-----) · [history lost](#search-sync-articlesarticles-was-last-at-a-point-the-servers-change-history-no-longer-reaches-reindex-it-or-start-it-with-onhistorylost-reindex) · [already running](#search-sync-articlesarticles-is-already-following-changes-in-this-process-close-it-before-you-start-it-twice) · [held by another process](#search-sync-articlesarticles-is-held-by--until--wait-for-it-to-close-or-for-its-lease-to-lapse-before-you-start-it) · [the lease cannot be taken](#search-sync-articlesarticles-failed-taking-its-lease-) · [the lease cannot be checked](#search-sync-articlesarticles-failed-checking-its-lease-) · [the lease lost while reindexing](#search-sync-articlesarticles-lost-its-lease-another-process-holds-the-name-now-or-the-lease-was-removed-it-lapses-when-not-renewed-within-30000-ms-it-stopped-rather-than-run-beside-it) |
 | [The transform](#the-transform) | [an id that is not the index's](#search-sync-articlesarticles-transform-gave-id-other-for-the-document--whose-index-id-is-) · [not a document](#search-sync-articlesarticles-transform-gave-a-string-for-the-document-) · [it threw](#search-sync-articlesarticles-failed-following-changes-boom) |
-| [Sending](#sending) | [an id Meilisearch refuses](#search-sync-articlesarticles-failed-sending-changes-task-3-documentadditionorupdate-on-index-articles-failed-document-identifier--is-invalid) |
+| [Sending](#sending) | [an id Meilisearch refuses](#search-sync-articlesarticles-failed-sending-changes-task-3-add-on-index-articles-failed-invalid_document_id) |
 | [Stopping](#stopping) | [lease lost](#search-sync-articlesarticles-lost-its-lease-another-process-holds-the-name-now-or-the-lease-was-removed-it-lapses-when-not-renewed-within-30000-ms-it-stopped-rather-than-run-beside-it) · [a dropped collection](#the-sync-stops-and-closed-resolves-with-invalidated) |
 
 ## Install
@@ -419,12 +419,17 @@ running.closed.catch((error) => log.error(error));
 
 ## Sending
 
-### `Search sync "articles:articles" failed sending changes: Task 3 (documentAdditionOrUpdate) on index "articles" failed: Document identifier … is invalid`
+### `Search sync "articles:articles" failed sending changes: Task 3 (add) on index "articles" failed: invalid_document_id`
 
-Meilisearch's own text follows: *A document identifier can be of type integer
-or string, only composed of alphanumeric characters (a-z A-Z 0-9), hyphens (-)
-and underscores (\_), and can not be more than 511 bytes.* Code `FAILED`; the
-`cause` is `@nxgt/meilisearch`'s `SearchIndexError`, carrying the failed task.
+Code `FAILED`; the `cause` is `@nxgt/meilisearch`'s `SearchIndexError`,
+carrying the failed task, and Meilisearch's own sentence is one level
+further, on `error.cause.cause.message`: *Document identifier `"…"` is
+invalid. A document identifier can be of type integer or string, only
+composed of alphanumeric characters (a-z A-Z 0-9), hyphens (-) and
+underscores (\_), and can not be more than 511 bytes.* It quotes the id, so
+the message leaves it out; before `@nxgt/meilisearch` 0.4.1 the line ended
+with `Task 3 (documentAdditionOrUpdate) … failed: ` and that sentence.
+Match on `code` and on `error.cause.task.error.code`, never on the text.
 
 **When:** a batch is sent — on `reindex()`, on a `flush()`, or from the
 follower's own timer, in which case it surfaces on `closed`.

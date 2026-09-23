@@ -23,7 +23,7 @@ try {
 | `code` | Thrown when | Also carries |
 | --- | --- | --- |
 | `PRIMARY_KEY_MISMATCH` | [`sync`](sync.md) found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
-| `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error` |
+| `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error`, whose sentence the message leaves out — it can quote a filter or a document id |
 | `REBUILD_FAILED` | [`rebuild`](rebuild.md) stopped before the swap, its swap task came back `failed`, or it sent the swap and could not wait for it | `cause`: what stopped it; `task` when a task failed |
 | `INVALID_EXPIRES_AT` | [`tenantToken`](tenant-tokens.md) was given an `expiresAt` it will not sign | `indexUid`: the token's uids, joined by `,` |
 
@@ -49,15 +49,27 @@ task exactly like a succeeded one — `await enqueued.waitTask()` gives back a
 const bad = { ...alien, id: 'not an id' as unknown as number };
 
 await movieIndex.add([bad], { wait: true });
-// SearchIndexError: Task 7 (documentAdditionOrUpdate) on index "movies" failed:
-// Document identifier `"not an id"` is invalid. …
+// SearchIndexError: Task 7 (add) on index "movies" failed: invalid_document_id
 
 const error = await movieIndex.add([bad], { wait: true }).catch((e) => e);
 error.code;             // 'TASK_FAILED'
 error.indexUid;         // 'movies'
 error.task.status;      // 'failed'
+error.task.type;        // 'documentAdditionOrUpdate'
 error.task.error.code;  // 'invalid_document_id'
+error.cause.message;    // 'Document identifier `"not an id"` is invalid. …'
 ```
+
+The message names the call you made — `add`, not the task's
+`documentAdditionOrUpdate`; `deleteByFilter`, not the `documentDeletion` that
+`delete` makes too; `sync` for the tasks a sync sends, and `rebuild` for every
+task a rebuild waits for, the next index's creation and settings included —
+and
+Meilisearch's error code, and nothing else. Meilisearch's own sentence quotes
+the id it refused or the filter it could not apply, which came from your
+documents or a request, so it stays on `cause` and `task.error`: log the
+message freely, and read the cause where you choose to. A `canceled` task has
+no error, and its message ends at `canceled`.
 
 Without `wait`, nothing is checked, because nothing is awaited: the task is
 queued and the promise resolves. `deleteByFilter` on an attribute that is not

@@ -5,7 +5,7 @@ import {
 	SearchIndexError,
 } from '../errors/search-index-error';
 import type { TypedIndex } from '../index/bind-index';
-import { findIndex, type SyncReport, syncIndex } from './sync-index';
+import { findIndex, type SyncReport, syncIndexFor } from './sync-index';
 
 export interface RebuildOptions {
 	/** The uid of the index filled beside the live one: `<uid>_next` by default. */
@@ -99,7 +99,11 @@ async function deleteIndex(
 	uid: string,
 	wait: WaitOptions | undefined,
 ): Promise<Task> {
-	return assertSucceeded(await client.deleteIndex(uid).waitTask(wait), uid);
+	return assertSucceeded(
+		await client.deleteIndex(uid).waitTask(wait),
+		uid,
+		'rebuild',
+	);
 }
 
 /**
@@ -132,7 +136,7 @@ async function settle(
 		limit: 1,
 	});
 	const [newest] = results;
-	if (newest && newest.uid > since) assertSucceeded(newest, nextUid);
+	if (newest && newest.uid > since) assertSucceeded(newest, nextUid, 'rebuild');
 }
 
 /**
@@ -181,7 +185,7 @@ export async function rebuildIndex<Def extends AnyIndexDefinition>(
 	let created: boolean;
 	let task: Task;
 	try {
-		sync = await syncIndex(client, nextDefinition, { wait });
+		sync = await syncIndexFor(client, nextDefinition, { wait }, 'rebuild');
 		stop = 'filling';
 		await fill(open(nextDefinition));
 		await settle(client, nextUid, sync.tasks[0]?.uid ?? 0, wait);
@@ -191,7 +195,7 @@ export async function rebuildIndex<Def extends AnyIndexDefinition>(
 		const enqueued = await client.swapIndexes([swapOf(uid, nextUid, created)]);
 		task = await client.tasks.waitForTask(enqueued.taskUid, wait);
 		stop = 'swapping';
-		assertSucceeded(task, uid);
+		assertSucceeded(task, uid, 'rebuild');
 	} catch (error) {
 		// The cleanup must not hide what stopped the rebuild: a failure to
 		// delete leaves an index the next run deletes first, and says so.

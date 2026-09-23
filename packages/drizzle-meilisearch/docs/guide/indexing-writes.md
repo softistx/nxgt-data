@@ -119,7 +119,7 @@ looking. The one that catches people out:
 ```ts
 await articleSearch.remove(id, { wait: true });
 // SearchSyncError: Search sync "articles:articles" failed removing documents:
-// Task 0 (documentDeletion) on index "articles" failed: Index `articles` not found.
+// Task 0 (delete) on index "articles" failed: index_not_found
 ```
 
 Meilisearch creates an index on a write of documents, never on a delete. Call

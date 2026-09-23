@@ -341,7 +341,7 @@ This package throws one error of its own, `SearchIndexError`:
 | `code` | When | Carries |
 | --- | --- | --- |
 | `PRIMARY_KEY_MISMATCH` | `sync` found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
-| `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error` |
+| `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error`, whose sentence the message leaves out — it can quote a filter or a document id |
 | `REBUILD_FAILED` | `rebuild` stopped before the swap, its swap task came back `failed`, or it could not wait for the swap | `cause`: what stopped it; `task` when a task failed |
 | `INVALID_EXPIRES_AT` | `tenantToken` was given an `expiresAt` past, in milliseconds, fractional or invalid | `indexUid`: the token's uids, joined by `,` |
 

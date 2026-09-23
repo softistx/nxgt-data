@@ -347,9 +347,10 @@ describe('syncIndex, on a scripted client', () => {
 		const error = await syncIndex(client, movies).catch((e) => e);
 		expect(error).toBeInstanceOf(SearchIndexError);
 		expect(error.message).toBe(
-			'Task 1 (settingsUpdate) on index "movies" failed: ' +
-				'Attribute `year` is not sortable.',
+			'Task 1 (sync) on index "movies" failed: invalid_settings_sortable_attributes',
 		);
+		expect(error.task.type).toBe('settingsUpdate');
+		expect(error.cause.message).toBe('Attribute `year` is not sortable.');
 		expect(sent).toEqual(['updateSettings']);
 	});
 });
