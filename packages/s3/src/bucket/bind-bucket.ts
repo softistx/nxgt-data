@@ -7,6 +7,11 @@ import {
 	presignPutUrl,
 } from './operations/presign';
 import {
+	type PresignedPost,
+	type PresignPostOptions,
+	presignPostForm,
+} from './operations/presign-post';
+import {
 	objectExists,
 	readBytes,
 	readText,
@@ -20,7 +25,7 @@ import type {
 	PutOptions,
 } from './types';
 
-export type { PresignOptions };
+export type { PresignedPost, PresignOptions, PresignPostOptions };
 
 /** A bucket bound to credentials: the definition, with somewhere to put it. */
 export interface BoundBucket<P> {
@@ -61,6 +66,13 @@ export interface BoundBucket<P> {
 	 * deadline, and **nothing else** — not the size, not the content type.
 	 */
 	presignPut(params: P, options?: PresignOptions): string;
+	/**
+	 * The form a browser posts to upload this object, signed. Unlike
+	 * `presignPut`, the **service** holds the upload to a size range and a
+	 * content type — by default the bucket's own `maxSize` and single
+	 * `contentType`. Post `fields` first and the file last.
+	 */
+	presignPost(params: P, options?: PresignPostOptions): PresignedPost;
 }
 
 /**
@@ -85,7 +97,7 @@ export function bindBucket<P>(
 	options: Omit<S3Options, 'bucket'> = {},
 ): BoundBucket<P> {
 	const client = new S3Client({ ...options, bucket: definition.bucket });
-	const context = bucketContext(client, definition);
+	const context = bucketContext(client, definition, options.secretAccessKey);
 	return {
 		client,
 		keyFor: (params) => keyOf(context, params),
@@ -102,5 +114,7 @@ export function bindBucket<P>(
 			presignGetUrl(context, params, presignOptions),
 		presignPut: (params, presignOptions) =>
 			presignPutUrl(context, params, presignOptions),
+		presignPost: (params, postOptions) =>
+			presignPostForm(context, params, postOptions),
 	};
 }

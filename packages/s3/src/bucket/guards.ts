@@ -45,28 +45,34 @@ export function sizeOf(body: PutBody): number | undefined {
 	return undefined;
 }
 
-/** Refuses a type the bucket does not accept. Shared by `put` and `presign`. */
+/**
+ * Refuses a type the bucket does not accept. Shared by `put` and
+ * `presignPost`; `where` names the call when it is not `put`, after the
+ * searchable lead, so the same refusal reads the same in a log.
+ */
 export function checkType<P>(
 	context: BucketContext<P>,
 	key: string,
 	type: string | undefined,
+	where?: string,
 ): void {
 	const { accepted } = context;
 	if (!accepted) return;
 	const list = accepted.join(', ');
+	const suffix = where ? ` (${where})` : '';
 	if (!type) {
 		throw new S3Error(
 			'WRONG_TYPE',
 			key,
 			`"${context.definition.bucket}" accepts ${list}, and this write ` +
-				'names no content type. Pass `type`',
+				`names no content type. Pass \`type\`${suffix}`,
 		);
 	}
 	if (!accepted.some((one) => essenceOf(one) === essenceOf(type))) {
 		throw new S3Error(
 			'WRONG_TYPE',
 			key,
-			`"${context.definition.bucket}" accepts ${list}, not ${type}`,
+			`"${context.definition.bucket}" accepts ${list}, not ${type}${suffix}`,
 		);
 	}
 }

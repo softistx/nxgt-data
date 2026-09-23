@@ -1,0 +1,13 @@
+---
+'@nxgt/s3': minor
+---
+
+`presignPost`, a presigned POST whose size and content type the service enforces.
+
+`store.presignPost(params, options)` returns `{ url, fields }`, the form a browser posts straight to the bucket: every field, then the file. It signs an S3 POST policy (SigV4, with `node:crypto`, since Bun's `S3Client` has no POST presigning) that fixes the definition's key with `eq`, holds the body to `content-length-range`, and fixes the `Content-Type` with `eq`, or holds it to `{ startsWith }` on a bucket that names no type. Measured against SeaweedFS 4.47, the service refuses a body over the range with `400 EntityTooLarge`, one under it with `400 EntityTooSmall`, and another type, another key or an expired form with `403 AccessDenied`. A presigned PUT still constrains only the key and the deadline.
+
+`maxSize` defaults to the bucket's own and cannot be above it, and a bucket without one requires it. `type` defaults to the bucket's `contentType` when that is a single type. `expiresIn` has the bounds the other presigned calls have (1 to 604800 seconds) and defaults to a day, as Bun's does. Every refusal is an `S3Error` with an existing code (`WRONG_OPTION` or `WRONG_TYPE`), raised before anything is signed. No new code was needed.
+
+The form goes to the endpoint, region and access key that Bun signs a `presignPut` for, read off a URL Bun signs itself. The secret is the one given to `bindBucket`, or else `S3_SECRET_ACCESS_KEY` and then `AWS_SECRET_ACCESS_KEY`.
+
+A `put` whose type is refused says the same thing as before. The same refusal from `presignPost` ends with `(presignPost)`.

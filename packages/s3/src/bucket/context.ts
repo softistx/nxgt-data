@@ -18,6 +18,14 @@ export interface BucketContext<P> {
 	 * `undefined` when the bucket accepts anything.
 	 */
 	readonly accepted: readonly string[] | undefined;
+	/**
+	 * The secret a presigned POST signs its policy with, resolved the way
+	 * Bun documents it: the option, then `S3_SECRET_ACCESS_KEY`, then
+	 * `AWS_SECRET_ACCESS_KEY`. Bun's client keeps it and never hands it back,
+	 * and a POST policy is the one signature Bun does not make — so it is
+	 * kept here too. `undefined` when there is none.
+	 */
+	readonly secretAccessKey: string | undefined;
 }
 
 /** The types a definition accepts, as a list. */
@@ -31,11 +39,17 @@ function acceptedTypes(
 export function bucketContext<P>(
 	client: S3Client,
 	definition: BucketDefinition<P>,
+	secretAccessKey?: string,
 ): BucketContext<P> {
 	return {
 		client,
 		definition,
 		accepted: acceptedTypes(definition.contentType),
+		secretAccessKey:
+			secretAccessKey ||
+			Bun.env.S3_SECRET_ACCESS_KEY ||
+			Bun.env.AWS_SECRET_ACCESS_KEY ||
+			undefined,
 	};
 }
 

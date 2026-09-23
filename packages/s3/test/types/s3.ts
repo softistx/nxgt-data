@@ -147,3 +147,45 @@ void store.list({ prefix: 'a/', limit: 10, cursor: null }).then((page) => {
 	// @ts-expect-error a listing says nothing about a total
 	void page.total;
 });
+
+// A presigned POST is for one object, and gives back the form a browser posts.
+const form: { url: string; fields: Record<string, string> } = store.presignPost(
+	{ userId: 'u1' },
+	{ type: 'image/png', maxSize: 512 },
+);
+void form;
+anything.presignPost(
+	{ folder: 'a', name: 'b' },
+	{ maxSize: 1024, minSize: 1, type: { startsWith: 'image/' } },
+);
+
+// @ts-expect-error a presigned POST is for one object, so it needs its params
+store.presignPost();
+
+// @ts-expect-error and those params are the definition's
+store.presignPost({ id: 'u1' });
+
+// @ts-expect-error a signed POST does not choose its bucket
+store.presignPost({ userId: 'u1' }, { bucket: 'somewhere-else' });
+// @ts-expect-error nor where it is posted
+store.presignPost({ userId: 'u1' }, { endpoint: 'http://127.0.0.1:1' });
+// @ts-expect-error nor which region signs it
+store.presignPost({ userId: 'u1' }, { region: 'eu-west-3' });
+
+store.presignPost(
+	{ userId: 'u1' },
+	// @ts-expect-error `maxSize` is a number of bytes
+	{ maxSize: '1mb' },
+);
+
+store.presignPost(
+	{ userId: 'u1' },
+	// @ts-expect-error a prefix is `{ startsWith }`, not a pattern
+	{ type: /^image\// },
+);
+
+store.presignPost(
+	{ userId: 'u1' },
+	// @ts-expect-error an `acl` is one the service accepts, not any string
+	{ acl: 'everyone' },
+);
