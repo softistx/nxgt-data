@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { defineBucket } from '@nxgt/mongo/gridfs';
 import { createKit, defineConfig } from '@nxgt/mongo-kit';
 import type { SearchSync } from '@nxgt/mongo-meilisearch';
 import {
@@ -353,6 +354,29 @@ describe('a search kit', () => {
 				command: { index: indexes().articles, transform: toArticleHit },
 			}),
 		).toThrow('wires no collection called "command"');
+	});
+
+	test('refuses a key the kit wires a bucket under', async () => {
+		// A bucket is on the scope beside the collections, and carries a
+		// `definition` of its own: without the check on its shape it reached
+		// `createSearchSync` and failed there, on something unrelated.
+		const withFiles = await createKit(
+			defineConfig({
+				uri: servers.mongo.uri,
+				collections: { articles },
+				buckets: { uploads: defineBucket({ name: 'uploads' }) },
+			}),
+		);
+		try {
+			expect(() =>
+				createSearchKit(withFiles, {
+					// @ts-expect-error `uploads` is a bucket, not a collection
+					uploads: { index: indexes().articles, transform: toArticleHit },
+				}),
+			).toThrow('wires no collection called "uploads"');
+		} finally {
+			await withFiles.close();
+		}
 	});
 
 	test('refuses a kit that holds more than one database', async () => {

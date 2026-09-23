@@ -85,6 +85,13 @@ void defineConfig({
 	bucketOptions: { hash: false, autoSync: true },
 });
 
+void defineConfig({
+	uri,
+	collections,
+	// @ts-expect-error — no buckets, so no bucket options.
+	bucketOptions: { hash: false },
+});
+
 // Several databases: each scope carries its own buckets, and only those.
 const many = await createKit(
 	defineConfig({

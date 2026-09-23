@@ -1,6 +1,7 @@
 import { connectMongo, type MongoConnection } from '@nxgt/mongo';
 import type { Db } from 'mongodb';
-import { bucketsOf, checkDatabase } from '../config/checks';
+import { bucketsOf } from '../config/bucket-checks';
+import { checkDatabase } from '../config/checks';
 import type { DatabaseConfig, KitConfig } from '../config/types';
 import { KitError } from '../errors/kit-error';
 import type { DatabaseContext, KitContext } from './context';

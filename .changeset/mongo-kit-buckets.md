@@ -19,4 +19,6 @@ await kit.transaction(async (tx) => {
 });
 ```
 
-`sync()` is unchanged and leaves buckets alone: `syncBuckets()` creates their indexes, reporting per database and per bucket key. `defineConfig` refuses a bucket key a collection already holds, two keys on one bucket, a `buckets` object with no bucket in it, and `session` or `autoSync` in `bucketOptions`; `createKit` refuses a bucket key the driver's `Db` answers to, with `COLLISION`, as it does for a collection.
+`sync()` is unchanged and leaves buckets alone: `syncBuckets()` creates their indexes, reporting per database and per bucket key. A database's `autoSync` now also creates each bucket's indexes before its first call — with a caveat: when that first call is an upload inside a transaction, the chunks collection appears after the transaction's snapshot, the commit fails and the driver runs the body twice, and a stream source is spent by then. Call `syncBuckets()` at start-up, before any transactional upload.
+
+`defineConfig` refuses a bucket key a collection already holds, two keys on one bucket, a `buckets` object with no bucket in it, `session` or `autoSync` in `bucketOptions`, and `bucketOptions` on a database with no `buckets`; `createKit` refuses a bucket key the driver's `Db` answers to, with `COLLISION`, as it does for a collection.

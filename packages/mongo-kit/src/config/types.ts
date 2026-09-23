@@ -187,9 +187,21 @@ type CheckedDatabase<D> = D extends { collections: infer Cols }
 				? { buckets: B & NoBucketCollision<Cols, B> }
 				: unknown) &
 			(D extends { bucketOptions: infer BO }
-				? { bucketOptions: BO & NoOwnedBucketOption<BO> }
+				? {
+						bucketOptions: BO &
+							NoOwnedBucketOption<BO> &
+							(D extends { buckets: unknown } ? unknown : NoBucketsToOption);
+					}
 				: unknown)
 	: D;
+
+/**
+ * What `bucketOptions` becomes on a database that wires no buckets: a string
+ * no options object is, so the refusal lands on `bucketOptions` and says why,
+ * as `Unwired` does for `optionsFor`.
+ */
+export type NoBucketsToOption =
+	'this database wires no buckets: there are no bucket options to give';
 
 /** The databases of a config, whichever of the two shapes it was written in. */
 export type DatabasesOf<C> = C extends { databases: infer D }

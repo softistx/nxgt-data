@@ -3,6 +3,29 @@ import { type BucketDefinition, getFiles } from '@nxgt/mongo/gridfs';
 import type { DatabaseContext, KitContext } from './context';
 
 /**
+ * What sits under `key` in this kit's cache, built by `build` the first time
+ * it is read. One cache for collections and buckets alike: a key is one or
+ * the other, never both, which `defineConfig` refuses.
+ */
+function cached(
+	ctx: KitContext,
+	database: DatabaseContext,
+	key: string,
+	build: () => unknown,
+): unknown {
+	let built = ctx.cache.get(database.name);
+	if (!built) {
+		built = new Map();
+		ctx.cache.set(database.name, built);
+	}
+	const found = built.get(key);
+	if (found) return found;
+	const value = build();
+	built.set(key, value);
+	return value;
+}
+
+/**
  * The collection under `key`, built the first time it is read and kept:
  * `getCollection` caches nothing, so a scope that built them all would pay
  * for every collection on every request that derives a kit.
@@ -13,30 +36,22 @@ export function collectionAt(
 	key: string,
 	definition: DatabaseContext['wired'][number][1],
 ): unknown {
-	let built = ctx.cache.get(database.name);
-	if (!built) {
-		built = new Map();
-		ctx.cache.set(database.name, built);
-	}
-	const found = built.get(key);
-	if (found) return found;
-	const collection = getCollection(database.db, definition, {
-		...database.options,
-		...database.optionsFor[key],
-		...(database.autoSync ? { autoSync: true } : {}),
-		...(ctx.session ? { session: ctx.session } : {}),
-		...(ctx.actor === undefined ? {} : { actor: ctx.actor }),
-	} as never);
-	built.set(key, collection);
-	return collection;
+	return cached(ctx, database, key, () =>
+		getCollection(database.db, definition, {
+			...database.options,
+			...database.optionsFor[key],
+			...(database.autoSync ? { autoSync: true } : {}),
+			...(ctx.session ? { session: ctx.session } : {}),
+			...(ctx.actor === undefined ? {} : { actor: ctx.actor }),
+		} as never),
+	);
 }
 
 /**
  * The bucket under `key`, built and kept the way `collectionAt` keeps a
- * collection, in the same cache: a key is a collection or a bucket, never
- * both, which `defineConfig` refuses. It runs in the kit's session, so a
- * file written in a transaction is part of it, and takes the database's
- * `autoSync`. A bucket has no actor to carry.
+ * collection. It runs in the kit's session, so a file written in a
+ * transaction is part of it, and takes the database's `autoSync`. A bucket
+ * has no actor to carry.
  */
 export function bucketAt(
 	ctx: KitContext,
@@ -44,20 +59,13 @@ export function bucketAt(
 	key: string,
 	definition: BucketDefinition,
 ): unknown {
-	let built = ctx.cache.get(database.name);
-	if (!built) {
-		built = new Map();
-		ctx.cache.set(database.name, built);
-	}
-	const found = built.get(key);
-	if (found) return found;
-	const bucket = getFiles(database.db, definition, {
-		...database.bucketOptions,
-		...(database.autoSync ? { autoSync: true } : {}),
-		...(ctx.session ? { session: ctx.session } : {}),
-	});
-	built.set(key, bucket);
-	return bucket;
+	return cached(ctx, database, key, () =>
+		getFiles(database.db, definition, {
+			...database.bucketOptions,
+			...(database.autoSync ? { autoSync: true } : {}),
+			...(ctx.session ? { session: ctx.session } : {}),
+		}),
+	);
 }
 
 /**

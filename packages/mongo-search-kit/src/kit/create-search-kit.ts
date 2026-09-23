@@ -32,11 +32,17 @@ function collectionAt(
 ): TypedCollection<AnyCollectionDefinition> {
 	const collection = scope[key];
 	// A `Db` answers to its own members, so a key that is one would give
-	// something that is not a collection rather than `undefined`.
+	// something that is not a collection rather than `undefined`. A GridFS
+	// bucket the kit wires has a `definition` too, so it is the definition's
+	// shape that decides: a collection's has a schema, a bucket's has none.
+	const definition =
+		typeof collection === 'object' && collection !== null
+			? (collection as { definition?: unknown }).definition
+			: undefined;
 	if (
-		typeof collection !== 'object' ||
-		collection === null ||
-		!('definition' in collection)
+		typeof definition !== 'object' ||
+		definition === null ||
+		!('schema' in definition)
 	) {
 		throw new TypeError(
 			`createSearchKit: this kit wires no collection called "${key}"`,

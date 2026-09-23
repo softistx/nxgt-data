@@ -1,6 +1,6 @@
 import type { AnyCollectionDefinition } from '@nxgt/mongo';
-import type { BucketDefinition } from '@nxgt/mongo/gridfs';
-import { KitError } from '../errors/kit-error';
+import { checkBuckets } from './bucket-checks';
+import { refuse } from './refuse';
 import type { DatabaseConfig } from './types';
 
 /** A definition, told by its shape: `instanceof` has no class to ask. */
@@ -25,42 +25,6 @@ export function definitionsOf(
 			isDefinition(entry[1]),
 	);
 }
-
-/**
- * A bucket definition, told by its shape as `isDefinition` tells a
- * collection: a name, and the two collections GridFS keeps under it. A
- * collection definition has no `collections`, so the two never overlap.
- */
-export function isBucket(value: unknown): value is BucketDefinition {
-	if (typeof value !== 'object' || value === null) return false;
-	const candidate = value as Partial<BucketDefinition>;
-	const collections = candidate.collections as
-		| Partial<BucketDefinition['collections']>
-		| undefined;
-	return (
-		typeof candidate.name === 'string' &&
-		typeof collections === 'object' &&
-		collections !== null &&
-		typeof collections.files === 'string' &&
-		typeof collections.chunks === 'string' &&
-		'metadata' in candidate &&
-		'chunkSize' in candidate
-	);
-}
-
-/** The bucket definitions of a module object, under the keys they are exported by. */
-export function bucketsOf(buckets: object): [string, BucketDefinition][] {
-	return Object.entries(buckets).filter(
-		(entry): entry is [string, BucketDefinition] => isBucket(entry[1]),
-	);
-}
-
-const refuse = (name: string, said: string, key?: string): never => {
-	throw new KitError('CONFIG', `defineConfig: database "${name}" ${said}`, {
-		database: name,
-		key,
-	});
-};
 
 /**
  * The collection options the kit decides itself: the database each collection
@@ -88,66 +52,6 @@ function checkOwned(
 				forKey,
 			);
 		}
-	}
-}
-
-/** The two of `OWNED` a bucket has an option for. */
-const OWNED_BY_BUCKETS = ['session', 'autoSync'] as const;
-
-/** `session` or `autoSync` in `bucketOptions` would outrank the kit. */
-function checkBucketOptions(name: string, options: unknown): void {
-	if (typeof options !== 'object' || options === null) return;
-	for (const key of OWNED_BY_BUCKETS) {
-		if (key in options) {
-			refuse(
-				name,
-				`has "${key}" in bucketOptions, which the kit decides: ` +
-					"`withSession` and transactions carry the session, and `autoSync` is the database's",
-			);
-		}
-	}
-}
-
-/**
- * What a database's `buckets` must answer. A key the driver's `Db` answers
- * to is refused by `createKit`, which has a `Db` to ask with `in`, exactly as
- * it is for a collection: there is none here.
- */
-function checkBuckets(
-	name: string,
-	config: DatabaseConfig<object>,
-	collectionKeys: ReadonlySet<string>,
-): void {
-	checkBucketOptions(name, config.bucketOptions);
-	if (config.buckets === undefined) return;
-	const buckets =
-		typeof config.buckets === 'object' && config.buckets !== null
-			? bucketsOf(config.buckets)
-			: [];
-	if (buckets.length === 0) {
-		refuse(
-			name,
-			'has a buckets object with no bucket definition in it: pass the module, as in `import * as buckets`',
-		);
-	}
-	const byName = new Map<string, string>();
-	for (const [key, definition] of buckets) {
-		if (collectionKeys.has(key)) {
-			refuse(
-				name,
-				`wires "${key}" as both a collection and a bucket: export one of them under another name`,
-				key,
-			);
-		}
-		const seen = byName.get(definition.name);
-		if (seen !== undefined) {
-			refuse(
-				name,
-				`wires "${seen}" and "${key}" to the same bucket, "${definition.name}"`,
-				key,
-			);
-		}
-		byName.set(definition.name, key);
 	}
 }
 

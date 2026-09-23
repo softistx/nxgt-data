@@ -11,7 +11,9 @@ export type {
 	KitConfig,
 	KitConfigInput,
 	NoBucketCollision,
+	NoBucketsToOption,
 	NoCollision,
+	NoOwnedBucketOption,
 	ReservedName,
 	Unwired,
 } from './config/types';

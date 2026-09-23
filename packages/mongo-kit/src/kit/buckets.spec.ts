@@ -173,6 +173,37 @@ describe('a bucket in a session', () => {
 	});
 });
 
+describe('autoSync and a transaction', () => {
+	/** A transaction writing a document and then a file, counting its runs. */
+	const attemptsOf = async (kit: Awaited<ReturnType<typeof bucketKit>>) => {
+		let attempts = 0;
+		await kit.transaction(async (tx) => {
+			attempts += 1;
+			await tx.db.users.create({ email: `ada${attempts}@example.com` });
+			await tx.db.uploads.put(bytes(10));
+		});
+		return attempts;
+	};
+
+	test('the first upload of a bucket makes the driver run the body twice', async () => {
+		// Measured on mongod 8.2.6: autoSync creates `uploads.chunks` outside
+		// the session, after the transaction's snapshot, so `commitTransaction`
+		// fails with 112 — "Collection namespace '….uploads.chunks' is already
+		// in use" — and the driver runs the body again. A source that can be
+		// read once is spent by then; this one is bytes, read afresh.
+		const kit = await bucketKit({ autoSync: true });
+		expect(await attemptsOf(kit)).toBe(2);
+		expect(await count('uploads.files')).toBe(1);
+		expect(await count('users')).toBe(1);
+	});
+
+	test('runs it once when syncBuckets ran first', async () => {
+		const kit = await bucketKit({ autoSync: true });
+		await kit.syncBuckets();
+		expect(await attemptsOf(kit)).toBe(1);
+	});
+});
+
 describe('syncBuckets', () => {
 	test('creates the four indexes, and a second run creates none', async () => {
 		const kit = await bucketKit();
@@ -193,6 +224,18 @@ describe('syncBuckets', () => {
 			expect(reports.flatMap((report) => report.created)).toEqual([]);
 			expect(reports.flatMap((report) => report.existing)).toHaveLength(4);
 		}
+	});
+
+	test('runs outside the session of the kit it is called on', async () => {
+		// Inside the transaction's session mongod would refuse `createIndexes`
+		// — the bucket's own `syncIndexes` is refused there — so this passing
+		// is what says the kit's session was left out.
+		const kit = await bucketKit();
+		const reports = await kit.transaction((tx) => tx.syncBuckets());
+		expect(reports.default.uploads.flatMap((one) => one.created)).toHaveLength(
+			4,
+		);
+		expect(await indexNames('uploads.chunks')).toContain('files_id_1_n_1');
 	});
 
 	test('is not what `sync` does', async () => {

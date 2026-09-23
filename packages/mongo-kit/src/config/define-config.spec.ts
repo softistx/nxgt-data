@@ -279,6 +279,22 @@ describe('defineConfig', () => {
 				).toThrow('has "session" in bucketOptions, which the kit decides');
 			});
 
+			test('bucket options with no bucket to apply them to', () => {
+				const error = thrown(() =>
+					defineConfig({
+						uri,
+						collections: { users },
+						bucketOptions: { hash: false },
+					} as never),
+				);
+				expect(error).toHaveProperty('code', 'CONFIG');
+				expect(error).toHaveProperty(
+					'message',
+					'defineConfig: database "default" has bucketOptions but no ' +
+						'buckets: pass the buckets they are for, or leave them out',
+				);
+			});
+
 			test('autoSync, which is the database`s', () => {
 				const error = thrown(() =>
 					defineConfig({
