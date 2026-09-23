@@ -67,6 +67,8 @@ export const userRepository = createRepository(db, users);
 | `primaryKey` | `'id'` | the key of the column `findById`, `update(id)` and `delete(id)` use. See [Primary keys](#primary-keys) |
 | `softDelete` | on when the table has a `deletedAt` column | `false` makes `delete` a real `DELETE`. See [Soft delete](#soft-delete) |
 | `touchUpdatedAt` | `true` | sets the `updatedAt` column to `now()` on update. See [updatedAt](#updatedat) |
+| `optimisticLock` | on when the table has an integer `NOT NULL` `version` | `false` makes `version` an ordinary column. See [Optimistic locking](#optimistic-locking) |
+| `actor` | nobody | who is writing, stamped into `createdBy`, `updatedBy`, `deletedBy`. See [Who is writing](#who-is-writing) |
 | `maxPageSize` | `100` | the largest `pageSize` or `limit` a page may ask for; a larger one is lowered to it |
 
 ## Subpaths
@@ -221,7 +223,7 @@ const user = await users.upsert(
   there**: PostgreSQL checks the row it would insert before it looks for a
   conflict. The types require them.
 - The update half does what `update` does — `updatedAt`, `updatedBy`, the
-  version — and never moves `createdAt` or `createdBy`.
+  version — and never moves `createdAt`, `createdBy` or the primary key.
 - A row that is there but soft-deleted is not written over: `ConflictError`.
   Restore it or hard-delete it first.
 
@@ -263,6 +265,16 @@ await acting.delete(id);                        // deletedBy; restore clears it
 
 `createRepository(db, table, { actor })` is the same thing up front. Nobody
 acting stamps nothing, and a stamp the values give is kept.
+
+`as(undefined)` and `as(null)` throw an `ArgumentError` — an actor that never
+arrived is a session nobody read. Check the session first, so a request
+without one is answered 401 rather than the 400 an `ArgumentError` maps to:
+
+```ts
+const userId = c.get('userId');
+if (!userId) return c.json({ error: 'Sign in' }, 401);
+await tickets.as(userId).update(id, patch);
+```
 
 ### Running on a transaction
 
@@ -598,7 +610,7 @@ The types it uses:
 - `type OrderBy<TTable> = SQL | SQL.Aliased | PgColumn | ReadonlyArray<SQL | SQL.Aliased | PgColumn> | { [K in keyof Row]?: 'asc' | 'desc' }`; `type OrderDirection = 'asc' | 'desc'`.
 - `interface RepositoryOptions<TTable, TKey, TSoft, TLock> { primaryKey?: TKey; softDelete?: TSoft; touchUpdatedAt?: boolean; optimisticLock?: TLock; actor?: ActorOf<TTable>; maxPageSize?: number }`.
 - `type UpdatePatch<TTable, TLock>`: `Patch`, with `version?: number` — the expected version — where it locks. `type ManyPatch<TTable, TLock>`: `Patch`, with no `version` where it locks.
-- `type UpsertWhere<TTable> = { [K in keyof Row]?: NonNullable<Row[K]> }`; `type UpsertValues<TTable, TWhereKey, TLock>`: `Insert` without the where's keys, and without `version` where it locks.
+- `type UpsertWhere<TTable, TLock> = { [K in keyof Row]?: NonNullable<Row[K]> }`, without `version` where it locks, and `type UpsertWhereOf<TTable, TLock, W>`, the `where` `upsert` takes: `W` with no other key, and at least one; `type UpsertValues<TTable, TWhereKey, TLock>`: `Insert` without the where's keys, and without `version` where it locks.
 - `type ActorOf<TTable>`: the type of `createdBy`, else `updatedBy`, else `deletedBy`, not null; `never` without any. `type LockOf<TTable>`: whether the table has an integer `NOT NULL` `version`.
 - `interface ReadOptions { withDeleted?: boolean }`, and `FindFirstOptions`, `FindManyOptions`, `PaginateOptions`, `CursorPaginateOptions` as in the table.
 - `type BaseRepository<TTable, TKey, TSoft, TLock>` and `type SoftDeleteMethods<TTable, TKey>`, the two halves of `Repository`.
@@ -692,6 +704,12 @@ function withTransaction<TDb extends PgDatabase, T>(
 - **The version in a patch is a condition, not a value.** `{ version: 3 }`
   never sets the version to 3: it makes `update` fail unless the row is at 3,
   and leaves it at 4. `optimisticLock: false` is how to write it by hand.
+- **Upgrading to 0.5.0: a `version` column starts locking.** A table with an
+  integer `NOT NULL` column under the key `version` locks from 0.5.0 on:
+  `update(id, { version })` checks it instead of writing it, and every update
+  raises it. Pass `optimisticLock: false` to keep 0.4's behaviour. And
+  `DataErrorCode` gained `'OPTIMISTIC_LOCK'`, so an exhaustive
+  `Record<DataErrorCode, …>` needs the key before it compiles.
 - **An `ArgumentError` is a 400, not a 500.** Test for it *before* any
   `TypeError` branch in an error handler — it extends `TypeError`, so a
   broader branch placed first swallows it. A repository used on the database

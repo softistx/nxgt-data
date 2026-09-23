@@ -39,6 +39,7 @@ export type {
 	UpdatePatch,
 	UpsertValues,
 	UpsertWhere,
+	UpsertWhereOf,
 	Where,
 	WhereObject,
 } from './repository/types';

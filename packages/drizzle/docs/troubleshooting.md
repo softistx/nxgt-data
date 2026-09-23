@@ -54,6 +54,7 @@ one.
   - [`upsert on "tickets": the where is empty. Name the columns a unique constraint covers`](#upsert-on-tickets-the-where-is-empty-name-the-columns-a-unique-constraint-covers)
   - [`upsert on "tickets": the where names "nope", which is no column of the table`](#upsert-on-tickets-the-where-names-nope-which-is-no-column-of-the-table)
   - [`upsert on "tickets": "slug" in the where is null. It is inserted as well as matched, so it must be a value, and NULL never conflicts`](#upsert-on-tickets-slug-in-the-where-is-null-it-is-inserted-as-well-as-matched-so-it-must-be-a-value-and-null-never-conflicts)
+  - [`upsert on "tickets": "version" is the optimistic lock, which only update checks. Leave it out; every write raises it`](#upsert-on-tickets-version-is-the-optimistic-lock-which-only-update-checks-leave-it-out-every-write-raises-it)
   - [`upsert on "tickets": "version" is the optimistic lock, which the repository keeps. Leave it out`](#upsert-on-tickets-version-is-the-optimistic-lock-which-the-repository-keeps-leave-it-out)
   - [`upsert on "tickets": the values must be an object, not an array`](#upsert-on-tickets-the-values-must-be-an-object-not-an-array)
   - [`upsert on "tickets": "slug" is in both the where and the values. Name it in the where alone`](#upsert-on-tickets-slug-is-in-both-the-where-and-the-values-name-it-in-the-where-alone)
@@ -213,8 +214,8 @@ Or leave the column alone and drop `optimisticLock: true`.
 
 ### `as on "teams": the table has no createdBy, updatedBy or deletedBy column to stamp`
 
-**When:** `as(actor)`, or `createRepository(db, table, { actor })`, on a
-table with none of the three actor columns. The types refuse it already; this
+**When:** `as(actor)` on a table with none of the three actor columns — or
+the `actor` option there, whose message starts `createRepository on`. The types refuse it already; this
 is a caller they do not reach.
 **Why:** there is nothing to stamp the actor into. A bare `TypeError`: it is
 wiring, not input.
@@ -518,29 +519,33 @@ in the `WHERE`; it is never written. An `ArgumentError`, `argument: 'patch'`,
 **Fix:**
 
 ```ts
-await tickets.update(id, { title: body.title, version: Number(body.version) });
+if (!Number.isInteger(body.version) || body.version < 0) {
+	return c.json({ error: 'version must be the whole number that was read' }, 400);
+}
+await tickets.update(id, { title: body.title, version: body.version });
 ```
 
 To write a version by hand, use a repository with `optimisticLock: false`.
 
 ### `updateMany on "tickets": "version" is the optimistic lock, which only update checks. Leave it out; every write raises it`
 
-**When:** `updateMany`, or `upsert` (whose message starts `upsert on`), with
-`version` in the patch or the values, on a table that locks.
+**When:** `updateMany` with `version` in the patch, on a table that locks.
+`upsert` says the same about its values, under its own name, below.
 **Why:** one version cannot stand for many rows, and a row an upsert may
 insert has no version to be at. Every update raises it anyway. An
-`ArgumentError`, `argument: 'patch'` (or `'values'`), `key: 'version'`.
+`ArgumentError`, `argument: 'patch'`, `key: 'version'`.
 **Fix:**
 
 ```ts
-await tickets.updateMany({ teamId }, { archived: true }); // no version
+await tickets.updateMany({ slug }, { title: 'Closed' }); // no version
 // one row, conditionally: update(id, { …, version })
 ```
 
 ### `as on "tickets": the actor is undefined. Pass who is writing, or use the repository without as()`
 
-**When:** `as(undefined)` or `as(null)`, or the `actor` option set to
-`null` — usually a session that was never read.
+**When:** `as(undefined)` or `as(null)` — usually a session that was never
+read — or the `actor` option set to `null`, whose message starts
+`createRepository on`.
 **Why:** an actor that did not arrive would stamp nothing, silently, on
 every write. An `ArgumentError`, `argument: 'actor'`.
 **Fix:**
@@ -628,6 +633,15 @@ call would insert a new row; SQL is not a value an insert can seed from. An
 if (!body.slug) return c.json({ error: 'slug is required' }, 400);
 await tickets.upsert({ slug: body.slug }, { title: body.title });
 ```
+
+### `upsert on "tickets": "version" is the optimistic lock, which only update checks. Leave it out; every write raises it`
+
+**When:** `upsert` with `version` in the values, on a table that locks.
+**Why:** a row an upsert may insert has no version to be at, and the update
+half raises it anyway. An `ArgumentError`, `argument: 'values'`,
+`key: 'version'`.
+**Fix:** leave it out of the values; to write only while a row is at a
+version, read it and `update(id, { …, version })`.
 
 ### `upsert on "tickets": "version" is the optimistic lock, which the repository keeps. Leave it out`
 

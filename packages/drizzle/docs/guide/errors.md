@@ -191,7 +191,10 @@ try {
 ```ts
 class ArgumentError extends TypeError {
 	readonly code: 'INVALID_ARGUMENT';
-	/** The argument it is about: `where`, `orderBy`, `paginateByCursor`. */
+	/**
+	 * The argument it is about: `where`, `orderBy`, `patch`, `values`,
+	 * `actor`, or `paginateByCursor`.
+	 */
 	readonly argument: string;
 	/** The key inside that argument, when one is at fault. */
 	readonly key: string | undefined;
@@ -217,6 +220,12 @@ gains a `code` to switch on instead of a message to match.
 | `orderBy` | — | an `orderBy` that is not an ordering, a list or an object |
 | `orderBy` | the key | a key that is not a column, or a direction that is not `'asc'` or `'desc'` |
 | `paginateByCursor` | the key | an `orderBy` column the table does not have |
+| `patch` | `version` | on a table that locks: a `version` in `updateMany`'s patch, or one in `update`'s that is not a whole number |
+| `where` | — | `upsert` with a `where` that is not an object of column values, or is empty |
+| `where` | the key | `upsert` with a key that is no column, a value that is `null`, `undefined` or SQL, or `version` |
+| `values` | — | `upsert` with values that are not an object |
+| `values` | the key | `upsert` with a key the `where` already names, or `version` on a table that locks |
+| `actor` | — | `as(undefined)`, `as(null)`, or the `actor` option set to `null` |
 
 `ArgumentError` is **not** a `DataError`: `error instanceof DataError` is
 false, and a handler that only catches `DataError` lets it through.
@@ -225,7 +234,8 @@ false, and a handler that only catches `DataError` lets it through.
 come from a request does not get this class: a repository used on the
 database an open `withTransaction` is holding is a **bare** `TypeError`
 ([Transactions](transactions.md#forgetting-it-is-refused-not-hung)), and so
-is a table with no primary key. They fall through to the 500 branch on their
+are a table with no primary key, `optimisticLock: true` on a table without an
+integer `NOT NULL` `version`, and `as()` on a table with no actor column. They fall through to the 500 branch on their
 own, and no handler has to carve an exception out of `argument`.
 
 ## One handler for the app
@@ -275,7 +285,8 @@ log line says which listing refused, not only which option. `ArgumentError` come
 
 - **`TypeError`** is left for a mistake in the wiring rather than in a call: a
   table whose primary key needs the `primaryKey` option, a `restore` on a
-  table with no soft delete, a config on a nested
+  table with no soft delete, `optimisticLock: true` without a usable
+  `version`, `as()` or `actor` on a table with no actor column, a config on a nested
   [`withTransaction`](transactions.md#isolation). The message says what to
   change. `ArgumentError` extends it, so a `catch` on `TypeError` takes both.
 - **`RangeError`** is a `page`, `pageSize` or `limit` that is not a positive

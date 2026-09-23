@@ -55,7 +55,9 @@ export function createContext(
 		actor: undefined,
 	};
 	// The option is `as()` said earlier, and refused the same way.
-	return options.actor === undefined ? ctx : acting(ctx, options.actor);
+	return options.actor === undefined
+		? ctx
+		: acting(ctx, options.actor, 'createRepository');
 }
 
 /**
@@ -83,17 +85,18 @@ export function rebound(
 export function acting(
 	ctx: RepositoryContext,
 	actor: unknown,
+	call = 'as',
 ): RepositoryContext {
 	const { createdBy, updatedBy, deletedBy } = ctx.info;
 	if (!createdBy && !updatedBy && !deletedBy) {
 		throw new TypeError(
-			`as on "${ctx.info.name}": the table has no createdBy, updatedBy or deletedBy column to stamp`,
+			`${call} on "${ctx.info.name}": the table has no createdBy, updatedBy or deletedBy column to stamp`,
 		);
 	}
 	if (actor === undefined || actor === null) {
 		throw new ArgumentError(
 			'actor',
-			`as on "${ctx.info.name}": the actor is ${String(actor)}. Pass who is writing, or use the repository without as()`,
+			`${call} on "${ctx.info.name}": the actor is ${String(actor)}. Pass who is writing, or use the repository without as()`,
 		);
 	}
 	return { ...ctx, actor };

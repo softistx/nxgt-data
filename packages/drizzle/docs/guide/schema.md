@@ -94,8 +94,9 @@ the helpers.
 ## Migrations
 
 This package writes no DDL and ships no CLI: the tables are yours, and
-`drizzle-kit` (or your own SQL) creates them. What `id()`, `timestamps()` and
-`softDelete()` produce is the SQL in the table above.
+`drizzle-kit` (or your own SQL) creates them. What `id()`, `timestamps()`,
+`softDelete()`, `version()` and `actors()` produce is the SQL in the table
+above.
 
 One thing to write by hand: a unique constraint on a soft-deleted table
 should ignore the deleted rows, or a deleted `ada@example.com` keeps the
@@ -104,6 +105,10 @@ address forever.
 ```sql
 create unique index users_email_live on users (email) where deleted_at is null;
 ```
+
+Such a partial index serves no [`upsert`](stamps.md#the-unique-constraint-is-the-guarantee):
+`ON CONFLICT` matches it only with its predicate, which this package does not
+send. A key a table upserts on needs a plain unique constraint.
 
 ## Signatures
 

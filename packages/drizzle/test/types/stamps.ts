@@ -3,6 +3,7 @@
 // not compile: if it compiles, tsc reports the unused directive.
 
 import { sql } from 'drizzle-orm';
+import { doublePrecision, integer, pgTable, text } from 'drizzle-orm/pg-core';
 import {
 	type ActorOf,
 	createRepository,
@@ -27,6 +28,22 @@ const teamRepo = createRepository(db, teams);
 // A table locks by default when it has an integer NOT NULL `version`.
 assertType<Equal<LockOf<typeof tickets>, true>>(true);
 assertType<Equal<LockOf<typeof users>, false>>(true);
+// A `version` that is a number but not a counter does not lock, at run time
+// or in the types: a `double` version is written, never checked.
+const measured = pgTable('measured', {
+	id: integer('id').primaryKey(),
+	version: doublePrecision('version').notNull(),
+});
+assertType<Equal<LockOf<typeof measured>, false>>(true);
+const drafts = pgTable('drafts', {
+	id: integer('id').primaryKey(),
+	version: integer('version'),
+	title: text('title'),
+});
+assertType<Equal<LockOf<typeof drafts>, false>>(true);
+// @ts-expect-error users has no version to lock on
+createRepository(db, users, { optimisticLock: true });
+createRepository(db, users, { optimisticLock: false });
 
 // update takes the version it read — a number, never SQL.
 await ticketRepo.update('x', { title: 'b', version: 3 });
@@ -52,6 +69,8 @@ const acting = ticketRepo.as('b1c7…');
 assertType<Equal<typeof acting, typeof ticketRepo>>(true);
 // @ts-expect-error the actor columns are uuids
 ticketRepo.as(1);
+// @ts-expect-error nobody is not an actor: use the repository without as()
+ticketRepo.as(null);
 // @ts-expect-error teams has no actor column to stamp
 teamRepo.as('someone');
 createRepository(db, tickets, { actor: 'b1c7…' });
@@ -75,6 +94,10 @@ await userRepo.upsert({ email: sql`'a'` }, {});
 await userRepo.upsert({ emial: 'a@example.com' }, {});
 // @ts-expect-error the repository keeps the version
 await ticketRepo.upsert({ slug: 'a' }, { title: 'A', version: 1 });
+// @ts-expect-error the version is no key to conflict on
+await ticketRepo.upsert({ slug: 'a', version: 1 }, { title: 'A' });
+// @ts-expect-error an empty where has nothing to conflict on
+await userRepo.upsert({}, { email: 'a@example.com' });
 // @ts-expect-error email is a string
 await userRepo.upsert({ email: 1 }, {});
 

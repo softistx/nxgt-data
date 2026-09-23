@@ -109,6 +109,16 @@ describe('actor stamps', () => {
 				`as on "tickets": the actor is ${String(actor)}. Pass who is writing, or use the repository without as()`,
 			);
 		}
+		expect(() =>
+			createRepository(t.db, tickets, { actor: null as never }),
+		).toThrow(
+			'createRepository on "tickets": the actor is null. Pass who is writing, or use the repository without as()',
+		);
+		expect(() =>
+			createRepository(t.db, teams, { actor: ada as never }),
+		).toThrow(
+			'createRepository on "teams": the table has no createdBy, updatedBy or deletedBy column to stamp',
+		);
 		const plain = createRepository(t.db, teams) as unknown as {
 			as(actor: unknown): unknown;
 		};

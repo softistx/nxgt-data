@@ -1,10 +1,11 @@
-import { Column, is, SQL, sql } from 'drizzle-orm';
+import { is, SQL, sql } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { ArgumentError } from '../../../errors/argument-error';
 import { ConflictError, DataError } from '../../../errors/data-error';
+import { isPlainObject, shapeOf } from '../conditions';
 import { type AnyRow, builders, type RepositoryContext, run } from '../context';
 import { live } from '../filters';
-import { created, expecting, shapeOf, touched } from '../stamp-writes';
+import { created, expecting, touched } from '../stamp-writes';
 
 /** A column the `where` names, and so the conflict target. */
 interface Seed {
@@ -59,7 +60,7 @@ export async function upsert(
  */
 function seedsOf(ctx: RepositoryContext, where: unknown): Seed[] {
 	const on = `upsert on "${ctx.info.name}"`;
-	if (!isRecord(where)) {
+	if (!isPlainObject(where)) {
 		throw new ArgumentError(
 			'where',
 			`${on}: the where must be an object of column values, not ${shapeOf(where)}`,
@@ -107,7 +108,7 @@ function valuesOf(
 	seeds: readonly Seed[],
 	given: unknown,
 ): AnyRow {
-	if (!isRecord(given)) {
+	if (!isPlainObject(given)) {
 		throw new ArgumentError(
 			'values',
 			`upsert on "${ctx.info.name}": the values must be an object, not ${shapeOf(given)}`,
@@ -129,8 +130,20 @@ function valuesOf(
 const CREATION = ['createdAt', 'createdBy'];
 
 /**
+ * Whether the update half leaves this key alone: a creation stamp, or the
+ * primary key. A `values` that names the id chooses it for an insert; on a
+ * row that is already there it would move the row to another id, which
+ * `@nxgt/mongo`'s upsert does not do to `_id` either.
+ */
+function kept(ctx: RepositoryContext, key: string): boolean {
+	const pk = ctx.info.primaryKey;
+	return CREATION.includes(key) || ('key' in pk && pk.key === key);
+}
+
+/**
  * What the update half sets: each value the call gives, read from `excluded`
- * so it is sent once, plus the stamps `update` adds.
+ * so it is sent once, plus the stamps `update` adds — and never the primary
+ * key or a creation stamp.
  *
  * With nothing to write, it still has to set something — `DO UPDATE` with an
  * empty `SET` is not SQL, and `DO NOTHING` returns no row. It sets the target
@@ -146,7 +159,7 @@ function conflictSet(
 	const written: AnyRow = {};
 	for (const [key, value] of Object.entries(values)) {
 		const column = ctx.info.columns[key];
-		if (value === undefined || !column || CREATION.includes(key)) continue;
+		if (value === undefined || !column || kept(ctx, key)) continue;
 		written[key] = excluded(column);
 	}
 	if (Object.keys(written).length > 0) return touched(ctx, written);
@@ -187,14 +200,4 @@ function noTarget(
 
 function names(seeds: readonly Seed[]): string {
 	return seeds.map((seed) => seed.column.name).join(', ');
-}
-
-function isRecord(value: unknown): value is AnyRow {
-	return (
-		typeof value === 'object' &&
-		value !== null &&
-		!Array.isArray(value) &&
-		!is(value, SQL) &&
-		!is(value, Column)
-	);
 }

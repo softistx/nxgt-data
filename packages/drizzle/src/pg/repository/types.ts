@@ -42,15 +42,21 @@ export type PrimaryKeyOf<TTable extends PgTable> =
 export type HasColumn<TTable extends PgTable, K extends string> =
 	K extends ColumnKey<TTable> ? true : false;
 
+/** The integer `dataType`s Drizzle gives a column read back as a `number`. */
+type Counter = 'number int16' | 'number int32' | 'number int53';
+
 /**
  * Whether a repository on this table locks by default: it has an integer
- * `version` that is `NOT NULL`. A nullable or a non-integer `version` is an
- * ordinary column, as it is at run time.
+ * `version` that is `NOT NULL`. A nullable one, or a `double`, `real` or
+ * `numeric` one — a `number` too, but not a counter — is an ordinary column,
+ * as it is at run time: both read the column's `dataType`.
  */
 export type LockOf<TTable extends PgTable> =
 	'version' extends ColumnKey<TTable>
 		? Row<TTable>['version' & keyof Row<TTable>] extends number
-			? true
+			? TTable['_']['columns']['version']['_']['dataType'] extends Counter
+				? true
+				: false
 			: false
 		: false;
 
@@ -101,9 +107,27 @@ export type ManyPatch<
  * unique constraint covers. Plain values — no SQL, no `null`, which never
  * conflicts — since they are inserted as well as matched.
  */
-export type UpsertWhere<TTable extends PgTable> = {
-	[K in keyof Row<TTable>]?: NonNullable<Row<TTable>[K]>;
+export type UpsertWhere<
+	TTable extends PgTable,
+	TLock extends boolean = LockOf<TTable>,
+> = {
+	[K in Exclude<
+		keyof Row<TTable>,
+		TLock extends true ? 'version' : never
+	>]?: NonNullable<Row<TTable>[K]>;
 };
+
+/**
+ * The `where` an `upsert` takes: no key but the table's, and at least one —
+ * `{}` has nothing to conflict on.
+ */
+export type UpsertWhereOf<
+	TTable extends PgTable,
+	TLock extends boolean,
+	W,
+> = W & {
+	[K in Exclude<keyof W, keyof UpsertWhere<TTable, TLock>>]: never;
+} & ([keyof W] extends [never] ? { 'upsert needs a key': never } : unknown);
 
 /**
  * What an `upsert` writes, either way: the insert values without the keys the
@@ -215,7 +239,7 @@ export interface RepositoryOptions<
 	 * it, and `update` checks the `version` a patch gives instead of writing
 	 * it. `false` makes `version` an ordinary column.
 	 */
-	optimisticLock?: TLock;
+	optimisticLock?: LockOf<TTable> extends true ? TLock : false;
 	/**
 	 * Who is writing, stamped into `createdBy`, `updatedBy` and `deletedBy`.
 	 * `as(actor)` is the same thing, later.
@@ -282,8 +306,8 @@ export interface BaseRepository<
 	 * columns>) DO UPDATE`. A unique constraint must cover exactly those
 	 * columns. Throws `ConflictError` when the row there is soft-deleted.
 	 */
-	upsert<const W extends UpsertWhere<TTable>>(
-		where: W & { [K in Exclude<keyof W, keyof Row<TTable>>]: never },
+	upsert<const W extends UpsertWhere<TTable, TLock>>(
+		where: UpsertWhereOf<TTable, TLock, W>,
 		values: UpsertValues<TTable, keyof W, TLock>,
 	): Promise<Row<TTable>>;
 	/**

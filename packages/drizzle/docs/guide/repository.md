@@ -214,6 +214,15 @@ Three edges worth knowing:
 await userRepository.deleteMany(sql`true`); // yes, all of them
 ```
 
+One write inserts or updates, in a single `INSERT … ON CONFLICT`:
+`upsert(where, values)`. A `version` in `update`'s patch is checked rather
+than written on a table that locks, and `as(actor)` stamps who wrote. All
+three are [guide/stamps.md](stamps.md).
+
+```ts
+await userRepository.upsert({ email: 'ada@example.com' }, { name: 'Ada' });
+```
+
 ## Primary keys
 
 The methods by id use the column under the key `id`. Drizzle 1.0's column
@@ -355,9 +364,17 @@ test('a deleted user is gone', async () => {
 ## Types
 
 ```ts
-type Repository<TTable, TKey = PrimaryKeyOf<TTable>, TSoft = HasColumn<TTable, 'deletedAt'>> =
-	BaseRepository<TTable, TKey, TSoft> &
-		(TSoft extends true ? SoftDeleteMethods<TTable, TKey> : unknown);
+type Repository<
+	TTable,
+	TKey = PrimaryKeyOf<TTable>,
+	TSoft = HasColumn<TTable, 'deletedAt'>,
+	TLock = LockOf<TTable>,          // an integer NOT NULL `version`
+> = BaseRepository<TTable, TKey, TSoft, TLock> &
+	(TSoft extends true ? SoftDeleteMethods<TTable, TKey> : unknown);
+
+// What `update`, `updateMany` and `upsert` take, and who `as` takes:
+// UpdatePatch, ManyPatch, UpsertWhere, UpsertValues, ActorOf and LockOf,
+// spelled out in guide/stamps.md#signatures.
 
 type Row<TTable> = InferSelectModel<TTable>;      // table.$inferSelect
 type Insert<TTable> = PgInsertValue<TTable>;      // what create takes

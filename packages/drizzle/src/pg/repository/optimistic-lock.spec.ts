@@ -154,12 +154,12 @@ describe('optimistic locking', () => {
 			version: text('rank'),
 		});
 		expect(() =>
-			createRepository(t.db, drafts, { optimisticLock: true }),
+			createRepository(t.db, drafts, { optimisticLock: true as never }),
 		).toThrow(
 			`createRepository: optimisticLock needs an integer NOT NULL "version" column, and "posts"'s is not one`,
 		);
 		expect(() =>
-			createRepository(t.db, posts, { optimisticLock: true }),
+			createRepository(t.db, posts, { optimisticLock: true as never }),
 		).toThrow(
 			'createRepository: optimisticLock needs a "version" column, and "posts" has none',
 		);

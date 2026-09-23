@@ -28,7 +28,9 @@ function columnAt(info: TableInfo, key: string, what: string): PgColumn {
 	return column;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
+export function isPlainObject(
+	value: unknown,
+): value is Record<string, unknown> {
 	return (
 		typeof value === 'object' &&
 		value !== null &&
@@ -123,3 +125,17 @@ export function keysetAfter(
 }
 
 export { columnAt };
+
+/** What a value is, for a message that must not print it. */
+export function shapeOf(value: unknown): string {
+	if (value === null || value === undefined) return String(value);
+	if (is(value, SQL)) return 'SQL';
+	if (Array.isArray(value)) return 'an array';
+	if (typeof value === 'number') {
+		if (Number.isNaN(value)) return 'NaN';
+		if (!Number.isInteger(value)) return 'a fraction';
+		return value < 0 ? 'a negative number' : 'a number';
+	}
+	const type = typeof value;
+	return /^[aeiou]/.test(type) ? `an ${type}` : `a ${type}`;
+}

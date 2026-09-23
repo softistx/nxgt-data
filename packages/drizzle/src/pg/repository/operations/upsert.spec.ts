@@ -118,6 +118,25 @@ describe('upsert', () => {
 		expect((await repo.findFirst({ slug: 'a' }))?.version).toBe(0);
 	});
 
+	test('an id in the values is chosen on insert, and never moves a row that is there', async () => {
+		const repo = createRepository(t.db, tickets);
+		const chosen = crypto.randomUUID();
+		const first = await repo.upsert({ slug: 'a' }, { title: 'A', id: chosen });
+		expect(first.id).toBe(chosen);
+		const second = await repo.upsert(
+			{ slug: 'a' },
+			{ title: 'B', id: crypto.randomUUID() },
+		);
+		expect(second).toMatchObject({ id: chosen, title: 'B' });
+	});
+
+	test('nothing to write leaves an $onUpdate column as it was', async () => {
+		const repo = createRepository(t.db, users);
+		const first = await repo.upsert({ email: 'ada@example.com' }, {});
+		const again = await repo.upsert({ email: 'ada@example.com' }, {});
+		expect(again).toEqual(first);
+	});
+
 	test('takes SQL in the values', async () => {
 		const repo = createRepository(t.db, users);
 		const row = await repo.upsert(

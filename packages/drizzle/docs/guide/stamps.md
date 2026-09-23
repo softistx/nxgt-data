@@ -89,6 +89,9 @@ table, before anything is sent:
 | `{ version: 0 }` | the repository keeps the version |
 | `{}` | nothing to conflict on |
 
+Every row of that table is refused by the types too, and `version` in the
+`where` only on a table that locks.
+
 The values do not repeat a key the `where` names — the types leave it out,
 and a caller the types do not reach gets an `ArgumentError`.
 
@@ -116,7 +119,9 @@ when someone is [acting](#who-is-writing).
 **The update** does what `update` does: the values, `updatedAt = now()`
 (unless the values set it, or the column has `$onUpdate`), `updatedBy`, and
 `version + 1`. It **never** moves `createdAt` or `createdBy`, even when the
-values name them — they say how the row came to be. Each value is read back
+values name them — they say how the row came to be — nor the primary key: an
+`id` in the values is the id an insert gets, and a row already there keeps
+its own. Each value is read back
 from `excluded`, so it is sent once, SQL included:
 
 ```ts
@@ -236,8 +241,9 @@ const importer = createRepository(db, tickets, { optimisticLock: false });
 await importer.update(id, { version: 12 });   // written as it is
 ```
 
-`optimisticLock: true` on a table without an integer `NOT NULL` `version` is
-a `TypeError` when the repository is created. A nullable one does not lock by
+`optimisticLock: true` on a table without an integer `NOT NULL` `version`
+does not compile, and is a `TypeError` when the repository is created for a
+caller the types do not reach. A nullable one does not lock by
 default — `null + 1` is `null`, and a lock on it checks nothing — and neither
 does a `text` `version`, which is somebody's data, not a counter.
 
@@ -267,7 +273,8 @@ await acting.update(id, { title: 'B' });
 
 - The actor is typed by the columns: a `uuid` column takes a `string`, an
   `integer` one a `number`. `as` does not compile on a table with none of the
-  three, and throws a `TypeError` for a caller the types do not reach.
+  three, and throws a `TypeError` for a caller the types do not reach; the
+  `actor` option is refused the same way, under the name `createRepository`.
 - `as(undefined)` and `as(null)` are an `ArgumentError`: an actor that never
   arrived is a session nobody read, and a repository that quietly stamped
   nothing would hide it. Use the repository without `as()` for a script.
@@ -315,15 +322,15 @@ interface BaseRepository<TTable, TKey, TSoft, TLock> {
 	as(actor: ActorOf<TTable>): Repository<TTable, TKey, TSoft, TLock>;
 	update(id: Row[TKey], patch: UpdatePatch<TTable, TLock>): Promise<Row>;
 	updateMany(where: Where<TTable>, patch: ManyPatch<TTable, TLock>): Promise<Row[]>;
-	upsert<const W extends UpsertWhere<TTable>>(
-		where: W,
+	upsert<const W extends UpsertWhere<TTable, TLock>>(
+		where: UpsertWhereOf<TTable, TLock, W>,   // W, with no other key, and at least one
 		values: UpsertValues<TTable, keyof W, TLock>,
 	): Promise<Row>;
 	// …and the rest of guide/repository.md
 }
 
 interface RepositoryOptions<TTable, TKey, TSoft, TLock> {
-	optimisticLock?: TLock;          // default: the table has an integer NOT NULL version
+	optimisticLock?: LockOf<TTable> extends true ? TLock : false;   // default: LockOf<TTable>
 	actor?: ActorOf<TTable>;
 	// …primaryKey, softDelete, touchUpdatedAt, maxPageSize
 }
@@ -334,12 +341,12 @@ type UpdatePatch<TTable, TLock> = TLock extends true
 type ManyPatch<TTable, TLock> = TLock extends true
 	? Omit<Patch<TTable>, 'version'> & { version?: never }
 	: Patch<TTable>;
-type UpsertWhere<TTable> = { [K in keyof Row<TTable>]?: NonNullable<Row<TTable>[K]> };
+type UpsertWhere<TTable, TLock> = { [K in keyof Row<TTable>]?: NonNullable<Row<TTable>[K]> };   // no `version` where it locks
 type UpsertValues<TTable, TWhereKey, TLock> = TLock extends true
 	? Omit<Insert<TTable>, TWhereKey | 'version'> & { version?: never }
 	: Omit<Insert<TTable>, TWhereKey>;
 type ActorOf<TTable>;   // createdBy's type, else updatedBy's, else deletedBy's; never without any
-type LockOf<TTable>;    // true when the table has an integer NOT NULL version
+type LockOf<TTable>;    // true when `version` is NOT NULL and its Drizzle dataType is 'number int16|int32|int53'
 
 class OptimisticLockError extends DataError {
 	readonly code: 'OPTIMISTIC_LOCK';

@@ -1,6 +1,7 @@
-import { is, SQL, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { ArgumentError } from '../../errors/argument-error';
 import { OptimisticLockError } from '../../errors/data-error';
+import { shapeOf } from './conditions';
 import type { AnyRow, RepositoryContext } from './context';
 
 /**
@@ -115,18 +116,4 @@ export function lockError(
 			actualVersion: typeof actual === 'number' ? actual : undefined,
 		},
 	);
-}
-
-/** What a value is, for a message that must not print it. */
-export function shapeOf(value: unknown): string {
-	if (value === null || value === undefined) return String(value);
-	if (is(value, SQL)) return 'SQL';
-	if (Array.isArray(value)) return 'an array';
-	if (typeof value === 'number') {
-		if (Number.isNaN(value)) return 'NaN';
-		if (!Number.isInteger(value)) return 'a fraction';
-		return value < 0 ? 'a negative number' : 'a number';
-	}
-	const type = typeof value;
-	return /^[aeiou]/.test(type) ? `an ${type}` : `a ${type}`;
 }
