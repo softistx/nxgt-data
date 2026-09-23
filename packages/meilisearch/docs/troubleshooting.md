@@ -20,6 +20,7 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`The provided API key is invalid.`](#the-provided-api-key-is-invalid)
   - [`Rebuild of index "movies" stopped while filling "movies_next":`](#rebuild-of-index-movies-stopped-while-filling-movies_next)
   - [`Rebuild of index "movies" stopped while creating "movies_next":`](#rebuild-of-index-movies-stopped-while-creating-movies_next)
+  - [`Rebuild of index "movies" stopped while swapping "movies_next":`](#rebuild-of-index-movies-stopped-while-swapping-movies_next)
   - [`Rebuild of index "movies" sent the swap with "movies_next" and could not wait for it:`](#rebuild-of-index-movies-sent-the-swap-with-movies_next-and-could-not-wait-for-it)
   - [`rebuild on "movies": nextUid must differ from the index's own uid`](#rebuild-on-movies-nextuid-must-differ-from-the-indexs-own-uid)
   - [`The Authorization header is missing. It must use the bearer authorization method.`](#the-authorization-header-is-missing-it-must-use-the-bearer-authorization-method)
@@ -36,7 +37,7 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`tenantToken for "movies": expiresAt is in the past`](#tenanttoken-for-movies-expiresat-is-in-the-past)
   - [`tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date`](#tenanttoken-for-movies-expiresat-is-a-number-of-milliseconds-it-takes-seconds-or-a-date)
   - [`tenantToken for "movies_next": searchRules names "movies", which is not the uid of any of its indexes`](#tenanttoken-for-movies_next-searchrules-names-movies-which-is-not-the-uid-of-any-of-its-indexes)
-  - [`tenantToken for "movies": searchRules must be a plain object, not one that inherits its rules`](#tenanttoken-for-movies-searchrules-must-be-a-plain-object-not-one-that-inherits-its-rules)
+  - [`tenantToken for "movies": searchRules must be a plain object`](#tenanttoken-for-movies-searchrules-must-be-a-plain-object)
   - [`the uid of your key is not a valid UUIDv4`](#the-uid-of-your-key-is-not-a-valid-uuidv4)
   - [`failed to detect a server-side environment; do not generate tokens on the frontend in production!`](#failed-to-detect-a-server-side-environment-do-not-generate-tokens-on-the-frontend-in-production)
   - [``Tenant token expired. Was valid up to `1790139850` and we're now `1790139910`.``](#tenant-token-expired-was-valid-up-to-1790139850-and-were-now-1790139910)
@@ -178,11 +179,10 @@ every token it signed.
 ### `Rebuild of index "movies" stopped while filling "movies_next":`
 
 The line goes on: *"movies_next" was deleted, and "movies" is as it was.
-The cause is on `cause`.* The word after *while* is `swapping` when the swap
-task itself came back `failed`; for `creating`, see the next entry. When
-the next index could not be deleted — a key without `indexes.delete`,
-measured — *was deleted* reads *could not be deleted; the next rebuild
-deletes it first*.
+The cause is on `cause`.* For `creating` and `swapping`, see the next two
+entries. When the next index could not be deleted — a key without
+`indexes.delete`, measured — *was deleted* reads *could not be deleted; the
+next rebuild deletes it first*.
 
 **When:** `rebuild(fill)`, when `fill` threw, or when a write it left on the
 next index — waited for or only enqueued — ended `failed`.
@@ -207,8 +207,11 @@ The cause is on `cause`.*
 
 **When:** `rebuild(fill)`, before `fill` runs: creating `movies_next` or
 applying the definition's settings to it failed. Measured with a key
-lacking `settings.update`: `cause` is the SDK's `MeilisearchApiError`
-`The provided API key is invalid.` (`invalid_api_key`).
+lacking `settings.update`, and with one lacking `indexes.create`: `cause` is
+the SDK's `MeilisearchApiError` `The provided API key is invalid.`
+(`invalid_api_key`). When the creation itself was refused there is nothing
+to delete — the deletion fails `index_not_found`, which counts as gone —
+and the line still says *was deleted*.
 **Why:** the next index is created by the same `syncIndex` as `sync()`, so
 it needs the same actions; the half-made index is deleted so that nothing
 of it is swapped in later.
@@ -222,6 +225,29 @@ const key = await admin.createKey({
 	indexes: ['*'],
 	expiresAt: null,
 });
+```
+
+### `Rebuild of index "movies" stopped while swapping "movies_next":`
+
+The line goes on: *"movies_next" was deleted, and "movies" is as it was.
+The cause is on `cause`.* — or *could not be deleted; the next rebuild
+deletes it first*, as for `filling`.
+
+**When:** `rebuild(fill)`, after `fill` and its tasks succeeded: looking up
+the live index before the swap failed, or the swap task was read back and
+had ended `failed` or `canceled`. `cause` is the SDK's error, or a
+`TASK_FAILED` `SearchIndexError` whose `task` — the swap — is copied onto
+this error. Not measured against a server: v1.53.2 fails no swap of two
+indexes that exist, and this package sends no other.
+**Why:** a swap that failed changed nothing — it is one atomic task — so
+the live index is as it was, and the next one is deleted like any other
+stop before the swap. It is not the *unknown* case below: here the task was
+read back.
+**Fix:** read `task.error.code` and `cause`, then rebuild again:
+
+```ts
+const error = await movieIndex.rebuild(fill).catch((e) => e);
+if (error.code === 'REBUILD_FAILED') console.error(error.task?.error?.code, error.cause);
 ```
 
 ### `Rebuild of index "movies" sent the swap with "movies_next" and could not wait for it:`
@@ -483,13 +509,16 @@ await movieIndex.rebuild(async (next) => {
 });
 ```
 
-### `tenantToken for "movies": searchRules must be a plain object, not one that inherits its rules`
+### `tenantToken for "movies": searchRules must be a plain object`
 
 **When:** `tenantToken` with a `searchRules` whose prototype is neither
 `Object.prototype` nor `null` — `Object.create(defaults)`, or an instance of
 a class. A bare `TypeError`, thrown before anything is signed.
 **Why:** only a rule that is an **own** key is read. An inherited one would
-be dropped, and its index searched with no filter.
+be dropped, and its index searched with no filter; a class instance is
+refused with it, since its prototype can hold a rule — a getter — that is
+not an own key either. An object made with `Object.create(null)` is plain,
+and accepted.
 **Fix:** spread it into a plain object:
 
 ```ts

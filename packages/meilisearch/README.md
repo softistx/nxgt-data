@@ -320,7 +320,11 @@ const token = await tenantToken({
 `meilisearch/token`) and sends nothing. The token may search only the bound
 `indexes` given, and `searchRules` is keyed by their uids — a rule for
 another index, or a misspelt uid, does not compile. The filter is **added**
-to every search made with the token, measured on v1.53.2.
+to every search made with the token, measured on v1.53.2. A `searchRules`
+key that is not the uid one of the indexes has at run time, or a
+`searchRules` that is not a plain object — a class instance, or one that
+inherits its rules — throws a `TypeError` before anything is signed, rather
+than leave an index unfiltered.
 
 `expiresAt` is a `Date` or whole seconds since the epoch. One that is already
 past, a number of milliseconds (which the server accepts, for millennia), a
@@ -333,8 +337,10 @@ The SDK's errors reach you as they are: a request Meilisearch refuses throws
 its `MeilisearchApiError`, with `cause.code`, a timeout its
 `MeilisearchTaskTimeOutError`. The one exception is `rebuild`: what stops it between creating the next index and reading back its swap
 task reaches you as the `cause` of a `REBUILD_FAILED`. Before that — the
-`nextUid` refusal, a bare `TypeError`, and deleting a leftover `_next` —
-and after it — deleting the previous index — errors arrive unwrapped.
+`nextUid` refusal, a bare `TypeError`, and looking up or deleting a
+leftover `_next` — and after it — deleting the previous index — errors
+arrive unwrapped. `tenantToken`'s refusals of `searchRules` are bare
+`TypeError`s too.
 
 This package throws one error of its own, `SearchIndexError`:
 
@@ -342,7 +348,7 @@ This package throws one error of its own, `SearchIndexError`:
 | --- | --- | --- |
 | `PRIMARY_KEY_MISMATCH` | `sync` found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
 | `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error`, whose sentence the message leaves out — it can quote a filter or a document id |
-| `REBUILD_FAILED` | `rebuild` stopped before the swap, its swap task came back `failed`, or it could not wait for the swap | `cause`: what stopped it; `task` when a task failed |
+| `REBUILD_FAILED` | `rebuild` stopped before the swap and deleted `_next`, or says it could not; its swap task came back `failed`; or it could not wait for the swap, and deleted nothing | `cause`: what stopped it; `task` when a task failed |
 | `INVALID_EXPIRES_AT` | `tenantToken` was given an `expiresAt` past, in milliseconds, fractional or invalid | `indexUid`: the token's uids, joined by `,` |
 
 ```ts

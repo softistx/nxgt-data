@@ -282,6 +282,29 @@ describe('rebuild', () => {
 			expect(await titles()).toEqual(before);
 		});
 
+		test('a key that may not create indexes stops while creating, and says nothing is left', async () => {
+			await live();
+			const before = await titles();
+			const client = await clientWith(['*'], ['indexes.create']);
+			const error = await bindIndex(client, movies)
+				.rebuild(async () => {
+					throw new Error('fill must not run');
+				})
+				.catch((e) => e);
+			expect(error).toBeInstanceOf(SearchIndexError);
+			expect(error.code).toBe('REBUILD_FAILED');
+			// The deletion that follows fails index_not_found: there is nothing to
+			// delete, which is what the message must say, not "could not".
+			expect(error.message).toBe(
+				'Rebuild of index "movies" stopped while creating "movies_next": ' +
+					'"movies_next" was deleted, and "movies" is as it was. The cause is on `cause`.',
+			);
+			expect(error.cause).toBeInstanceOf(MeilisearchApiError);
+			expect(error.cause.cause.code).toBe('invalid_api_key');
+			expect(await uids()).toEqual(['movies']);
+			expect(await titles()).toEqual(before);
+		});
+
 		test('a key that may not delete indexes says so when a rebuild stops, and leaves the next index', async () => {
 			await live();
 			const before = await titles();

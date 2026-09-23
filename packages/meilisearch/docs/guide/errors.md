@@ -102,8 +102,8 @@ again.
 ### `REBUILD_FAILED`
 
 [`rebuild`](rebuild.md) fills `<uid>_next` and swaps it in. Anything that
-stops it before the swap deletes `<uid>_next` and leaves the live index as
-it was; `cause` is the reason — what `fill` threw, or a `TASK_FAILED`
+stops it before the swap deletes `<uid>_next`, or says it could not, and
+leaves the live index as it was; `cause` is the reason — what `fill` threw, or a `TASK_FAILED`
 `SearchIndexError` for a task `fill` left that failed, whose `task` is also
 copied onto this error:
 
@@ -166,9 +166,16 @@ Three places where this package steps in front of the SDK, and only three:
 - `rebuild` wraps whatever stops it between creating the next index and
   reading back its swap task — the SDK's error included — in a
   `REBUILD_FAILED`, as `cause`, because it cleaned up after it. Not
-  wrapped: the `nextUid` refusal (a bare `TypeError`) and a failure to
-  delete a leftover `_next`, both before; a failure to delete the previous
-  index, after the swap.
+  wrapped: the `nextUid` refusal (a bare `TypeError`), and a failure to look
+  up a leftover `_next` or to delete it, all before; a failure to delete the
+  previous index, after the swap.
+
+Besides `SearchIndexError`, the package throws bare `TypeError`s for a call
+it refuses before sending or signing anything, with no code: `rebuild`'s
+`nextUid` equal to the uid, and `tenantToken`'s `searchRules` naming a uid
+none of its indexes has, or not a plain object. They come from code, not
+from a request — see [troubleshooting.md](../troubleshooting.md#tenant-tokens)
+for each message.
 
 ## One handler for the app
 

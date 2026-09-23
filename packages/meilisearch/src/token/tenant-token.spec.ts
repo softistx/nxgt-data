@@ -245,8 +245,39 @@ describe('tenantToken', () => {
 		}).catch((e) => e);
 		expect(error).toBeInstanceOf(TypeError);
 		expect(error.message).toBe(
-			'tenantToken for "movies": searchRules must be a plain object, not one that inherits its rules',
+			'tenantToken for "movies": searchRules must be a plain object',
 		);
+	});
+
+	test('a class instance is refused as not a plain object', async () => {
+		class Rules {
+			movies = { filter: 'genres = scifi' };
+		}
+		const error = await tenantToken({
+			apiKey: key.key,
+			apiKeyUid: 'not-a-uuid',
+			indexes: [movieIndex()],
+			searchRules: new Rules(),
+		}).catch((e) => e);
+		expect(error).toBeInstanceOf(TypeError);
+		expect(error.message).toBe(
+			'tenantToken for "movies": searchRules must be a plain object',
+		);
+	});
+
+	test('a null-prototype object is a plain object, and its rules apply', async () => {
+		const rules = Object.assign(Object.create(null), {
+			movies: { filter: 'genres = scifi' },
+		});
+		const token = await tenantToken({
+			apiKey: key.key,
+			apiKeyUid: key.uid,
+			indexes: [movieIndex()],
+			searchRules: rules,
+			expiresAt: inAnHour(),
+		});
+		const result = await as(token).index('movies').search('');
+		expect(result.hits.map((m) => m.id).sort()).toEqual([1, 2, 4]);
 	});
 
 	test('a key uid that is not a UUID is the SDK’s own refusal', async () => {

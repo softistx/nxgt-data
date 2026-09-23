@@ -32,8 +32,9 @@ export interface SearchIndexErrorOptions {
  *   names the call and Meilisearch's error code; the server's own sentence,
  *   which can quote a filter or a document id, is only on `cause`.
  * - `REBUILD_FAILED`: `rebuild` stopped before the swap, deleted the next
- *   index and left the live one as it was — or sent the swap and could not
- *   wait for it, and deleted nothing; `cause` is what stopped it.
+ *   index — or says it could not — and left the live one as it was; or it
+ *   sent the swap and could not wait for it, and deleted nothing. `cause` is
+ *   what stopped it.
  * - `INVALID_EXPIRES_AT`: `tenantToken` was given an `expiresAt` that is past,
  *   or not a time Meilisearch reads; nothing was signed. `indexUid` holds the
  *   token's uids, joined by `,`.

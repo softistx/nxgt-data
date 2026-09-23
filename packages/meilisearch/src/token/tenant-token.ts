@@ -116,8 +116,7 @@ export async function tenantToken<const Indexes extends TokenIndexes>(
 	const prototype = Object.getPrototypeOf(given);
 	if (prototype !== Object.prototype && prototype !== null) {
 		throw new TypeError(
-			`tenantToken for ${quoted(uids)}: searchRules must be a plain object, ` +
-				'not one that inherits its rules',
+			`tenantToken for ${quoted(uids)}: searchRules must be a plain object`,
 		);
 	}
 	const rules = given as Record<string, TokenIndexRules | null | undefined>;

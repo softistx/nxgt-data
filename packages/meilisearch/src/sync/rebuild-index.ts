@@ -80,6 +80,8 @@ function stopped(
 /**
  * Deletes the next index after a rebuild stopped, and says whether it is
  * gone. It never throws: what stopped the rebuild is the error to report.
+ * An index that is not there is gone: when its creation was the refused
+ * step, the deletion task fails `index_not_found`, and nothing is left.
  */
 async function discard(
 	client: Meilisearch,
@@ -89,8 +91,11 @@ async function discard(
 	try {
 		await deleteIndex(client, nextUid, wait);
 		return true;
-	} catch {
-		return false;
+	} catch (error) {
+		return (
+			error instanceof SearchIndexError &&
+			error.task?.error?.code === 'index_not_found'
+		);
 	}
 }
 

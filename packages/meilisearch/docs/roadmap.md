@@ -54,8 +54,10 @@ _Nothing queued._
   `<uid>_next` with the definition's settings, waits for every task the fill
   left, swaps it with the live index in one atomic task and deletes the old
   one; the first run renames it in, a leftover from a crashed run is deleted
-  first, and a failure deletes the next index and leaves the live one
-  untouched, as `REBUILD_FAILED` — 0.4.0.
+  first, and a failure deletes the next index — or says it could not — and
+  leaves the live one untouched, as `REBUILD_FAILED`; once the swap is sent,
+  a failure to wait for it says the outcome is unknown and deletes nothing
+  — 0.4.0.
 - **Deleting documents by filter** — `deleteByFilter(filter)` takes every
   document a filter matches out of the index in one task, instead of reading
   their ids first and deleting them by id; an empty filter is refused by the
