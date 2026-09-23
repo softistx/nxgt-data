@@ -417,7 +417,9 @@ await withTransaction(db, fn, { isolationLevel: 'serializable' });
 
 ## Errors
 
-Every error this package throws is a `DataError`, with a `code`:
+What the **database** refused is a `DataError`, with a `code`; what the
+**call** got wrong is an `ArgumentError`, further down, and a wiring
+mistake is a bare `TypeError`:
 
 | Class | `code` | When |
 | --- | --- | --- |
@@ -591,7 +593,7 @@ function createRepository<
 | `createMany(values: readonly Insert[]): Promise<Row[]>` | |
 | `update(id, patch: UpdatePatch): Promise<Row>` | throws `NotFoundError`; `OptimisticLockError` for a `version` the row is no longer at |
 | `updateMany(where, patch: ManyPatch): Promise<Row[]>` | no `version` on a table that locks |
-| `upsert(where: UpsertWhere, values: UpsertValues): Promise<Row>` | `ON CONFLICT` on the where's columns; `ConflictError` on a soft-deleted row |
+| `upsert(where: UpsertWhereOf<TTable, TLock, W>, values: UpsertValues<TTable, keyof W, TLock>): Promise<Row>`, `W extends UpsertWhere<TTable, TLock>` | `ON CONFLICT` on the where's columns; `ConflictError` on a soft-deleted row |
 | `delete(id): Promise<Row>` | soft on a table with soft delete; throws `NotFoundError` |
 | `deleteMany(where): Promise<Row[]>` | |
 | `count(where?, options?: ReadOptions): Promise<number>` | |

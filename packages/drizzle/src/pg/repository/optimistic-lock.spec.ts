@@ -103,6 +103,21 @@ describe('optimistic locking', () => {
 		expect(deleted).toBeInstanceOf(NotFoundError);
 	});
 
+	test('a soft-deleted row at the expected version is a NotFoundError', async () => {
+		// Deleted without raising the version, so the patch's version still
+		// matches the stored one. A row that comes back live between the update
+		// and the second read — the case writes.ts guards with `moved` — needs
+		// a second connection, which PGlite does not have.
+		const { repo, ticket } = await seed();
+		await createRepository(t.db, tickets, { optimisticLock: false }).delete(
+			ticket.id,
+		);
+		const error = await rejection(
+			repo.update(ticket.id, { title: 'x', version: 0 }),
+		);
+		expect(error).toBeInstanceOf(NotFoundError);
+	});
+
 	test('a version that is not a whole number is an ArgumentError naming its shape', async () => {
 		const { repo, ticket } = await seed();
 		for (const [given, shape] of [

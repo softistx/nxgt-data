@@ -392,8 +392,9 @@ the file.
   `soft-delete`, `optimistic-lock` and `actors` — and a spec file is not
   free: it opens a database of its own. Measured, `createTestDb` costs
   0.8-2.0 s cold and far less warm, so two more files cost **+0.5 s**; the
-  three the parity with `@nxgt/mongo` added, with their 32 tests, took the
-  suite from **9.1-10.1 s** to **12.2-13.3 s** over four runs; `@nxgt/s3` was left whole because the same measurement
+  three the parity with `@nxgt/mongo` added, with their 33 tests (and one
+  more in `columns.spec`), took the suite from **9.1-10.1 s** to
+  **11.9-13.3 s** over five runs; `@nxgt/s3` was left whole because the same measurement
   came back at **+13 s** on a 5 s suite, one SeaweedFS per file — before
   `stop()` took SeaweedFS down with `SIGKILL`. Its second server file,
   `operations/presign-post.spec.ts`, measured the cost again: the suite went
@@ -537,7 +538,7 @@ the file.
 
 ## Known state
 
-`bun run test` is **1226 pass, 0 fail**: drizzle 145, meilisearch 81,
+`bun run test` is **1228 pass, 0 fail**: drizzle 147, meilisearch 81,
 mongo 532, drizzle-meilisearch 42, mongo-meilisearch 55, mongo-kit 100,
 mongo-search-kit 17, redis 46, redis-kit 55, s3 104, hono-api-example 31,
 scripts 18. It runs one process

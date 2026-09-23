@@ -35,6 +35,14 @@ const labels = pgTable('labels', {
 	updatedAt: timestamp('updated_at', { withTimezone: true, precision: 3 }),
 });
 
+/** A lock with no default: the insert half has to seed it. */
+const counters = pgTable('counters', {
+	id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+	name: text('name').notNull(),
+	hits: integer('hits'),
+	version: integer('version').notNull(),
+});
+
 const ada = crypto.randomUUID();
 const grace = crypto.randomUUID();
 
@@ -135,6 +143,24 @@ describe('upsert', () => {
 		const first = await repo.upsert({ email: 'ada@example.com' }, {});
 		const again = await repo.upsert({ email: 'ada@example.com' }, {});
 		expect(again).toEqual(first);
+	});
+
+	test('a lock with no default starts at 0, for a new key and a row that is there', async () => {
+		await t.client.exec(`
+			create table if not exists counters (
+				id integer primary key generated always as identity,
+				name text not null constraint counters_name_unique unique,
+				hits integer,
+				version integer not null
+			);
+			truncate counters;
+		`);
+		const repo = createRepository(t.db, counters);
+		const first = await repo.upsert({ name: 'home' }, { hits: 1 });
+		expect(first).toMatchObject({ hits: 1, version: 0 });
+		const second = await repo.upsert({ name: 'home' }, { hits: 2 });
+		expect(second).toMatchObject({ id: first.id, hits: 2, version: 1 });
+		expect(await repo.upsert({ name: 'home' }, {})).toEqual(second);
 	});
 
 	test('takes SQL in the values', async () => {

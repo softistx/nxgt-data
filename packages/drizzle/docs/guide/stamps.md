@@ -29,7 +29,10 @@ under `version`, `createdBy`, `updatedBy` and `deletedBy` behaves the same.
 ## Upsert
 
 ```ts
-upsert(where: UpsertWhere<TTable>, values: UpsertValues<TTable, keyof where, TLock>): Promise<Row>;
+upsert<const W extends UpsertWhere<TTable, TLock>>(
+	where: UpsertWhereOf<TTable, TLock, W>,       // W, with no other key, and at least one
+	values: UpsertValues<TTable, keyof W, TLock>, // the insert values, without W's keys
+): Promise<Row>;
 ```
 
 `where` identifies the row, `values` is what to write either way. It is one
@@ -231,6 +234,25 @@ update on "tickets": the expected "version" must be a whole number, not a string
   `ArgumentError` does at run time.
 - `update` with SQL as the version: it is compared, never written.
 
+### Under `repeatable read` or `serializable`
+
+The lock is checked by the `UPDATE` itself. Inside a `repeatable read` or
+`serializable` transaction, PostgreSQL refuses to update a row another
+transaction changed since this one's snapshot before the `WHERE` is even
+applied, so the loser of the race gets a `DataError` with
+`code: 'DATABASE'` and `sqlState: '40001'` — a serialization failure — and
+**not** an `OptimisticLockError`. Retry the transaction, or treat `40001` as
+the same 409 in the handler. Under the default `read committed`, the lost
+race is an `OptimisticLockError`.
+
+### Existing tables: new in 0.5.0
+
+Locking a table's existing `version` column automatically is new in 0.5.0.
+A table that had an integer `NOT NULL` `version` before it now locks without
+any option: `update(id, { version })` **no longer writes the value** — it
+checks it — and every update raises it. `optimisticLock: false` keeps the
+behaviour of 0.4.
+
 ### Turning it off
 
 `optimisticLock: false` makes `version` an ordinary column: written as
@@ -312,6 +334,8 @@ purpose:
 | A refused version, `where` or actor | `ArgumentError` (a `TypeError`, with `code: 'INVALID_ARGUMENT'`) | a bare `TypeError` | this package has an `ArgumentError`; `@nxgt/mongo` has none |
 | A soft delete and a restore | also stamp `updatedAt` and `updatedBy` | stamp `deletedAt`/`deletedBy` only | this package already raised `updatedAt` on both |
 | The upsert target | a unique constraint on the `where`'s columns, which PostgreSQL requires | a unique index, which MongoDB does not require | `ON CONFLICT` needs a target; MongoDB can insert twice without one |
+| An upsert with nothing to write, on a row that is there | writes nothing: no `updatedAt`, no `updatedBy`, no version | stamps `updatedAt`, `updatedBy` and raises the version | here it is what an empty `update` does, which writes nothing either |
+| A lock column with no default, on an upsert's insert | seeded at 0 | seeded at 0 | the same, and a `create` must name it: its types require it |
 | Which half ran | not reported | told to the hooks | there are no hooks here yet |
 | Hooks | none | `beforeCreate`, `afterUpdate`… | not built yet — see the [roadmap](../roadmap.md) |
 

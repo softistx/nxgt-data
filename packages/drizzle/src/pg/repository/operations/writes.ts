@@ -76,8 +76,14 @@ export async function update(
 	if (rows[0]) return rows[0] as AnyRow;
 	// No row matched: missing, soft-deleted, or at another version. Only a
 	// second read tells the last one apart, and only it is a lock failure.
+	// A row found at the expected version did not move: it was missing, or
+	// soft-deleted, when the update ran, and has come back since.
 	const current = expected === undefined ? undefined : await findById(ctx, id);
-	if (current && expected !== undefined) {
+	const moved =
+		current !== undefined &&
+		ctx.info.version !== undefined &&
+		current[ctx.info.version.key] !== expected;
+	if (current && expected !== undefined && moved) {
 		throw lockError(ctx, id, expected, current);
 	}
 	throw notFound(ctx, id);

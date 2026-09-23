@@ -30,7 +30,7 @@ export async function upsert(
 ): Promise<AnyRow> {
 	const seeds = seedsOf(ctx, where);
 	const values = valuesOf(ctx, seeds, given);
-	const row = created(ctx, { ...values, ...(where as AnyRow) });
+	const row = seeded(ctx, created(ctx, { ...values, ...(where as AnyRow) }));
 	const set = conflictSet(ctx, seeds, values);
 	const target = seeds.map((seed) => seed.column);
 	const rows = await run(ctx, async () => {
@@ -126,6 +126,22 @@ function valuesOf(
 	return expecting(ctx, 'upsert', given).patch;
 }
 
+/**
+ * The row to insert, with the lock's version at 0 when neither it nor the
+ * column says otherwise. PostgreSQL checks `NOT NULL` on the row it would
+ * insert before it looks for a conflict, so a `version` with no default
+ * would refuse every upsert — for a key that is there too — while `create`
+ * is made to name it by its types. `@nxgt/mongo` starts a missing version at
+ * 0 the same way.
+ */
+function seeded(ctx: RepositoryContext, row: AnyRow): AnyRow {
+	const version = ctx.info.version;
+	if (!version || version.column.hasDefault || row[version.key] !== undefined) {
+		return row;
+	}
+	return { ...row, [version.key]: 0 };
+}
+
 /** The stamps an update never moves: they say how the row was created. */
 const CREATION = ['createdAt', 'createdBy'];
 
@@ -147,7 +163,7 @@ function kept(ctx: RepositoryContext, key: string): boolean {
  *
  * With nothing to write, it still has to set something — `DO UPDATE` with an
  * empty `SET` is not SQL, and `DO NOTHING` returns no row. It sets the target
- * to itself, and every `$onUpdate` column to its own value, which Drizzle
+ * to its own stored value, and every `$onUpdate` column to its own value, which Drizzle
  * would otherwise stamp: a call that writes nothing records no write, as an
  * empty `update` does.
  */
@@ -164,7 +180,7 @@ function conflictSet(
 	}
 	if (Object.keys(written).length > 0) return touched(ctx, written);
 	const [first] = seeds as [Seed];
-	const same: AnyRow = { [first.key]: excluded(first.column) };
+	const same: AnyRow = { [first.key]: sql`${first.column}` };
 	for (const [key, column] of Object.entries(ctx.info.columns)) {
 		if (column.onUpdateFn) same[key] = sql`${column}`;
 	}

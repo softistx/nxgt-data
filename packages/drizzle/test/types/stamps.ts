@@ -3,7 +3,13 @@
 // not compile: if it compiles, tsc reports the unused directive.
 
 import { sql } from 'drizzle-orm';
-import { doublePrecision, integer, pgTable, text } from 'drizzle-orm/pg-core';
+import {
+	bigint,
+	doublePrecision,
+	integer,
+	pgTable,
+	text,
+} from 'drizzle-orm/pg-core';
 import {
 	type ActorOf,
 	createRepository,
@@ -41,6 +47,17 @@ const drafts = pgTable('drafts', {
 	title: text('title'),
 });
 assertType<Equal<LockOf<typeof drafts>, false>>(true);
+const counted = pgTable('counted', {
+	id: integer('id').primaryKey(),
+	version: bigint('version', { mode: 'bigint' }).notNull(),
+});
+assertType<Equal<LockOf<typeof counted>, false>>(true);
+// @ts-expect-error a double version is no counter
+createRepository(db, measured, { optimisticLock: true });
+// @ts-expect-error a nullable version checks nothing
+createRepository(db, drafts, { optimisticLock: true });
+// @ts-expect-error a bigint-mode version is not read back as a number
+createRepository(db, counted, { optimisticLock: true });
 // @ts-expect-error users has no version to lock on
 createRepository(db, users, { optimisticLock: true });
 createRepository(db, users, { optimisticLock: false });
@@ -59,6 +76,8 @@ await ticketRepo.updateMany({ slug: 'a' }, { version: 3 });
 // With the lock off, `version` is an ordinary column again.
 const unlocked = createRepository(db, tickets, { optimisticLock: false });
 await unlocked.updateMany({ slug: 'a' }, { version: sql`0` });
+await unlocked.updateMany({ slug: 'a' }, { version: 3 });
+await unlocked.upsert({ slug: 'a' }, { title: 'A', version: 3 });
 assertType<
 	Equal<typeof unlocked, Repository<typeof tickets, 'id', true, false>>
 >(true);
@@ -74,6 +93,10 @@ ticketRepo.as(null);
 // @ts-expect-error teams has no actor column to stamp
 teamRepo.as('someone');
 createRepository(db, tickets, { actor: 'b1c7…' });
+// @ts-expect-error the actor columns are uuids
+createRepository(db, tickets, { actor: 1 });
+// @ts-expect-error nobody is not an actor: leave the option out
+createRepository(db, tickets, { actor: null });
 // @ts-expect-error users has no actor column either
 createRepository(db, users, { actor: 'b1c7…' });
 
