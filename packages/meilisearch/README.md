@@ -337,7 +337,11 @@ await tenantToken({
 ```
 
 A missing rule — or one that is `undefined` — throws a `TypeError` before
-anything is signed: `tenantToken for "movies", "people": searchRules has no rule for "people"; give each index { filter: … }, or null to search it with no filter`. A `searchRules`
+anything is signed: `tenantToken for "movies", "people": searchRules has no rule for "people"; give each index { filter: … }, or null to search it with no filter`.
+"No filter" is spelled only `null`: a rule object must carry a `filter` (in
+the types too), and one whose filter is absent, `undefined`, `null`, a blank
+string or an array of nothing (`[]`, `['']`) throws too:
+`tenantToken for "movies", "people": searchRules has an empty rule for "people"; give it { filter: … }, or null to search it with no filter`. A `searchRules`
 key that is not the uid one of the indexes has at run time, or a
 `searchRules` that is not a plain object — a class instance, or one that
 inherits its rules — throws a `TypeError` before anything is signed, rather
@@ -483,7 +487,7 @@ function tenantToken<const Indexes extends TokenIndexes>(options: TenantTokenOpt
 
 - `interface TenantTokenOptions<Indexes> { apiKey: string; apiKeyUid: string; indexes: Indexes; searchRules: TenantTokenRules<Indexes>; expiresAt: Date | number; algorithm?: 'HS256' | 'HS384' | 'HS512'; force?: boolean }`. `searchRules` and `expiresAt` are required. A missing `expiresAt` throws `INVALID_EXPIRES_AT`; an index with no rule, a `searchRules` key that is not the runtime uid of one of `indexes`, or a `searchRules` that is not a plain object throws a `TypeError`.
 - `type TokenIndexes = readonly [TypedIndex<any>, ...TypedIndex<any>[]]`: at least one bound index.
-- `type TenantTokenRule = { filter?: Filter } | null`: one index's rule; `null` searches it with no filter.
+- `type TenantTokenRule = { filter: Filter } | null`: one index's rule, whose `filter` is **required** — the SDK's is optional; `null`, and only `null`, searches the index with no filter. An empty filter (`''`, `[]`) compiles and throws a `TypeError` at run time.
 - `type TenantTokenRules<Indexes>`: `{ [uid]: TenantTokenRule }`, one **required** key per literal uid of `Indexes`. An index whose uid is typed only `string` — a rebuild's next index — adds a `string` index signature, so its rule is checked at run time only.
 
 ### `SearchIndexError`
@@ -544,7 +548,8 @@ function tenantToken<const Indexes extends TokenIndexes>(options: TenantTokenOpt
 - **`null` is a decision, not a default.** A tenant token needs a rule for
   every index, and `null` searches that index with no filter: every
   document, for anyone holding the token until its `expiresAt`. Write it
-  only for an index that is public anyway.
+  only for an index that is public anyway. `{}` and `{ filter: '' }` are not
+  another way to say it: they are refused.
 - **A rebuild's next index is checked at run time only.** Its uid is typed
   `string`, so `searchRules: {}` compiles for it; key its rule by
   `next.uid`, or `tenantToken` throws.

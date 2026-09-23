@@ -346,6 +346,70 @@ describe('tenantToken', () => {
 		});
 	});
 
+	describe('an empty rule is refused before anything is signed', () => {
+		const emptyPeople =
+			'tenantToken for "movies", "people": searchRules has an empty rule for "people"; ' +
+			'give it { filter: … }, or null to search it with no filter';
+		const refused = async (rule: unknown) => {
+			const error = await tenantToken({
+				apiKey: key.key,
+				// Not a UUID: had it been signed, the SDK would have thrown first.
+				apiKeyUid: 'not-a-uuid',
+				indexes: [movieIndex(), bindIndex(t.client, people)],
+				searchRules: {
+					movies: { filter: 'genres = scifi' },
+					people: rule,
+				} as never,
+				expiresAt: inAnHour(),
+			}).catch((e) => e);
+			expect(error).toBeInstanceOf(TypeError);
+			expect(error.message.includes(key.key)).toBe(false);
+			expect(error.message.includes('scifi')).toBe(false);
+			return error.message;
+		};
+
+		test('a rule with no filter, or an undefined or null one', async () => {
+			expect(await refused({})).toBe(emptyPeople);
+			expect(await refused({ filter: undefined })).toBe(emptyPeople);
+			expect(await refused({ filter: null })).toBe(emptyPeople);
+		});
+
+		test('a blank string, or an array of nothing', async () => {
+			expect(await refused({ filter: '' })).toBe(emptyPeople);
+			expect(await refused({ filter: '   ' })).toBe(emptyPeople);
+			expect(await refused({ filter: [] })).toBe(emptyPeople);
+			expect(await refused({ filter: ['', []] })).toBe(emptyPeople);
+		});
+
+		test('every empty rule is named', async () => {
+			const error = await tenantToken({
+				apiKey: key.key,
+				apiKeyUid: 'not-a-uuid',
+				indexes: [movieIndex(), bindIndex(t.client, people)],
+				searchRules: { movies: { filter: [] }, people: {} } as never,
+				expiresAt: inAnHour(),
+			}).catch((e) => e);
+			expect(error.message).toBe(
+				'tenantToken for "movies", "people": searchRules has an empty rule for "movies", "people"; ' +
+					'give it { filter: … }, or null to search it with no filter',
+			);
+		});
+	});
+
+	test('a rule with other keys beside a real filter still filters', async () => {
+		const token = await tenantToken({
+			apiKey: key.key,
+			apiKeyUid: key.uid,
+			indexes: [movieIndex()],
+			searchRules: {
+				movies: { filter: ['genres = scifi'], note: 'kept' },
+			} as never,
+			expiresAt: inAnHour(),
+		});
+		const result = await as(token).index('movies').search('');
+		expect(result.hits.map((m) => m.id).sort()).toEqual([1, 2, 4]);
+	});
+
 	test('a rebuild’s next index takes a rule under its runtime uid', async () => {
 		const index = movieIndex();
 		await index.sync();

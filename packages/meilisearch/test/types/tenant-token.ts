@@ -60,6 +60,39 @@ await tenantToken({
 	searchRules: { movies: undefined },
 	expiresAt,
 });
+await tenantToken({
+	apiKey,
+	apiKeyUid,
+	indexes: [movieIndex],
+	// @ts-expect-error a rule object needs its filter; no filter is null
+	searchRules: { movies: {} },
+	expiresAt,
+});
+await tenantToken({
+	apiKey,
+	apiKeyUid,
+	indexes: [movieIndex],
+	// @ts-expect-error an undefined filter is no filter
+	searchRules: { movies: { filter: undefined } },
+	expiresAt,
+});
+await tenantToken({
+	apiKey,
+	apiKeyUid,
+	indexes: [movieIndex],
+	// @ts-expect-error a null filter is no filter
+	searchRules: { movies: { filter: null } },
+	expiresAt,
+});
+// An empty filter compiles, since the SDK's Filter is any string or array:
+// it is refused at run time.
+await tenantToken({
+	apiKey,
+	apiKeyUid,
+	indexes: [movieIndex],
+	searchRules: { movies: { filter: '' } },
+	expiresAt,
+});
 // @ts-expect-error searchRules is required
 await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], expiresAt });
 // @ts-expect-error expiresAt is required: without it a token lasts as long as its key

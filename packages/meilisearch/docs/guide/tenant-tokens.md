@@ -37,7 +37,7 @@ the token when a client made from it searches.
 | `apiKey` | `string` | required | the key that signs. It needs the `search` action on every index the token names |
 | `apiKeyUid` | `string` | required | that key's `uid`, a UUID v4 |
 | `indexes` | bound indexes, at least one | required | the indexes the token may search; every other one is refused |
-| `searchRules` | `{ [uid]: { filter } \| null }` | required, one rule **per index** | keyed by the uids of `indexes`, and nothing else; `null` searches that index with no filter |
+| `searchRules` | `{ [uid]: { filter } \| null }` | required, one rule **per index** | keyed by the uids of `indexes`, and nothing else; `filter` is required in a rule, and must filter something; `null`, and only `null`, searches that index with no filter |
 | `expiresAt` | `Date \| number` | required | a `Date`, or whole **seconds** since the epoch |
 | `algorithm` | `'HS256' \| 'HS384' \| 'HS512'` | `'HS256'` | the SDK's |
 | `force` | `boolean` | `false` | the SDK's: skip its check that it runs on a server |
@@ -68,6 +68,19 @@ since a uid can be dynamic, and a missing rule — or one that is
 ```
 tenantToken for "movies", "people": searchRules has no rule for "people"; give each index { filter: … }, or null to search it with no filter
 ```
+
+"No filter" is spelled only `null`. A rule object must carry `filter` — the
+types require it, where the SDK's `TokenIndexRules` leaves it optional — so
+`{}`, `{ filter: undefined }` and `{ filter: null }` do not compile. A filter
+that filters nothing does compile, since the SDK's `Filter` is any string or
+array, and is refused at run time with the rest: a blank string (`''`,
+`'  '`), an empty array, or an array of those (`['', []]`):
+
+```
+tenantToken for "movies", "people": searchRules has an empty rule for "people"; give it { filter: … }, or null to search it with no filter
+```
+
+A rule with other keys beside a real filter is signed as it is.
 
 The types check the keys against the uids the definitions **declare**; the
 function checks them again against the uids the indexes **have**, and a key
@@ -178,6 +191,10 @@ try {
   unfiltered index takes an explicit `null` a reviewer can see.
 - **`null` still reads everything.** Write it only for an index every
   holder of the token may read in full, and keep `expiresAt` short.
+- **An empty rule is not a quieter `null`.** `{}` or `{ filter: '' }` — a
+  filter built from a value that came back empty — would sign the same
+  unfiltered token, without the `null` a reviewer can see. Both are
+  refused; decide between a real filter and `null`.
 - **Sign with a search key, never the master key.** The signing key lives
   on your server as long as tokens are issued: make it one that can only
   search, on only the indexes the tokens name.

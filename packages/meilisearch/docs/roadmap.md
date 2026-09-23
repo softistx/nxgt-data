@@ -39,8 +39,9 @@ _Nothing queued._
 
 - **Tenant tokens fail closed** — `tenantToken` requires `expiresAt` and a
   rule for every index it is given, in the types and at run time: a missing
-  `expiresAt` is `INVALID_EXPIRES_AT`, a missing rule a `TypeError`, and an
-  index searched with no filter takes an explicit `null`. A token can no
+  `expiresAt` is `INVALID_EXPIRES_AT`, a missing or empty rule a
+  `TypeError`, and an index searched with no filter takes an explicit
+  `null` — the only way to spell it. A token can no
   longer become a permanent, unfiltered credential by a line left out —
   0.5.0.
 - **Tenant tokens typed by their indexes** — `tenantToken({ apiKey,

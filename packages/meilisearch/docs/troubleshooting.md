@@ -2,9 +2,10 @@
 
 This package throws one error class of its own, `SearchIndexError`, with a
 `code` of `PRIMARY_KEY_MISMATCH`, `TASK_FAILED`, `REBUILD_FAILED` or
-`INVALID_EXPIRES_AT`, and four bare `TypeError`s for a call it refuses before
+`INVALID_EXPIRES_AT`, and five bare `TypeError`s for a call it refuses before
 sending or signing anything: `rebuild`'s `nextUid`, and `tenantToken`'s
-missing rule, unmatched rule, and `searchRules` that is not a plain object. Everything else comes from the
+missing rule, empty rule, unmatched rule, and `searchRules` that is not a
+plain object. Everything else comes from the
 official SDK as it is: `MeilisearchApiError` (whose `cause.code` is
 Meilisearch's own error code) and `MeilisearchTaskTimeOutError`. The headings
 below are what each one prints; the Meilisearch messages were measured on
@@ -36,6 +37,7 @@ v1.53.2 with meilisearch-js 0.62.0.
 - **Tenant tokens**
   - [`tenantToken for "movies": expiresAt is missing; it takes a Date, or whole seconds since the epoch`](#tenanttoken-for-movies-expiresat-is-missing-it-takes-a-date-or-whole-seconds-since-the-epoch)
   - [`tenantToken for "movies", "people": searchRules has no rule for "people"; give each index { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-people-searchrules-has-no-rule-for-people-give-each-index--filter---or-null-to-search-it-with-no-filter)
+  - [`tenantToken for "movies", "people": searchRules has an empty rule for "people"; give it { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-people-searchrules-has-an-empty-rule-for-people-give-it--filter---or-null-to-search-it-with-no-filter)
   - [`tenantToken for "movies": expiresAt is in the past`](#tenanttoken-for-movies-expiresat-is-in-the-past)
   - [`tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date`](#tenanttoken-for-movies-expiresat-is-a-number-of-milliseconds-it-takes-seconds-or-a-date)
   - [`tenantToken for "movies_next": searchRules names "movies", which is not the uid of any of its indexes`](#tenanttoken-for-movies_next-searchrules-names-movies-which-is-not-the-uid-of-any-of-its-indexes)
@@ -485,6 +487,27 @@ reached by leaving a line out. The message names the uids, never a rule.
 **Fix:** a rule per index, `null` for one that may be read in full:
 
 ```ts
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex, peopleIndex], searchRules: { movies: { filter }, people: null }, expiresAt });
+```
+
+### `tenantToken for "movies", "people": searchRules has an empty rule for "people"; give it { filter: … }, or null to search it with no filter`
+
+**When:** `tenantToken` with a rule object that filters nothing: no
+`filter`, `filter: undefined` or `null`, a blank string, an empty array, or
+an array of those (`['', []]`) — typically a filter built from a value that
+came back empty. A bare `TypeError`, thrown before anything is signed; every
+empty rule is named. The types refuse a rule with no `filter`, an
+`undefined` or a `null` one; an empty string or array compiles, since the
+SDK's `Filter` is any string or array, and only this check sees it. Since
+0.5.0.
+**Why:** a rule that filters nothing signs the same unfiltered token as a
+missing one. "No filter" is spelled only `null`, where a reviewer sees it.
+The message names the uids, never the rule.
+**Fix:** a filter that filters, or `null` if the index may be read in full:
+
+```ts
+const filter = user.tenant ? `tenant = ${JSON.stringify(user.tenant)}` : undefined;
+if (!filter) throw new Error('no tenant'); // do not sign a token that reads everything
 await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex, peopleIndex], searchRules: { movies: { filter }, people: null }, expiresAt });
 ```
 

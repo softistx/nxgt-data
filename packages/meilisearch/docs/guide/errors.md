@@ -174,7 +174,7 @@ Three places where this package steps in front of the SDK, and only three:
 Besides `SearchIndexError`, the package throws bare `TypeError`s for a call
 it refuses before sending or signing anything, with no code: `rebuild`'s
 `nextUid` equal to the uid, and `tenantToken`'s `searchRules` missing a
-rule for one of its indexes, naming a uid none of its indexes has, or not a
+rule for one of its indexes, holding an empty rule for one, naming a uid none of its indexes has, or not a
 plain object. They come from code, not
 from a request — see [troubleshooting.md](../troubleshooting.md#tenant-tokens)
 for each message.

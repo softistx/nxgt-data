@@ -33,9 +33,16 @@ export type TokenIndexes = readonly [TypedIndex<any>, ...TypedIndex<any>[]];
 
 /**
  * One index's rule: `filter` is added to every search on it, and `null`
- * searches it with no filter — which has to be said, never left out.
+ * searches it with no filter — which has to be said, never left out. A rule
+ * object must carry its `filter`: the SDK's is optional, and a rule without
+ * one signs an unfiltered token. An empty filter (`''`, `[]`) compiles and is
+ * refused at run time.
  */
-export type TenantTokenRule = TokenIndexRules | null;
+export type TenantTokenRule =
+	| (Omit<TokenIndexRules, 'filter'> & {
+			filter: NonNullable<TokenIndexRules['filter']>;
+	  })
+	| null;
 
 /**
  * The rules of a token: one per index, keyed by its uid, and nothing else. A
@@ -104,6 +111,16 @@ function expiryProblem(expiresAt: Date | number, now: number) {
 const quoted = (uids: readonly string[]) =>
 	uids.map((uid) => `"${uid}"`).join(', ');
 
+/**
+ * Whether a filter filters nothing: absent, `null`, a blank string, or an
+ * array whose every entry is one of those — `[]`, `['']`, `[[]]`.
+ */
+function isEmpty(filter: unknown): boolean {
+	if (filter === undefined || filter === null) return true;
+	if (typeof filter === 'string') return filter.trim() === '';
+	return Array.isArray(filter) && filter.every(isEmpty);
+}
+
 /** Refuses an `expiresAt` that is missing, or cannot be signed. */
 function checkExpiry(expiresAt: unknown, uids: readonly string[]) {
 	const problem =
@@ -153,6 +170,18 @@ function checkedRules(given: unknown, uids: readonly string[]) {
 		throw new TypeError(
 			`${call}: searchRules has no rule for ${quoted([...new Set(missing)])}; ` +
 				'give each index { filter: … }, or null to search it with no filter',
+		);
+	}
+	// A rule object with no filter, or one that filters nothing, would sign
+	// the same unfiltered token as a missing one: "no filter" is only `null`.
+	const empty = uids.filter((uid) => {
+		const rule = rules[uid];
+		return typeof rule === 'object' && rule !== null && isEmpty(rule.filter);
+	});
+	if (empty.length > 0) {
+		throw new TypeError(
+			`${call}: searchRules has an empty rule for ${quoted([...new Set(empty)])}; ` +
+				'give it { filter: … }, or null to search it with no filter',
 		);
 	}
 	const signed: TokenSearchRules = Object.fromEntries(
