@@ -123,7 +123,7 @@ describe('writes', () => {
 
 	test('deleteByFilter with an empty filter is refused by the server', async () => {
 		const index = await filled();
-		for (const filter of ['', '  ', [], [[]]] as const) {
+		for (const filter of ['', '  ', [], [[]], [''], [[], []]] as const) {
 			const error = await index.deleteByFilter(filter as never).catch((e) => e);
 			expect(error).toBeInstanceOf(MeilisearchApiError);
 			expect(error.cause?.code).toBe('invalid_document_filter');
