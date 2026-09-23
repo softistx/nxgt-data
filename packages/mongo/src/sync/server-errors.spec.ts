@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { Db } from 'mongodb';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { posts } from '../../test/schema';
 import { DataError } from '../errors/data-error';
 import { applyIndexes, createCollection, type SyncStep } from './phases';
@@ -63,24 +64,28 @@ describe('collMod without the role for it', () => {
 	});
 
 	test('a validator names the role it needs', async () => {
-		const failing = writeValidation(
-			db,
-			'posts',
-			{ validator: {}, level: 'strict', action: 'error' },
-			undefined,
+		const error = await rejection(
+			writeValidation(
+				db,
+				'posts',
+				{ validator: {}, level: 'strict', action: 'error' },
+				undefined,
+			),
 		);
-		await expect(failing).rejects.toBeInstanceOf(DataError);
-		await expect(failing).rejects.toMatchObject({
+		expect(error).toBeInstanceOf(DataError);
+		expect(error).toMatchObject({
 			collection: 'posts',
 			serverCode: 13,
 		});
-		await expect(failing).rejects.toThrow('`dbAdmin` does');
+		expect((error as DataError).message).toContain('`dbAdmin` does');
 	});
 
 	test('so does a collection option', async () => {
-		await expect(
-			writeOptions(db, 'posts', { cappedSize: 1 }, undefined),
-		).rejects.toThrow('not allowed to run collMod on "posts"');
+		expect(
+			await rejectionMessage(
+				writeOptions(db, 'posts', { cappedSize: 1 }, undefined),
+			),
+		).toContain('not allowed to run collMod on "posts"');
 	});
 
 	test('any other refusal becomes a DataError of its own', async () => {
@@ -89,9 +94,11 @@ describe('collMod without the role for it', () => {
 				throw serverError(72, 'invalid options');
 			},
 		});
-		await expect(
-			writeOptions(other, 'posts', { cappedSize: 1 }, undefined),
-		).rejects.toMatchObject({ serverCode: 72, collection: 'posts' });
+		expect(
+			await rejection(
+				writeOptions(other, 'posts', { cappedSize: 1 }, undefined),
+			),
+		).toMatchObject({ serverCode: 72, collection: 'posts' });
 	});
 });
 
@@ -111,7 +118,7 @@ describe('the indexes of a collection that is not there', () => {
 				throw serverError(13, 'not authorized');
 			},
 		});
-		await expect(liveIndexes(db, 'posts', undefined)).rejects.toMatchObject({
+		expect(await rejection(liveIndexes(db, 'posts', undefined))).toMatchObject({
 			code: 13,
 		});
 	});
@@ -152,9 +159,9 @@ describe('two syncs creating the same collection', () => {
 				throw serverError(72, 'invalid options');
 			},
 		});
-		await expect(createCollection(stepOn(db), wantedOff)).rejects.toMatchObject(
-			{ serverCode: 72, collection: 'posts' },
-		);
+		expect(
+			await rejection(createCollection(stepOn(db), wantedOff)),
+		).toMatchObject({ serverCode: 72, collection: 'posts' });
 	});
 });
 
@@ -165,7 +172,9 @@ describe('an index the server refuses to build', () => {
 				throw serverError(67, 'cannot create index');
 			},
 		});
-		await expect(applyIndexes(stepOn(db), false, false)).rejects.toMatchObject({
+		expect(
+			await rejection(applyIndexes(stepOn(db), false, false)),
+		).toMatchObject({
 			serverCode: 67,
 			collection: 'posts',
 		});

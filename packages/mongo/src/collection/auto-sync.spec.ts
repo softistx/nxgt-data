@@ -7,6 +7,7 @@ import {
 	test,
 } from 'bun:test';
 import { z } from 'zod';
+import { rejectionMessage } from '../../test/rejection';
 import { startMongo, type TestServer } from '../../test/server';
 import { defineCollection } from '../definition/define-collection';
 import { id } from '../definition/fields';
@@ -107,9 +108,9 @@ describe('autoSync', () => {
 			options: { capped: { size: 4096 } },
 		});
 		const collection = getCollection(t.db, audit, { autoSync: true });
-		await expect(collection.create({ message: 'a' })).rejects.toThrow(
-			'options MongoDB cannot change',
-		);
+		expect(
+			await rejectionMessage(collection.create({ message: 'a' })),
+		).toContain('options MongoDB cannot change');
 
 		// Once the collection is out of the way, the next call syncs again
 		// rather than failing forever on the first answer.

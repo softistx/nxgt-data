@@ -7,6 +7,7 @@ import {
 	test,
 } from 'bun:test';
 import { ObjectId } from 'mongodb';
+import { rejectionMessage } from '../../../test/rejection';
 import { posts, users } from '../../../test/schema';
 import { startMongo, type TestServer } from '../../../test/server';
 import { withTransaction } from '../../transaction/with-transaction';
@@ -63,9 +64,9 @@ describe('create', () => {
 				},
 			},
 		});
-		await expect(
-			collection.create({ email: 'ada@example.com' }),
-		).rejects.toThrow('not today');
+		expect(
+			await rejectionMessage(collection.create({ email: 'ada@example.com' })),
+		).toContain('not today');
 		expect(await stored('users')).toEqual([]);
 	});
 
@@ -95,9 +96,9 @@ describe('create', () => {
 				},
 			},
 		});
-		await expect(
-			collection.create({ email: 'ada@example.com' }),
-		).rejects.toThrow('too late');
+		expect(
+			await rejectionMessage(collection.create({ email: 'ada@example.com' })),
+		).toContain('too late');
 		expect(await stored('users')).toHaveLength(1);
 	});
 
@@ -223,13 +224,15 @@ describe('a hook that narrows a filter', () => {
 			{ title: 'a', rank: 1 },
 			{ title: 'b', rank: 2 },
 		]);
-		await expect(collection.deleteMany({})).rejects.toThrow('needs a filter');
-		await expect(collection.hardDeleteMany({})).rejects.toThrow(
+		expect(await rejectionMessage(collection.deleteMany({}))).toContain(
 			'needs a filter',
 		);
-		await expect(collection.updateMany({}, { title: 'z' })).rejects.toThrow(
+		expect(await rejectionMessage(collection.hardDeleteMany({}))).toContain(
 			'needs a filter',
 		);
+		expect(
+			await rejectionMessage(collection.updateMany({}, { title: 'z' })),
+		).toContain('needs a filter');
 		// Refused before any hook ran, side effects included.
 		expect(ran).toBe(0);
 		expect(await stored('posts')).toHaveLength(2);
@@ -355,14 +358,16 @@ describe('the context', () => {
 		await withTransaction(t.client, async (session) => {
 			await collection.withSession(session).create({ title: 'kept', rank: 1 });
 		});
-		await expect(
-			withTransaction(t.client, async (session) => {
-				await collection
-					.withSession(session)
-					.create({ title: 'dropped', rank: 2 });
-				throw new Error('abandon');
-			}),
-		).rejects.toThrow('abandon');
+		expect(
+			await rejectionMessage(
+				withTransaction(t.client, async (session) => {
+					await collection
+						.withSession(session)
+						.create({ title: 'dropped', rank: 2 });
+					throw new Error('abandon');
+				}),
+			),
+		).toContain('abandon');
 
 		expect((await stored('posts')).map((p) => p.title)).toEqual(['kept']);
 		expect(await stored('audit')).toHaveLength(1);

@@ -7,6 +7,7 @@ import {
 	test,
 } from 'bun:test';
 import { ObjectId } from 'mongodb';
+import { rejectionMessage } from '../../test/rejection';
 import { tickets, users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { getCollection } from './get-collection';
@@ -64,19 +65,23 @@ describe('create', () => {
 	])('refuses %s, and writes nothing', async (name, value) => {
 		const collection = getCollection(t.db, users);
 		const values = loose({ email: 'ada@example.com', [name]: value });
-		await expect(collection.create(values)).rejects.toThrow(
+		expect(await rejectionMessage(collection.create(values))).toContain(
 			`create: ${kept(name)} "users" itself`,
 		);
-		await expect(collection.createMany([values])).rejects.toThrow(kept(name));
+		expect(await rejectionMessage(collection.createMany([values]))).toContain(
+			kept(name),
+		);
 		expect(await stored('users')).toEqual([]);
 	});
 
 	test('refuses them under the names the collection gives them', async () => {
 		const collection = getCollection(t.db, tickets);
 		for (const name of ['revision', 'removedAt', 'openedBy', 'updatedBy']) {
-			await expect(
-				collection.create(loose({ subject: 'a', [name]: 1 })),
-			).rejects.toThrow(kept(name));
+			expect(
+				await rejectionMessage(
+					collection.create(loose({ subject: 'a', [name]: 1 })),
+				),
+			).toContain(kept(name));
 		}
 		// `deletedBy` is off here: not a kept field, just one the schema drops.
 		const ticket = await collection.create(
@@ -97,9 +102,11 @@ describe('create', () => {
 		const collection = getCollection(t.db, users).as(actor);
 		const ada = await collection.create({ email: 'ada@example.com' });
 		expect(ada.createdBy).toEqual(actor);
-		await expect(
-			collection.create(loose({ email: 'b@example.com', createdBy: actor })),
-		).rejects.toThrow(kept('createdBy'));
+		expect(
+			await rejectionMessage(
+				collection.create(loose({ email: 'b@example.com', createdBy: actor })),
+			),
+		).toContain(kept('createdBy'));
 	});
 
 	test('a hook cannot slip a stamp in', async () => {
@@ -110,9 +117,9 @@ describe('create', () => {
 				}),
 			},
 		});
-		await expect(
-			collection.create({ email: 'ada@example.com' }),
-		).rejects.toThrow(kept('version'));
+		expect(
+			await rejectionMessage(collection.create({ email: 'ada@example.com' })),
+		).toContain(kept('version'));
 	});
 });
 
@@ -156,9 +163,9 @@ describe('update', () => {
 		{ $rename: { name: 'updatedAt' } },
 	])('the updated stamp cannot be taken away: %o', async (patch) => {
 		const { collection, ada } = await seed();
-		await expect(collection.update(ada._id, loose(patch))).rejects.toThrow(
-			'"updatedAt" is kept by "users" itself and cannot be removed',
-		);
+		expect(
+			await rejectionMessage(collection.update(ada._id, loose(patch))),
+		).toContain('"updatedAt" is kept by "users" itself and cannot be removed');
 		expect((await stored('users'))[0]?.updatedAt).toEqual(ada.updatedAt);
 	});
 
@@ -204,12 +211,14 @@ describe('update', () => {
 		['createdAt', { $set: { name: 'x', createdAt: undefined }, createdAt: at }],
 	])('refuses %s in %o, and writes nothing', async (name, patch) => {
 		const { collection, ada } = await seed();
-		await expect(collection.update(ada._id, loose(patch))).rejects.toThrow(
-			`update: ${kept(name)} "users" itself`,
-		);
-		await expect(
-			collection.updateMany({ _id: ada._id }, loose(patch)),
-		).rejects.toThrow(`updateMany: ${kept(name)}`);
+		expect(
+			await rejectionMessage(collection.update(ada._id, loose(patch))),
+		).toContain(`update: ${kept(name)} "users" itself`);
+		expect(
+			await rejectionMessage(
+				collection.updateMany({ _id: ada._id }, loose(patch)),
+			),
+		).toContain(`updateMany: ${kept(name)}`);
 		const [document] = await stored('users');
 		expect(document?.version).toBe(0);
 		expect(document?.createdAt).toEqual(ada.createdAt);
@@ -225,9 +234,9 @@ describe('update', () => {
 			{ $inc: { revision: 1 } },
 			{ $set: { createdAt: at } },
 		]) {
-			await expect(collection.update(ticket._id, loose(patch))).rejects.toThrow(
-				'is kept by "tickets" itself',
-			);
+			expect(
+				await rejectionMessage(collection.update(ticket._id, loose(patch))),
+			).toContain('is kept by "tickets" itself');
 		}
 		expect((await stored('tickets'))[0]?.revision).toBe(0);
 	});
@@ -242,9 +251,9 @@ describe('update', () => {
 				}),
 			},
 		});
-		await expect(collection.update(ada._id, { name: 'x' })).rejects.toThrow(
-			kept('createdAt'),
-		);
+		expect(
+			await rejectionMessage(collection.update(ada._id, { name: 'x' })),
+		).toContain(kept('createdAt'));
 	});
 
 	test('raw is the way to set a stamp by hand', async () => {

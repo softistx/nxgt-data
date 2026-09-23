@@ -6,6 +6,7 @@ import {
 	expect,
 	test,
 } from 'bun:test';
+import { rejectionMessage } from '../../test/rejection';
 import { startMongo, type TestServer } from '../../test/server';
 import { ConnectionError } from '../errors/data-error';
 import { closeMongo, connectMongo } from './connect';
@@ -83,11 +84,15 @@ describe('connectMongo', () => {
 		expect(b.client).toBe(a.client);
 		// Changing the first object afterwards changes nothing.
 		options.appName = 'two';
-		await expect(connectMongo(t.uri, options)).rejects.toThrow('other options');
+		expect(await rejectionMessage(connectMongo(t.uri, options))).toContain(
+			'other options',
+		);
 		// A key only the second call has is a difference too.
-		await expect(
-			connectMongo(t.uri, { ...options, appName: 'one', retryWrites: false }),
-		).rejects.toThrow('other options');
+		expect(
+			await rejectionMessage(
+				connectMongo(t.uri, { ...options, appName: 'one', retryWrites: false }),
+			),
+		).toContain('other options');
 	});
 
 	test('forgets a failed connect, so the next call tries again', async () => {

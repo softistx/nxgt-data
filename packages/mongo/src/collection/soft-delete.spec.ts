@@ -7,6 +7,7 @@ import {
 	test,
 } from 'bun:test';
 import { ObjectId } from 'mongodb';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { NotFoundError } from '../errors/data-error';
@@ -44,7 +45,7 @@ describe('soft delete', () => {
 		await collection.delete(ada._id);
 
 		expect(await collection.findById(ada._id)).toBeUndefined();
-		await expect(collection.getById(ada._id)).rejects.toBeInstanceOf(
+		expect(await rejection(collection.getById(ada._id))).toBeInstanceOf(
 			NotFoundError,
 		);
 		expect(await collection.findMany()).toHaveLength(1);
@@ -80,12 +81,12 @@ describe('soft delete', () => {
 	test('a soft-deleted document cannot be deleted again, or updated', async () => {
 		const { collection, ada } = await seed();
 		await collection.delete(ada._id);
-		await expect(collection.delete(ada._id)).rejects.toBeInstanceOf(
+		expect(await rejection(collection.delete(ada._id))).toBeInstanceOf(
 			NotFoundError,
 		);
-		await expect(
-			collection.update(ada._id, { name: 'x' }),
-		).rejects.toBeInstanceOf(NotFoundError);
+		expect(
+			await rejection(collection.update(ada._id, { name: 'x' })),
+		).toBeInstanceOf(NotFoundError);
 		expect(await collection.updateMany({ age: 36 }, { name: 'x' })).toBe(1);
 	});
 
@@ -109,7 +110,7 @@ describe('soft delete', () => {
 		expect(restored.deletedAt).toBeNull();
 		expect(restored.deletedBy).toBeNull();
 		expect(await collection.count()).toBe(2);
-		await expect(collection.restore(new ObjectId())).rejects.toBeInstanceOf(
+		expect(await rejection(collection.restore(new ObjectId()))).toBeInstanceOf(
 			NotFoundError,
 		);
 	});
@@ -126,7 +127,7 @@ describe('soft delete', () => {
 		expect((await collection.hardDelete(ada._id))._id).toEqual(ada._id);
 		expect((await collection.hardDelete(bob._id))._id).toEqual(bob._id);
 		expect(await t.db.collection('users').countDocuments()).toBe(0);
-		await expect(collection.hardDelete(ada._id)).rejects.toBeInstanceOf(
+		expect(await rejection(collection.hardDelete(ada._id))).toBeInstanceOf(
 			NotFoundError,
 		);
 	});
@@ -135,7 +136,7 @@ describe('soft delete', () => {
 		const { collection, ada } = await seed();
 		await collection.delete(ada._id);
 		expect(await collection.hardDeleteMany({ age: 36 })).toBe(2);
-		await expect(collection.hardDeleteMany({})).rejects.toThrow(
+		expect(await rejectionMessage(collection.hardDeleteMany({}))).toContain(
 			'hardDeleteMany needs a filter',
 		);
 	});
@@ -171,7 +172,7 @@ describe('soft delete', () => {
 		const collection = getCollection(t.db, posts);
 		const post = await collection.create({ title: 'a', rank: 1 });
 		// @ts-expect-error posts have nothing to restore
-		await expect(collection.restore(post._id)).rejects.toThrow(
+		expect(await rejectionMessage(collection.restore(post._id))).toContain(
 			'has no soft delete',
 		);
 	});

@@ -13,6 +13,7 @@ import { Readable } from 'node:stream';
 import type { Collection, Db } from 'mongodb';
 import { Binary, GridFSBucket, ObjectId } from 'mongodb';
 import { avatars, clips, uploads } from '../../test/buckets';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { startMongo, type TestServer } from '../../test/server';
 import {
 	ConflictError,
@@ -213,14 +214,16 @@ describe('the metadata a bucket describes', () => {
 
 	test('refuses metadata the schema refuses', async () => {
 		const files = photos();
-		await expect(
-			files.put(bytes(8), { metadata: {} as never }),
-		).rejects.toThrow();
-		await expect(
-			files.put(bytes(8), {
-				metadata: { userId: new ObjectId(), width: 0 } as never,
-			}),
-		).rejects.toThrow();
+		expect(
+			await rejection(files.put(bytes(8), { metadata: {} as never })),
+		).toBeInstanceOf(Error);
+		expect(
+			await rejection(
+				files.put(bytes(8), {
+					metadata: { userId: new ObjectId(), width: 0 } as never,
+				}),
+			),
+		).toBeInstanceOf(Error);
 	});
 
 	test('keeps the type and the digest out of the metadata it gives back', async () => {
@@ -234,16 +237,20 @@ describe('the metadata a bucket describes', () => {
 	});
 
 	test('refuses a caller who writes those two by hand', async () => {
-		await expect(
-			anything().put(bytes(8), { metadata: { contentType: 'text/plain' } }),
-		).rejects.toThrow(/kept by "uploads" itself/);
+		expect(
+			await rejectionMessage(
+				anything().put(bytes(8), { metadata: { contentType: 'text/plain' } }),
+			),
+		).toMatch(/kept by "uploads" itself/);
 		// `validate: 'off'` is about the schema, and these two are not the
 		// schema's: the refusal comes before anything is parsed.
-		await expect(
-			getFiles(t.db, uploads, { validate: 'off' }).put(bytes(8), {
-				metadata: { sha256: 'deadbeef' },
-			}),
-		).rejects.toThrow(/kept by "uploads" itself/);
+		expect(
+			await rejectionMessage(
+				getFiles(t.db, uploads, { validate: 'off' }).put(bytes(8), {
+					metadata: { sha256: 'deadbeef' },
+				}),
+			),
+		).toMatch(/kept by "uploads" itself/);
 	});
 
 	test('lets anything through when the bucket describes nothing', async () => {
@@ -269,11 +276,11 @@ describe('finding a file', () => {
 		const missing = new ObjectId();
 		expect(await files.find(missing)).toBeUndefined();
 		expect(await files.exists(missing)).toBe(false);
-		await expect(files.get(missing)).rejects.toBeInstanceOf(NotFoundError);
+		expect(await rejection(files.get(missing))).toBeInstanceOf(NotFoundError);
 	});
 
 	test('refuses an id that is not one', async () => {
-		await expect(anything().get('not-an-id')).rejects.toThrow();
+		expect(await rejection(anything().get('not-an-id'))).toBeInstanceOf(Error);
 	});
 });
 
@@ -403,7 +410,9 @@ describe('writing a file only once', () => {
 
 	test('refuses to guess when the bucket keeps no digest', async () => {
 		const files = getFiles(t.db, uploads, { hash: false });
-		await expect(files.putOnce(bytes(8))).rejects.toThrow(/nothing to compare/);
+		expect(await rejectionMessage(files.putOnce(bytes(8)))).toMatch(
+			/nothing to compare/,
+		);
 	});
 
 	test('stores it under the id its bytes decide', async () => {
@@ -421,7 +430,7 @@ describe('writing a file only once', () => {
 		// The types refuse this — `test/types/gridfs.ts` holds that case. This
 		// is the other half: an options bag that never met them.
 		const given = { id: new ObjectId() } as PutOnceOptions<typeof uploads>;
-		await expect(files.putOnce(bytes(8), given)).rejects.toThrow(
+		expect(await rejectionMessage(files.putOnce(bytes(8), given))).toMatch(
 			/the bytes decide the id/,
 		);
 		expect((await files.paginate()).items).toHaveLength(0);
@@ -436,7 +445,7 @@ describe('writing a file only once', () => {
 		// other file, stored under the id these bytes decide. `put` takes an
 		// id, so the collision can be built rather than waited for.
 		await files.put(bytes(64, 2), { id: digest.slice(0, 24) });
-		await expect(files.putOnce(mine)).rejects.toThrow(
+		expect(await rejectionMessage(files.putOnce(mine))).toMatch(
 			/already has a different file under _id/,
 		);
 		// And the file that was there is untouched: a call that cannot store
@@ -590,8 +599,10 @@ describe('removing and renaming', () => {
 	test('says so when there is nothing to remove or rename', async () => {
 		const files = anything();
 		const missing = new ObjectId();
-		await expect(files.delete(missing)).rejects.toBeInstanceOf(NotFoundError);
-		await expect(files.rename(missing, 'a')).rejects.toBeInstanceOf(
+		expect(await rejection(files.delete(missing))).toBeInstanceOf(
+			NotFoundError,
+		);
+		expect(await rejection(files.rename(missing, 'a'))).toBeInstanceOf(
 			NotFoundError,
 		);
 	});
@@ -654,12 +665,14 @@ describe('the options a bound bucket takes', () => {
 describe('a bucket in a transaction', () => {
 	test('writes nothing when the transaction rolls back', async () => {
 		const files = anything();
-		await expect(
-			withTransaction(t.client, async (session) => {
-				await files.withSession(session).put(bytes(2048));
-				throw new Error('rolled back');
-			}),
-		).rejects.toThrow('rolled back');
+		expect(
+			await rejectionMessage(
+				withTransaction(t.client, async (session) => {
+					await files.withSession(session).put(bytes(2048));
+					throw new Error('rolled back');
+				}),
+			),
+		).toContain('rolled back');
 		expect((await files.paginate()).items).toEqual([]);
 		expect(await t.db.collection('uploads.chunks').countDocuments()).toBe(0);
 	});
@@ -667,12 +680,14 @@ describe('a bucket in a transaction', () => {
 	test('takes a delete back with it, chunks included', async () => {
 		const files = anything();
 		const file = await files.put(bytes(2048));
-		await expect(
-			withTransaction(t.client, async (session) => {
-				await files.withSession(session).delete(file.id);
-				throw new Error('rolled back');
-			}),
-		).rejects.toThrow('rolled back');
+		expect(
+			await rejectionMessage(
+				withTransaction(t.client, async (session) => {
+					await files.withSession(session).delete(file.id);
+					throw new Error('rolled back');
+				}),
+			),
+		).toContain('rolled back');
 		// `GridFSBucket.delete` takes no session in mongodb 7.6, so this
 		// package does the two deletes itself — which is what makes them
 		// part of the transaction.
@@ -895,7 +910,7 @@ describe('an upload that fails halfway', () => {
 				controller.enqueue(new Uint8Array(1024).fill(sent));
 			},
 		});
-		await expect(files.put(failing)).rejects.toThrow(/gave up/);
+		expect(await rejectionMessage(files.put(failing))).toMatch(/gave up/);
 		expect(await t.db.collection('clips.files').countDocuments()).toBe(0);
 		expect(await t.db.collection('clips.chunks').countDocuments()).toBe(0);
 	});
@@ -912,8 +927,10 @@ describe('a file whose chunks are not all there', () => {
 		// be found whole and read short. Finding it still works.
 		const found = await files.get(file.id);
 		expect(found.size).toBe(4096);
-		await expect(found.bytes()).rejects.toBeInstanceOf(CorruptFileError);
-		await expect(found.bytes()).rejects.toThrow(/Chunk 2 .* is missing/);
+		expect(await rejection(found.bytes())).toBeInstanceOf(CorruptFileError);
+		expect(await rejectionMessage(found.bytes())).toMatch(
+			/Chunk 2 .* is missing/,
+		);
 	});
 
 	test('a range that does not span the hole still reads', async () => {
@@ -972,7 +989,7 @@ describe('the edges the mutants found', () => {
 		await t.db
 			.collection('clips.chunks')
 			.deleteOne({ files_id: file._id, n: 3 });
-		await expect((await files.get(file.id)).bytes()).rejects.toBeInstanceOf(
+		expect(await rejection((await files.get(file.id)).bytes())).toBeInstanceOf(
 			CorruptFileError,
 		);
 	});
@@ -1032,9 +1049,9 @@ describe('a file written under an id that is already taken', () => {
 		await t.db
 			.collection('uploads.chunks')
 			.insertOne({ files_id: id, n: 3, data: new Binary(bytes(7)) });
-		await expect(files.put(bytes(70, 2), { id, chunkSize: 7 })).rejects.toThrow(
-			ConflictError,
-		);
+		expect(
+			await rejection(files.put(bytes(70, 2), { id, chunkSize: 7 })),
+		).toBeInstanceOf(ConflictError);
 		expect(await (await files.get(kept.id)).bytes()).toEqual(bytes(70, 1));
 		// Its own chunks are gone; the one that was there before it is not.
 		expect(
@@ -1131,7 +1148,7 @@ describe('two callers storing the same bytes at once', () => {
 			data: mine,
 		});
 		const began = Date.now();
-		await expect(files.putOnce(mine)).rejects.toThrow(
+		expect(await rejectionMessage(files.putOnce(mine))).toMatch(
 			/another write holds _id .* and has not finished/,
 		);
 		// Bounded, and long enough that a winner on a loaded machine is not
@@ -1154,9 +1171,9 @@ describe('two callers storing the same bytes at once', () => {
 			n: 1,
 			data: mine,
 		});
-		await expect(files.putOnce(mine, { chunkSize: 1024 })).rejects.toThrow(
-			/chunk 0 was free and a later one was not/,
-		);
+		expect(
+			await rejectionMessage(files.putOnce(mine, { chunkSize: 1024 })),
+		).toMatch(/chunk 0 was free and a later one was not/);
 		expect((await files.paginate()).items).toHaveLength(1);
 		// Its own chunks are back out, the stray one is untouched.
 		expect(
@@ -1230,11 +1247,13 @@ describe('two callers storing the same bytes at once', () => {
 		// what comes back is the abort and not this package's `ConflictError`.
 		// There is nothing to wait for either — a document another transaction
 		// wrote is not in this one's snapshot however long it waits.
-		await expect(
-			withTransaction(t.client, async (session) => {
-				await files.withSession(session).putOnce(mine);
-			}),
-		).rejects.toThrow(/aborted/);
+		expect(
+			await rejectionMessage(
+				withTransaction(t.client, async (session) => {
+					await files.withSession(session).putOnce(mine);
+				}),
+			),
+		).toMatch(/aborted/);
 	}, 30_000);
 
 	test('one of them finishing last changes nothing', async () => {
@@ -1280,8 +1299,10 @@ describe('a chunk that is there but short', () => {
 		// four bytes short, which is a truncated image the caller never hears
 		// about.
 		const found = await files.get(file.id);
-		await expect(found.bytes()).rejects.toBeInstanceOf(CorruptFileError);
-		await expect(found.bytes()).rejects.toThrow(/reads 66 bytes where/);
+		expect(await rejection(found.bytes())).toBeInstanceOf(CorruptFileError);
+		expect(await rejectionMessage(found.bytes())).toMatch(
+			/reads 66 bytes where/,
+		);
 	});
 
 	test('a truncated last chunk is caught too', async () => {
@@ -1293,7 +1314,7 @@ describe('a chunk that is there but short', () => {
 				{ files_id: file._id, n: 9 },
 				{ $set: { data: new Binary(bytes(3)) } },
 			);
-		await expect((await files.get(file.id)).bytes()).rejects.toBeInstanceOf(
+		expect(await rejection((await files.get(file.id)).bytes())).toBeInstanceOf(
 			CorruptFileError,
 		);
 	});
@@ -1331,7 +1352,7 @@ describe('a chunk whose `data` is not bytes', () => {
 		await t.db
 			.collection('uploads.chunks')
 			.updateOne({ files_id: file._id, n: 0 }, { $unset: { data: '' } });
-		await expect((await files.get(file.id)).bytes()).rejects.toThrow(
+		expect(await rejectionMessage((await files.get(file.id)).bytes())).toMatch(
 			/Chunk 0 of file .* in "uploads" holds no data field/,
 		);
 	});
@@ -1344,14 +1365,14 @@ describe('a chunk whose `data` is not bytes', () => {
 			{ files_id: file._id, n: 1 },
 			{ $set: { data: [] } },
 		);
-		await expect((await files.get(file.id)).bytes()).rejects.toThrow(
+		expect(await rejectionMessage((await files.get(file.id)).bytes())).toMatch(
 			/holds an array where its bytes should be/,
 		);
 		await chunks.updateOne(
 			{ files_id: file._id, n: 1 },
 			{ $set: { data: null } },
 		);
-		await expect((await files.get(file.id)).bytes()).rejects.toThrow(
+		expect(await rejectionMessage((await files.get(file.id)).bytes())).toMatch(
 			/holds null where its bytes should be/,
 		);
 	});
@@ -1511,9 +1532,11 @@ describe('the indexes, and the session they run in', () => {
 			viewOn: 'source',
 			pipeline: [],
 		});
-		await expect(
-			getFiles(t.db, defineBucket({ name: 'viewed' })).syncIndexes(),
-		).rejects.toThrow(/is a view, not a collection/);
+		expect(
+			await rejectionMessage(
+				getFiles(t.db, defineBucket({ name: 'viewed' })).syncIndexes(),
+			),
+		).toMatch(/is a view, not a collection/);
 	});
 
 	test('`syncIndexes` runs in the session, so a transaction refuses it', async () => {
@@ -1566,11 +1589,13 @@ describe('dropping a bucket', () => {
 		// mongod refuses a `drop` inside a transaction. Catching every error
 		// made a refused drop indistinguishable from one that worked — and the
 		// files are still there either way.
-		await expect(
-			withTransaction(t.client, async (session) => {
-				await files.withSession(session).drop();
-			}),
-		).rejects.toThrow();
+		expect(
+			await rejection(
+				withTransaction(t.client, async (session) => {
+					await files.withSession(session).drop();
+				}),
+			),
+		).toBeInstanceOf(Error);
 		expect(await t.db.collection('uploads.files').countDocuments()).toBe(1);
 	});
 });
@@ -1589,8 +1614,10 @@ describe('an id that could not name a file', () => {
 		expect(answer.status).toBe(404);
 		expect(await files.find('not-an-id')).toBeUndefined();
 		expect(await files.exists('not-an-id')).toBe(false);
-		await expect(files.get('not-an-id')).rejects.toBeInstanceOf(NotFoundError);
-		await expect(files.delete('not-an-id')).rejects.toBeInstanceOf(
+		expect(await rejection(files.get('not-an-id'))).toBeInstanceOf(
+			NotFoundError,
+		);
+		expect(await rejection(files.delete('not-an-id'))).toBeInstanceOf(
 			NotFoundError,
 		);
 	});

@@ -6,6 +6,7 @@ import {
 	expect,
 	test,
 } from 'bun:test';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { getCollection } from '../collection/get-collection';
@@ -42,26 +43,30 @@ describe('withTransaction', () => {
 
 	test('aborts when fn throws, and rethrows', async () => {
 		const stop = new Error('stop');
-		await expect(
-			withTransaction(t.client, async (session) => {
-				await collection()
-					.withSession(session)
-					.create({ email: 'ada@example.com' });
-				throw stop;
-			}),
-		).rejects.toBe(stop);
+		expect(
+			await rejection(
+				withTransaction(t.client, async (session) => {
+					await collection()
+						.withSession(session)
+						.create({ email: 'ada@example.com' });
+					throw stop;
+				}),
+			),
+		).toBe(stop);
 		expect(await emails()).toEqual([]);
 	});
 
 	test('turns a MongoDB error into a DataError, and aborts', async () => {
 		await collection().create({ email: 'ada@example.com' });
-		await expect(
-			withTransaction(t.client, async (session) => {
-				const scoped = collection().withSession(session);
-				await scoped.create({ email: 'bob@example.com' });
-				await scoped.create({ email: 'ada@example.com' });
-			}),
-		).rejects.toBeInstanceOf(ConflictError);
+		expect(
+			await rejection(
+				withTransaction(t.client, async (session) => {
+					const scoped = collection().withSession(session);
+					await scoped.create({ email: 'bob@example.com' });
+					await scoped.create({ email: 'ada@example.com' });
+				}),
+			),
+		).toBeInstanceOf(ConflictError);
 		expect(await emails()).toEqual(['ada@example.com']);
 	});
 
@@ -125,11 +130,13 @@ describe('withTransaction', () => {
 
 	test('a joined transaction refuses options of its own', async () => {
 		await withTransaction(t.client, async (session) => {
-			await expect(
-				withTransaction(session, async () => {}, {
-					readConcern: { level: 'snapshot' },
-				}),
-			).rejects.toThrow('already in a transaction');
+			expect(
+				await rejectionMessage(
+					withTransaction(session, async () => {}, {
+						readConcern: { level: 'snapshot' },
+					}),
+				),
+			).toContain('already in a transaction');
 		});
 	});
 

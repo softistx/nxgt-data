@@ -7,6 +7,7 @@ import {
 	test,
 } from 'bun:test';
 import { ObjectId } from 'mongodb';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { logs, posts, users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import {
@@ -54,9 +55,9 @@ describe('create and read', () => {
 
 	test('create refuses a document the schema refuses, before sending it', async () => {
 		const { users: collection } = await collections();
-		await expect(collection.create({ email: 'not-an-email' })).rejects.toThrow(
-			/Invalid email/,
-		);
+		expect(
+			await rejectionMessage(collection.create({ email: 'not-an-email' })),
+		).toMatch(/Invalid email/);
 		expect(await collection.count()).toBe(0);
 	});
 
@@ -141,9 +142,11 @@ describe('what a read does not do', () => {
 		});
 		// And there is no insert for it to apply to: an id that matches
 		// nothing is a `NotFoundError`, never a new document.
-		await expect(
-			collection.update(new ObjectId(), { $setOnInsert: { title: 'x' } }),
-		).rejects.toBeInstanceOf(NotFoundError);
+		expect(
+			await rejection(
+				collection.update(new ObjectId(), { $setOnInsert: { title: 'x' } }),
+			),
+		).toBeInstanceOf(NotFoundError);
 		expect(await collection.count()).toBe(1);
 	});
 
@@ -179,12 +182,14 @@ describe('update', () => {
 	test('checks each field of the patch against the schema', async () => {
 		const { users: collection } = await collections();
 		const ada = await collection.create({ email: 'ada@example.com' });
-		await expect(
-			collection.update(ada._id, { email: 'not-an-email' }),
-		).rejects.toThrow(/Invalid email/);
-		await expect(
-			collection.update(ada._id, { nope: 1 } as never),
-		).rejects.toThrow('"users" has no field "nope" in its schema');
+		expect(
+			await rejectionMessage(
+				collection.update(ada._id, { email: 'not-an-email' }),
+			),
+		).toMatch(/Invalid email/);
+		expect(
+			await rejectionMessage(collection.update(ada._id, { nope: 1 } as never)),
+		).toContain('"users" has no field "nope" in its schema');
 		// Nothing was sent: the document is untouched.
 		expect((await collection.getById(ada._id)).version).toBe(0);
 	});
@@ -202,9 +207,9 @@ describe('update', () => {
 
 	test('throws NotFoundError for an _id that is not there', async () => {
 		const { users: collection } = await collections();
-		await expect(
-			collection.update(new ObjectId(), { name: 'x' }),
-		).rejects.toBeInstanceOf(NotFoundError);
+		expect(
+			await rejection(collection.update(new ObjectId(), { name: 'x' })),
+		).toBeInstanceOf(NotFoundError);
 	});
 
 	test('updateMany updates what matches and needs a filter', async () => {
@@ -216,9 +221,9 @@ describe('update', () => {
 		]);
 		expect(await collection.updateMany({ rank: 1 }, { title: 'x' })).toBe(2);
 		expect(await collection.count({ title: 'x' })).toBe(2);
-		await expect(collection.updateMany({}, { title: 'y' })).rejects.toThrow(
-			'updateMany needs a filter',
-		);
+		expect(
+			await rejectionMessage(collection.updateMany({}, { title: 'y' })),
+		).toContain('updateMany needs a filter');
 		expect(
 			await collection.updateMany({ _id: { $exists: true } }, { rank: 5 }),
 		).toBe(3);
@@ -231,7 +236,7 @@ describe('delete, on a collection without soft delete', () => {
 		const post = await collection.create({ title: 'a', rank: 1 });
 		expect(await collection.delete(post._id)).toEqual(post);
 		expect(await collection.count()).toBe(0);
-		await expect(collection.delete(post._id)).rejects.toBeInstanceOf(
+		expect(await rejection(collection.delete(post._id))).toBeInstanceOf(
 			NotFoundError,
 		);
 	});
@@ -243,7 +248,7 @@ describe('delete, on a collection without soft delete', () => {
 			{ title: 'b', rank: 2 },
 		]);
 		expect(await collection.deleteMany({ rank: 1 })).toBe(1);
-		await expect(collection.deleteMany({})).rejects.toThrow(
+		expect(await rejectionMessage(collection.deleteMany({}))).toContain(
 			'deleteMany needs a filter',
 		);
 		expect(await collection.count()).toBe(1);
@@ -251,11 +256,13 @@ describe('delete, on a collection without soft delete', () => {
 
 	test('restore throws on a collection without soft delete', async () => {
 		const { posts: collection } = await collections();
-		await expect(
-			(
-				collection as unknown as { restore(id: unknown): Promise<unknown> }
-			).restore(new ObjectId()),
-		).rejects.toThrow('has no soft delete');
+		expect(
+			await rejectionMessage(
+				(
+					collection as unknown as { restore(id: unknown): Promise<unknown> }
+				).restore(new ObjectId()),
+			),
+		).toContain('has no soft delete');
 	});
 });
 

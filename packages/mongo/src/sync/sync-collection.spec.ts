@@ -7,6 +7,7 @@ import {
 	test,
 } from 'bun:test';
 import { z } from 'zod';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { logs, posts, users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { defineCollection } from '../definition/define-collection';
@@ -174,10 +175,10 @@ describe('syncCollection', () => {
 
 	test('the validator it writes is the one that refuses a bad document', async () => {
 		await syncCollection(t.db, users);
-		const bad = t.db
-			.collection('users')
-			.insertOne({ email: 'not-an-email' } as never);
-		await expect(bad).rejects.toMatchObject({ code: 121 });
+		const bad = rejection(
+			t.db.collection('users').insertOne({ email: 'not-an-email' } as never),
+		);
+		expect(await bad).toMatchObject({ code: 121 });
 	});
 });
 
@@ -239,9 +240,9 @@ describe('the collection options', () => {
 			schema: logs.schema,
 			options: { capped: { size: 4096 } },
 		});
-		const failing = syncCollection(t.db, cappedLogs);
-		await expect(failing).rejects.toThrow('"logs" already exists');
-		await expect(failing).rejects.toThrow('capped: the collection has null');
+		const message = await rejectionMessage(syncCollection(t.db, cappedLogs));
+		expect(message).toContain('"logs" already exists');
+		expect(message).toContain('capped: the collection has null');
 		// And it sent nothing: the collection is what it was.
 		expect((await optionsOf('logs'))?.capped).toBeUndefined();
 	});

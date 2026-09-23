@@ -6,6 +6,7 @@ import {
 	expect,
 	test,
 } from 'bun:test';
+import { rejectionMessage } from '../../test/rejection';
 import { posts, users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { withTransaction } from '../transaction/with-transaction';
@@ -85,9 +86,9 @@ describe('the names both define', () => {
 
 	test('ours still refuse an empty filter, the driver’s does not', async () => {
 		const collection = await seed();
-		await expect(collection.updateMany({}, { name: 'x' })).rejects.toThrow(
-			'updateMany needs a filter',
-		);
+		expect(
+			await rejectionMessage(collection.updateMany({}, { name: 'x' })),
+		).toContain('updateMany needs a filter');
 		// The escape hatch is explicit, which is the point.
 		expect(
 			(await collection.raw.updateMany({}, { $set: { name: 'x' } }))

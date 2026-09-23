@@ -7,6 +7,7 @@ import {
 	test,
 } from 'bun:test';
 import { ObjectId } from 'mongodb';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { posts, tickets, users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { NotFoundError, OptimisticLockError } from '../errors/data-error';
@@ -67,20 +68,24 @@ describe('optimistic locking', () => {
 			name: 'First',
 			version: first.version,
 		});
-		await expect(
-			collection.update(second._id, {
-				name: 'Second',
-				version: second.version,
-			}),
-		).rejects.toBeInstanceOf(OptimisticLockError);
+		expect(
+			await rejection(
+				collection.update(second._id, {
+					name: 'Second',
+					version: second.version,
+				}),
+			),
+		).toBeInstanceOf(OptimisticLockError);
 		expect((await collection.getById(ada._id)).name).toBe('First');
 	});
 
 	test('an _id that is not there is a NotFoundError, not a lock failure', async () => {
 		const { collection } = await seed();
-		await expect(
-			collection.update(new ObjectId(), { name: 'x', version: 0 }),
-		).rejects.toBeInstanceOf(NotFoundError);
+		expect(
+			await rejection(
+				collection.update(new ObjectId(), { name: 'x', version: 0 }),
+			),
+		).toBeInstanceOf(NotFoundError);
 	});
 
 	test('an expected version needs a version field, and the lock', async () => {
@@ -89,17 +94,21 @@ describe('optimistic locking', () => {
 		const post = await collection.create({ title: 'a', rank: 1 });
 		// The first is a compile error too. The second is not: the types see
 		// the definition, not the options a collection was opened with.
-		await expect(
-			// @ts-expect-error posts have no version field
-			collection.update(post._id, { title: 'b', version: 0 }),
-		).rejects.toThrow('has no field "version"');
+		expect(
+			await rejectionMessage(
+				// @ts-expect-error posts have no version field
+				collection.update(post._id, { title: 'b', version: 0 }),
+			),
+		).toContain('has no field "version"');
 		const { ada } = await seed();
-		await expect(
-			getCollection(t.db, users, { optimisticLock: false }).update(ada._id, {
-				name: 'x',
-				version: 0,
-			}),
-		).rejects.toThrow('without its optimistic lock');
+		expect(
+			await rejectionMessage(
+				getCollection(t.db, users, { optimisticLock: false }).update(ada._id, {
+					name: 'x',
+					version: 0,
+				}),
+			),
+		).toContain('without its optimistic lock');
 		expect(() =>
 			// @ts-expect-error posts have no version field
 			getCollection(t.db, posts, { optimisticLock: true }),
@@ -115,30 +124,38 @@ describe('optimistic locking', () => {
 			revision: 0,
 		});
 		expect(updated.revision).toBe(1);
-		await expect(
-			collection.update(ticket._id, { subject: 'c', revision: 0 }),
-		).rejects.toBeInstanceOf(OptimisticLockError);
-		await expect(
-			// @ts-expect-error the version is called `revision` here
-			collection.update(ticket._id, { subject: 'c', version: 1 }),
-		).rejects.toThrow('has no field "version"');
+		expect(
+			await rejection(
+				collection.update(ticket._id, { subject: 'c', revision: 0 }),
+			),
+		).toBeInstanceOf(OptimisticLockError);
+		expect(
+			await rejectionMessage(
+				// @ts-expect-error the version is called `revision` here
+				collection.update(ticket._id, { subject: 'c', version: 1 }),
+			),
+		).toContain('has no field "version"');
 	});
 
 	test('the expected version is a whole number', async () => {
 		const { collection, ada } = await seed();
 		for (const version of [-1, 1.5, '1']) {
-			await expect(
-				collection.update(ada._id, { name: 'x', version: version as never }),
-			).rejects.toThrow('must be a whole number');
+			expect(
+				await rejectionMessage(
+					collection.update(ada._id, { name: 'x', version: version as never }),
+				),
+			).toContain('must be a whole number');
 		}
 	});
 
 	test('updateMany takes no expected version', async () => {
 		const { collection } = await seed();
-		await expect(
-			// @ts-expect-error one version cannot stand for many documents
-			collection.updateMany({ name: null }, { name: 'x', version: 0 }),
-		).rejects.toThrow('"version" is kept by "users" itself');
+		expect(
+			await rejectionMessage(
+				// @ts-expect-error one version cannot stand for many documents
+				collection.updateMany({ name: null }, { name: 'x', version: 0 }),
+			),
+		).toContain('"version" is kept by "users" itself');
 	});
 
 	test('optimisticLock: false leaves the version alone', async () => {
