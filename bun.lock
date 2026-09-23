@@ -163,6 +163,17 @@
         "zod": ">=4.6.5 <5",
       },
     },
+    "packages/redis-guard": {
+      "name": "@nxgt/redis-guard",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@types/bun": "^1.4.0",
+        "redis-memory-server": "0.17.1",
+      },
+      "peerDependencies": {
+        "typescript": "^6.0.3",
+      },
+    },
     "packages/redis-kit": {
       "name": "@nxgt/redis-kit",
       "version": "0.2.0",
@@ -284,6 +295,8 @@
     "@nxgt/openapi-hono": ["@nxgt/openapi-hono@0.3.0", "", { "peerDependencies": { "hono": "^4.13.4", "typescript": "^6.0.3" } }, "sha512-FMOJxP/TehtFrmOOYQjKI0+UiXuGn/GTXkhdjj5kzZVBy42fwquQbToeR4cZanfDjAH8SUgx0eQdIBxxyRaNUQ=="],
 
     "@nxgt/redis": ["@nxgt/redis@workspace:packages/redis"],
+
+    "@nxgt/redis-guard": ["@nxgt/redis-guard@workspace:packages/redis-guard"],
 
     "@nxgt/redis-kit": ["@nxgt/redis-kit@workspace:packages/redis-kit"],
 
