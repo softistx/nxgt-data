@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 
 /**
  * An S3 POST policy and its SigV4 signature, with nothing but `node:crypto`.
@@ -79,6 +79,55 @@ export function signingKey(
 ): Buffer {
 	const date = hmac(`AWS4${secretAccessKey}`, day);
 	return hmac(hmac(hmac(date, region), service), 'aws4_request');
+}
+
+/**
+ * The signature a SigV4 presigned URL should carry, recomputed with this
+ * secret: the one way to tell whether it is the secret the URL was signed
+ * with, since the URL never carries the secret itself.
+ *
+ * The canonical query is the query **as it was sent**, sorted, without
+ * `X-Amz-Signature` — not decoded and re-encoded. Measured on bun 1.4.2, Bun
+ * writes an access key id into `X-Amz-Credential` unencoded, so a key with a
+ * `+` or a `/` re-encodes to other bytes than the ones Bun signed; taken as
+ * sent, all eleven shapes tried match Bun's own signature (ports, a base
+ * path, virtual-hosted style, a session token, a dotted bucket, such keys).
+ * A presigned URL signs no payload, and `host` is its one signed header.
+ */
+export function presignedSignature(
+	url: URL,
+	method: string,
+	secretAccessKey: string,
+): string {
+	const pairs = url.search
+		.slice(1)
+		.split('&')
+		.filter((pair) => !pair.startsWith('X-Amz-Signature='))
+		.sort();
+	const canonical = [
+		method,
+		url.pathname,
+		pairs.join('&'),
+		`host:${url.host}`,
+		'',
+		'host',
+		'UNSIGNED-PAYLOAD',
+	].join('\n');
+	const query = new Map(
+		pairs.map((pair) => {
+			const at = pair.indexOf('=');
+			return [pair.slice(0, at), decodeURIComponent(pair.slice(at + 1))];
+		}),
+	);
+	const scope = (query.get('X-Amz-Credential') ?? '').split('/').slice(-4);
+	const toSign = [
+		ALGORITHM,
+		query.get('X-Amz-Date') ?? '',
+		scope.join('/'),
+		createHash('sha256').update(canonical).digest('hex'),
+	].join('\n');
+	const key = signingKey(secretAccessKey, scope[0] ?? '', scope[1] ?? '');
+	return createHmac('sha256', key).update(toSign).digest('hex');
 }
 
 /** Signs a policy, and gives back the whole form but the file. */

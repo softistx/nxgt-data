@@ -1,5 +1,5 @@
 import type { S3Options } from 'bun';
-import { type BucketContext, keyOf } from '../context';
+import { type BucketContext, callOf, keyOf } from '../context';
 import { checkOption } from '../guards';
 
 /** How a presigned URL is asked for. `expiresIn` is **seconds**, as S3's is. */
@@ -31,7 +31,7 @@ void _nothingForgotten;
 function signed(
 	key: string,
 	options: PresignOptions | undefined,
-	where: 'presignGet' | 'presignPut',
+	where: string,
 ): PresignOptions {
 	const forwarded: Record<string, unknown> = {};
 	for (const name of SIGNED) {
@@ -53,7 +53,7 @@ export function presignGetUrl<P>(
 ): string {
 	const key = keyOf(context, params);
 	return context.client.presign(key, {
-		...signed(key, options, 'presignGet'),
+		...signed(key, options, callOf(context, 'presignGet')),
 		method: 'GET',
 	});
 }
@@ -76,7 +76,7 @@ export function presignPutUrl<P>(
 ): string {
 	const key = keyOf(context, params);
 	return context.client.presign(key, {
-		...signed(key, options, 'presignPut'),
+		...signed(key, options, callOf(context, 'presignPut')),
 		method: 'PUT',
 	});
 }

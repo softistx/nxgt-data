@@ -46,20 +46,22 @@ export function sizeOf(body: PutBody): number | undefined {
 	return undefined;
 }
 
-/** ` (presignPost)`: the call, after the searchable lead. Nothing for `put`. */
-const named = (where: string | undefined) => (where ? ` (${where})` : '');
+/**
+ * ` (put on "avatars")`: the call and the bucket, after the searchable lead,
+ * so every refusal names both and the lead still reads the same in a log.
+ */
+const named = (where: string) => ` (${where})`;
 
 /**
  * Refuses a type the bucket does not accept. Shared by `put` and
- * `presignPost`; `where` names the call when it is not `put`, after the
- * searchable lead, so the same refusal reads the same in a log. The type
+ * `presignPost`; `where` is `callOf`'s, the call and the bucket. The type
  * itself is never quoted: for a presigned POST it came off a request.
  */
 export function checkType<P>(
 	context: BucketContext<P>,
 	key: string,
 	type: string | undefined,
-	where?: string,
+	where: string,
 ): void {
 	const { accepted } = context;
 	if (!accepted) return;
@@ -87,6 +89,7 @@ export function checkSize<P>(
 	context: BucketContext<P>,
 	key: string,
 	body: PutBody,
+	where: string,
 ): void {
 	const { maxSize, bucket } = context.definition;
 	if (maxSize === undefined) return;
@@ -97,14 +100,15 @@ export function checkSize<P>(
 			key,
 			`"${bucket}" has a maxSize, and this body's size cannot be known ` +
 				'before sending it. Read it into memory first, or drop `maxSize` ' +
-				'and let the service refuse it',
+				`and let the service refuse it${named(where)}`,
 		);
 	}
 	if (size > maxSize) {
 		throw new S3Error(
 			'TOO_LARGE',
 			key,
-			`"${bucket}" accepts ${maxSize} bytes at most, and this body is ${size}`,
+			`"${bucket}" accepts ${maxSize} bytes at most, and this body is ` +
+				`${size}${named(where)}`,
 		);
 	}
 }
@@ -186,15 +190,15 @@ const MAX_EXPIRES_IN = 604_800;
 /**
  * Refuses a value the service does not accept for `acl` or `storageClass`.
  * Shared by `put` and the three presigned calls, so the same wrong `acl` is
- * the same error whichever one a caller reached for; `where` names the call
- * when it is not `put`. An option with no fixed set passes. The value is
+ * the same error whichever one a caller reached for; `where` is `callOf`'s,
+ * the call and the bucket. An option with no fixed set passes. The value is
  * reported by its shape, never quoted.
  */
 export function checkOption(
 	key: string,
 	name: string,
 	value: unknown,
-	where?: string,
+	where: string,
 ): void {
 	if (value === undefined) return;
 	if (name === 'expiresIn') {
@@ -216,7 +220,7 @@ export function checkOption(
 	}
 }
 
-function checkExpiresIn(key: string, value: unknown, where?: string): void {
+function checkExpiresIn(key: string, value: unknown, where: string): void {
 	if (
 		typeof value !== 'number' ||
 		!Number.isFinite(value) ||

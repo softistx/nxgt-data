@@ -303,7 +303,7 @@ describe('a presigned POST, refused before it is signed', () => {
 		expect(error.code).toBe('WRONG_TYPE');
 		expect(error.message).toBe(
 			'"avatars" accepts image/png, image/jpeg, and no content type was ' +
-				'named. Pass `type` (presignPost)',
+				'named. Pass `type` (presignPost on "avatars")',
 		);
 	});
 
@@ -313,7 +313,8 @@ describe('a presigned POST, refused before it is signed', () => {
 		);
 		expect(error.code).toBe('WRONG_TYPE');
 		expect(error.message).toBe(
-			'"avatars" accepts image/png, image/jpeg, not the type given (presignPost)',
+			'"avatars" accepts image/png, image/jpeg, not the type given ' +
+				'(presignPost on "avatars")',
 		);
 	});
 
@@ -328,7 +329,7 @@ describe('a presigned POST, refused before it is signed', () => {
 	test.each([
 		[42, 'a number'],
 		[{}, 'an object'],
-		['', 'a string'],
+		['', 'an empty string'],
 	] as const)(
 		'for a type that is neither a type nor a prefix (%p)',
 		(type, shape) => {
@@ -349,7 +350,7 @@ describe('a presigned POST, refused before it is signed', () => {
 				store().presignPost({ userId: 'u1' }, { type: 'image/png', expiresIn }),
 			);
 			expect(error.code).toBe('WRONG_OPTION');
-			expect(error.message).toEndWith('(presignPost)');
+			expect(error.message).toEndWith('(presignPost on "avatars")');
 		}
 	});
 
@@ -361,7 +362,9 @@ describe('a presigned POST, refused before it is signed', () => {
 			} as unknown as PresignPostOptions),
 		);
 		expect(error.code).toBe('WRONG_OPTION');
-		expect(error.message).toEndWith('; got another string (presignPost)');
+		expect(error.message).toEndWith(
+			'; got another string (presignPost on "avatars")',
+		);
 		expect(error.message).not.toContain('everyone');
 	});
 });
@@ -409,23 +412,6 @@ describe('a presigned POST with no secret to sign with', () => {
 		expect(caught).not.toBeInstanceOf(S3Error);
 		expect((caught as { code?: string }).code).toBe(
 			'ERR_S3_MISSING_CREDENTIALS',
-		);
-	});
-
-	test('is a TypeError when only the context lacks it', () => {
-		// Not reachable through `bindBucket`, which resolves the secret as Bun
-		// does. A context put together by hand is the only way here.
-		const client = new S3Client({ ...servers.s3.options, bucket: 'avatars' });
-		const context = {
-			...bucketContext(client, avatars, 'unused'),
-			secretAccessKey: undefined,
-		};
-		expect(() =>
-			presignPostForm(context, { userId: 'u1' }, { type: 'image/png' }),
-		).toThrow(
-			'presignPost on "avatars": no secret access key to sign with. Pass ' +
-				'`secretAccessKey` to bindBucket, or set S3_SECRET_ACCESS_KEY or ' +
-				'AWS_SECRET_ACCESS_KEY',
 		);
 	});
 });

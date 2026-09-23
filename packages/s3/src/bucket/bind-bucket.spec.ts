@@ -88,7 +88,8 @@ describe('the write guards', () => {
 		expect(error.key).toBe('u1.png');
 		// The accepted list, and never the caller's own value.
 		expect(error.message).toBe(
-			'"avatars" accepts image/png, image/jpeg, not the type given',
+			'"avatars" accepts image/png, image/jpeg, not the type given ' +
+				'(put on "avatars")',
 		);
 		// Nothing was sent: a refusal is not a half-write.
 		expect(await bucket.exists({ userId: 'u1' })).toBe(false);
@@ -101,7 +102,7 @@ describe('the write guards', () => {
 		expect(error.code).toBe('WRONG_TYPE');
 		expect(error.message).toBe(
 			'"avatars" accepts image/png, image/jpeg, and no content type was ' +
-				'named. Pass `type`',
+				'named. Pass `type` (put on "avatars")',
 		);
 	});
 
@@ -211,7 +212,7 @@ describe('the write guards', () => {
 		expect(error.code).toBe('WRONG_OPTION');
 		expect(error.message).toContain('storageClass must be one of');
 		// Its shape, never the value: an option can come off a request.
-		expect(error.message).toEndWith('; got another string');
+		expect(error.message).toEndWith('; got another string (put on "uploads")');
 		expect(error.message).not.toContain('CHEAP');
 		expect(error.key).toBe('a/b.txt');
 		expect(await bucket.exists({ folder: 'a', name: 'b.txt' })).toBe(false);
@@ -250,7 +251,9 @@ describe('the write guards', () => {
 		expect(error.code).toBe('WRONG_OPTION');
 		expect(error.key).toBe('a/b.txt');
 		// The call it came from is named; the value is not quoted.
-		expect(error.message).toEndWith('; got another string (presignPut)');
+		expect(error.message).toEndWith(
+			'; got another string (presignPut on "uploads")',
+		);
 		expect(error.message).not.toContain('everyone');
 		// The ACL a bucket does accept still signs.
 		expect(
@@ -287,7 +290,9 @@ describe('the write guards', () => {
 			expect(error).toBeInstanceOf(S3Error);
 			expect(error.code).toBe('WRONG_OPTION');
 			expect(error.key).toBe('a/b.txt');
-			expect(error.message).toEndWith(`; got ${shape} (presignGet)`);
+			expect(error.message).toEndWith(
+				`; got ${shape} (presignGet on "uploads")`,
+			);
 		}
 		expect(refused(1e12).message).not.toContain('1000000000000');
 		// Seven days exactly is the limit, and passes.

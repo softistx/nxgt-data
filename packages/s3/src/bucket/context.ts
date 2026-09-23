@@ -48,9 +48,12 @@ function acceptedTypes(
 }
 
 /**
- * The context of a bound bucket. The secret is resolved the way Bun
- * documents it — the option, then `S3_SECRET_ACCESS_KEY`, then
- * `AWS_SECRET_ACCESS_KEY` — at the moment Bun's client is made.
+ * The context of a bound bucket. The secret is resolved in the order Bun
+ * documents — the option, then `S3_SECRET_ACCESS_KEY`, then
+ * `AWS_SECRET_ACCESS_KEY` — but from the environment **as it is now**, while
+ * Bun uses it as it was when the process started. The two can differ, which
+ * is why `signerOf` checks this secret against Bun's own signature before
+ * signing anything with it.
  */
 export function bucketContext<P>(
 	client: S3Client,
@@ -68,6 +71,15 @@ export function bucketContext<P>(
 		Bun.env.AWS_SECRET_ACCESS_KEY;
 	if (secret) secrets.set(context, secret);
 	return context;
+}
+
+/**
+ * `put on "avatars"`: the call a consumer wrote and the bucket it was on,
+ * which every refusal names — a log line holding one says which of an
+ * application's buckets, and which of its calls, produced it.
+ */
+export function callOf<P>(context: BucketContext<P>, call: string): string {
+	return `${call} on "${context.definition.bucket}"`;
 }
 
 /** The key this definition builds for these parameters. */

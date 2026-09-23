@@ -9,8 +9,10 @@ A wrong `acl` is this package's own refusal on a `put` **and** on the
 presigned calls, so one class and one code cover them all. A message reports what was
 wrong by its **shape** — `another string`, `a fraction`, `the type given` —
 and never quotes the value, which can come off a request body; a refusal from
-a presigned call ends with the call, `(presignGet)`, `(presignPut)` or
-`(presignPost)`. Bun names its own *service*
+every refusal ends with the call and the bucket it was on —
+`(put on "avatars")`, `(presignGet on "avatars")`, `(presignPut on …)`,
+`(presignPost on …)` — so a log line says which of an application's buckets
+and calls produced it. Bun names its own *service*
 failures `S3Error` as well, so it is `instanceof S3Error` against the class
 this package exports that tells those apart — never `error.name`. (Bun's
 refusal of a wrong argument is a different thing again: a plain `TypeError`,
@@ -24,13 +26,13 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [`defineBucket: "avatars" has a maxSize of 0; it is a number of bytes, and must be above zero`](#definebucket-avatars-has-a-maxsize-of-0-it-is-a-number-of-bytes-and-must-be-above-zero)
   - [`defineBucket: "avatars" accepts an empty list of content types, so nothing could ever be written. …`](#definebucket-avatars-accepts-an-empty-list-of-content-types-so-nothing-could-ever-be-written-)
 - **Writes refused before they are sent**
-  - [`"avatars" accepts image/png, image/jpeg, not the type given`](#avatars-accepts-imagepng-imagejpeg-not-the-type-given)
-  - [``"avatars" accepts image/png, image/jpeg, and no content type was named. Pass `type` ``](#avatars-accepts-imagepng-imagejpeg-and-no-content-type-was-named-pass-type-)
-  - [`"avatars" accepts 2097152 bytes at most, and this body is 5242880`](#avatars-accepts-2097152-bytes-at-most-and-this-body-is-5242880)
+  - [`"avatars" accepts image/png, image/jpeg, not the type given (put on "avatars")`](#avatars-accepts-imagepng-imagejpeg-not-the-type-given-put-on-avatars)
+  - [``"avatars" accepts image/png, image/jpeg, and no content type was named. Pass `type` (put on "avatars")``](#avatars-accepts-imagepng-imagejpeg-and-no-content-type-was-named-pass-type-put-on-avatars)
+  - [`"avatars" accepts 2097152 bytes at most, and this body is 5242880 (put on "avatars")`](#avatars-accepts-2097152-bytes-at-most-and-this-body-is-5242880-put-on-avatars)
   - [`"avatars" has a maxSize, and this body's size cannot be known before sending it. …`](#avatars-has-a-maxsize-and-this-bodys-size-cannot-be-known-before-sending-it-)
-  - [`storageClass must be one of STANDARD, DEEP_ARCHIVE, EXPRESS_ONEZONE, …; got another string`](#storageclass-must-be-one-of-standard-deep_archive-express_onezone--got-another-string)
-  - [`acl must be one of private, public-read, public-read-write, …; got another string`](#acl-must-be-one-of-private-public-read-public-read-write--got-another-string)
-  - [`expiresIn is seconds, and must be above 0 and at most 604800 …; got a number above that (presignGet)`](#expiresin-is-seconds-and-must-be-above-0-and-at-most-604800-seven-days-which-is-s3s-own-limit-got-a-number-above-that-presignget)
+  - [`storageClass must be one of STANDARD, DEEP_ARCHIVE, EXPRESS_ONEZONE, …; got another string (put on "avatars")`](#storageclass-must-be-one-of-standard-deep_archive-express_onezone--got-another-string-put-on-avatars)
+  - [`acl must be one of private, public-read, public-read-write, …; got another string (put on "avatars")`](#acl-must-be-one-of-private-public-read-public-read-write--got-another-string-put-on-avatars)
+  - [`expiresIn is seconds, and must be above 0 and at most 604800 …; got a number above that (presignGet on "avatars")`](#expiresin-is-seconds-and-must-be-above-0-and-at-most-604800-seven-days-which-is-s3s-own-limit-got-a-number-above-that-presignget-on-avatars)
 - **Presigned POSTs refused before they are signed**
   - [``presignPost on "uploads": this bucket has no maxSize, … Pass `maxSize`, in bytes``](#presignpost-on-uploads-this-bucket-has-no-maxsize-and-a-presigned-post-is-a-bound-on-what-a-browser-uploads-pass-maxsize-in-bytes)
   - [`presignPost on "avatars": maxSize cannot be above the bucket's own 2097152 bytes; got a larger number`](#presignpost-on-avatars-maxsize-cannot-be-above-the-buckets-own-2097152-bytes-got-a-larger-number)
@@ -38,8 +40,9 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [`presignPost on "avatars": minSize is above maxSize, so no body could be posted`](#presignpost-on-avatars-minsize-is-above-maxsize-so-no-body-could-be-posted)
   - [``presignPost on "avatars": this bucket accepts image/png, image/jpeg, and a prefix would let another type through. …``](#presignpost-on-avatars-this-bucket-accepts-imagepng-imagejpeg-and-a-prefix-would-let-another-type-through-pass-one-of-them-as-type-)
   - [`presignPost on "uploads": type is a content type or { startsWith }; got a number`](#presignpost-on-uploads-type-is-a-content-type-or--startswith--got-a-number)
-  - [`"avatars" accepts image/png, image/jpeg, not the type given (presignPost)`](#avatars-accepts-imagepng-imagejpeg-not-the-type-given-presignpost)
-  - [`presignPost on "avatars": no secret access key to sign with. …`](#presignpost-on-avatars-no-secret-access-key-to-sign-with-pass-secretaccesskey-to-bindbucket-or-set-s3_secret_access_key-or-aws_secret_access_key)
+  - [`"avatars" accepts image/png, image/jpeg, not the type given (presignPost on "avatars")`](#avatars-accepts-imagepng-imagejpeg-not-the-type-given-presignpost-on-avatars)
+  - [`presignPost on "avatars": the secret access key this package would sign with is not the one Bun signs with, so the service would refuse the form. …`](#presignpost-on-avatars-the-secret-access-key-this-package-would-sign-with-is-not-the-one-bun-signs-with-so-the-service-would-refuse-the-form-)
+  - [`presignPost on "avatars": no secret access key to sign with, while Bun has one. …`](#presignpost-on-avatars-no-secret-access-key-to-sign-with-while-bun-has-one-)
   - [`presignPost on "avatars": the URL Bun signed has no credential scope, …`](#presignpost-on-avatars-the-url-bun-signed-has-no-credential-scope-or-not-the-key-at-the-end-of-its-path-so-there-is-nowhere-to-post-the-form-)
 - **The service**
   - [`Missing S3 credentials. 'accessKeyId', 'secretAccessKey', 'bucket', and 'endpoint' are required`](#missing-s3-credentials-accesskeyid-secretaccesskey-bucket-and-endpoint-are-required)
@@ -118,7 +121,7 @@ defineBucket({ bucket: 'avatars', key, contentType: ['image/png', 'image/jpeg'] 
 
 ## Writes refused before they are sent
 
-### `"avatars" accepts image/png, image/jpeg, not the type given`
+### `"avatars" accepts image/png, image/jpeg, not the type given (put on "avatars")`
 
 **When:** `put`, with a `type` the definition does not list. A presigned URL
 is never checked against it — `PresignOptions` has no `type`, and a signed
@@ -142,7 +145,7 @@ try {
 }
 ```
 
-### ``"avatars" accepts image/png, image/jpeg, and no content type was named. Pass `type` ``
+### ``"avatars" accepts image/png, image/jpeg, and no content type was named. Pass `type` (put on "avatars")``
 
 **When:** `put` on a bucket with `contentType`, for a body that carries no
 type of its own — a string, a typed array, a stream.
@@ -157,7 +160,7 @@ await avatars.put({ userId }, bytes, { type: 'image/png' });
 
 `Bun.file(path)` carries its own type, and does not need the option.
 
-### `"avatars" accepts 2097152 bytes at most, and this body is 5242880`
+### `"avatars" accepts 2097152 bytes at most, and this body is 5242880 (put on "avatars")`
 
 **When:** `put`, for a body whose size is known and above `maxSize`.
 **Why:** an `S3Error` with `code: 'TOO_LARGE'`, raised before the request goes
@@ -186,7 +189,7 @@ await avatars.put({ userId }, await response.bytes()); // read it in first
 Or drop `maxSize` from the definition and let the service refuse an oversized
 body.
 
-### `storageClass must be one of STANDARD, DEEP_ARCHIVE, EXPRESS_ONEZONE, …; got another string`
+### `storageClass must be one of STANDARD, DEEP_ARCHIVE, EXPRESS_ONEZONE, …; got another string (put on "avatars")`
 
 The whole line names every class the service takes, then the **shape** of
 what it was given — `another string`, `a number`, `null` — never the value:
@@ -194,7 +197,7 @@ what it was given — `another string`, `a number`, `null` — never the value:
 ```text
 storageClass must be one of STANDARD, DEEP_ARCHIVE, EXPRESS_ONEZONE, GLACIER,
 GLACIER_IR, INTELLIGENT_TIERING, ONEZONE_IA, OUTPOSTS, REDUCED_REDUNDANCY,
-SNOW, STANDARD_IA; got another string
+SNOW, STANDARD_IA; got another string (put on "avatars")
 ```
 
 Before 0.4.0 it quoted the value: `got "CHEAP"`.
@@ -229,16 +232,16 @@ try {
 }
 ```
 
-### `acl must be one of private, public-read, public-read-write, …; got another string`
+### `acl must be one of private, public-read, public-read-write, …; got another string (put on "avatars")`
 
 ```text
 acl must be one of private, public-read, public-read-write, aws-exec-read,
 authenticated-read, bucket-owner-read, bucket-owner-full-control,
-log-delivery-write; got another string
+log-delivery-write; got another string (put on "avatars")
 ```
 
-From a presigned call the line ends with the call: `…; got another string
-(presignPut)`.
+From a presigned call the line ends with that call instead: `…; got another
+string (presignPut on "avatars")`.
 
 **When:** `put`, `presignGet`, `presignPut` or `presignPost` with an `acl` that is not one
 of those. Both paths go through the same allowlist since 0.3.0; before it,
@@ -259,12 +262,13 @@ await avatars.put({ userId }, bytes, { acl: 'public-read' });
 const url = avatars.presignPut({ userId }, { acl: 'private', expiresIn: 300 });
 ```
 
-### `expiresIn is seconds, and must be above 0 and at most 604800 (seven days, which is S3's own limit); got a number above that (presignGet)`
+### `expiresIn is seconds, and must be above 0 and at most 604800 (seven days, which is S3's own limit); got a number above that (presignGet on "avatars")`
 
 **When:** `presignGet`, `presignPut` or `presignPost` with an `expiresIn`
 that is not a finite number of seconds inside S3's range. Only the
 presigned calls take one, so the line always ends with the call —
-`(presignGet)`, `(presignPut)` or `(presignPost)` — and `got` names the shape: `a number above that`,
+`(presignGet on "avatars")`, `(presignPut on …)` or `(presignPost on …)` —
+and `got` names the shape: `a number above that`,
 `zero`, `a negative number`, `NaN`, `a string`. Before 0.4.0 it quoted the
 value (`got 1000000000000`).
 **Why:** an `S3Error` with `code: 'WRONG_OPTION'`, raised before anything is
@@ -287,7 +291,7 @@ is signed, so no form was handed out. The option values usually come off a
 request body: answer `WRONG_OPTION` and `WRONG_TYPE` with a 400. Every
 message reports the **shape** of what it was given — `a string`,
 `a fraction`, `the type given` — never the value. An `acl` or an `expiresIn`
-refused here is the entry above, ending with `(presignPost)`.
+refused here is the entry above, ending with `(presignPost on "avatars")`.
 
 ### ``presignPost on "uploads": this bucket has no maxSize, and a presigned POST is a bound on what a browser uploads. Pass `maxSize`, in bytes``
 
@@ -347,10 +351,10 @@ string `startsWith` — `got` names its shape. `code: 'WRONG_OPTION'`.
 **Fix:** `type: 'image/png'`, or `type: { startsWith: 'image/' }` on a bucket
 that names no type.
 
-### `"avatars" accepts image/png, image/jpeg, not the type given (presignPost)`
+### `"avatars" accepts image/png, image/jpeg, not the type given (presignPost on "avatars")`
 
 **When:** `presignPost` with a `type` the bucket does not accept — or, as
-``… and no content type was named. Pass `type` (presignPost)``, with no
+``… and no content type was named. Pass `type` (presignPost on "avatars")``, with no
 `type` on a bucket that names **several**. `code: 'WRONG_TYPE'`: the same
 refusal a `put` gives, with the call named at the end.
 **Why:** the policy holds one type. With a single type in the definition it
@@ -361,21 +365,52 @@ is the default; with several, the caller says which one this upload is.
 const form = avatars.presignPost({ userId }, { type: 'image/jpeg' });
 ```
 
-### ``presignPost on "avatars": no secret access key to sign with. Pass `secretAccessKey` to bindBucket, or set S3_SECRET_ACCESS_KEY or AWS_SECRET_ACCESS_KEY``
+### `presignPost on "avatars": the secret access key this package would sign with is not the one Bun signs with, so the service would refuse the form. …`
 
-**When:** not through `bindBucket` — a `TypeError`, not an `S3Error`, and it
-guards a bucket context built some other way. `bindBucket` resolves the secret
-from the same option and the same two variables Bun reads, when the client is
-made, so a missing secret is Bun's `ERR_S3_MISSING_CREDENTIALS` first (the
-next section) — both measured, and pinned in
-[`presign-post.spec.ts`](https://github.com/softistx/nxgt-data/blob/develop/packages/s3/src/bucket/operations/presign-post.spec.ts).
+The whole line:
+
+```text
+presignPost on "avatars": the secret access key this package would sign with
+is not the one Bun signs with, so the service would refuse the form. Bun reads
+S3_SECRET_ACCESS_KEY and AWS_SECRET_ACCESS_KEY when the process starts; one
+changed since is not the one Bun uses. Pass `secretAccessKey` to bindBucket
+```
+
+**When:** `presignPost` on a bucket bound **without** a `secretAccessKey`
+option, after `S3_SECRET_ACCESS_KEY` (or `AWS_SECRET_ACCESS_KEY`) was changed
+while the process was running. A `TypeError`, not an `S3Error`: nothing a
+request sent is wrong.
+**Why:** Bun reads those variables **once, when the process starts**, and
+keeps signing with what it read; this package reads them when the bucket is
+bound. A form signed with the new secret would pass every check here and be
+refused by the service only when a browser posts it. So `presignPost` checks
+its secret against the signature Bun itself put on a throwaway URL, and
+refuses before signing anything when they differ — measured in a process
+started with the variable set, in
+[`post-signer.spec.ts`](https://github.com/softistx/nxgt-data/blob/develop/packages/s3/src/bucket/operations/post-signer.spec.ts).
+**Fix:** pass the secret to `bindBucket` rather than changing the environment
+of a running process:
+
+```ts
+const store = bindBucket(avatars, {
+	endpoint: process.env.S3_ENDPOINT,
+	accessKeyId: process.env.S3_KEY,
+	secretAccessKey: process.env.S3_SECRET,
+});
+```
+
+### `presignPost on "avatars": no secret access key to sign with, while Bun has one. …`
+
+**When:** as above, when the variable was **deleted** after the process
+started: Bun still signs with the secret it read then, and this package has
+none. A `TypeError`, measured the same way.
 **Why:** a POST policy is signed with the secret, and Bun's client never hands
 its own back. This package keeps it beside the bucket's context, never on
 it, so printing the context, the bucket or the form never shows it —
 measured with a marker secret, in
-[`post-signer.spec.ts`](https://github.com/softistx/nxgt-data/blob/develop/packages/s3/src/bucket/operations/post-signer.spec.ts).
-**Fix:** give `bindBucket` a `secretAccessKey`, or set one of the variables
-before binding.
+[`post-signer.spec.ts`](https://github.com/softistx/nxgt-data/blob/develop/packages/s3/src/bucket/operations/post-signer.spec.ts). With no secret anywhere,
+Bun's own `ERR_S3_MISSING_CREDENTIALS` comes first (next section).
+**Fix:** give `bindBucket` a `secretAccessKey`.
 
 ### `presignPost on "avatars": the URL Bun signed has no credential scope, or not the key at the end of its path, so there is nowhere to post the form. …`
 

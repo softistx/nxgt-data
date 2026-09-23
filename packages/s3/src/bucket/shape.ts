@@ -14,5 +14,6 @@ export function shapeOf(value: unknown): string {
 		if (value < 0) return 'a negative number';
 		return Number.isSafeInteger(value) ? 'a number' : 'a number too large';
 	}
+	if (value === '') return 'an empty string';
 	return typeof value === 'object' ? 'an object' : `a ${typeof value}`;
 }

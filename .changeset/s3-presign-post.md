@@ -11,12 +11,12 @@
 The form goes to the endpoint, region and access key that Bun signs a `presignPut` for, read off a URL Bun signs itself. The secret is the one given to `bindBucket`, or else `S3_SECRET_ACCESS_KEY` and then `AWS_SECRET_ACCESS_KEY`. It is kept beside the bucket's internal context, not on it, so printing the context, the bound bucket or the form never shows it.
 
 **Refusal messages no longer quote the caller's value.** This affects code that matches message text. The codes are unchanged. The value can come off a request body, so a message now gives its shape:
-- `put`: `"avatars" accepts image/png, image/jpeg, not the type given` (was `not application/pdf`), and ``… and no content type was named. Pass `type` `` (was `… and this write names no content type …`);
-- `acl` and `storageClass`: `…; got another string` (was `got "everyone"`);
+- `put`: `"avatars" accepts image/png, image/jpeg, not the type given (put on "avatars")` (was `… not application/pdf`), and ``… and no content type was named. Pass `type` (put on "avatars")`` (was `… and this write names no content type. Pass `type``);
+- `acl` and `storageClass`: `…; got another string (put on "avatars")` (was `…; got "everyone"`);
 - `expiresIn`: `…; got a number above that`, `zero`, `NaN`… (was the value).
 
-A refusal from `presignGet`, `presignPut` or `presignPost` also ends with the call, for example `(presignPut)`.
+Every refusal now ends with the call and the bucket, for example `(put on "avatars")` or `(presignPut on "avatars")`. That includes `TOO_LARGE` and `UNMEASURABLE` from `put`.
 
 Two errors from `presignPost` are not `S3Error`s, because neither is a refusal of the caller's input:
 - a plain `Error` when the URL Bun signed has no credential scope, or does not end in the probe key, so there is nowhere to post the form. Only a Bun that signs differently from 1.4.2 would do this;
-- a `TypeError` when there is no secret to sign with. `bindBucket` cannot produce it, because it resolves the secret as Bun does and Bun's `ERR_S3_MISSING_CREDENTIALS` comes first. It guards a context built any other way.
+- a `TypeError` when the secret this package would sign with is not the one Bun signs with. Bun reads `S3_SECRET_ACCESS_KEY` and `AWS_SECRET_ACCESS_KEY` once, when the process starts, and this package reads them at `bindBucket`. If a variable is changed or deleted in between, the form would be signed with one secret while Bun signs with another, and the service would refuse it only when posted. `presignPost` recomputes the signature Bun put on a throwaway URL with its own secret, and refuses before signing when the two differ. Passing `secretAccessKey` to `bindBucket` avoids it.

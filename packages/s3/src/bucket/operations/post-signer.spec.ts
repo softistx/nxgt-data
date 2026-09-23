@@ -4,6 +4,7 @@ import { avatars } from '../../../test/fixtures';
 import { S3Error } from '../../errors/s3-error';
 import { bindBucket } from '../bind-bucket';
 import { bucketContext, secretOf } from '../context';
+import { presignedSignature } from './post-policy';
 import { PROBE, signerOf } from './post-signer';
 import { presignPostForm } from './presign-post';
 
@@ -108,7 +109,7 @@ describe('the secret a presigned POST signs with', () => {
 	const client = () =>
 		new S3Client({ bucket: 'avatars', endpoint: 'http://127.0.0.1:9000' });
 
-	test('is resolved as Bun resolves it: the option, S3_, then AWS_', () => {
+	test('is resolved in Bun’s documented order: the option, S3_, then AWS_', () => {
 		withEnv(
 			{
 				S3_SECRET_ACCESS_KEY: `${MARKER}-s3`,
@@ -154,5 +155,108 @@ describe('the secret a presigned POST signs with', () => {
 		for (const text of printed) expect(text.includes(MARKER)).toBe(false);
 		// …while it is still the one the form is signed with.
 		expect(secretOf(context)).toBe(MARKER);
+	});
+});
+
+describe('the secret, checked against the signature Bun put on the probe', () => {
+	// Recomputing Bun's own signature is how a secret that is not Bun's is
+	// told apart before anything is signed. Every shape here was measured to
+	// match on bun 1.4.2 — a `+` or a `/` in the access key id included, which
+	// Bun writes unencoded.
+	const shapes: Omit<S3Options, 'bucket'>[] = [
+		{ endpoint: 'http://127.0.0.1:9000', accessKeyId: 'k' },
+		{ region: 'eu-west-3', accessKeyId: 'k' },
+		{
+			endpoint: 'https://avatars.s3.eu-west-3.amazonaws.com',
+			virtualHostedStyle: true,
+			accessKeyId: 'k',
+		},
+		{
+			endpoint: 'http://127.0.0.1:9000',
+			accessKeyId: 'k',
+			sessionToken: 'a/token+with=chars&more',
+		},
+		{ endpoint: 'https://s3.example.com:8443/base', accessKeyId: 'AK/ID+x' },
+	];
+
+	test('recomputes Bun’s signature with the same secret, and only that one', () => {
+		for (const shape of shapes) {
+			const client = new S3Client({
+				...shape,
+				bucket: 'my.bucket',
+				secretAccessKey: MARKER,
+			});
+			const url = new URL(
+				client.presign(PROBE, { method: 'PUT', expiresIn: 1 }),
+			);
+			const signed = url.search.match(/X-Amz-Signature=([0-9a-f]+)/)?.[1];
+			expect(presignedSignature(url, 'PUT', MARKER)).toBe(signed as string);
+			expect(presignedSignature(url, 'PUT', `${MARKER}-other`)).not.toBe(
+				signed as string,
+			);
+		}
+	});
+
+	test('keeps a `+` in the access key id, which a URL reader turns into a space', () => {
+		const form = bindBucket(avatars, {
+			endpoint: 'http://127.0.0.1:9000',
+			accessKeyId: 'AK+x',
+			secretAccessKey: MARKER,
+		}).presignPost({ userId: 'u1' }, { type: 'image/png' });
+		expect(form.fields['x-amz-credential']).toStartWith('AK+x/');
+	});
+
+	/**
+	 * `presignPost` in a process started with `S3_SECRET_ACCESS_KEY` set,
+	 * which then changes it, deletes it, or leaves it alone. Bun reads the
+	 * variable when the process starts; only a fresh process shows that.
+	 */
+	async function afterStartUp(mode: 'same' | 'changed' | 'deleted') {
+		const script = new URL('../../../test/env-drift.ts', import.meta.url)
+			.pathname;
+		const env: Record<string, string | undefined> = {
+			...process.env,
+			S3_SECRET_ACCESS_KEY: MARKER,
+		};
+		delete env.AWS_SECRET_ACCESS_KEY;
+		const child = Bun.spawn([process.execPath, 'run', script, mode], {
+			env,
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		const out = await new Response(child.stdout).text();
+		await child.exited;
+		// What the child printed never holds the secret, whatever it was.
+		expect(out.includes(MARKER)).toBe(false);
+		return JSON.parse(out) as {
+			signed?: boolean;
+			name?: string;
+			message?: string;
+		};
+	}
+
+	test('signs when the environment is as it was at start-up', async () => {
+		expect(await afterStartUp('same')).toEqual({ signed: true });
+	});
+
+	test('refuses a secret changed after start-up, which Bun never saw', async () => {
+		// Before this check the form was signed with the new secret and the
+		// probe — and every other call — with the old: a form the service
+		// refuses only when a browser posts it.
+		const result = await afterStartUp('changed');
+		expect(result.name).toBe('TypeError');
+		expect(result.message).toStartWith(
+			'presignPost on "avatars": the secret access key this package would ' +
+				'sign with is not the one Bun signs with',
+		);
+	});
+
+	test('refuses a secret deleted after start-up, which Bun still has', async () => {
+		const result = await afterStartUp('deleted');
+		expect(result.name).toBe('TypeError');
+		expect(result.message).toStartWith(
+			'presignPost on "avatars": no secret access key to sign with, while ' +
+				'Bun has one',
+		);
 	});
 });

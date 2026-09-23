@@ -1,6 +1,6 @@
 import type { S3Options } from 'bun';
 import { S3Error } from '../../errors/s3-error';
-import { type BucketContext, keyOf } from '../context';
+import { type BucketContext, callOf, keyOf } from '../context';
 import { checkOption, checkType } from '../guards';
 import { shapeOf } from '../shape';
 import {
@@ -42,8 +42,7 @@ export interface PresignPostOptions {
 /** Bun's own default for a presigned URL, a day, so all three agree. */
 const DEFAULT_EXPIRES_IN = 86_400;
 
-const callOn = <P>(context: BucketContext<P>) =>
-	`presignPost on "${context.definition.bucket}"`;
+const callOn = <P>(context: BucketContext<P>) => callOf(context, 'presignPost');
 
 function checkBytes<P>(
 	context: BucketContext<P>,
@@ -121,10 +120,10 @@ function typeRule<P>(
 		// A browser may set its own type only when a condition names it.
 		if (!accepted) return { condition: ['starts-with', '$Content-Type', ''] };
 		if (accepted.length === 1) return { field: accepted[0] as string };
-		checkType(context, key, undefined, 'presignPost');
+		checkType(context, key, undefined, callOn(context));
 	}
 	if (typeof type === 'string' && type.length > 0) {
-		checkType(context, key, type, 'presignPost');
+		checkType(context, key, type, callOn(context));
 		return { field: type };
 	}
 	if (isPrefix(type)) {
@@ -162,13 +161,13 @@ export function presignPostForm<P>(
 ): PresignedPost {
 	const key = keyOf(context, params);
 	const expiresIn = options?.expiresIn ?? DEFAULT_EXPIRES_IN;
-	checkOption(key, 'expiresIn', expiresIn, 'presignPost');
+	checkOption(key, 'expiresIn', expiresIn, callOn(context));
 	const range = sizeRange(context, key, options);
 	const rule = typeRule(context, key, options?.type);
 	const fields: Record<string, string> = { key };
 	if ('field' in rule) fields['Content-Type'] = rule.field;
 	if (options?.acl !== undefined) {
-		checkOption(key, 'acl', options.acl, 'presignPost');
+		checkOption(key, 'acl', options.acl, callOn(context));
 		fields.acl = options.acl;
 	}
 	return signPostPolicy(signerOf(context), {

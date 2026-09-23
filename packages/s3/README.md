@@ -168,7 +168,10 @@ a body over the range is refused `400 EntityTooLarge`, under it
 signs the policy itself (SigV4, `node:crypto`), for the same endpoint, region
 and access key Bun signs a `presignPut` for. The secret is the one
 `bindBucket` was given, or else `S3_SECRET_ACCESS_KEY`, then
-`AWS_SECRET_ACCESS_KEY` — the variables Bun reads.
+`AWS_SECRET_ACCESS_KEY` — the variables Bun reads. Bun reads them once, at
+process start: a variable changed afterwards is refused with a `TypeError`
+rather than signing a form the service would reject. Pass `secretAccessKey`
+to `bindBucket` to avoid the question.
 
 On a bucket that names no content type, and with no `type`, `fields` carries
 no `Content-Type` and the form above works as written — measured, `204`. The

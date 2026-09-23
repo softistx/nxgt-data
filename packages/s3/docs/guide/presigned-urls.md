@@ -241,6 +241,14 @@ the bucket in the host with `virtualHostedStyle`. The secret is the one
 (`S3_SECRET_ACCESS_KEY`, then `AWS_SECRET_ACCESS_KEY`), and a `sessionToken`
 travels as `x-amz-security-token`.
 
+Bun reads those variables **once, when the process starts**, and this package
+reads them when the bucket is bound, so a variable changed or deleted in
+between would leave the two with different secrets. Before signing, then,
+`presignPost` recomputes the signature Bun put on its throwaway URL with its
+own secret, and refuses with a `TypeError` when they differ — a form the
+service would refuse is never handed out. Passing `secretAccessKey` to
+`bindBucket` keeps the environment out of it.
+
 ## A URL is signed for the bound bucket, whatever the options say
 
 `PresignOptions` carries no `bucket`, `endpoint`, `region` or credential, and
