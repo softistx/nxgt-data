@@ -74,7 +74,14 @@ TAT it would leave is no more than `burst` intervals ahead of now.
   burst of five allow exactly five — that is a spec.
 - **The server's clock.** `now` is the Redis server's `TIME`, read inside the
   script. No host's clock is ever sent, so a host whose clock is a day wrong
-  counts exactly like the others — also a spec.
+  counts exactly like the others — also a spec. A server clock that goes
+  back never refills: the bucket keeps the latest time it has seen, so two
+  servers a second apart, alternating, allow exactly one burst — a spec too.
+- **Only its own state is trusted.** A stored value is used only if the
+  script could have written it — two whole numbers in range, the bucket no
+  fuller than its burst, its time no more than a full refill ahead. Anything
+  else, from another program or a hand edit, reads as a full bucket, and the
+  next allowed call replaces it with a key that expires.
 - **A denial writes nothing.** Neither does `peek`. A caller hammering a spent
   limit does not push its own wait further out.
 - **Nothing left behind.** The key expires when the bucket would be full

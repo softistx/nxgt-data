@@ -6,7 +6,7 @@ import { defineRateLimit } from './define-rate-limit';
 // Rates whose interval — per × 1000 ÷ limit microseconds — is not whole, and
 // whose tolerance — burst × interval — is not whole either. While the TAT was
 // a float of microseconds, rounding it to the microsecond made a full burst
-// on an empty bucket unreachable for exactly these: refused with remaining =
+// from a full bucket unreachable for exactly these: refused with remaining =
 // burst, forever. In ticks of 1/limit µs every one of them is whole.
 
 const servers = useRedis();
@@ -23,7 +23,7 @@ function limitOf(limit: number, per: number, burst: number) {
 }
 
 describe('a fractional interval', () => {
-	test('a whole burst on an empty bucket is allowed, and leaves nothing', async () => {
+	test('a whole burst from a full bucket is allowed, and leaves nothing', async () => {
 		for (const [limit, per, burst] of [
 			[3, 1000, 2],
 			[7, 1000, 5],

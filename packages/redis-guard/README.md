@@ -210,8 +210,9 @@ Each is a `@ts-expect-error` case in `test/types/guard.ts`.
   60 ms is a legitimate window. A rate that would take more than ten years to
   refill is refused, which catches a `per` written in microseconds, but not
   one written in seconds.
-- **`burst × per` is at most 9,007,199,254,740.** The script counts a full
-  bucket as `burst × per × 1000` whole units, and a Lua number holds whole
+- **`burst × per` is at most 9,007,199,254,740** — and `burst` defaults to
+  `limit`, so a very large `limit` with no `burst` counts too. The script
+  counts a full bucket as `burst × per × 1000` whole units, and a Lua number holds whole
   numbers exactly only up to `Number.MAX_SAFE_INTEGER`. Any rate is fine —
   there is no bound on requests per millisecond — but a burst of a million
   over a `per` of a year is refused at definition.
@@ -219,11 +220,14 @@ Each is a `@ts-expect-error` case in `test/types/guard.ts`.
 - **The clock is the Redis server's.** `now` is read with `TIME` inside the
   script, so a host with a wrong clock cannot refill a bucket or empty one,
   and every process agrees. Two consequences: a result is a delay, which means
-  the same on every host, and **changing the server's own clock** matters: a
-  bucket remembers the server's time at its last write and refills nothing
-  while the clock is behind it. Back a day, and a caller whose bucket was
-  spent waits a day longer; one with room left carries on, from the new
-  time.
+  the same on every host, and **a server clock that goes back never
+  refills**: a bucket keeps the latest time it has seen and carries on from
+  there, so a failover between two servers whose clocks disagree cannot
+  count the same stretch of time twice. While the clock is behind, nothing
+  refills — a spent bucket waits for the clock to catch up, and `retryAfter`
+  includes that wait. A clock more than a full refill (`burst × per ÷ limit`)
+  behind a bucket finds it full: no bucket could have to wait longer than
+  that.
 - **Every process must use the same definition.** Two deploys with different
   `limit`, `per` or `burst` under the same `name` read the same key with
   different rates. Rename the limit when its rate changes a lot.

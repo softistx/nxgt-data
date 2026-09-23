@@ -7,9 +7,11 @@ import type { RateLimitDefinition } from './types';
  * orders its arithmetic so that nothing it must hold exactly is larger than
  * that tolerance: the decision compares `cost × per × 1000` with what is
  * free, each at most the tolerance, rather than adding them. So the
- * tolerance itself is the bound, not twice it. A product that could be
- * larger — `elapsed × limit` — is only ever compared with a smaller exact
- * integer, which its rounding cannot reverse.
+ * tolerance itself is the bound, not twice it. `elapsed × limit` can be
+ * larger, and is safe only because the script uses a stored state solely
+ * when its `ahead` is at most the tolerance and both its fields at most
+ * 2^53 − 1: the product is then compared with an exact integer its rounding
+ * cannot pass. Every division's operands are held to 2^53 the same way.
  */
 const MAX_BURST_PER = Math.floor(Number.MAX_SAFE_INTEGER / 1000);
 

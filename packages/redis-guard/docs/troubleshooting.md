@@ -223,10 +223,13 @@ per: 60_000,   // a minute
 **When:** after the Redis server's clock was moved back — by hand, or by a
 failover to a replica whose clock is behind.
 **Why:** the clock is the server's `TIME`, deliberately: no host's clock can
-refill or empty a bucket. Each bucket remembers the server's time at its
-last write, and refills nothing while the clock is behind it. A bucket that
-was spent stays spent until the clock passes that time again; one with room
-left is written at its next allowed call, and counts from the new time.
+refill or empty a bucket. A clock that goes back never refills: each bucket
+keeps the latest time it has seen and carries on from there, so two servers
+whose clocks disagree cannot count one stretch of time twice. While the clock
+is behind that time, nothing refills, and a spent bucket waits for the clock
+to catch up — `retryAfter` includes the wait. The wait is at most one full
+refill (`burst × per ÷ limit`): a clock further behind than that finds the
+bucket full.
 **Fix:** keep the Redis servers' clocks synchronised (NTP). To release every
 caller at once after a clock mistake, delete the limit's keys — they hold
 nothing else:

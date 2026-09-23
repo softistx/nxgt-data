@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { useRedis } from '../../test/fixtures';
-import { runScript } from '../scripts/run-script';
-import { GCRA_AT_ARGV, type Rate, toResult } from './gcra';
+import { consumeAt as consumeWith, useRedis } from '../../test/fixtures';
+import type { Rate } from './gcra';
 
 // The script as it runs, with `now` given rather than read: at one instant
 // nothing refills, so a burst taken one request at a time must allow exactly
@@ -13,21 +12,13 @@ import { GCRA_AT_ARGV, type Rate, toResult } from './gcra';
 const servers = useRedis();
 const NOW = 1_790_000_000_123_457; // µs, near the present
 
-async function consumeAt(
+const consumeAt = (
 	key: string,
 	rate: Rate,
 	cost: number,
 	now: number,
 	write = true,
-) {
-	const reply = await runScript(
-		servers.redis.client,
-		GCRA_AT_ARGV,
-		[key],
-		[rate.per, rate.limit, rate.burst, cost, write ? 1 : 0, now],
-	);
-	return toResult(reply, rate);
-}
+) => consumeWith(servers.redis.client, key, rate, cost, now, write);
 
 const rates: Rate[] = [
 	{ limit: 21, per: 10_000, burst: 100 },

@@ -17,7 +17,7 @@ registry:
 | `@nxgt/mongo-kit` | an application's MongoDB wiring in one object: `defineConfig` checking a configuration of one or several databases, and `createKit` giving a `db` that is the driver's `Db` with every `@nxgt/mongo` collection typed on it — and every `@nxgt/mongo/gridfs` bucket the config's `buckets` wires, beside them, in the kit's session so a file write joins a transaction — plus the actor, the session, transactions, `sync`, `syncBuckets` (bucket indexes, which `sync` leaves alone), `ping` and `close`. `discoverCollections` reads definitions from a glob, for scripts |
 | `@nxgt/mongo-search-kit` | a search kit over the wiring kit: `createSearchKit(kit, config)` takes one entry per collection — an index and a transform, under the key the kit wires that collection under — and gives one `reindexAll`, one `start` and one `close` for all of them. Each entry's sync is `@nxgt/mongo-meilisearch`'s, unchanged |
 | `@nxgt/redis` | Redis on Bun's own `RedisClient`, with no third-party driver: `connectRedis`/`closeRedis` sharing one client per URI, `defineCache`/`bindCache` with the key built by a typed function and the value checked by its schema both ways, `withLock` over `SET NX PX` released by a compare-and-delete script, and `defineChannel`/`publish`/`subscribe` typed the same way. Its one error is `RedisError` |
-| `@nxgt/redis-guard` | guards on Bun's own `RedisClient`, each one a single Lua script on the server: `defineRateLimit`/`bindRateLimit`, GCRA in **exact integers**, over one key holding `"<base> <ahead>"` — the server's `TIME` in µs at the last write, and the TAT's offset beyond it in ticks of 1/limit µs, where one request is exactly `per × 1000` — timed by the server's clock and never the host's, with `consume`, `enforce`, `peek` and `reset`, a `cost` per call, and results as delays in milliseconds (`resetAfter`, `retryAfter`) rather than dates. A denial and a `peek` write nothing, and the key's `PX` ends when the bucket is full again. Scripts go through `src/scripts/run-script.ts`: `EVALSHA` by a SHA-1 computed once, `EVAL` on `NOSCRIPT`. Its one error is `GuardError` (`RATE_LIMITED`, `COST`), which names the definition and never the key or the params; a definition that could never work is a bare `TypeError`, including a `burst × per × 1000` above `Number.MAX_SAFE_INTEGER`, the one bound exactness needs. **Three float versions came before and each drifted**: a TAT in float µs near 1.8e15 cannot hold `cost × interval` exactly, and rounding it to nearest let 21 per 10 s with a burst of 1000 allow 1049 at one instant, rounding it up made a full burst unreachable at 3 per second with a burst of 2, and 7 per second under-reported `remaining`. Do not bring a float back into the state; `fixed-now.spec.ts` is what catches it. The earlier bound of 500 requests a millisecond went with the floats: in ticks every rate is exact. Idempotency is its next slice |
+| `@nxgt/redis-guard` | guards on Bun's own `RedisClient`, each one a single Lua script on the server: `defineRateLimit`/`bindRateLimit`, GCRA in **exact integers**, over one key holding `"<base> <ahead>"` — the latest server `TIME` in µs the bucket has seen (it only moves forward, so a clock that goes back never refills, and two servers whose clocks alternate cannot count one stretch twice; the `PX` is counted from `now` plus how far `base` is ahead of it), and the TAT's offset beyond it in ticks of 1/limit µs, where one request is exactly `per × 1000` — timed by the server's clock and never the host's, with `consume`, `enforce`, `peek` and `reset`, a `cost` per call, and results as delays in milliseconds (`resetAfter`, `retryAfter`) rather than dates. A denial and a `peek` write nothing, and the key's `PX` ends when the bucket is full again. Scripts go through `src/scripts/run-script.ts`: `EVALSHA` by a SHA-1 computed once, `EVAL` on `NOSCRIPT`. Its one error is `GuardError` (`RATE_LIMITED`, `COST`), which names the definition and never the key or the params; a definition that could never work is a bare `TypeError`, including a `burst × per × 1000` above `Number.MAX_SAFE_INTEGER`, the one bound exactness needs. **Three float versions came before and each drifted**: a TAT in float µs near 1.8e15 cannot hold `cost × interval` exactly, and rounding it to nearest let 21 per 10 s with a burst of 1000 allow 1049 at one instant, rounding it up made a full burst unreachable at 3 per second with a burst of 2, and 7 per second under-reported `remaining`. Do not bring a float back into the state; `fixed-now.spec.ts` is what catches it. The earlier bound of 500 requests a millisecond went with the floats: in ticks every rate is exact. A stored value is used only if the script could have written it — two digit strings of at most 16 digits, each at most 2^53 − 1, `ahead` at most the tolerance, `base` at most a full refill ahead of `now` — and anything else reads as a full bucket: an out-of-range value once made a division's estimate miss by more than one and its correction loop spin, holding the server BUSY. The corrections are now one bounded step each way, which is exact only under that precondition. Idempotency is its next slice |
 | `@nxgt/redis-kit` | an application's Redis wiring in one object: `defineConfig` checking a configuration of one or several Redis instances, and `connectKit` opening the clients and giving `kit.cache.<key>` and `kit.channels.<key>` — every `@nxgt/redis` cache and channel typed under the key it is exported as, renamed under the instance's prefix — plus the subscriptions it tracks and closes, `lock`, `ping` and `close`. It has no error of its own: its refusals are bare `TypeError`s, and what a caller catches at run time is `@nxgt/redis`'s `RedisError` |
 | `@nxgt/s3` | S3 on Bun's own `S3Client`, with no AWS SDK: `defineBucket` naming the bucket, the key-building function, the content types and the maximum size, and `bindBucket` giving `put`/`bytes`/`text`/`exists`/`stat`/`delete`, a `list` in this repository's cursor shape, and `presignGet`/`presignPut`/`presignPost` from the same definition. The content type and the size are refused **before** the request goes out; `presignPost` signs an S3 POST policy itself (SigV4, `node:crypto` — Bun has no POST presigning), so the **service** holds a browser upload to a size range and a content type. Its error class for refusals is `S3Error`; it also throws a `TypeError` from `defineBucket` for a definition that could never work and from `presignPost` when its secret is not Bun's, and a plain `Error` from `presignPost` when the URL Bun signed cannot be read |
 
@@ -256,15 +256,25 @@ matching key in `exports`.
   (`GCRA_AT_ARGV`, which `src/index.ts` does not export), so a burst taken
   one request at a time at one instant must allow **exactly** the burst over
   thirteen awkward rates, and a refill lands on the exact microsecond —
-  `rounding` — fractional intervals against real time: a whole burst on an
-  empty bucket, `remaining` against the decision over six rates, and the
+  `rounding` — fractional intervals against real time: a whole burst from a
+  full bucket, `remaining` against the decision over six rates, and the
   stored state draining by exactly `limit` ticks a microsecond — and
-  `scripts/run-script` (`SCRIPT FLUSH`, then the `EVAL` fallback). Four
-  mutations were measured: `now` sent from the host fails the clock spec (4
+  `stored-state` — values the script could not have written read as a full
+  bucket, within 100 ms and a 1 s test timeout, and a clock that moves back:
+  two clocks a second apart, alternating, allow exactly the burst — and
+  `scripts/run-script` (`SCRIPT FLUSH`, then the `EVAL` fallback). A script
+  that never returns cannot be rescued inside a spec file: measured, the test
+  fails on its timeout, a `SCRIPT KILL` from another connection does free
+  Redis, but Bun kills the file's redis-server as a dangling process at that
+  timeout, so every later test in the file fails too — read the first
+  failure. Six mutations were measured: `now` sent from the host fails the clock spec (4
   where 3 was expected); a check split into a read and a separate write fails
   the race (25 to 35 allowed out of 50, not 5); the previous float-TAT script
-  fails three of `fixed-now`'s four tests; and without the
-  `MAX_SAFE_INTEGER` check its spec in `define-rate-limit` fails.
+  fails three of `fixed-now`'s four tests; without the
+  `MAX_SAFE_INTEGER` check its spec in `define-rate-limit` fails; writing
+  `base = now` again lets the alternating clocks allow 50, not 10; and
+  without the tolerance check, with the correction loops unbounded, the
+  stored-state spec times out at 1000 ms instead of hanging the run.
   Every rejection is held with `test/rejection.ts`, a copy of
   `@nxgt/mongo`'s.
 
@@ -597,9 +607,9 @@ the file.
 
 ## Known state
 
-`bun run test` is **1329 pass, 0 fail**: drizzle 152, meilisearch 117,
+`bun run test` is **1338 pass, 0 fail**: drizzle 152, meilisearch 117,
 mongo 541, drizzle-meilisearch 42, mongo-meilisearch 58, mongo-kit 101,
-mongo-search-kit 17, redis 46, redis-guard 44, redis-kit 55, s3 104,
+mongo-search-kit 17, redis 46, redis-guard 53, redis-kit 55, s3 104,
 hono-api-example 31, scripts 21. It runs one process
 per package, then the scripts' specs. Treat any failure as yours.
 

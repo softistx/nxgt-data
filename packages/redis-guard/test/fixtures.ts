@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, beforeEach } from 'bun:test';
+import type { RedisClient } from 'bun';
 import { defineRateLimit } from '../src/rate-limit/define-rate-limit';
+import { GCRA_AT_ARGV, type Rate, toResult } from '../src/rate-limit/gcra';
+import { runScript } from '../src/scripts/run-script';
 import { startRedis, type TestServer } from './server';
 
 /** Five a minute per address: the README's example. */
@@ -44,4 +47,26 @@ export function useRedis() {
 	});
 
 	return servers;
+}
+
+/**
+ * One check by the rate-limit script with `now` given, in microseconds,
+ * rather than read from the server: many calls at one instant, or a clock
+ * that moves back and forth, with nothing refilling in between.
+ */
+export async function consumeAt(
+	client: RedisClient,
+	key: string,
+	rate: Rate,
+	cost: number,
+	now: number,
+	write = true,
+) {
+	const reply = await runScript(
+		client,
+		GCRA_AT_ARGV,
+		[key],
+		[rate.per, rate.limit, rate.burst, cost, write ? 1 : 0, now],
+	);
+	return toResult(reply, rate);
 }
