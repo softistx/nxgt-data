@@ -141,9 +141,15 @@ describe('wait', () => {
 			const waiting = rejection(waiter().run(who, counted(), { wait: 10_000 }));
 			await Bun.sleep(60);
 			const client = servers.redis.client;
-			await client.del(KEY);
-			await client.hset(KEY, fields);
-			await client.pexpire(KEY, 60_000);
+			// One script, so the waiter's BEGIN sees the old record or the new
+			// one — never an empty key or a hash with no TTL yet (measured: in
+			// three commands, a loaded run read the half-built hash as INVALID).
+			await client.send('EVAL', [
+				"redis.call('DEL', KEYS[1]) redis.call('HSET', KEYS[1], unpack(ARGV)) redis.call('PEXPIRE', KEYS[1], 60000)",
+				'1',
+				KEY,
+				...Object.entries(fields).flat(),
+			]);
 			const replaced = performance.now();
 			expect(await waiting).toMatchObject({ code });
 			expect(performance.now() - replaced).toBeLessThan(1_000);
