@@ -50,10 +50,12 @@ bun add -d @types/bun typescript
   Node.
 - `typescript` `^6.0.3`: required peer, the version every `@nxgt` package
   pins.
-- `zod` `>=4.6.5 <5`: required peer, since 0.2.0. An idempotent result is
-  checked against your schema both ways, so your copy of zod has to be the one
-  it parses with. A rate limit parses nothing, but the peer is required all
-  the same.
+- `zod` `>=4.6.5 <5`: required peer, since 0.2.0, **for the types**. Nothing
+  here loads zod at run time — an idempotent result is checked by calling the
+  schema you pass — but the declarations name `z.ZodType`, `z.input` and
+  `z.output`, so `tsc` needs zod beside the package, and a schema from
+  another copy of zod than the one they resolve fails to typecheck. A rate
+  limit uses none of it, but the peer is required all the same.
 - `@types/bun`: required to typecheck. The shipped declarations name Bun's
   `RedisClient`, so without Bun's types the first `tsc` fails with
   `Cannot find module 'bun'`.
@@ -113,18 +115,10 @@ const left = await exports.peek(who, 0);
 await exports.reset(who);
 ```
 
-The algorithm is **GCRA** (the generic cell rate algorithm), counted in
-**exact integers**: one Redis string per key holds two whole numbers — the
-latest server time the bucket has seen, and how far it was then from full —
-and one Lua script reads it, decides and writes, in a single step. Nothing is
-rounded, so a burst taken one request at a time allows exactly the burst, at
-any rate. A denial writes nothing, a `peek`
-writes nothing, and the key expires when the bucket is full again, so an idle
-limit leaves nothing in Redis.
-
-The [rate limits guide](docs/guide/rate-limits.md) has the algorithm in
-detail, choosing `limit`, `per` and `burst`, and an HTTP recipe with the
-`RateLimit-*` and `Retry-After` headers for any framework.
+It is **GCRA**, one Lua script over one key, in exact integers; a denial and
+a `peek` write nothing, and an idle limit leaves no key. The
+[rate limits guide](docs/guide/rate-limits.md) has the algorithm, choosing
+`burst`, and the `RateLimit-*` headers.
 
 ## Idempotency
 
@@ -178,20 +172,10 @@ async function postOrder(request: Request, user: string): Promise<Response> {
 }
 ```
 
-The first call with a key runs `work` and stores what it returned; every
-repeat within `ttl` gets that result back — `replayed: true` — and `work` is
-not called. A repeat that arrives while the first is still running waits up
-to `wait` milliseconds (default 0) — getting its result, or running `work`
-itself if the first gave the key back or crashed and its lease lapsed — and is
-refused with `IN_PROGRESS` only if the first is still running when `wait` runs
-out; one with a different fingerprint is refused with `MISMATCH` at once. While `work` runs,
-its lease is renewed every third of `lease`, so work of any length runs
-once. **An error thrown by `work` is never stored**: the key is given
-back and the error passes through as it is, so the next call runs again.
-
-A failure the client should get back on every repeat — a card declined, not a
-database that was down — is a **result**, not an error: return it as one
-member of a union schema.
+A repeat within `ttl` gets the stored result, `replayed: true`, without
+calling `work`; one during the first run waits up to `wait` ms for it, and
+gets `IN_PROGRESS` if it is still running. **A thrown error is never stored**, so a failure the client
+must get back on every repeat is returned as a union member:
 
 ```ts
 export const chargeCard = defineIdempotency({
@@ -212,11 +196,9 @@ const { value } = await bindIdempotency(redis, chargeCard).run(key, async () => 
 });
 ```
 
-Each step is one Lua script over one hash: taking the key, renewing its
-lease, storing the result under this run's own token, and giving the key
-back. The
-[idempotency guide](docs/guide/idempotency.md) has the storage, the
-fingerprint, choosing `ttl` and `lease`, and the HTTP recipe in full.
+The [idempotency guide](docs/guide/idempotency.md) has the fingerprint, the
+lease and its renewals, `wait`, the storage, and the HTTP recipe in full;
+[testing](docs/guide/testing.md) shows specs for both primitives.
 
 ## API
 
@@ -319,12 +301,13 @@ take more than ten years to refill from empty; `defineIdempotency` (and
 `schema`. A `fingerprint` that is neither a string nor an `ArrayBufferView`,
 and a `wait` that is not a whole number of 0 or more, reject with a
 `TypeError` before anything is sent. Redis's own failures come back as
-they are, from Bun's client. Every message is in
+they are, from Bun's client — [`Connection closed`](docs/troubleshooting.md#connection-closed)
+says what each means in `run`. Every message is in
 [troubleshooting](docs/troubleshooting.md).
 
 ## What does not compile
 
-Each is a `@ts-expect-error` case in `test/types/guard.ts`.
+Each is a `@ts-expect-error` case in [`test/types/guard.ts`](https://github.com/softistx/nxgt-data/blob/develop/packages/redis-guard/test/types/guard.ts), which the package does not ship.
 
 - A call with the wrong params, or with some of them missing.
 - A `cost` that is a string — `consume(params, '2')`.
@@ -336,7 +319,7 @@ Each is a `@ts-expect-error` case in `test/types/guard.ts`.
 - A `GuardErrorCode` it does not have, and `retryAfter` read as if it were
   always there.
 
-In `test/types/idempotency.ts`:
+In [`test/types/idempotency.ts`](https://github.com/softistx/nxgt-data/blob/develop/packages/redis-guard/test/types/idempotency.ts):
 
 - A `work` that returns what the schema does not accept — a field of the
   wrong type, a required field left out, a union member the schema lacks.
@@ -352,95 +335,50 @@ In `test/types/idempotency.ts`:
 
 ## Traps
 
-- **GCRA is a rate, not a counter of windows.** A full bucket takes `burst`
-  requests at once and then refills at `limit` per `per` — one every
-  `per ÷ limit` ms. So in the first `per` after an idle spell a caller can
-  make up to **`burst + limit − 1`** requests: 5 at once, then one every 12 s,
-  is 9 within the first minute for `limit: 5, per: 60_000`. After that it
-  holds to the rate. Set `burst` lower where the first minute matters.
-- **`per` is milliseconds.** `per: 60` is 60 **ms**, not a minute — a limit
-  that refills almost at once and so limits nothing. Nothing can refuse it:
-  60 ms is a legitimate window. A rate that would take more than ten years to
-  refill is refused, which catches a `per` written in microseconds, but not
-  one written in seconds.
-- **`burst × per` is at most 9,007,199,254,740** — and `burst` defaults to
-  `limit`, so a very large `limit` with no `burst` counts too. The script
-  counts a full bucket as `burst × per × 1000` whole units, and a Lua number holds whole
-  numbers exactly only up to `Number.MAX_SAFE_INTEGER`. Any rate is fine —
-  there is no bound on requests per millisecond — but a burst of a million
-  over a `per` of a year is refused at definition.
-- **Bun only.** It takes Bun's `RedisClient`, and runs on Node never.
-- **The clock is the Redis server's.** `now` is read with `TIME` inside the
-  script, so a host with a wrong clock cannot refill a bucket or empty one,
-  and every process agrees. Two consequences: a result is a delay, which means
-  the same on every host, and **a server clock that goes back never
-  refills**: a bucket keeps the latest time it has seen and carries on from
-  there, so a failover between two servers whose clocks disagree by **at
-  most one full refill** (`burst × per ÷ limit`) cannot count the same
-  stretch of time twice. While the clock is behind, nothing refills — a spent
-  bucket waits for the clock to catch up, and `retryAfter` is that wait plus
-  the usual one. Past one full refill the guarantee stops: a clock that far
-  behind a bucket finds it full, so a single jump back allows one extra
-  burst, and two clocks that far apart, alternating, allow a full burst at
-  each switch. Keep the servers' clocks synchronised.
-- **Every process must use the same definition.** Two deploys with different
-  `limit`, `per` or `burst` under the same `name` read the same key with
-  different rates. Rename the limit when its rate changes a lot.
-- **`remaining` counts requests of cost 1.** A bucket with 2 remaining denies
-  a `consume(params, 3)` and counts nothing.
-- **A cost above the burst is refused, not queued.** No bucket ever holds more
-  than `burst`, so it could never be allowed.
+Rate limits:
+
+- **GCRA is a rate, not a window count**: after an idle spell, the first
+  `per` allows up to `burst + limit − 1` requests (9 for 5 a minute).
+  `burst: 2` holds it down — [why](docs/troubleshooting.md#a-limit-allows-more-than-limit-requests-in-its-first-per).
+- **`per` is milliseconds**, and nothing can refuse `per: 60`, which limits
+  almost nothing. `per: 60_000` is a minute — [more](docs/troubleshooting.md#a-limit-barely-limits-anything).
+- **`burst × per` is at most 9,007,199,254,740**, and `burst` defaults to
+  `limit`, or the definition throws. `limit: 1_000, per: 86_400_000` rather
+  than a million a year — [more](docs/troubleshooting.md#defineratelimit-archive-has-a-burst-of-1000000-and-a-per-of-31536000000ms-burst--per-must-be-at-most-9007199254740-for-the-script-to-count-exactly).
+- **The clock is the Redis server's**, so a failover to a server whose clock
+  is behind holds spent buckets until it catches up, and more than one full
+  refill behind allows an extra burst. Keep the servers on NTP — [more](docs/troubleshooting.md#every-limited-caller-has-to-wait-much-longer-than-per).
+- **Every process must use the same definition**: two rates under one `name`
+  share one key. `name: 'login.v2'` when the rate changes a lot.
+- **A cost beyond what is left is denied and counts nothing; one beyond the
+  burst rejects with `COST`.** Check `cost <= (exportLimit.burst ?? exportLimit.limit)`
+  where a request sets it — [more](docs/troubleshooting.md#consume-on-login-a-cost-must-be-a-whole-number-from-1-to-the-burst-of-5).
 
 Idempotency:
 
-- **The lease is renewed by a timer, so synchronous work can lose it.**
-  While `work` runs, `run` renews the key's lease every third of `lease`
-  (default 10 s). A timer cannot fire while synchronous code holds the event
-  loop, nor a renewal reach a Redis that is unreachable: after a whole
-  `lease` of either, the key lapses, a repeat **runs the work a second
-  time**, and the first run fails with `LEASE_LOST` and stores nothing. Keep
-  `lease` above the longest the loop may be blocked or Redis unreachable, and
-  treat `LEASE_LOST` as "this may have happened twice". `forget` during a run
-  does the same, on purpose.
-- **`lease` is how long a crash holds the key.** A process that dies
-  mid-work stops renewing, and the key stays `IN_PROGRESS` until its lease
-  lapses. `retryAfter` is that bound — a live run renews it, so a retry after
-  it can still find the key running.
-- **`ttl` is seconds; `lease` is milliseconds.** `ttl` follows Redis's
-  `EXPIRE` and `@nxgt/redis`'s `defineCache`; `lease` follows every other
-  duration in this package. `ttl: 86_400` is a day; `lease: 86_400` is under
-  a minute and a half.
-- **A thrown error is not stored.** The key is given back and the next repeat
-  runs the work again — right for a failure worth retrying (a timeout, a
-  database that was down). A failure the client must get back unchanged is a
-  result: return it as a union member of the schema.
-- **The schema has to read what was stored for as long as `ttl`.** A replay
-  parses the stored result with **today's** schema. A deploy that adds a
-  required field makes every result stored before it `INVALID` until it
-  expires — and `INVALID` on replay does **not** run the work again, since
-  that would repeat what it did. Add fields as optional or with a
-  `.default()`, or rename the operation.
-- **A result must survive JSON, and the schema must accept its own output.**
-  It is stored as JSON and parsed again on each replay. A `z.date()`, a
-  `bigint`, or a transform that does not accept what it produced is refused
-  on the first run, before anything is stored.
-- **Fingerprint the raw body, not a re-serialised object.** `JSON.stringify`
-  of a parsed body depends on key order and on what the parser dropped; two
-  identical requests could then disagree, and two different ones agree. Hash
-  what arrived: `await request.text()`, or the bytes.
-- **Scope the key.** A client's `Idempotency-Key` is only unique to that
-  client: key on the user or the tenant as well, or two users choosing the
-  same key would get each other's result. The fingerprint catches most of
-  that, but only when both send one.
-- **If storing the result fails, the work has still happened.** A connection
-  lost between `work` and the store leaves the key running until its lease
-  lapses, and the error is Redis's. A repeat within the lease gets
-  `IN_PROGRESS`; after it, the work runs again.
-- **`wait` holds the request open.** A repeat with `wait` polls the key
-  every 25 ms at first, then up to every 250 ms, until it is done, free, or
-  `wait` is spent — each poll one script on the server. Keep it under your
-  HTTP timeout; without it, a repeat during the first run gets `IN_PROGRESS`
-  at once.
+- **Synchronous work can lose the lease**: the renewal timer cannot fire
+  while the event loop is blocked, so after a whole `lease` a repeat runs
+  `work` again and the first rejects with `LEASE_LOST`. `await Bun.sleep(0)`
+  between chunks, or a `Worker` — [the lease](docs/guide/idempotency.md#the-lease).
+- **`ttl` is seconds; `lease` is milliseconds.** `ttl: 86_400` is a day;
+  `lease: 86_400` is under a minute and a half — [choosing them](docs/guide/idempotency.md#choosing-ttl-and-lease).
+- **A thrown error is not stored**, so the next repeat runs again. Return a
+  failure that must replay as a union member of the schema — [example](docs/guide/idempotency.md#a-failure-worth-replaying-is-a-result).
+- **A replay parses with today's schema**, and a stored result it refuses is
+  `INVALID`, not run again. Add fields with `.optional()` or `.default()` —
+  [changing the schema](docs/guide/idempotency.md#changing-the-schema).
+- **A result must survive JSON**: a `z.date()` or a `bigint` is refused on
+  the first run. `z.iso.datetime()` and a string — [more](docs/troubleshooting.md#run-on-orderscreate-the-result-does-not-match-the-schema-once-stored-as-json-so-it-was-not-stored-invalid_type).
+- **Fingerprint the raw body**, not `JSON.stringify` of a parsed one, or
+  identical requests can mismatch. `{ fingerprint: await request.text() }` —
+  [the fingerprint](docs/guide/idempotency.md#the-fingerprint).
+- **Scope the key**: an `Idempotency-Key` is unique only to its client.
+  `` key: (p) => `${p.user}/${p.key}` ``.
+- **A Redis error after `work` means the work happened**, and the key stays
+  running until its lease lapses, then runs again. Make `work` safe to repeat
+  where it can be — [the same request ran twice](docs/troubleshooting.md#the-same-request-ran-twice).
+- **`wait` holds the request open** while it polls. Keep it under your HTTP
+  timeout: `wait: 2_000` — [waiting](docs/guide/idempotency.md#waiting-for-a-running-key).
 
 ## Documentation
 
@@ -449,6 +387,11 @@ Idempotency:
   rate, and the HTTP recipe.
 - [docs/guide/idempotency.md](docs/guide/idempotency.md) — the storage, the
   fingerprint, `ttl` and `lease`, and the HTTP recipe.
+- [docs/guide/testing.md](docs/guide/testing.md) — specs against a real
+  Redis, emptying it between tests, and why the host's clock refills
+  nothing.
+- [docs/upgrading.md](docs/upgrading.md) — what to change from 0.1.0 and
+  0.2.0.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — every error this
   package can raise, by the message you will see.
 - [docs/roadmap.md](docs/roadmap.md) — what is coming, and what has been

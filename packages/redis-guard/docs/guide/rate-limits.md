@@ -29,13 +29,29 @@ you can export and share between modules. It throws a bare `TypeError` for a
 definition that could never work, so a mistake stops the process at import
 rather than at the first request.
 
-| Field | |
-| --- | --- |
-| `name` | the key's prefix. Two limits must not share one |
-| `key(params)` | the rest of the key, from whatever is limited. A function, so a renamed parameter is a compile error |
-| `limit` | how many requests `per` allows, once refilled |
-| `per` | the window, **in milliseconds** |
-| `burst` | how many may arrive at once from a full bucket. Defaults to `limit` |
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `name` | `string` | required | the key's prefix. Two limits must not share one. Not empty |
+| `key` | `(params: P) => string` | required | the rest of the key, from whatever is limited. A function, so a renamed parameter is a compile error |
+| `limit` | `number` | required | how many requests `per` allows, once refilled. A whole number, at least 1 |
+| `per` | `number` | required | the window, **in milliseconds**. A whole number, at least 1 |
+| `burst` | `number` | `limit` | how many may arrive at once from a full bucket. A whole number, at least 1 — see [Choosing `burst`](#choosing-burst) |
+
+`burst × per` may be at most 9,007,199,254,740, and `burst × per ÷ limit` —
+how long an empty bucket takes to refill — at most ten years; anything else
+is a `TypeError` at definition, [in troubleshooting](../troubleshooting.md#configuration).
+
+```ts
+interface RateLimitDefinition<P> {
+	readonly name: string;
+	readonly key: (params: P) => string;
+	readonly limit: number;
+	readonly per: number;
+	readonly burst?: number;
+}
+
+function defineRateLimit<P>(definition: RateLimitDefinition<P>): RateLimitDefinition<P>;
+```
 
 A stored key is `` `<name>:<key(params)>` `` — the same shape as an
 `@nxgt/redis` cache's, so one naming scheme covers both:
@@ -48,6 +64,23 @@ login.keyFor({ ip: '203.0.113.7' });   // 'login:203.0.113.7'
 or the `client` of an `@nxgt/redis` connection. It checks the definition
 again, so one written by hand, without `defineRateLimit`, is refused the same
 way — with `bindRateLimit` in the message instead.
+
+```ts
+function bindRateLimit<P>(
+	client: RedisClient,
+	definition: RateLimitDefinition<P>,
+): BoundRateLimit<P>;
+
+interface BoundRateLimit<P> {
+	keyFor(params: P): string;
+	consume(params: P, cost?: number): Promise<LimitResult>;
+	enforce(params: P, cost?: number): Promise<LimitResult>;
+	peek(params: P, cost?: number): Promise<LimitResult>;
+	reset(params: P): Promise<boolean>;
+}
+```
+
+`cost` defaults to 1 — see [Costs](#costs) and [Four ways to ask](#four-ways-to-ask).
 
 ## How it counts: GCRA
 
@@ -147,7 +180,23 @@ A call can count for more than one request: an export of 500 rows, a batch of
 five messages.
 
 ```ts
-await exports.consume({ org, user }, 5);
+import { RedisClient } from 'bun';
+import { bindRateLimit, defineRateLimit } from '@nxgt/redis-guard';
+
+const exportLimit = defineRateLimit({
+	name: 'export',
+	key: (p: { org: string; user: string }) => `${p.org}/${p.user}`,
+	limit: 10,
+	per: 60_000,
+	burst: 20,
+});
+
+const redis = new RedisClient(process.env.REDIS_URL);
+const exportsLimit = bindRateLimit(redis, exportLimit);
+
+// An export of 500 rows counts as five requests of 100 rows.
+const result = await exportsLimit.consume({ org: 'acme', user: 'u1' }, 5);
+// { allowed: true, limit: 20, remaining: 15, … } from a full bucket
 ```
 
 `cost` is a whole number from 1 to the burst. A cost above the burst could
