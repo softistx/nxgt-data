@@ -292,6 +292,33 @@ does not compile. One query Meilisearch refuses fails the whole request, with
 the SDK's error naming it (``Inside `.queries[1]`: …``). Federated search is
 not wrapped: call `client.multiSearch({ federation, queries })`.
 
+## Tenant tokens
+
+```ts
+import { tenantToken } from '@nxgt/meilisearch';
+
+// on the server, per user; `searchKey` holds the `search` action on 'movies'
+const token = await tenantToken({
+	apiKey: searchKey.key,
+	apiKeyUid: searchKey.uid,
+	indexes: [movieIndex],
+	searchRules: { movies: { filter: `studio = ${JSON.stringify(user.studio)}` } },
+	expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+});
+// in the browser: new Meilisearch({ host, apiKey: token }) searches only that studio's movies
+```
+
+`tenantToken` signs a token with the SDK's `generateTenantToken` (from
+`meilisearch/token`) and sends nothing. The token may search only the bound
+`indexes` given, and `searchRules` is keyed by their uids — a rule for
+another index, or a misspelt uid, does not compile. The filter is **added**
+to every search made with the token, measured on v1.53.2.
+
+`expiresAt` is a `Date` or whole seconds since the epoch. One that is already
+past, a number of milliseconds (which the server accepts, for millennia), a
+fraction of a second (which the server cannot decode) or an invalid `Date`
+throws a `SearchIndexError` (`INVALID_EXPIRES_AT`) before anything is signed.
+
 ## Errors
 
 The SDK's errors reach you as they are: a request Meilisearch refuses throws
@@ -305,6 +332,7 @@ This package throws one error of its own, `SearchIndexError`:
 | `PRIMARY_KEY_MISMATCH` | `sync` found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
 | `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error` |
 | `REBUILD_FAILED` | `rebuild` stopped before the swap, or could not wait for it | `cause`: what stopped it; `task` when a task failed |
+| `INVALID_EXPIRES_AT` | `tenantToken` was given an `expiresAt` past, in milliseconds, fractional or invalid | `indexUid`: the token's uids, joined by `,` |
 
 ```ts
 import { SearchIndexError } from '@nxgt/meilisearch';
@@ -410,10 +438,20 @@ function multiSearch<const Queries extends readonly { index: TypedIndex<any> }[]
 - `type CheckedQuery<Q>`: the query as its own index allows it, with any other key refused.
 - `type MultiSearchResults<Queries>`: a tuple, `SearchResult<Def, Query> & { indexUid: string }` per query.
 
+### `tenantToken(options)`
+
+```ts
+function tenantToken<const Indexes extends TokenIndexes>(options: TenantTokenOptions<Indexes>): Promise<string>;
+```
+
+- `interface TenantTokenOptions<Indexes> { apiKey: string; apiKeyUid: string; indexes: Indexes; searchRules?: TenantTokenRules<Indexes>; expiresAt?: Date | number; algorithm?: 'HS256' | 'HS384' | 'HS512' }`.
+- `type TokenIndexes = readonly [TypedIndex<any>, ...TypedIndex<any>[]]`: at least one bound index.
+- `type TenantTokenRules<Indexes>`: `{ [uid]?: { filter?: Filter } | null }`, keyed by the uids of `Indexes`.
+
 ### `SearchIndexError`
 
 - `class SearchIndexError extends Error`: `code: SearchIndexErrorCode`, `indexUid: string`, `task: Task | undefined`, `expectedPrimaryKey: string | undefined`, `actualPrimaryKey: string | undefined`, `cause`.
-- `type SearchIndexErrorCode = 'PRIMARY_KEY_MISMATCH' | 'TASK_FAILED' | 'REBUILD_FAILED'`.
+- `type SearchIndexErrorCode = 'PRIMARY_KEY_MISMATCH' | 'TASK_FAILED' | 'REBUILD_FAILED' | 'INVALID_EXPIRES_AT'`.
 
 ## Traps
 
@@ -463,6 +501,10 @@ function multiSearch<const Queries extends readonly { index: TypedIndex<any> }[]
   outcome is unknown.
 - **Two rebuilds of one index at once collide**: the second deletes the
   first one's `movies_next` as a leftover. Run it from one job.
+- **A tenant token's filter is a string you build.** Put a value from a
+  request in through `JSON.stringify`, or it can change the filter; and
+  sign with a search-only key, never the master key. A token lives no longer
+  than its key: deleting the key revokes every token it signed.
 - **`sync` needs a key that may create indexes and change settings**:
   `indexes.create`, `indexes.get`, `indexes.update`, `settings.get`,
   `settings.update` and `tasks.get`. A search-only key is enough for the
@@ -476,6 +518,7 @@ function multiSearch<const Queries extends readonly { index: TypedIndex<any> }[]
 - [docs/guide/rebuild.md](docs/guide/rebuild.md) — `rebuild`: filling an index beside the live one and swapping it in, and what was measured.
 - [docs/guide/documents.md](docs/guide/documents.md) — `bindIndex`, writes, waiting for a task, reads by id, `list`.
 - [docs/guide/search.md](docs/guide/search.md) — filters, sorts, facets, highlighting, the two paginations, and `multiSearch` over several indexes.
+- [docs/guide/tenant-tokens.md](docs/guide/tenant-tokens.md) — `tenantToken`: searches scoped per user, the rules, `expiresAt`, and what the server answers.
 - [docs/guide/errors.md](docs/guide/errors.md) — `SearchIndexError`, the SDK's errors, one handler for the app.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — an error message, and its fix.
 - [docs/roadmap.md](docs/roadmap.md) — what is next, and what is not planned.

@@ -1,7 +1,8 @@
 # Troubleshooting
 
 This package throws one error of its own, `SearchIndexError`, with a `code` of
-`PRIMARY_KEY_MISMATCH`, `TASK_FAILED` or `REBUILD_FAILED`. Everything else comes from the
+`PRIMARY_KEY_MISMATCH`, `TASK_FAILED`, `REBUILD_FAILED` or `INVALID_EXPIRES_AT`.
+Everything else comes from the
 official SDK as it is: `MeilisearchApiError` (whose `cause.code` is
 Meilisearch's own error code) and `MeilisearchTaskTimeOutError`. The headings
 below are what each one prints; the Meilisearch messages were measured on
@@ -25,6 +26,13 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [``Index `movies`: Attribute `year` is not sortable.``](#index-movies-attribute-year-is-not-sortable)
   - [``Inside `.queries[1]`: Index `nobody` not found.``](#inside-queries1-index-nobody-not-found)
   - [A search right after a write finds nothing](#a-search-right-after-a-write-finds-nothing)
+- **Tenant tokens**
+  - [`tenantToken for "movies": expiresAt is in the past`](#tenanttoken-for-movies-expiresat-is-in-the-past)
+  - [`tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date`](#tenanttoken-for-movies-expiresat-is-a-number-of-milliseconds-it-takes-seconds-or-a-date)
+  - [`the uid of your key is not a valid UUIDv4`](#the-uid-of-your-key-is-not-a-valid-uuidv4)
+  - [``Tenant token expired. Was valid up to `1790139850` and we're now `1790139910`.``](#tenant-token-expired-was-valid-up-to-1790139850-and-were-now-1790139910)
+  - [``The provided tenant token cannot acces the index `people`, allowed indexes are ["movies"].``](#the-provided-tenant-token-cannot-acces-the-index-people-allowed-indexes-are-movies)
+  - [``The API key used to generate this tenant token cannot acces the index `people`.``](#the-api-key-used-to-generate-this-tenant-token-cannot-acces-the-index-people)
 
 ## Install and types
 
@@ -330,3 +338,87 @@ const { hits } = await movieIndex.search('alien');
 
 With `wait`, a task that ends `failed` throws `SearchIndexError` instead of
 resolving quietly.
+
+## Tenant tokens
+
+### `tenantToken for "movies": expiresAt is in the past`
+
+Two siblings end the same line differently: `is not a whole number of
+seconds`, and `is an invalid Date`.
+
+**When:** `tenantToken({ …, expiresAt })` with a time already past, a number
+of seconds with a fraction, or a `Date` built from something unparseable.
+It is a `SearchIndexError` with `code: 'INVALID_EXPIRES_AT'`, thrown before
+anything is signed; `indexUid` holds the token's uids joined by `,`.
+**Why:** a past token would be refused by the server on its first search,
+and — measured on v1.53.2 — a fractional `exp` makes every search with the
+token fail: *Could not decode tenant token, JSON error: invalid type:
+floating point …, expected i64*. The message never repeats the value.
+**Fix:** a `Date` in the future, or whole seconds:
+
+```ts
+expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+// or
+expiresAt: Math.floor(Date.now() / 1000) + 3600,
+```
+
+### `tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date`
+
+**When:** `expiresAt: Date.now() + …` — a number past 10¹¹, which as
+seconds is the year 5138.
+**Why:** the token's `exp` is in seconds. Measured on v1.53.2: the server
+**accepts** a time in milliseconds, and the token then lasts some 56 000
+years — it is refused here because nothing else would refuse it.
+**Fix:** pass the `Date`, or divide:
+
+```ts
+expiresAt: new Date(Date.now() + 3_600_000),
+```
+
+### `the uid of your key is not a valid UUIDv4`
+
+**When:** `tenantToken` with an `apiKeyUid` that is not the key's `uid` —
+often the key itself, or its name. The SDK's own `Error`, thrown while
+signing.
+**Why:** the token names the key that signed it by its uid, a UUID v4, and
+the server looks the key up by it.
+**Fix:**
+
+```ts
+const searchKey = await admin.getKey(process.env.MEILI_SEARCH_KEY_UID!);
+await tenantToken({ apiKey: searchKey.key, apiKeyUid: searchKey.uid, indexes: [movieIndex] });
+```
+
+### ``Tenant token expired. Was valid up to `1790139850` and we're now `1790139910`.``
+
+**When:** a search with a client made from a token whose `exp` has passed.
+A `MeilisearchApiError`, `cause.code` `invalid_api_key`, status 403.
+**Why:** `tenantToken` refuses a time already past, so the token expired
+between signing and searching.
+**Fix:** sign a new token when the old one expires — the page asks the
+server again on a 403 — and pick an `expiresAt` longer than a session's
+searches.
+
+### ``The provided tenant token cannot acces the index `people`, allowed indexes are ["movies"].``
+
+**When:** a search, with the token, on an index that was not in its
+`indexes`. `cause.code` `invalid_api_key`, status 403.
+**Why:** the token may search exactly the indexes it names, and no other.
+**Fix:** add the index to `indexes`, with its own rule if it needs one:
+
+```ts
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex, peopleIndex], searchRules: { movies: { filter } } });
+```
+
+### ``The API key used to generate this tenant token cannot acces the index `people`.``
+
+**When:** a search, with the token, on an index the token names but the
+**signing key** does not cover. `cause.code` `invalid_api_key`, status 403.
+**Why:** a token can do no more than its key: its `indexes` must be among
+the key's.
+**Fix:** sign with a key whose `indexes` include every index the token
+names, with the `search` action:
+
+```ts
+const searchKey = await admin.createKey({ actions: ['search'], indexes: ['movies', 'people'], expiresAt: null });
+```

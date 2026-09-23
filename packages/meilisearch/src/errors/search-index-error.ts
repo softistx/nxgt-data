@@ -4,7 +4,8 @@ import type { Task } from 'meilisearch';
 export type SearchIndexErrorCode =
 	| 'PRIMARY_KEY_MISMATCH'
 	| 'TASK_FAILED'
-	| 'REBUILD_FAILED';
+	| 'REBUILD_FAILED'
+	| 'INVALID_EXPIRES_AT';
 
 export interface SearchIndexErrorOptions {
 	code: SearchIndexErrorCode;
@@ -29,7 +30,11 @@ export interface SearchIndexErrorOptions {
  * - `TASK_FAILED`: a task this package waited for ended `failed` or
  *   `canceled`; `task` is the task, and `cause` is its `error`.
  * - `REBUILD_FAILED`: `rebuild` stopped before the swap, deleted the next
- *   index and left the live one as it was; `cause` is what stopped it.
+ *   index and left the live one as it was — or sent the swap and could not
+ *   wait for it, and deleted nothing; `cause` is what stopped it.
+ * - `INVALID_EXPIRES_AT`: `tenantToken` was given an `expiresAt` that is past,
+ *   or not a time Meilisearch reads; nothing was signed. `indexUid` holds the
+ *   token's uids, joined by `,`.
  */
 export class SearchIndexError extends Error {
 	override name = 'SearchIndexError';

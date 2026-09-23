@@ -1,9 +1,9 @@
 # Errors
 
 Almost every failure here is the SDK's: this package adds one error,
-`SearchIndexError`, for the three things it does that the SDK does not —
-checking a primary key, failing a task that failed, and a rebuild that
-stopped before its swap.
+`SearchIndexError`, for the four things it does that the SDK does not —
+checking a primary key, failing a task that failed, a rebuild that stopped
+before its swap, and refusing a tenant token's `expiresAt`.
 
 ```ts
 import { SearchIndexError } from '@nxgt/meilisearch';
@@ -25,10 +25,11 @@ try {
 | `PRIMARY_KEY_MISMATCH` | [`sync`](sync.md) found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
 | `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error` |
 | `REBUILD_FAILED` | [`rebuild`](rebuild.md) stopped before the swap, or sent it and could not wait for it | `cause`: what stopped it; `task` when a task failed |
+| `INVALID_EXPIRES_AT` | [`tenantToken`](tenant-tokens.md) was given an `expiresAt` it will not sign | `indexUid`: the token's uids, joined by `,` |
 
 ```ts
 class SearchIndexError extends Error {
-	readonly code: SearchIndexErrorCode;      // 'PRIMARY_KEY_MISMATCH' | 'TASK_FAILED' | 'REBUILD_FAILED'
+	readonly code: SearchIndexErrorCode;      // 'PRIMARY_KEY_MISMATCH' | 'TASK_FAILED' | 'REBUILD_FAILED' | 'INVALID_EXPIRES_AT'
 	readonly indexUid: string;
 	readonly task: Task | undefined;
 	readonly expectedPrimaryKey: string | undefined;
@@ -104,6 +105,23 @@ error.task?.error?.code; // 'invalid_document_id', when a task failed
 When the swap was sent and could not be waited for, the message says the
 outcome is unknown, and nothing is deleted. The swap is atomic, so the live
 index is whole either way.
+
+### `INVALID_EXPIRES_AT`
+
+[`tenantToken`](tenant-tokens.md) refuses, before signing, an `expiresAt`
+already past, a number of milliseconds, a fraction of a second, or an
+invalid `Date` — the last three measured to be accepted wrongly, or not
+decoded, by the server. An `expiresAt` can come from a request, so it has a
+code a handler can answer 400 to:
+
+```ts
+const error = await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], expiresAt: Date.now() }).catch((e) => e);
+error.code;     // 'INVALID_EXPIRES_AT'
+error.message;  // 'tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date'
+error.indexUid; // 'movies'
+```
+
+The message never holds the key, nor the time it was given.
 
 ## The SDK's errors, unchanged
 
