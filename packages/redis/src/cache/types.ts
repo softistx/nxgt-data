@@ -34,3 +34,11 @@ export type ParamsOf<D> =
  */
 export type ValueOf<D> =
 	D extends CacheDefinition<never, infer S> ? z.output<S> : never;
+
+/**
+ * What the definition's schema accepts: what `set` and a `remember` loader
+ * take. It differs from `ValueOf` where the schema fills something in — a
+ * field with a `.default()` is optional here and present there.
+ */
+export type InputOf<D> =
+	D extends CacheDefinition<never, infer S> ? z.input<S> : never;

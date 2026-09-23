@@ -47,20 +47,41 @@ function defineCache<P, S extends z.ZodType>(
 function bindCache<P, S extends z.ZodType>(
 	client: RedisClient,
 	definition: CacheDefinition<P, S>,
-): BoundCache<P, z.output<S>>;
+): BoundCache<P, z.output<S>, z.input<S>>;
 
-interface BoundCache<P, T> {
+interface BoundCache<P, T, I = T> {
 	keyFor(params: P): string;
 	get(params: P): Promise<T | undefined>;
-	set(params: P, value: T, options?: { ttl?: number }): Promise<void>;
+	set(params: P, value: I, options?: { ttl?: number }): Promise<void>;
 	remember(
 		params: P,
-		load: () => Promise<T> | T,
+		load: () => Promise<I> | I,
 		options?: { ttl?: number },
 	): Promise<T>;
 	delete(params: P): Promise<boolean>;
 }
 ```
+
+`T` is what the schema **gives back** — what `get` and `remember` return.
+`I` is what it **accepts** — what `set` and a loader hand in. They differ
+where the schema fills something in, a `.default()` above all:
+
+```ts
+const memberCache = defineCache({
+	name: 'member',
+	key: (id: string) => id,
+	ttl: 300,
+	schema: z.object({ id: z.string(), seats: z.number().default(1) }),
+});
+const members = bindCache(redis.client, memberCache);
+
+await members.set('u1', { id: 'u1' });          // `seats` may be left out…
+const member = await members.get('u1');         // …and is there: { id: 'u1', seats: 1 }
+const loaded = await members.remember('u2', () => ({ id: 'u2' })); // seats: 1 too
+```
+
+What is stored is what the schema gave back, so every reader sees the
+default, not only the one that wrote.
 
 ## The definition
 
@@ -211,7 +232,7 @@ app.put('/users/:id/profile', async (c) => {
 ## Types a caller names
 
 ```ts
-import type { BoundCache, ParamsOf, ValueOf } from '@nxgt/redis';
+import type { BoundCache, InputOf, ParamsOf, ValueOf } from '@nxgt/redis';
 
 type ProfileParams = ParamsOf<typeof profileCache>;   // { userId: string }
 type Profile = ValueOf<typeof profileCache>;          // { id: string; name: string }
@@ -222,9 +243,10 @@ function warm(cache: BoundCache<ProfileParams, Profile>): Promise<void> {
 ```
 
 `ParamsOf` and `ValueOf` are there so a helper of your own can name what a
-definition takes and what it holds without repeating either. A bound cache is
-`BoundCache<P, T>`, so a helper can take one without naming the definition it
-came from.
+definition takes and what it holds without repeating either; `InputOf` is what
+it accepts on a write, which is `ValueOf` with the defaulted fields optional. A
+bound cache is `BoundCache<P, T, I>` — `I` defaults to `T` — so a helper can
+take one without naming the definition it came from.
 
 ## Errors
 

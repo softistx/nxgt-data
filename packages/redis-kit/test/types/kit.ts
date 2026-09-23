@@ -63,6 +63,14 @@ async function soleInstance() {
 
 	// These are the shapes that must keep compiling.
 	await kit.cache.users.set('ada', { id: 'ada', email: 'a@b.c', seats: 1 });
+	// `seats` has a `.default()`: a write may leave it out, a read has it.
+	await kit.cache.users.set('ada', { id: 'ada', email: 'a@b.c' });
+	const read = await kit.cache.users.remember('ada', () => ({
+		id: 'ada',
+		email: 'a@b.c',
+	}));
+	const seatCount: number = read.seats;
+	void seatCount;
 	await kit.cache.seats.get({ org: 'acme', user: 'ada' });
 	await kit.channels.created.publish({ id: 'ada', email: 'a@b.c', seats: 1 });
 	await kit.lock('k', () => 1);

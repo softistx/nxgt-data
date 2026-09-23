@@ -108,20 +108,21 @@ nothing. The key is a **function**, so nothing is spelled by hand at a call
 site and a renamed parameter is a compile error. A stored key is
 `` `<name>:<key(params)>` ``. `ttl` is **seconds**, Redis's own unit for `EX`.
 
-| `BoundCache<P, T>` | |
+| `BoundCache<P, T, I>` | |
 | --- | --- |
 | `keyFor(params)` | the key it would use, for a caller that needs the string |
 | `get(params)` | the value, or `undefined` — a miss, an expiry, or a stale shape |
-| `set(params, value, { ttl })` | checked against the schema first, then stored |
-| `remember(params, load, { ttl })` | the value if it is there, otherwise what `load` gives, stored — and given back **as it was stored** |
+| `set(params, value, { ttl })` | the value as the schema **accepts** it — a `.default()` field may be left out — checked, then stored as the schema gives it back |
+| `remember(params, load, { ttl })` | the value if it is there, otherwise what `load` gives (as the schema accepts it), stored — and given back **as it was stored**, defaults filled |
 | `delete(params)` | `true` when something was there |
 
 | Type | |
 | --- | --- |
 | `CacheDefinition<P, S>` | what `defineCache` takes and gives back |
-| `BoundCache<P, T>` | what `bindCache` gives back |
+| `BoundCache<P, T, I>` | what `bindCache` gives back: `T` read, `I` written (`I` defaults to `T`) |
 | `ParamsOf<D>` | the params a definition's `key` takes, for a caller writing its own helper |
-| `ValueOf<D>` | what a definition's schema gives back |
+| `ValueOf<D>` | what a definition's schema gives back — what a read returns |
+| `InputOf<D>` | what a definition's schema accepts — what `set` and a loader take |
 
 ### Locks
 

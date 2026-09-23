@@ -2,6 +2,7 @@ import type {
 	BoundCache,
 	CacheDefinition,
 	ChannelDefinition,
+	InputOf,
 	LockOptions,
 	ParamsOf,
 	PingResult,
@@ -47,7 +48,8 @@ export interface BoundChannel<D> {
 export type CacheScope<Ca> = {
 	readonly [K in keyof CachesOf<Ca>]: BoundCache<
 		ParamsOf<CachesOf<Ca>[K]>,
-		ValueOf<CachesOf<Ca>[K]>
+		ValueOf<CachesOf<Ca>[K]>,
+		InputOf<CachesOf<Ca>[K]>
 	>;
 };
 

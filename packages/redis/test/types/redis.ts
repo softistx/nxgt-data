@@ -6,6 +6,7 @@ import {
 	bindCache,
 	defineCache,
 	defineChannel,
+	type InputOf,
 	type ParamsOf,
 	publish,
 	subscribe,
@@ -41,6 +42,18 @@ users.set('u1', { email: 'a@b.c', seats: 1 });
 
 // @ts-expect-error a loader gives the cache's own shape
 users.remember('u1', () => ({ id: 'u1' }));
+
+// A field with a `.default()` may be left out where a value is written…
+users.set('u1', { id: 'u1', email: 'a@b.c' });
+const filled = users.remember('u1', () => ({ id: 'u1', email: 'a@b.c' }));
+// …and is always there where one is read.
+const seatsRead: Promise<number> = filled.then((user) => user.seats);
+void seatsRead;
+const inputSeats: InputOf<typeof userCache>['seats'] = undefined;
+void inputSeats;
+// @ts-expect-error what is read always has `seats`
+const outputSeats: ValueOf<typeof userCache>['seats'] = undefined;
+void outputSeats;
 
 // The loader may be synchronous or not; both give the schema's shape.
 const remembered: Promise<typeof ada> = users.remember('u1', async () => ada);

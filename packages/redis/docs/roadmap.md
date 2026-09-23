@@ -33,6 +33,11 @@ _Nothing queued._
 
 ## Shipped
 
+- **A cache value written as the schema *accepts* it** — `set` and a
+  `remember` loader take `z.input` of the schema, so a field with a
+  `.default()` may be left out where a value is written, and every reader gets
+  it filled; reads still give `z.output`, and `InputOf<D>` names the written
+  shape — 0.3.0.
 - **The connection failures are a `RedisError` too** — `CONNECTION` for a
   connect a close interrupted, `PING_TIMEOUT` on the result `ping` reports,
   so one class and one code cover everything this package refuses; neither

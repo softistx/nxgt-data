@@ -26,7 +26,7 @@ kit adds: the binding, the prefix, and what the types hold you to.
 | --- | --- | --- |
 | `keyFor(params)` | `string` | the key it would use, for a caller that needs the string itself |
 | `get(params)` | `Promise<T \| undefined>` | the value, or `undefined` — a miss, an expiry, or a shape the schema no longer matches |
-| `set(params, value, { ttl })` | `Promise<void>` | checked against the schema first, then stored for the definition's `ttl` or the one given here |
+| `set(params, value, { ttl })` | `Promise<void>` | the value as the schema accepts it — a `.default()` field may be left out — checked, then stored as the schema gives it back, for the definition's `ttl` or the one given here |
 | `remember(params, load, { ttl })` | `Promise<T>` | the value if it is there, otherwise what `load` gives — stored, and given back **as it was stored** |
 | `delete(params)` | `Promise<boolean>` | `true` when something was there |
 
