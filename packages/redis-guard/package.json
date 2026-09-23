@@ -1,7 +1,7 @@
 {
 	"name": "@nxgt/redis-guard",
 	"version": "0.1.0",
-	"description": "Guards on Bun's own Redis client: rate limits as one atomic GCRA script, timed by the Redis server's clock",
+	"description": "Guards on Bun's own Redis client: rate limits and idempotency, each one atomic script timed by the Redis server's clock",
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -26,7 +26,8 @@
 		"bun",
 		"typescript",
 		"rate-limit",
-		"gcra"
+		"gcra",
+		"idempotency"
 	],
 	"repository": {
 		"type": "git",
@@ -49,9 +50,11 @@
 	},
 	"devDependencies": {
 		"@types/bun": "^1.4.0",
-		"redis-memory-server": "0.17.1"
+		"redis-memory-server": "0.17.1",
+		"zod": "4.6.5"
 	},
 	"peerDependencies": {
-		"typescript": "^6.0.3"
+		"typescript": "^6.0.3",
+		"zod": ">=4.6.5 <5"
 	}
 }

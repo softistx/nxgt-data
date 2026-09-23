@@ -169,9 +169,11 @@
       "devDependencies": {
         "@types/bun": "^1.4.0",
         "redis-memory-server": "0.17.1",
+        "zod": "4.6.5",
       },
       "peerDependencies": {
         "typescript": "^6.0.3",
+        "zod": ">=4.6.5 <5",
       },
     },
     "packages/redis-kit": {
