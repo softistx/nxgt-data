@@ -161,9 +161,8 @@ const health = await kit.ping({ timeoutMS: 1_000 });
 const up = Object.values(health).every((result) => result.ok);
 ```
 
-Every database at once, under its name. It never throws, and it answers
-within `timeoutMS` (2 s by default) whatever the servers do — for a health
-endpoint.
+[Health](docs/guide/health.md) has the details, including the handed-over
+client that has to be connected first.
 
 ## Closing
 
@@ -215,7 +214,7 @@ Opens what the configuration describes, and gives a `MongoKit`:
 | `withSession(session)` | The same kit, in that session; `undefined` takes it away. |
 | `transaction(fn, options?)` | `fn` with a kit in a transaction. May run twice. |
 | `sync(options?)` | `SyncReport[]` per database, under its name. |
-| `ping(options?)` | `PingResult` per database, under its name. Never throws; `timeoutMS`, 2 s by default. |
+| `ping(options?)` | `PingResult` (`import type { PingResult } from '@nxgt/mongo'`) per database, under its name. Never throws; `timeoutMS`, 2 s by default. |
 | `close()` | Gives back what it opened. Idempotent. |
 
 `KitOf<typeof config>` is that kit's type, for an application that declares

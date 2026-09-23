@@ -29,7 +29,8 @@ app.get('/health', async (c) => {
 
 ## What it reports
 
-`Record<DbName, PingResult>`, where `PingResult` is `@nxgt/mongo`'s:
+`Record<DbName, PingResult>`, where `PingResult` is `@nxgt/mongo`'s —
+`import type { PingResult } from '@nxgt/mongo'`:
 
 | Result | Means |
 | --- | --- |
@@ -55,17 +56,19 @@ Every kit answers — the one `createKit` returned, one from `as` or
 `withSession`, one inside a transaction — because they share the databases.
 The ping carries no session and no actor.
 
-A database the configuration gave a `client` is pinged the same way as one
-the kit opened from a `uri`. One difference is worth knowing, measured on
-mongodb 7.6.0: a client that was **never connected** makes its connect on the
-first command, and that connect waits `serverSelectionTimeoutMS` (30 s by
-default), not the command's `timeoutMS`. `ping` keeps its deadline anyway —
-for a handed-over client it races a timer of its own, which is where the bare
-`ping: no answer in …` error comes from; a database the kit opened is always
-connected, and reports the driver's own error — but a failed first connect **closes the
-client for good**: every later command throws `MongoTopologyClosedError` at
-once, and so does every later `ping`. Connect a client before handing it to
-the configuration:
+A database the kit opened from a `uri` is pinged through its connection, and
+reports the driver's own errors. A database the configuration gave a `client`
+is pinged too, through a copy with a timer of its own. The timer is there
+because of what was measured on mongodb 7.6.0: a client that was **never
+connected** makes its connect on the first command, and that connect waits
+`serverSelectionTimeoutMS` (30 s by default), not the command's `timeoutMS`.
+The timer keeps `ping`'s deadline anyway, and is where the bare
+`ping: no answer in …` error comes from.
+
+A failed first connect has a second consequence: the driver **closes the
+client for good**. Every later command throws `MongoTopologyClosedError` at
+once, and so does every later `ping`, whether the server came back or not.
+Connect a client before handing it to the configuration:
 
 ```ts
 const client = await new MongoClient(uri).connect();

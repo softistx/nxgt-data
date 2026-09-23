@@ -124,7 +124,9 @@ export interface MongoKit<C> extends AsyncDisposable {
 	 * Sends `ping` to every database at once, and reports each under its name:
 	 * `{ ok: true, latencyMs }`, or `{ ok: false, error }`. Never throws, and
 	 * answers within `timeoutMS` (default 2 s) either way — for a health
-	 * endpoint. A database the config gave a `client` is pinged the same way.
+	 * endpoint. A database the kit opened reports the driver's own errors; one the
+	 * config gave a `client` goes through a timer of its own, since an
+	 * unconnected client's first connect ignores `timeoutMS`.
 	 */
 	ping(options?: {
 		timeoutMS?: number;
