@@ -107,7 +107,7 @@ const error = (await store
 
 error instanceof S3Error; // true
 error.code;               // 'WRONG_OPTION'
-error.message;            // 'storageClass must be one of STANDARD, DEEP_ARCHIVE, …; got "CHEAP"'
+error.message;            // 'storageClass must be one of STANDARD, DEEP_ARCHIVE, …; got another string'
 error.key;                // 'u1.png' — the key, never the body
 // Nothing was stored: `await store.exists({ userId: 'u1' })` is still false.
 ```

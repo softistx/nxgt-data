@@ -2,12 +2,13 @@ import type { S3Options } from 'bun';
 import { S3Error } from '../../errors/s3-error';
 import { type BucketContext, keyOf } from '../context';
 import { checkOption, checkType } from '../guards';
+import { shapeOf } from '../shape';
 import {
 	type PolicyCondition,
-	type PostSigner,
 	type PresignedPost,
 	signPostPolicy,
 } from './post-policy';
+import { signerOf } from './post-signer';
 
 export type { PresignedPost };
 
@@ -18,7 +19,7 @@ export type { PresignedPost };
  * `403 AccessDenied`.
  */
 export interface PresignPostOptions {
-	/** Seconds until the form expires: 1 to 604800. A day when left out. */
+	/** Seconds until the form expires: above 0, at most 604800. A day when left out. */
 	expiresIn?: number;
 	/**
 	 * The biggest body, in bytes. Defaults to the bucket's own `maxSize`, and
@@ -30,7 +31,8 @@ export interface PresignPostOptions {
 	/**
 	 * The one content type the form may carry, or a prefix of it. Defaults to
 	 * the bucket's `contentType` when that is a single type. A prefix is for
-	 * a bucket that names no type: the browser then sets `Content-Type`.
+	 * a bucket that names no type: the page's code then appends its own
+	 * `Content-Type` field before the file.
 	 */
 	type?: string | { startsWith: string };
 	/** `public-read` and the rest, fixed by the policy. */
@@ -40,33 +42,11 @@ export interface PresignPostOptions {
 /** Bun's own default for a presigned URL, a day, so all three agree. */
 const DEFAULT_EXPIRES_IN = 86_400;
 
-/**
- * A value's shape, for a message: an option can come off a request body,
- * and a message reports what it was, never what it held.
- */
-function shapeOf(value: unknown): string {
-	if (value === null) return 'null';
-	if (value === undefined) return 'undefined';
-	if (Array.isArray(value)) return 'an array';
-	if (typeof value === 'number') {
-		if (Number.isNaN(value)) return 'NaN';
-		if (!Number.isFinite(value)) return 'an infinite number';
-		if (!Number.isInteger(value)) return 'a fraction';
-		if (value === 0) return 'zero';
-		if (value < 0) return 'a negative number';
-		return Number.isSafeInteger(value) ? 'a number' : 'a number too large';
-	}
-	return typeof value === 'object' ? 'an object' : `a ${typeof value}`;
-}
-
-/** All a message needs of the context: which bucket it was about. */
-type Named = { readonly definition: { readonly bucket: string } };
-
-const callOn = (context: Named) =>
+const callOn = <P>(context: BucketContext<P>) =>
 	`presignPost on "${context.definition.bucket}"`;
 
-function checkBytes(
-	context: Named,
+function checkBytes<P>(
+	context: BucketContext<P>,
 	key: string,
 	name: 'maxSize' | 'minSize',
 	value: unknown,
@@ -170,46 +150,6 @@ function typeRule<P>(
 }
 
 /**
- * Where Bun would send this bucket's requests, and as whom.
- *
- * Read off a URL Bun itself signs, rather than worked out again here:
- * measured on bun 1.4.2, Bun signs for region `auto` at any endpoint that is
- * not AWS's, reads the region out of an AWS hostname, falls back to
- * `us-east-1`, and puts the bucket in the path or the host by
- * `virtualHostedStyle`. A second copy of those rules would drift from the
- * first; this way a POST goes wherever a presigned PUT goes. The probe key is
- * signed and thrown away — nothing is sent.
- */
-const PROBE = 'nxgt-probe';
-
-function signerOf<P>(context: BucketContext<P>): PostSigner {
-	const probe = new URL(
-		context.client.presign(PROBE, { method: 'PUT', expiresIn: 1 }),
-	);
-	const scope = (probe.searchParams.get('X-Amz-Credential') ?? '').split('/');
-	const { secretAccessKey } = context;
-	// Not reachable through `bindBucket`: the context reads the same option
-	// and the same two variables Bun does, at the same moment, so Bun's own
-	// `ERR_S3_MISSING_CREDENTIALS` comes first — measured, even with the
-	// variable set after binding. It guards a context built any other way.
-	if (scope.length < 5 || !secretAccessKey) {
-		throw new TypeError(
-			`${callOn(context)}: no secret access key to sign with. Pass ` +
-				'`secretAccessKey` to bindBucket, or set S3_SECRET_ACCESS_KEY ' +
-				'or AWS_SECRET_ACCESS_KEY',
-		);
-	}
-	return {
-		url: `${probe.origin}${probe.pathname.slice(0, -PROBE.length)}`,
-		bucket: context.definition.bucket,
-		accessKeyId: scope.slice(0, -4).join('/'),
-		region: scope.at(-3) as string,
-		secretAccessKey,
-		sessionToken: probe.searchParams.get('X-Amz-Security-Token') ?? undefined,
-	};
-}
-
-/**
  * The form a browser posts to upload this object: the key fixed, the size
  * held to a range, the content type fixed or held to a prefix — all by the
  * service. `now` is for the spec; a caller never passes it.
@@ -222,13 +162,13 @@ export function presignPostForm<P>(
 ): PresignedPost {
 	const key = keyOf(context, params);
 	const expiresIn = options?.expiresIn ?? DEFAULT_EXPIRES_IN;
-	checkOption(key, 'expiresIn', expiresIn);
+	checkOption(key, 'expiresIn', expiresIn, 'presignPost');
 	const range = sizeRange(context, key, options);
 	const rule = typeRule(context, key, options?.type);
 	const fields: Record<string, string> = { key };
 	if ('field' in rule) fields['Content-Type'] = rule.field;
 	if (options?.acl !== undefined) {
-		checkOption(key, 'acl', options.acl);
+		checkOption(key, 'acl', options.acl, 'presignPost');
 		fields.acl = options.acl;
 	}
 	return signPostPolicy(signerOf(context), {

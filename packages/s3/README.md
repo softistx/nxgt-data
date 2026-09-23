@@ -157,7 +157,7 @@ const response = await fetch(url, { method: 'POST', body });
 | `expiresIn` | seconds: above 0 and at most 604 800, as for the other presigned calls. A day when left out |
 | `maxSize` | the biggest body in bytes. Defaults to the bucket's `maxSize` and cannot be above it; a bucket without one **requires** it |
 | `minSize` | the smallest body in bytes, `0` by default |
-| `type` | the one content type the form carries, or `{ startsWith: 'image/' }`. Defaults to the bucket's `contentType` when that is a single type; a bucket that names several needs one of them. A prefix is only for a bucket that names none, and the browser then appends its own `Content-Type` field before the file |
+| `type` | the one content type the form carries, or `{ startsWith: 'image/' }`. Defaults to the bucket's `contentType` when that is a single type; a bucket that names several needs one of them. A prefix is only for a bucket that names none, and the page's code then appends a `Content-Type` field before the file — a browser does not add one to a `FormData` by itself |
 | `acl` | fixed by the policy, from the same list as a write's |
 
 The policy fixes the key with `eq`, the size with `content-length-range`, and

@@ -301,7 +301,10 @@ describe('a presigned POST, refused before it is signed', () => {
 	test('for no type, when the bucket accepts several', () => {
 		const error = refusal(() => store().presignPost({ userId: 'u1' }));
 		expect(error.code).toBe('WRONG_TYPE');
-		expect(error.message).toContain('Pass `type` (presignPost)');
+		expect(error.message).toBe(
+			'"avatars" accepts image/png, image/jpeg, and no content type was ' +
+				'named. Pass `type` (presignPost)',
+		);
 	});
 
 	test('for a type the bucket does not accept', () => {
@@ -309,7 +312,9 @@ describe('a presigned POST, refused before it is signed', () => {
 			store().presignPost({ userId: 'u1' }, { type: 'application/zip' }),
 		);
 		expect(error.code).toBe('WRONG_TYPE');
-		expect(error.message).toEndWith('(presignPost)');
+		expect(error.message).toBe(
+			'"avatars" accepts image/png, image/jpeg, not the type given (presignPost)',
+		);
 	});
 
 	test('for a type prefix, when the bucket names its types', () => {
@@ -338,12 +343,13 @@ describe('a presigned POST, refused before it is signed', () => {
 		},
 	);
 
-	test('for an expiresIn outside 1..604800, as the other presigned calls', () => {
+	test('for an expiresIn outside S3’s range, as the other presigned calls', () => {
 		for (const expiresIn of [0, 604_801]) {
 			const error = refusal(() =>
 				store().presignPost({ userId: 'u1' }, { type: 'image/png', expiresIn }),
 			);
 			expect(error.code).toBe('WRONG_OPTION');
+			expect(error.message).toEndWith('(presignPost)');
 		}
 	});
 
@@ -355,6 +361,8 @@ describe('a presigned POST, refused before it is signed', () => {
 			} as unknown as PresignPostOptions),
 		);
 		expect(error.code).toBe('WRONG_OPTION');
+		expect(error.message).toEndWith('; got another string (presignPost)');
+		expect(error.message).not.toContain('everyone');
 	});
 });
 

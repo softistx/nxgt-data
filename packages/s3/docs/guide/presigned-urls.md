@@ -187,7 +187,7 @@ measured, a form posted without it is refused `403 AccessDenied`.
 | the params | `["eq", "$key", "<the definition's key>"]` | — |
 | `maxSize`, `minSize` | `["content-length-range", minSize, maxSize]` | the bucket's `maxSize`, and `0` |
 | `type: 'image/png'` | `["eq", "$Content-Type", "image/png"]`, and the field in `fields` | the bucket's `contentType` when it is one type |
-| `type: { startsWith: 'image/' }` | `["starts-with", "$Content-Type", "image/"]`, **no** field — the browser appends `Content-Type` before the file | — |
+| `type: { startsWith: 'image/' }` | `["starts-with", "$Content-Type", "image/"]`, **no** field — the page's code appends `Content-Type` before the file; a browser adds none by itself | — |
 | no `type`, on a bucket that names none | `["starts-with", "$Content-Type", ""]`: the browser may name any type | — |
 | `acl` | `["eq", "$acl", "public-read"]`, and the field | none |
 | `expiresIn` | the policy's `expiration` | a day, as Bun's for the other two |

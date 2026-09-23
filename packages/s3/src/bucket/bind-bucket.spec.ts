@@ -86,7 +86,10 @@ describe('the write guards', () => {
 		expect(error).toBeInstanceOf(S3Error);
 		expect(error.code).toBe('WRONG_TYPE');
 		expect(error.key).toBe('u1.png');
-		expect(error.message).toContain('application/pdf');
+		// The accepted list, and never the caller's own value.
+		expect(error.message).toBe(
+			'"avatars" accepts image/png, image/jpeg, not the type given',
+		);
 		// Nothing was sent: a refusal is not a half-write.
 		expect(await bucket.exists({ userId: 'u1' })).toBe(false);
 	});
@@ -96,7 +99,10 @@ describe('the write guards', () => {
 			.put({ userId: 'u1' }, png)
 			.catch((reason: unknown) => reason)) as S3Error;
 		expect(error.code).toBe('WRONG_TYPE');
-		expect(error.message).toContain('Pass `type`');
+		expect(error.message).toBe(
+			'"avatars" accepts image/png, image/jpeg, and no content type was ' +
+				'named. Pass `type`',
+		);
 	});
 
 	test('read a Blob’s own type rather than asking for it again', async () => {
@@ -204,7 +210,9 @@ describe('the write guards', () => {
 		expect(error).toBeInstanceOf(S3Error);
 		expect(error.code).toBe('WRONG_OPTION');
 		expect(error.message).toContain('storageClass must be one of');
-		expect(error.message).toContain('got "CHEAP"');
+		// Its shape, never the value: an option can come off a request.
+		expect(error.message).toEndWith('; got another string');
+		expect(error.message).not.toContain('CHEAP');
 		expect(error.key).toBe('a/b.txt');
 		expect(await bucket.exists({ folder: 'a', name: 'b.txt' })).toBe(false);
 	});
@@ -241,6 +249,9 @@ describe('the write guards', () => {
 		expect(error).toBeInstanceOf(S3Error);
 		expect(error.code).toBe('WRONG_OPTION');
 		expect(error.key).toBe('a/b.txt');
+		// The call it came from is named; the value is not quoted.
+		expect(error.message).toEndWith('; got another string (presignPut)');
+		expect(error.message).not.toContain('everyone');
 		// The ACL a bucket does accept still signs.
 		expect(
 			bucket.presignGet({ folder: 'a', name: 'b.txt' }, { acl: 'private' }),
@@ -264,12 +275,21 @@ describe('the write guards', () => {
 		// `TypeError`; it *signs* 1e12 happily, and S3 caps a presigned URL at
 		// seven days, so that URL fails at use time — after this package said
 		// yes. Both are a `WRONG_OPTION` here, before anything is signed.
-		for (const bad of [0, -1, 1e12, Number.NaN, '3600']) {
+		const shapes: [unknown, string][] = [
+			[0, 'zero'],
+			[-1, 'a negative number'],
+			[1e12, 'a number above that'],
+			[Number.NaN, 'NaN'],
+			['3600', 'a string'],
+		];
+		for (const [bad, shape] of shapes) {
 			const error = refused(bad);
 			expect(error).toBeInstanceOf(S3Error);
 			expect(error.code).toBe('WRONG_OPTION');
 			expect(error.key).toBe('a/b.txt');
+			expect(error.message).toEndWith(`; got ${shape} (presignGet)`);
 		}
+		expect(refused(1e12).message).not.toContain('1000000000000');
 		// Seven days exactly is the limit, and passes.
 		expect(
 			bucket.presignGet({ folder: 'a', name: 'b.txt' }, { expiresIn: 604_800 }),

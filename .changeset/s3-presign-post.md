@@ -8,6 +8,11 @@
 
 `maxSize` defaults to the bucket's own and cannot be above it, and a bucket without one requires it. `type` defaults to the bucket's `contentType` when that is a single type. `expiresIn` has the bounds the other presigned calls have (above 0, at most 604800 seconds) and defaults to a day, as Bun's does. Every refusal of an option is an `S3Error` with an existing code (`WRONG_OPTION` or `WRONG_TYPE`), raised before anything is signed. No new code was needed. Missing credentials are Bun's own `ERR_S3_MISSING_CREDENTIALS`, as for `presignPut`.
 
-The form goes to the endpoint, region and access key that Bun signs a `presignPut` for, read off a URL Bun signs itself. The secret is the one given to `bindBucket`, or else `S3_SECRET_ACCESS_KEY` and then `AWS_SECRET_ACCESS_KEY`.
+The form goes to the endpoint, region and access key that Bun signs a `presignPut` for, read off a URL Bun signs itself. The secret is the one given to `bindBucket`, or else `S3_SECRET_ACCESS_KEY` and then `AWS_SECRET_ACCESS_KEY`. It is kept beside the bucket's internal context, not on it, so printing the context, the bound bucket or the form never shows it.
 
-A `put` whose type is refused says the same thing as before. The same refusal from `presignPost` ends with `(presignPost)`.
+**Refusal messages no longer quote the caller's value.** This affects code that matches message text. The codes are unchanged. The value can come off a request body, so a message now gives its shape:
+- `put`: `"avatars" accepts image/png, image/jpeg, not the type given` (was `not application/pdf`), and ``… and no content type was named. Pass `type` `` (was `… and this write names no content type …`);
+- `acl` and `storageClass`: `…; got another string` (was `got "everyone"`);
+- `expiresIn`: `…; got a number above that`, `zero`, `NaN`… (was the value).
+
+A refusal from `presignGet`, `presignPut` or `presignPost` also ends with the call, for example `(presignPut)`.
