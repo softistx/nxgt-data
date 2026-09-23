@@ -5,10 +5,7 @@ an item shipped in is the only number on this page.
 
 ## Now
 
-- **Rate limits** — `defineRateLimit` / `bindRateLimit`: GCRA as one atomic
-  script over one key, timed by the Redis server's clock, with `consume`,
-  `enforce`, `peek` and `reset`, a `cost` per call, and results as delays in
-  milliseconds. Its error is `GuardError`, with `RATE_LIMITED` and `COST`.
+_Nothing: rate limits shipped, idempotency is next._
 
 ## Next
 
@@ -46,4 +43,8 @@ an item shipped in is the only number on this page.
 
 ## Shipped
 
-_Nothing yet: the first release is on its way._
+- **Rate limits** — `defineRateLimit` / `bindRateLimit`: GCRA as one atomic
+  script over one key, timed by the Redis server's clock, with `consume`,
+  `enforce`, `peek` and `reset`, a `cost` per call, and results as delays in
+  milliseconds, counted in exact integers. Its error is `GuardError`, with
+  `RATE_LIMITED` and `COST` — 0.1.0.

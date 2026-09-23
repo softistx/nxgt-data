@@ -78,8 +78,8 @@ TAT it would leave is no more than `burst` intervals ahead of now.
   counts exactly like the others — also a spec. A server clock that goes
   back, by at most one full refill (`burst × per ÷ limit`), never refills:
   the bucket keeps the latest time it has seen, so two servers a second
-  apart, alternating, allow exactly one burst — a spec too, whose full
-  refill is longer than that second. Further back, the stored time fails
+  apart, alternating, allow exactly one burst — a spec too, where one
+  full refill is exactly that second. Further back, the stored time fails
   the check below and the bucket reads as full: one jump allows one extra
   burst, and alternating clocks allow a burst at each switch.
 - **Only its own state is trusted.** A stored value is used only if the
