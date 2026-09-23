@@ -39,7 +39,8 @@ export interface SyncReport {
 	dryRun: boolean;
 }
 
-async function findIndex(
+/** The index as the server describes it, or `undefined` when it has none. */
+export async function findIndex(
 	client: Meilisearch,
 	uid: string,
 ): Promise<IndexObject | undefined> {

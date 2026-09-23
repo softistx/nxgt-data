@@ -1,7 +1,7 @@
 # Troubleshooting
 
 This package throws one error of its own, `SearchIndexError`, with a `code` of
-`PRIMARY_KEY_MISMATCH` or `TASK_FAILED`. Everything else comes from the
+`PRIMARY_KEY_MISMATCH`, `TASK_FAILED` or `REBUILD_FAILED`. Everything else comes from the
 official SDK as it is: `MeilisearchApiError` (whose `cause.code` is
 Meilisearch's own error code) and `MeilisearchTaskTimeOutError`. The headings
 below are what each one prints; the Meilisearch messages were measured on
@@ -15,6 +15,8 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`Index "movies" has the primary key "id", but its definition says "movieId".`](#index-movies-has-the-primary-key-id-but-its-definition-says-movieid)
   - [`Task 7 (settingsUpdate) on index "movies" failed:`](#task-7-settingsupdate-on-index-movies-failed)
   - [`The provided API key is invalid.`](#the-provided-api-key-is-invalid)
+  - [`Rebuild of index "movies" stopped while filling "movies_next":`](#rebuild-of-index-movies-stopped-while-filling-movies_next)
+  - [`Rebuild of index "movies" sent the swap with "movies_next" and could not wait for it:`](#rebuild-of-index-movies-sent-the-swap-with-movies_next-and-could-not-wait-for-it)
   - [`The Authorization header is missing. It must use the bearer authorization method.`](#the-authorization-header-is-missing-it-must-use-the-bearer-authorization-method)
 - **Runtime**
   - [`timeout of 5000ms has exceeded on task 12 when waiting for it to be resolved.`](#timeout-of-5000ms-has-exceeded-on-task-12-when-waiting-for-it-to-be-resolved)
@@ -137,6 +139,53 @@ neither.
 // indexes.create, indexes.get, indexes.update, settings.get, settings.update, tasks.get
 const admin = new Meilisearch({ host, apiKey: process.env.MEILI_ADMIN_KEY });
 await syncIndexes(admin, [movies, books]);
+```
+
+### `Rebuild of index "movies" stopped while filling "movies_next":`
+
+The line goes on: *"movies_next" was deleted, and "movies" is as it was.
+The cause is on `cause`.* The word after *while* is `swapping` when the swap
+task itself failed.
+
+**When:** `rebuild(fill)`, when `fill` threw, or when a write it left on the
+next index — waited for or only enqueued — ended `failed`.
+**Why:** `rebuild` swaps nothing it has not seen succeed: a failed write
+swapped in is the half-filled index it exists to prevent. It is a
+`SearchIndexError` with `code: 'REBUILD_FAILED'`; searches were on the live
+index throughout.
+**Fix:** read `cause`, then run the rebuild again:
+
+```ts
+const error = await movieIndex.rebuild(fill).catch((e) => e);
+if (error.code === 'REBUILD_FAILED') {
+	console.error(error.cause);              // what fill threw, or TASK_FAILED
+	console.error(error.task?.error?.code);  // e.g. 'invalid_document_id'
+}
+```
+
+### `Rebuild of index "movies" sent the swap with "movies_next" and could not wait for it:`
+
+The line goes on: *whether "movies" was swapped is unknown, and
+"movies_next" was left for the next rebuild to delete.*
+
+**When:** `rebuild(fill)` with a key restricted to named indexes —
+measured with `indexes: ['movies', 'movies_next']` and with `['movies*']`,
+where `cause` is the SDK's `MeilisearchApiError` ``Task `21` not found.``
+(`task_not_found`) — or when the wait for the swap timed out.
+**Why:** a swap task belongs to no index, and a key restricted to named
+indexes cannot read it, so the wait fails at once — while the swap goes on
+and, measured, succeeds. The live index is whole either way: the swap is
+atomic.
+**Fix:** rebuild with a key on every index, or a longer `wait`:
+
+```ts
+const key = await admin.createKey({
+	actions: ['indexes.create', 'indexes.get', 'indexes.update', 'indexes.swap', 'indexes.delete',
+		'settings.get', 'settings.update', 'tasks.get', 'documents.add'],
+	indexes: ['*'],
+	expiresAt: null,
+});
+await bindIndex(new Meilisearch({ host, apiKey: key.key }), movies).rebuild(fill, { wait: { timeout: 120_000 } });
 ```
 
 ### `The Authorization header is missing. It must use the bearer authorization method.`

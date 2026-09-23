@@ -261,3 +261,19 @@ diffSettings({ nonsense: true }, {});
 // @ts-expect-error prefixSearch takes two values, and this is not one of them
 diffSettings({ prefixSearch: 'sometimes' }, {});
 diffSettings({ stopWords: undefined }, {});
+
+// rebuild hands `fill` an index typed by the same definition.
+const rebuilt = await index.rebuild(async (next) => {
+	await next.add([movie], { wait: true });
+	// @ts-expect-error a document with attributes missing
+	await next.add([{ id: 1, title: 'Alien' }]);
+	// @ts-expect-error title is not sortable, on the next index either
+	await next.search('', { sort: ['title:asc'] });
+});
+assertType<Equal<typeof rebuilt.tasks, Task[]>>(true);
+// @ts-expect-error fill must return a promise, so the writes are awaited
+await index.rebuild((next) => {
+	next.add([movie]);
+});
+// @ts-expect-error nextUid is a string
+await index.rebuild(async () => {}, { nextUid: 42 });

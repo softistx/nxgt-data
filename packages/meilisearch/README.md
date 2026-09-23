@@ -161,6 +161,29 @@ if (report.created || report.changed.length > 0) process.exitCode = 1; // a CI c
 await movieIndex.sync({ wait: { timeout: 120_000 } });
 ```
 
+## Rebuild
+
+```ts
+const report = await movieIndex.rebuild(async (next) => {
+	// `next` is a TypedIndex<typeof movies> on 'movies_next'
+	await next.addInBatches(await loadAllMovies(), { batchSize: 1000 });
+});
+// { uid: 'movies', nextUid: 'movies_next', created: false, leftoverDeleted: false, sync, tasks: [indexSwap, indexDeletion] }
+```
+
+`rebuild` fills a second index beside the live one and swaps it in, so a
+search sees the old documents until the swap and the new ones after it —
+never a half-filled index, as `deleteAll` then `add` would give. It deletes a
+`movies_next` left by a crashed run, creates `movies_next` with the
+definition's primary key and settings (through `syncIndex`), hands it to
+`fill`, waits for every task `fill` left there, swaps the two in one atomic
+task and deletes the previous one. With no live index yet, the first run
+renames `movies_next` instead.
+
+If `fill` throws, or a task it left fails, `movies_next` is deleted, the live
+index is untouched, and a `SearchIndexError` (`REBUILD_FAILED`) carries the
+cause. Options: `nextUid`, and `wait` for each task.
+
 ## Documents
 
 ### Writing
@@ -262,6 +285,7 @@ This package throws one error of its own, `SearchIndexError`:
 | --- | --- | --- |
 | `PRIMARY_KEY_MISMATCH` | `sync` found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
 | `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error` |
+| `REBUILD_FAILED` | `rebuild` stopped before the swap, or could not wait for it | `cause`: what stopped it; `task` when a task failed |
 
 ```ts
 import { SearchIndexError } from '@nxgt/meilisearch';
@@ -329,6 +353,7 @@ is `IdOf<Def>`:
 | `uid`, `definition`, `client` | what it was bound with |
 | `raw: Index<Doc>` | the SDK's index |
 | `sync(options?: SyncOptions): Promise<SyncReport>` | `syncIndex` for this definition |
+| `rebuild(fill: (next: TypedIndex<Def>) => Promise<void>, options?: RebuildOptions): Promise<RebuildReport>` | fills `<uid>_next` and swaps it in; see [Rebuild](#rebuild) |
 | `add(documents: readonly Doc[], options?: WriteOptions): WriteResult` | adds or replaces |
 | `update(documents: readonly DocumentPatch<Def>[], options?: WriteOptions): WriteResult` | merges; each needs its id |
 | `addInBatches(documents, options?: BatchWriteOptions): BatchWriteResult` | `batchSize`, 1000 by default |
@@ -343,6 +368,7 @@ is `IdOf<Def>`:
 
 The types it uses:
 
+- `interface RebuildOptions { nextUid?: string; wait?: WaitOptions }`; `interface RebuildReport { uid: string; nextUid: string; leftoverDeleted: boolean; created: boolean; sync: SyncReport; tasks: Task[] }`; `type RebuildFill<Def> = (next: TypedIndex<Def>) => Promise<void>`.
 - `interface WriteOptions { wait?: boolean | WaitOptions; customMetadata?: string }`; `interface BatchWriteOptions extends WriteOptions { batchSize?: number }`.
 - `type WriteResult<Options>`: `Promise<Task>` when `Options` has `wait`, else `EnqueuedTaskPromise`. `type BatchWriteResult<Options>`: the same, one per batch.
 - `type DocumentPatch<Def> = Partial<Doc> & Pick<Doc, PrimaryKeyNameOf<Def>>`.
@@ -355,7 +381,7 @@ The types it uses:
 ### `SearchIndexError`
 
 - `class SearchIndexError extends Error`: `code: SearchIndexErrorCode`, `indexUid: string`, `task: Task | undefined`, `expectedPrimaryKey: string | undefined`, `actualPrimaryKey: string | undefined`, `cause`.
-- `type SearchIndexErrorCode = 'PRIMARY_KEY_MISMATCH' | 'TASK_FAILED'`.
+- `type SearchIndexErrorCode = 'PRIMARY_KEY_MISMATCH' | 'TASK_FAILED' | 'REBUILD_FAILED'`.
 
 ## Traps
 
@@ -391,6 +417,17 @@ The types it uses:
   is accepted as a pattern, and names no attribute for `facets` or
   `distinct`. Neither are dot paths past four levels, nor the keys of an
   index signature: `Record<string, …>` accepts any path.
+- **`rebuild` carries over only the definition's settings.** A setting the
+  definition leaves out, changed on the live index by hand, is back to its
+  default after the swap. And a write sent to the live index during `fill`
+  is gone after it: the swap replaces the whole index.
+- **`rebuild` needs a key on every index** (`indexes: ['*']`), with
+  `indexes.swap` and `indexes.delete` besides `sync`'s actions. Measured: a
+  key on `['movies', 'movies_next']` sends the swap, which happens, but
+  cannot read its task, and the rebuild throws `REBUILD_FAILED` saying the
+  outcome is unknown.
+- **Two rebuilds of one index at once collide**: the second deletes the
+  first one's `movies_next` as a leftover. Run it from one job.
 - **`sync` needs a key that may create indexes and change settings**:
   `indexes.create`, `indexes.get`, `indexes.update`, `settings.get`,
   `settings.update` and `tasks.get`. A search-only key is enough for the
@@ -401,6 +438,7 @@ The types it uses:
 - [docs/README.md](docs/README.md) — the guide index.
 - [docs/guide/definition.md](docs/guide/definition.md) — `defineIndex`, the settings, and the types a definition gives back.
 - [docs/guide/sync.md](docs/guide/sync.md) — `syncIndex`, the report, dry runs, and how the settings are compared.
+- [docs/guide/rebuild.md](docs/guide/rebuild.md) — `rebuild`: filling an index beside the live one and swapping it in, and what was measured.
 - [docs/guide/documents.md](docs/guide/documents.md) — `bindIndex`, writes, waiting for a task, reads by id, `list`.
 - [docs/guide/search.md](docs/guide/search.md) — filters, sorts, facets, highlighting and the two paginations.
 - [docs/guide/errors.md](docs/guide/errors.md) — `SearchIndexError`, the SDK's errors, one handler for the app.

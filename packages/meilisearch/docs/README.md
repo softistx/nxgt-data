@@ -7,6 +7,7 @@ example per area. These pages are the long one.
 | --- | --- |
 | [guide/definition.md](guide/definition.md) | you are describing an index: its uid, its primary key, and the settings typed by your document |
 | [guide/sync.md](guide/sync.md) | the server has to match the definition at startup, in CI, or after a settings change |
+| [guide/rebuild.md](guide/rebuild.md) | you are reindexing everything, and searches must not see a half-filled index meanwhile |
 | [guide/documents.md](guide/documents.md) | you are writing documents in, or reading them back by id |
 | [guide/search.md](guide/search.md) | you are searching: filters, sorts, facets, highlighting, pages |
 | [guide/errors.md](guide/errors.md) | a task failed, a primary key does not match, or you want to know which errors are the SDK's |

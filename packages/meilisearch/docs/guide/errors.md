@@ -1,8 +1,9 @@
 # Errors
 
 Almost every failure here is the SDK's: this package adds one error,
-`SearchIndexError`, for the two things it does that the SDK does not —
-checking a primary key, and failing a task that failed.
+`SearchIndexError`, for the three things it does that the SDK does not —
+checking a primary key, failing a task that failed, and a rebuild that
+stopped before its swap.
 
 ```ts
 import { SearchIndexError } from '@nxgt/meilisearch';
@@ -23,15 +24,16 @@ try {
 | --- | --- | --- |
 | `PRIMARY_KEY_MISMATCH` | [`sync`](sync.md) found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
 | `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error` |
+| `REBUILD_FAILED` | [`rebuild`](rebuild.md) stopped before the swap, or sent it and could not wait for it | `cause`: what stopped it; `task` when a task failed |
 
 ```ts
 class SearchIndexError extends Error {
-	readonly code: SearchIndexErrorCode;      // 'PRIMARY_KEY_MISMATCH' | 'TASK_FAILED'
+	readonly code: SearchIndexErrorCode;      // 'PRIMARY_KEY_MISMATCH' | 'TASK_FAILED' | 'REBUILD_FAILED'
 	readonly indexUid: string;
 	readonly task: Task | undefined;
 	readonly expectedPrimaryKey: string | undefined;
 	readonly actualPrimaryKey: string | undefined;
-	// cause: the task's error, for TASK_FAILED
+	// cause: the task's error, for TASK_FAILED; what stopped it, for REBUILD_FAILED
 }
 ```
 
@@ -83,6 +85,25 @@ error.actualPrimaryKey;   // 'movieId', on the server
 The fix is a decision, not a retry: either the definition takes the server's
 key, or the index is deleted and re-synced and the documents are written
 again.
+
+### `REBUILD_FAILED`
+
+[`rebuild`](rebuild.md) fills `<uid>_next` and swaps it in. Anything that
+stops it before the swap deletes `<uid>_next` and leaves the live index as
+it was; `cause` is the reason — what `fill` threw, or a `TASK_FAILED`
+`SearchIndexError` for a task `fill` left that failed, whose `task` is also
+copied onto this error:
+
+```ts
+const error = await movieIndex.rebuild(fill).catch((e) => e);
+error.code;              // 'REBUILD_FAILED'
+error.cause;             // what fill threw, or a TASK_FAILED SearchIndexError
+error.task?.error?.code; // 'invalid_document_id', when a task failed
+```
+
+When the swap was sent and could not be waited for, the message says the
+outcome is unknown, and nothing is deleted. The swap is atomic, so the live
+index is whole either way.
 
 ## The SDK's errors, unchanged
 

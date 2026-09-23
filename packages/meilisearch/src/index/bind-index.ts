@@ -5,6 +5,12 @@ import type {
 	IdOf,
 } from '../definition/define-index';
 import {
+	type RebuildFill,
+	type RebuildOptions,
+	type RebuildReport,
+	rebuildIndex,
+} from '../sync/rebuild-index';
+import {
 	type SyncOptions,
 	type SyncReport,
 	syncIndex,
@@ -40,6 +46,25 @@ export interface TypedIndex<Def extends AnyIndexDefinition> {
 
 	/** Creates the index and applies its settings, when they differ. See `syncIndex`. */
 	sync(options?: SyncOptions): Promise<SyncReport>;
+	/**
+	 * Rebuilds the index beside the live one and swaps it in, so that a search
+	 * never sees it half filled:
+	 *
+	 * 1. deletes a `<uid>_next` left by a run that did not finish;
+	 * 2. creates `<uid>_next` with the definition's primary key and settings;
+	 * 3. hands `fill` the typed index bound to it, and waits for every task
+	 *    it left there, enqueued or not;
+	 * 4. swaps it with the live index, in one atomic task — or renames it,
+	 *    when there is no live index yet — and deletes the previous one.
+	 *
+	 * When `fill` throws, or a task it left fails, or the swap fails, the next
+	 * index is deleted, the live one is left as it was, and a
+	 * `SearchIndexError` (`REBUILD_FAILED`) is thrown with the cause.
+	 */
+	rebuild(
+		fill: RebuildFill<Def>,
+		options?: RebuildOptions,
+	): Promise<RebuildReport>;
 
 	/** Adds documents, or replaces those whose id is already there. */
 	add<const O extends WriteOptions = Record<never, never>>(
@@ -124,6 +149,14 @@ export function bindIndex<Def extends AnyIndexDefinition>(
 		raw: ctx.raw as TypedIndex<Def>['raw'],
 
 		sync: (options) => syncIndex(client, definition, options),
+		rebuild: (fill, options) =>
+			rebuildIndex(
+				client,
+				definition,
+				(next) => bindIndex(client, next),
+				fill,
+				options,
+			),
 
 		add: (documents, options) => writes.add(ctx, documents, options) as any,
 		addInBatches: (documents, options) =>

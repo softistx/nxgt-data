@@ -44,6 +44,11 @@ export type {
 	WriteOptions,
 	WriteResult,
 } from './index/types';
+export type {
+	RebuildFill,
+	RebuildOptions,
+	RebuildReport,
+} from './sync/rebuild-index';
 export type { WantedSettings } from './sync/settings-diff';
 export { diffSettings } from './sync/settings-diff';
 export type { SyncOptions, SyncReport } from './sync/sync-index';
