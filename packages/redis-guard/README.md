@@ -333,8 +333,11 @@ In `test/types/idempotency.ts`:
 - A `fingerprint` that is a number, params missing a field, `forget` with a
   bare string, and a result written to.
 - A definition without `ttl` or `schema`, a `ttl` given as a string, an
-  option it does not have — `timeout` for `lease` — a definition changed
-  after it is defined, and `bindIdempotency` without a client.
+  option it does not have — `timeout` for `lease` — a `lease` given as a
+  string, a definition changed after it is defined, and `bindIdempotency`
+  without a client.
+- A rate limit handed to `bindIdempotency`, and an idempotent operation
+  handed to `bindRateLimit`.
 
 ## Traps
 

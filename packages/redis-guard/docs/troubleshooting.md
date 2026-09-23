@@ -51,6 +51,7 @@ call instead.
   - [`run on "orders.create": the work outlasted its lease of 30000ms, so a repeat may have run it too; its result was not stored`](#run-on-orderscreate-the-work-outlasted-its-lease-of-30000ms-so-a-repeat-may-have-run-it-too-its-result-was-not-stored)
   - [`run: a fingerprint is a string or an ArrayBufferView, such as the raw body`](#run-a-fingerprint-is-a-string-or-an-arraybufferview-such-as-the-raw-body)
   - [The same request ran twice](#the-same-request-ran-twice)
+  - [`WRONGTYPE Operation against a key holding the wrong kind of value`](#wrongtype-operation-against-a-key-holding-the-wrong-kind-of-value) — a key that is not a hash; the entry is under rate limits
 
 ## Install and import
 

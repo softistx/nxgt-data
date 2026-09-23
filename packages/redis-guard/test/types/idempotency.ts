@@ -5,11 +5,12 @@ import { z } from 'zod';
 import {
 	type BoundIdempotency,
 	bindIdempotency,
+	bindRateLimit,
 	defineIdempotency,
 	type GuardErrorCode,
 	type Idempotent,
 } from '../../src';
-import { chargeCard, createOrder } from '../fixtures';
+import { chargeCard, createOrder, loginLimit } from '../fixtures';
 
 const client = new RedisClient('redis://127.0.0.1:1');
 const orders = bindIdempotency(client, createOrder);
@@ -73,6 +74,15 @@ defineIdempotency({
 	name: 'x',
 	key: (id: string) => id,
 	ttl: 60,
+	// @ts-expect-error `lease` is a number of milliseconds, not a duration string
+	lease: '10s',
+	schema: z.string(),
+});
+
+defineIdempotency({
+	name: 'x',
+	key: (id: string) => id,
+	ttl: 60,
 	schema: z.string(),
 	// @ts-expect-error there is no `timeout`: the in-flight marker is `lease`
 	timeout: 5_000,
@@ -80,6 +90,12 @@ defineIdempotency({
 
 // @ts-expect-error a definition is frozen
 createOrder.ttl = 60;
+
+// @ts-expect-error an idempotent operation is not a rate limit
+bindRateLimit(client, createOrder);
+
+// @ts-expect-error a rate limit is not an idempotent operation
+bindIdempotency(client, loginLimit);
 
 // @ts-expect-error bindIdempotency needs a client first
 bindIdempotency(createOrder);

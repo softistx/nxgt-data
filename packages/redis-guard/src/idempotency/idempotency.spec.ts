@@ -110,6 +110,25 @@ describe('run', () => {
 		expect((await orders().run(who, work)).value.orderId).toBe('o2');
 		expect(work.calls).toBe(1);
 	});
+
+	test('the first caller gets what a replay gets, even from a transform that is not a fixed point', async () => {
+		// work returns 1; the schema gives 2, which is stored; a replay parses
+		// that 2 and gives 3. Returning the first parse would hand the first
+		// caller 2 and everyone after it 3.
+		const bumped = defineIdempotency({
+			name: 'bumped',
+			key: (id: string) => id,
+			ttl: 60,
+			schema: z.number().transform((n) => n + 1),
+		});
+		const bound = bindIdempotency(servers.redis.client, bumped);
+		const first = await bound.run('n1', () => 1);
+		const again = await bound.run('n1', () => 1);
+		expect(again.replayed).toBe(true);
+		expect(first.replayed).toBe(false);
+		expect(first.value).toBe(again.value);
+		expect(first.value).toBe(3);
+	});
 });
 
 describe('INVALID', () => {

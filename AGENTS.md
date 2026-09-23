@@ -288,7 +288,11 @@ matching key in `exports`.
   rather than sleep a guess. Three mutations were measured, each failing
   exactly one test: `COMPLETE` without its token check (the take-over spec),
   `BEGIN` comparing the fingerprint only once done (`MISMATCH` while
-  running), and `RELEASE` without its token check (the late-failure spec). A script
+  running), and `RELEASE` without its token check (the late-failure spec).
+  A fourth, found in review: returning the first parse rather than the
+  parse-back from JSON passed all 47 tests then; the spec with
+  `z.number().transform((n) => n + 1)`, not a fixed point, now fails on it
+  (the first caller got 2, the replay 3). A script
   that never returns cannot be rescued inside a spec file: measured, the test
   fails on its timeout, a `SCRIPT KILL` from another connection does free
   Redis, but Bun kills the file's redis-server as a dangling process at that
@@ -634,9 +638,9 @@ the file.
 
 ## Known state
 
-`bun run test` is **1386 pass, 0 fail**: drizzle 152, meilisearch 117,
+`bun run test` is **1387 pass, 0 fail**: drizzle 152, meilisearch 117,
 mongo 541, drizzle-meilisearch 42, mongo-meilisearch 58, mongo-kit 101,
-mongo-search-kit 17, redis 46, redis-guard 101, redis-kit 55, s3 104,
+mongo-search-kit 17, redis 46, redis-guard 102, redis-kit 55, s3 104,
 hono-api-example 31, scripts 21. It runs one process
 per package, then the scripts' specs. Treat any failure as yours.
 

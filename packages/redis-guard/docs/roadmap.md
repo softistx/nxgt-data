@@ -5,13 +5,7 @@ an item shipped in is the only number on this page.
 
 ## Now
 
-- **Idempotency** — `defineIdempotency` / `bindIdempotency`, with `run` and
-  `forget`: the first call with a key runs `work` and keeps its result, checked
-  by a zod schema; a repeat gets that result back without running it again. A
-  different fingerprint is refused (`MISMATCH`), a repeat during the first run
-  is refused (`IN_PROGRESS`, with `retryAfter`), and an error thrown by `work`
-  is never stored. The running call holds a lease, so a process that dies
-  mid-work frees the key when the lease runs out rather than never — 0.2.0.
+_Nothing: idempotency shipped; its lease heartbeat and `wait` are next._
 
 ## Next
 
@@ -62,3 +56,11 @@ an item shipped in is the only number on this page.
   `enforce`, `peek` and `reset`, a `cost` per call, and results as delays in
   milliseconds, counted in exact integers. Its error is `GuardError`, with
   `RATE_LIMITED` and `COST` — 0.1.0.
+- **Idempotency** — `defineIdempotency` / `bindIdempotency`, with `run` and
+  `forget`: the first call with a key runs `work` and keeps its result, checked
+  by a zod schema; a repeat gets that result back without running it again. A
+  different fingerprint is refused (`MISMATCH`), a repeat during the first run
+  is refused (`IN_PROGRESS`, with `retryAfter`), and an error thrown by `work`
+  is never stored. The running call holds a lease, not yet renewed, so a
+  process that dies mid-work frees the key when the lease runs out rather
+  than never. `zod` became a required peer — 0.2.0.
