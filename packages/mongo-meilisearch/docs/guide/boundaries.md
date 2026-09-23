@@ -35,11 +35,13 @@ What it does not give:
   waits. To spread the load, run one sync per collection, each under its own
   `name`, in as many processes as you like.
 - **Fencing.** A process stalled for longer than `leaseMs` does not know it
-  lost the name until its next renewal, up to `leaseMs / 3` later, and may
-  send a batch beside the process that took over. Both send whole documents,
-  which are safe to apply twice, and each records only what it applied, so
-  the index and the resume point stay right. Keep `leaseMs` well above the
-  longest pause a process may take.
+  lost the name until its next renewal, up to `leaseMs / 3` after it wakes,
+  and a flush already in flight still finishes after it finds out. It may
+  send an older version of a document after the process that took over sent
+  a newer one; the index then holds the stale one until that document's next
+  change or the next reindex. A reindex removes and records nothing once it
+  finds its lease lost, but a page it already sent may still land. Keep `leaseMs`
+  well above the longest pause a process may take.
 
 Give two syncs different `name`s when they are meant to be independent — the
 default, `'<collection>:<index uid>'`, is shared by any two syncs over the

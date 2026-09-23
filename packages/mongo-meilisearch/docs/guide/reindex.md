@@ -30,22 +30,30 @@ const report = await articleSearch.reindex();
 
 ## What it does, in order
 
+`reindex()` holds the sync name's
+[lease](following-changes.md#one-process-per-name-the-lease) throughout; see
+[Not beside a follower in another process](#not-beside-a-follower-in-another-process).
+
 1. **Takes the collection's current position** — a change stream's first read
    answers with it, without waiting for a change.
 2. **Reads every live document**, `pageSize` at a time (100 by default,
    lowered to the collection's `maxPageSize` when it asks for more), runs the
    transform, and sends what it gives in batches of `batchSize` (500).
    Soft-deleted documents are not live, so they are never sent.
-3. **Pages the whole index** and deletes every document whose id the
-   collection did not just give it: deleted, turned away by the transform, or
-   never from this collection at all.
-4. **Records the position from step 1** as the resume point, and stamps
-   `reindexedAt`.
+   After each page, it stops if a renewal found the lease lost.
+3. **Asks the server whether the lease is still its own**, then **pages the
+   whole index** and deletes every document whose id the collection did not
+   just give it: deleted, turned away by the transform, or never from this
+   collection at all.
+4. **Asks the server again**, then **records the position from step 1** as
+   the resume point, and stamps `reindexedAt`.
 
 Step 1 before step 2 is what makes it safe to reindex a live collection: a
 change made while the documents are read is followed again from that
 position, so nothing falls between the reindex and the stream. A reindex that
-throws records nothing, and the next one starts over.
+throws records nothing, and the next one starts over. One that throws because
+its lease was lost has removed nothing either, unless the lease went while the
+removal itself ran.
 
 ```ts
 const before = await articleSearch.state(); // undefined, the first time
@@ -106,14 +114,27 @@ The code is `RUNNING` again. Close the follower wherever it runs — its
 reindex runs, a `start()` elsewhere is refused the same way.
 
 A reindex whose lease another process took over while it ran — it was not
-renewed within `leaseMs` — finishes, then rejects with `LEASE_LOST` instead of
-returning its report.
+renewed within `leaseMs`, or it was removed — rejects with `LEASE_LOST`: after
+the page it just sent, when a renewal found it lost, or when the server says so
+before documents are removed or before the resume point is recorded. It has
+then **recorded nothing**, and removed nothing unless the lease went while the
+removal itself ran; the pages already sent stay in the index. The same holds
+for the reindex `start()` runs, which also asks before it opens the follower.
+Run it again once the name is free.
+
+```ts
+await articleSearch.reindex();
+// SearchSyncError: Search sync "articles:articles" lost its lease: another
+// process holds the name now, or the lease was removed (it lapses when not
+// renewed within 30000 ms). It stopped rather than run beside it.
+```
 
 ## Errors
 
 Anything that goes wrong while reindexing comes back as a `SearchSyncError`
 with the code `FAILED` — MongoDB refused a read, Meilisearch refused a batch,
-the transform threw — and the original error as its `cause`:
+the transform threw — and the original error as its `cause`. `RUNNING` and
+`LEASE_LOST` are the lease's, above:
 
 ```ts
 try {
@@ -126,7 +147,7 @@ try {
 }
 ```
 
-Two codes mean something more precise than `FAILED`, and both are the
+Two more codes mean something more precise than `FAILED`, and both are the
 transform's doing. `ID_MISMATCH`: it gave a document whose primary key is not
 that document's index id. `NOT_A_DOCUMENT`: it gave back something that is
 neither a document nor `null`.

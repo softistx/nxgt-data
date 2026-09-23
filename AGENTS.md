@@ -168,8 +168,10 @@ matching key in `exports`.
 - **`@nxgt/mongo-meilisearch`'s specs run against both**: its `test/`
   holds a copy of each sibling's server (`mongo.ts`, `meilisearch.ts`), and
   `test/fixtures.ts` starts one of each per spec file. Its specs are
-  `create-search-sync` (the options and errors, no server), `reindex` and
-  `follow`. Its `test` script
+  `create-search-sync` (the options and errors, no server), `reindex`,
+  `follow` and `lease` — the last makes a second process by creating a
+  second sync under the same name, and steals a lease by rewriting its
+  holder. Its `test` script
   downloads Meilisearch first, as `@nxgt/meilisearch`'s does, and passes
   `--timeout 30000`: Meilisearch takes about half a second to apply each
   write, measured, so a test that writes a few batches outlasts Bun's 5 s.

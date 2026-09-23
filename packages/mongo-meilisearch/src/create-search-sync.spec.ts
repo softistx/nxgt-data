@@ -37,6 +37,7 @@ describe('createSearchSync', () => {
 		['batchSize', 0],
 		['batchSize', 1.5],
 		['pageSize', -1],
+		['leaseMs', 0],
 	] as const)('refuses %s %p', (option, value) => {
 		expect(() => createSearchSync({ ...base, [option]: value })).toThrow(
 			`createSearchSync: ${option} must be a whole number above 0, not ${value}`,

@@ -83,18 +83,25 @@ export async function acquire(
 	doing: string,
 ): Promise<HeldLease> {
 	const holder = `${hostname()}:${process.pid}:${new ObjectId().toHexString()}`;
-	let taken: boolean;
 	let current: LeaseDocument | null = null;
 	try {
-		taken = await take(ctx, holder);
-		if (!taken) current = await ctx.leases.findOne({ _id: idOf(ctx) });
+		// Twice at most: a holder that let go between the take and the read
+		// left the name free, and refusing it then would be wrong.
+		for (let attempt = 0; attempt < 2; attempt += 1) {
+			if (await take(ctx, holder)) return { holder, lost: false };
+			current = await ctx.leases.findOne({ _id: idOf(ctx) });
+			if (current) break;
+		}
 	} catch (error) {
 		throw failed(ctx.name, 'taking its lease', error);
 	}
-	if (taken) return { holder, lost: false };
+	const until =
+		current?.expiresAt instanceof Date
+			? current.expiresAt.toISOString()
+			: 'it lets go';
 	throw new SearchSyncError(
 		`Search sync "${ctx.name}" is held by ${current?.holder ?? 'another process'} ` +
-			`until ${current?.expiresAt.toISOString() ?? 'it lets go'}: ` +
+			`until ${until}: ` +
 			`wait for it to close, or for its lease to lapse, before you ${doing}.`,
 		{ code: 'RUNNING', sync: ctx.name },
 	);
@@ -118,6 +125,18 @@ export async function renew(ctx: SyncContext, lease: HeldLease): Promise<void> {
 	}
 }
 
+/**
+ * Renews the lease now, and throws `LEASE_LOST` if it is someone else's: the
+ * check before a step that must not run beside another holder.
+ */
+export async function confirmLease(
+	ctx: SyncContext,
+	lease: HeldLease,
+): Promise<void> {
+	await renew(ctx, lease);
+	if (lease.lost) throw leaseLost(ctx);
+}
+
 /** Lets go of it, if it is still this holder's. One that fails lapses. */
 export async function release(
 	ctx: SyncContext,
@@ -131,9 +150,9 @@ export async function release(
 /** The error a sync stops with once its lease is someone else's. */
 export function leaseLost(ctx: SyncContext): SearchSyncError {
 	return new SearchSyncError(
-		`Search sync "${ctx.name}" lost its lease: it was not renewed within ` +
-			`${ctx.leaseMs} ms, and another process may have taken the name ` +
-			'over. It stopped rather than follow beside it.',
+		`Search sync "${ctx.name}" lost its lease: another process holds the ` +
+			'name now, or the lease was removed (it lapses when not renewed ' +
+			`within ${ctx.leaseMs} ms). It stopped rather than run beside it.`,
 		{ code: 'LEASE_LOST', sync: ctx.name },
 	);
 }
@@ -147,10 +166,12 @@ export function keepLease(
 	lease: HeldLease,
 	onLost: () => void,
 ): () => void {
+	let stopped = false;
 	const beat = setInterval(
 		() => {
 			void renew(ctx, lease).then(() => {
-				if (lease.lost) {
+				// A renewal still in flight when it was stopped reports nothing.
+				if (lease.lost && !stopped) {
 					clearInterval(beat);
 					onLost();
 				}
@@ -158,10 +179,16 @@ export function keepLease(
 		},
 		Math.max(1, Math.floor(ctx.leaseMs / 3)),
 	);
-	return () => clearInterval(beat);
+	return () => {
+		stopped = true;
+		clearInterval(beat);
+	};
 }
 
-/** Runs `fn` holding the lease, renewed every third of `leaseMs`. */
+/**
+ * Runs `fn` holding the lease, renewed every third of `leaseMs`. `fn` checks
+ * it is still held where that matters (`confirmLease`).
+ */
 export async function withLease<T>(
 	ctx: SyncContext,
 	doing: string,
@@ -170,9 +197,7 @@ export async function withLease<T>(
 	const lease = await acquire(ctx, doing);
 	const stop = keepLease(ctx, lease, () => undefined);
 	try {
-		const result = await fn(lease);
-		if (lease.lost) throw leaseLost(ctx);
-		return result;
+		return await fn(lease);
 	} finally {
 		stop();
 		await release(ctx, lease);

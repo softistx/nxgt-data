@@ -78,9 +78,10 @@ history covers would need a full reindex at the next start.
 ## One process per name: the lease
 
 `start()` takes a lease on the sync's name **before anything else**, the
-first reindex included. While the sync runs it renews the lease every third
-of `leaseMs`; `close()` lets go of it. A second process that starts the same
-name, or reindexes it, is refused:
+first reindex included. It renews the lease every third of `leaseMs` from
+then on — during that first reindex too, which can outlast `leaseMs`, and
+while the sync runs; `close()` lets go of it. A second process that starts
+the same name, or reindexes it, is refused:
 
 ```ts
 await articleSearch.start(); // in another process, holding the name
@@ -117,48 +118,68 @@ const articleSearch = createSearchSync({ collection, index, transform, leaseMs: 
 ### A standby
 
 Several processes can run the same code; one follows, the others wait for
-the name:
+the name. The loop is `follow()`, in the README's
+[One process per sync name](../../README.md#one-process-per-sync-name): it
+retries `start()` on `RUNNING`, and on `LEASE_LOST`, which a `start()` whose
+first reindex lost the name rejects with.
 
 ```ts
-import { SearchSyncError, type RunningSearchSync } from '@nxgt/mongo-meilisearch';
-
-async function follow(): Promise<RunningSearchSync> {
-	for (;;) {
-		try {
-			return await articleSearch.start();
-		} catch (error) {
-			if (!(error instanceof SearchSyncError) || error.code !== 'RUNNING') throw error;
-			await new Promise((resolve) => setTimeout(resolve, 10_000)); // held elsewhere
-		}
-	}
-}
-
-const running = await follow();
+const running = await follow(); // resolves once this process holds the name
 ```
 
 ### When the lease is lost
 
 A process stalled for longer than `leaseMs` — a long garbage collection, a
 blocked event loop, a paused container — may find, at its next renewal, that
-another process has taken the name over. It then stops rather than follow
-beside it: `closed` rejects with `LEASE_LOST`, nothing more is sent, and the
-other holder's lease is left alone.
+another process has taken the name over. A lease deleted by hand is found the
+same way. The sync then stops rather than run beside the new holder, whose
+lease it leaves alone.
+
+**While following**, `closed` rejects with `LEASE_LOST`, and nothing more is
+sent or recorded beyond a flush already in flight:
 
 ```ts
 running.closed.catch((error: SearchSyncError) => {
 	// error.code === 'LEASE_LOST'
-	// error.message: Search sync "articles:articles" lost its lease: it was not
-	// renewed within 30000 ms, and another process may have taken the name
-	// over. It stopped rather than follow beside it.
+	// error.message: Search sync "articles:articles" lost its lease: another
+	// process holds the name now, or the lease was removed (it lapses when not
+	// renewed within 30000 ms). It stopped rather than run beside it.
 	process.exit(1); // the supervisor restarts it, and `follow()` waits for the name
 });
 ```
 
-It is a lease, not fencing. Between the lapse and that renewal — up to
-`leaseMs / 3` — both processes may send. Changes are whole documents, safe
-to apply twice, and each records only what it applied, so the index and the
-resume point stay right. Pick `leaseMs` well above the longest pause a
-process may take.
+**While reindexing** — a standalone `reindex()`, or `start()` during its first
+reindex or the one after a lost history — the lease is checked after each page
+sent, and the server is asked before documents are removed and again before the
+resume point is recorded; `start()` asks once more before it opens the
+follower. The call rejects with `LEASE_LOST` **having recorded nothing**, and
+having removed nothing unless the lease went while the removal itself ran. The
+pages already sent stay in the index.
+
+```ts
+import { SearchSyncError } from '@nxgt/mongo-meilisearch';
+
+try {
+	await articleSearch.reindex();
+} catch (error) {
+	if (error instanceof SearchSyncError && error.code === 'LEASE_LOST') {
+		// Another process holds the name now; nothing was recorded.
+	} else throw error;
+}
+```
+
+It is a lease, not fencing:
+
+- **A stalled follower may send stale data.** Until its next renewal — up to
+  `leaseMs / 3` after it wakes — it can still send, and a flush already in
+  flight finishes after the loss is found. It may send an older version of a
+  document after the new holder sent a newer one; the index then holds the
+  stale one until that document's next change, or the next reindex.
+- **A reindex's pages may still land.** It removes and records nothing once
+  it finds its lease lost, but a page it sent before finding out stays in the
+  index.
+
+Pick `leaseMs` well above the longest pause a process may take.
 
 ## When the history is gone
 
@@ -168,7 +189,7 @@ longer than it covers cannot resume from its recorded point. By default
 decision back:
 
 ```ts
-import { SearchSyncError } from '@nxgt/mongo-meilisearch';
+import { type RunningSearchSync, SearchSyncError } from '@nxgt/mongo-meilisearch';
 
 const articleSearch = createSearchSync({
 	collection,
@@ -221,8 +242,8 @@ running.closed.then(
 | `HISTORY_LOST` | `start` with `onHistoryLost: 'fail'`, and the recorded point is older than the server's history. `cause` is `@nxgt/mongo`'s `DataError`, `serverCode` 286 or 280 |
 | `ID_MISMATCH` | the transform gave a document whose primary key is not its index id |
 | `NOT_A_DOCUMENT` | the transform gave back something that is neither a document nor `null` — a string, a number, an array. The message says its shape, never its value |
-| `RUNNING` | the name is taken: a second `start()`, or a `reindex()`, while this sync is already following in this process — or another process holds its lease |
-| `LEASE_LOST` | the lease was not renewed within `leaseMs` and another process took the name over; the sync stopped and sends nothing more |
+| `RUNNING` | the name is taken: a second `start()`, or a `reindex()`, while this sync is already following in this process — or another process, or another `createSearchSync` of the same name in this one, holds its lease |
+| `LEASE_LOST` | the lease is no longer this sync's: not renewed within `leaseMs` and taken over, or removed. `closed` rejects with it, and nothing more is sent; `reindex()` and `start()` reject with it while reindexing, having recorded nothing, and removed nothing unless the lease went while the removal itself ran |
 | `FAILED` | anything else: the transform threw, MongoDB or Meilisearch refused. The message says what the sync was doing, and `cause` carries the original error |
 
 [Troubleshooting](../troubleshooting.md) has each message with its fix.

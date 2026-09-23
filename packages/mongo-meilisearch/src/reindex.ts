@@ -4,7 +4,7 @@ import { deleteIds, sendDocuments } from './batch';
 import type { Doc, SyncContext } from './context';
 import { entryOf, keyOf } from './documents';
 import { failed } from './errors';
-import { withLease } from './lease';
+import { confirmLease, type HeldLease, leaseLost, withLease } from './lease';
 import { checkIdle } from './running';
 import { saveState } from './state';
 import type { ReindexReport } from './types';
@@ -25,7 +25,11 @@ async function currentToken(ctx: SyncContext): Promise<ResumeToken> {
 }
 
 /** Every live document through the transform, a page at a time. */
-async function sendAll(ctx: SyncContext, wanted: Set<string>) {
+async function sendAll(
+	ctx: SyncContext,
+	wanted: Set<string>,
+	lease: HeldLease,
+) {
 	let indexed = 0;
 	let skipped = 0;
 	let after: string | null | undefined;
@@ -46,6 +50,8 @@ async function sendAll(ctx: SyncContext, wanted: Set<string>) {
 		}
 		await sendDocuments(ctx, documents);
 		indexed += documents.length;
+		// Found lost by a renewal: stop sending beside whoever holds it now.
+		if (lease.lost) throw leaseLost(ctx);
 		after = page.nextCursor;
 	} while (after);
 	return { indexed, skipped };
@@ -89,18 +95,28 @@ async function removeUnwanted(
  */
 export async function reindex(ctx: SyncContext): Promise<ReindexReport> {
 	checkIdle(ctx, 'reindex');
-	return withLease(ctx, 'reindex', () => reindexHeld(ctx));
+	return withLease(ctx, 'reindex', (lease) => reindexHeld(ctx, lease));
 }
 
-/** A reindex by a caller that already holds the lease: `start`. */
-export async function reindexHeld(ctx: SyncContext): Promise<ReindexReport> {
+/**
+ * A reindex by a caller that holds the lease. What removes documents and what
+ * records a point each go only once the server confirms the lease is still
+ * this one's: after another process took it over, either would undo what
+ * that process just did.
+ */
+export async function reindexHeld(
+	ctx: SyncContext,
+	lease: HeldLease,
+): Promise<ReindexReport> {
 	try {
 		// Taken first: a change made while the documents are read is followed
 		// again from here, so it cannot fall between the two.
 		const token = await currentToken(ctx);
 		const wanted = new Set<string>();
-		const { indexed, skipped } = await sendAll(ctx, wanted);
+		const { indexed, skipped } = await sendAll(ctx, wanted, lease);
+		await confirmLease(ctx, lease);
 		const removed = await removeUnwanted(ctx, wanted);
+		await confirmLease(ctx, lease);
 		await saveState(ctx, token, true);
 		return { indexed, skipped, removed };
 	} catch (error) {

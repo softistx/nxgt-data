@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { eventually, toHit, useServers } from '../test/fixtures';
 import { SearchSyncError } from './errors';
 
-const { servers, collection, sync, start, track, indexed } =
+const { servers, collection, index, sync, start, track, indexed } =
 	useServers('lease');
 
 // A second `createSearchSync` under the same name is what another process
@@ -130,15 +130,66 @@ describe('the lease on a sync name', () => {
 		const error = await rejection(running.closed);
 		expect(error.code).toBe('LEASE_LOST');
 		expect(error.message).toBe(
-			'Search sync "articles:articles" lost its lease: it was not renewed ' +
-				'within 300 ms, and another process may have taken the name over. ' +
-				'It stopped rather than follow beside it.',
+			'Search sync "articles:articles" lost its lease: another process ' +
+				'holds the name now, or the lease was removed (it lapses when not ' +
+				'renewed within 300 ms). It stopped rather than run beside it.',
 		);
 		await collection().create({ title: 'After' });
 		await Bun.sleep(300);
 		expect(await indexed()).toEqual([]);
 		// The thief's lease is left alone.
 		expect((await leaseOf())?.holder).toStartWith('thief:');
+	});
+
+	/** A transform slow enough for the lease to be taken while it runs. */
+	const slowly = async (document: Parameters<typeof toHit>[0]) => {
+		await Bun.sleep(150);
+		return toHit(document);
+	};
+	const steal = () =>
+		leases().updateOne(
+			{ _id: { lease: 'articles:articles' } },
+			{ $set: { holder: 'thief:1:000000000000000000000000' } },
+		);
+
+	test('a reindex whose lease is taken stops before it removes or records anything', async () => {
+		for (const title of ['a', 'b', 'c', 'd']) {
+			await collection().create({ title });
+		}
+		// What the new holder indexed meanwhile, which this reindex never read.
+		await index()
+			.raw.addDocuments([{ id: 'theirs', title: 'kept' }])
+			.waitTask();
+		const search = sync({ leaseMs: 90, pageSize: 1, transform: slowly });
+		const reindexing = rejection(search.reindex());
+		await eventually(async () => (await leaseOf()) !== null, true);
+		await steal();
+		const error = await reindexing;
+		expect(error.code).toBe('LEASE_LOST');
+		expect(await search.state()).toBeUndefined();
+		expect((await indexed()).map(([id]) => id)).toContain('theirs');
+		expect((await leaseOf())?.holder).toStartWith('thief:');
+	});
+
+	test('so does the first reindex of a start, which then follows nothing', async () => {
+		await collection().create({ title: 'a' });
+		await collection().create({ title: 'b' });
+		const search = sync({ leaseMs: 90, pageSize: 1, transform: slowly });
+		const starting = rejection(search.start());
+		await eventually(async () => (await leaseOf()) !== null, true);
+		await steal();
+		expect((await starting).code).toBe('LEASE_LOST');
+		expect(await search.state()).toBeUndefined();
+		expect((await leaseOf())?.holder).toStartWith('thief:');
+	});
+
+	test('a lease that cannot be taken is FAILED, not RUNNING', async () => {
+		await servers.mongo.failNext(['findAndModify'], { errorCode: 13 });
+		const error = await rejection(sync().start());
+		expect(error.code).toBe('FAILED');
+		expect(error.message).toStartWith(
+			'Search sync "articles:articles" failed taking its lease:',
+		);
 	});
 
 	test('two names do not share a lease', async () => {

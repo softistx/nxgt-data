@@ -4,9 +4,9 @@ import { failed, SearchSyncError } from './errors';
 import { open } from './follow';
 import {
 	acquire,
+	confirmLease,
 	type HeldLease,
 	keepLease,
-	leaseLost,
 	release,
 } from './lease';
 import { reindexHeld } from './reindex';
@@ -34,19 +34,24 @@ export async function start(ctx: SyncContext): Promise<RunningSearchSync> {
 	// renews it on its own once it is open.
 	const stop = keepLease(ctx, lease, () => undefined);
 	try {
-		return await startHeld(ctx, lease);
+		const running = await startHeld(ctx, lease);
+		stop();
+		return running;
 	} catch (error) {
+		stop();
 		await release(ctx, lease);
 		throw error;
-	} finally {
-		stop();
 	}
 }
 
-/** Reindexes holding the lease, and stops there if it was lost meanwhile. */
-async function reindexKept(ctx: SyncContext, lease: HeldLease): Promise<void> {
-	await reindexHeld(ctx);
-	if (lease.lost) throw leaseLost(ctx);
+/** Opens the follower, once the server confirms the lease is still held. */
+async function openHeld(
+	ctx: SyncContext,
+	token: ResumeToken,
+	lease: HeldLease,
+): Promise<RunningSearchSync> {
+	await confirmLease(ctx, lease);
+	return open(ctx, token, lease);
 }
 
 async function startHeld(
@@ -55,11 +60,11 @@ async function startHeld(
 ): Promise<RunningSearchSync> {
 	let state = await readState(ctx);
 	if (!state) {
-		await reindexKept(ctx, lease);
+		await reindexHeld(ctx, lease);
 		state = await readState(ctx);
 	}
 	try {
-		return await open(
+		return await openHeld(
 			ctx,
 			(state as { resumeToken: ResumeToken }).resumeToken,
 			lease,
@@ -74,10 +79,10 @@ async function startHeld(
 				{ code: 'HISTORY_LOST', sync: ctx.name, cause: error },
 			);
 		}
-		await reindexKept(ctx, lease);
+		await reindexHeld(ctx, lease);
 		const fresh = (await readState(ctx)) as { resumeToken: ResumeToken };
 		try {
-			return await open(ctx, fresh.resumeToken, lease);
+			return await openHeld(ctx, fresh.resumeToken, lease);
 		} catch (again) {
 			throw failed(ctx.name, 'starting', again);
 		}

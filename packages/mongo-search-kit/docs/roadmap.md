@@ -23,9 +23,10 @@ _Nothing queued._
 - **Owning the Mongo kit** — closing the search kit stops the syncs and
   nothing else: the clients, the databases and the collections belong to the
   Mongo kit, and `kit.close()` stays the caller's.
-- **A lock of its own** — how followers of one sync name coordinate belongs to
-  `@nxgt/mongo-meilisearch`'s sync. This package wires the syncs a kit needs
-  and does not move that boundary.
+- **A lock of its own** — the bridge's lease already provides it: each sync
+  `@nxgt/mongo-meilisearch` builds takes a lease on its name, so a second
+  process starting the same kit is refused with `RUNNING`. This package wires
+  the syncs a kit needs and does not move that boundary.
 
 ## Shipped
 

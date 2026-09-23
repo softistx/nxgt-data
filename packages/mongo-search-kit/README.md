@@ -164,7 +164,10 @@ refusal it goes with.
   process holds the lease on, and the kit passes that through.
 - **A sync that loses its lease rejects `failed` with `LEASE_LOST`.** A
   process stalled for longer than an entry's `leaseMs` (30 s) may find another
-  has taken that name over; the sync stops rather than follow beside it.
+  has taken that name over; the sync stops rather than run beside it.
+- **`reindexAll()` and `start()` can reject with `LEASE_LOST` too**, when a
+  sync's reindex finds its lease taken over. That reindex has recorded nothing
+  and removed nothing more; treat it like `RUNNING` — wait, then try again.
 - **`flush()` stops at the first sync that fails, like `reindexAll()`.** A
   sync that has already fallen over rejects `flush` at once, and the syncs
   after it in the config are then neither sent nor recorded — on restart
@@ -179,8 +182,9 @@ refusal it goes with.
   succeeded are idempotent.
 - **Two kits over one collection is two syncs over one index.** The name a
   sync records its point under defaults to `<collection>:<index uid>`, so two
-  search kits built from the same config share it. Give `name` if you mean
-  them to be different.
+  search kits built from the same config share it, and its lease: the second
+  is refused with `RUNNING` while the first runs. Give `name` if you mean them
+  to be different.
 - Everything `@nxgt/mongo-meilisearch`'s own Traps say still holds: a change
   may be applied twice, a transform that throws stops the sync, the sync owns
   its index, and Meilisearch has its own rules for ids.
