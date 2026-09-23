@@ -71,6 +71,22 @@ describe('defineIndex refuses a uid Meilisearch would refuse', () => {
 		}
 	});
 
+	test('a union with a bad member compiles, and its bad value is refused here', () => {
+		// Typed `'movies' | '*'`, with no cast: the types let a union through.
+		const uidOf = (wide: boolean): 'movies' | '*' => (wide ? '*' : 'movies');
+		const defineAs = (wide: boolean) =>
+			defineIndex<{ slug: string }>()({ uid: uidOf(wide), primaryKey: 'slug' });
+		expect(defineAs(false).uid).toBe('movies');
+		let error: unknown;
+		try {
+			defineAs(true);
+		} catch (e) {
+			error = e;
+		}
+		expect(error).toBeInstanceOf(TypeError);
+		expect((error as TypeError).message).toBe(notAUid);
+	});
+
 	test('an empty string, a trailing newline, or a uid that is not a string', () => {
 		expect(refused('')).toBe(notAUid);
 		expect(refused('movies\n')).toBe(notAUid);

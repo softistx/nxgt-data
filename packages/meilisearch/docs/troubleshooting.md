@@ -13,8 +13,8 @@ below are what each one prints; the Meilisearch messages were measured on
 v1.53.2 with meilisearch-js 0.62.0.
 
 - **Install and types**
-  - [`Cannot find module 'meilisearch' or its corresponding type declarations.`](#cannot-find-module-meilisearch-or-its-corresponding-type-declarations)
   - [`Type 'string' is not assignable to type 'never'.`](#type-string-is-not-assignable-to-type-never), on a literal `uid`
+  - [`Cannot find module 'meilisearch' or its corresponding type declarations.`](#cannot-find-module-meilisearch-or-its-corresponding-type-declarations)
   - [`Argument of type '{ sort: string[]; }' is not assignable to parameter of type 'SearchOptions<…>'`](#argument-of-type--sort-string--is-not-assignable-to-parameter-of-type-searchoptions)
   - [`Argument of type '{ readonly sortableAttributes: readonly ["year"]; … }' is not assignable to parameter of type 'Settings'.`](#argument-of-type--readonly-sortableattributes-readonly-year---is-not-assignable-to-parameter-of-type-settings)
 - **Configuration and sync**
@@ -81,7 +81,8 @@ error TS2322: Type 'string' is not assignable to type 'never'.
 **Why:** Meilisearch refuses such a uid (`invalid_index_uid`), and a `*` in
 one would widen a tenant token to other indexes, so the types turn `uid`
 into `never` for the common mistakes. Only those: a unicode lookalike, 401
-characters, or a uid typed `string` compiles, and
+characters, a uid typed `string`, a generic uid (`<U extends string>`), or
+a union of literals with one valid member compiles, and
 [`defineIndex` throws](#defineindex-the-uid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_) at run time.
 **Fix:** a uid of ASCII letters, digits, `-` and `_`:
 
@@ -161,7 +162,8 @@ of logs. Since 0.6.0: before, the server refused it on the first request
 that refusal: a tenant token reads its rule keys as index **patterns**, so a
 uid holding one would widen a token to other indexes. A literal `'*'`, `''`,
 or one with a space, a dot or a slash does not compile; everything else,
-and every uid typed `string`, is caught here at run time.
+and every uid typed `string`, generic or a union, is caught here at run
+time.
 **Fix:** use `_` or `-` where the uid had a dot or a space, and check a
 uid built from a request before defining it — the whole uid, since the
 prefix counts toward the 400, and 395 if the index is to be rebuilt under

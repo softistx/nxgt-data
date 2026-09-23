@@ -306,3 +306,21 @@ defineIndex<Movie>()({ uid: '', primaryKey: 'id' });
 declare const someUid: string;
 defineIndex<Movie>()({ uid: someUid, primaryKey: 'id' });
 defineIndex<Movie>()({ uid: 'movies＊', primaryKey: 'id' });
+
+// A generic uid compiles, as it did before the check: runtime only.
+function moviesUnder<U extends string>(uid: U) {
+	return defineIndex<Movie>()({ uid, primaryKey: 'id' });
+}
+function docsOf<U extends `docs_${string}`>(uid: U) {
+	return defineIndex<Movie>()({ uid, primaryKey: 'id' });
+}
+assertType<Equal<ReturnType<typeof moviesUnder<'m'>>['uid'], 'm'>>(true);
+assertType<Equal<ReturnType<typeof docsOf<'docs_a'>>['uid'], 'docs_a'>>(true);
+
+// A union of literals keeps its members, and compiles even with a bad one
+// among them: `define-index.spec.ts` shows the run time refusing it.
+declare const either: 'a' | 'b';
+const eitherIndex = defineIndex<Movie>()({ uid: either, primaryKey: 'id' });
+assertType<Equal<(typeof eitherIndex)['uid'], 'a' | 'b'>>(true);
+declare const oneBad: 'movies' | '*';
+defineIndex<Movie>()({ uid: oneBad, primaryKey: 'id' });

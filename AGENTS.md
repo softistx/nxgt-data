@@ -698,13 +698,14 @@ the file.
 
 ## Known state
 
-`bun run test` is **1421 pass, 0 fail**: drizzle 152, meilisearch 117,
+`bun run test` is **1434 pass, 0 fail**: drizzle 152, meilisearch 130,
 mongo 541, drizzle-meilisearch 42, mongo-meilisearch 58, mongo-kit 101,
 mongo-search-kit 17, redis 46, redis-guard 124, redis-kit 55, s3 104,
 hono-api-example 43, scripts 21. hono-api-example's 43 was measured on its
 own (three runs, one on 2 CPUs under load), as redis-guard's 124 was, and
-scripts' 21 with `bun test scripts`; the total is computed from develop's
-1409 with the example's 31 replaced, not measured by a full run. It runs one process
+meilisearch's 130, and scripts' 21 with `bun test scripts`; the total is
+computed — develop's 1409 with the example's 31 replaced gave 1421, and
+meilisearch's 117 replaced by 130 gives 1434 — not measured by a full run. It runs one process
 per package, then the scripts' specs. Treat any failure as yours.
 
 - **The test mongod runs with `enableTestCommands`**, so a spec can make it

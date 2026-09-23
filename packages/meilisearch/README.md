@@ -129,7 +129,8 @@ defineIndex<Movie>()({ uid: `docs_${tenant}`, primaryKey: 'id' });
 ```
 
 A literal uid that is empty or holds a space, a `*`, a dot or a slash does
-not even compile; any other refused uid, and every uid typed `string`, is
+not even compile; any other refused uid, and every uid typed `string`,
+generic, or a union of literals, is
 refused at run time only. A `*` matters beyond the server's refusal: a tenant
 token reads its rule keys as index patterns, so a uid holding one would
 widen a token to other indexes. `bindIndex` checks the uid again, for a
@@ -604,7 +605,7 @@ function tenantToken<const Indexes extends TokenIndexes>(options: TenantTokenOpt
 - **A uid over 395 characters cannot rebuild under `<uid>_next`**, which
   would be past the server's 400: `rebuild` throws a `TypeError` before
   sending anything. Pass a shorter `nextUid`, or keep uids short.
-- **A uid typed `string` is checked at run time only.** The types refuse a
+- **A uid typed `string`, generic, or a union is checked at run time only.** The types refuse a
   literal `'*'`, `''`, or one holding a space, a dot or a slash; a uid built
   from a request, or holding a unicode lookalike, compiles and throws from
   `defineIndex`.

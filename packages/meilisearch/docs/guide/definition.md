@@ -67,7 +67,10 @@ defineIndex<Movie>()({ uid: 'movies.v2', primaryKey: 'id' });
 ```
 
 A unicode lookalike or a 401st character compiles, as does every uid typed
-`string` or a union of literals; those are refused at run time only. A full
+`string`, a generic uid — `<U extends string>(uid: U) =>
+defineIndex<Movie>()({ uid, primaryKey: 'id' })` — and a union of literals
+with one valid member (`'movies' | '*'`); those are refused at run time
+only. A full
 check in the types would walk the uid character by character, for a
 refusal the run time already gives at the first call.
 

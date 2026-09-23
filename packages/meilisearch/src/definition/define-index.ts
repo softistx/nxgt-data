@@ -179,22 +179,26 @@ type NoExtraKeys<Given, Allowed> = {
 };
 
 /**
- * The characters the types refuse in a literal uid: the ones a uid is most
- * likely to be given by mistake. Only a cheap denylist — a unicode lookalike
- * or a 401st character compiles, and is refused at run time.
+ * What the types allow a uid to be, looked up by the uid itself: `never` for
+ * a literal that is empty or holds a space, a `*`, a dot or a slash — the
+ * mistakes a uid is most likely to be given — and `unknown` for anything
+ * else. Only a cheap denylist: a unicode lookalike or a 401st character
+ * compiles, and is refused at run time.
+ *
+ * A lookup, not a conditional type, on purpose: a conditional on a generic
+ * uid (`<U extends string>(uid: U) => defineIndex…({ uid })`) stays deferred
+ * and refuses it. An indexed access on a type parameter is let through, as a
+ * `string` is, and a union of literals reads `unknown` as soon as one member
+ * is valid: those are checked at run time only.
  */
-type UidBreaker = ' ' | '*' | '.' | '/';
-
-/**
- * `{ uid: never }` for a literal uid that is empty or holds a `UidBreaker`,
- * so it fails to compile; nothing for a `string` or a union of literals,
- * which are checked at run time only.
- */
-type NoBadUid<Uid> = string extends Uid
-	? unknown
-	: [Uid] extends ['' | `${string}${UidBreaker}${string}`]
-		? { uid: never }
-		: unknown;
+interface UidAllowed {
+	[uid: string]: unknown;
+	[uid: `${string}*${string}`]: never;
+	[uid: `${string} ${string}`]: never;
+	[uid: `${string}.${string}`]: never;
+	[uid: `${string}/${string}`]: never;
+	'': never;
+}
 
 /**
  * Defines an index: its uid, its primary key and its settings, typed by the
@@ -221,8 +225,9 @@ type NoBadUid<Uid> = string extends Uid
 export function defineIndex<Doc extends object>() {
 	return <const Config extends IndexConfig<Doc>>(
 		config: Config &
-			NoExtraKeys<Config, IndexConfig<Doc>> &
-			NoBadUid<Config['uid']> & {
+			NoExtraKeys<Config, IndexConfig<Doc>> & {
+				uid: UidAllowed[Config['uid']];
+			} & {
 				settings?: NoExtraKeys<
 					NonNullable<Config['settings']>,
 					IndexSettings<Doc>
