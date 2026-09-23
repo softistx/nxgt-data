@@ -25,7 +25,7 @@ try {
 | `PRIMARY_KEY_MISMATCH` | [`sync`](sync.md) found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
 | `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error`, whose sentence the message leaves out — it can quote a filter or a document id |
 | `REBUILD_FAILED` | [`rebuild`](rebuild.md) stopped before the swap, its swap task came back `failed`, or it sent the swap and could not wait for it | `cause`: what stopped it; `task` when a task failed |
-| `INVALID_EXPIRES_AT` | [`tenantToken`](tenant-tokens.md) was given an `expiresAt` it will not sign | `indexUid`: the token's uids, joined by `,` |
+| `INVALID_EXPIRES_AT` | [`tenantToken`](tenant-tokens.md) was given no `expiresAt`, or one it will not sign | `indexUid`: the token's uids, joined by `,` |
 
 ```ts
 class SearchIndexError extends Error {
@@ -120,14 +120,15 @@ index is whole either way.
 
 ### `INVALID_EXPIRES_AT`
 
-[`tenantToken`](tenant-tokens.md) refuses, before signing, an `expiresAt`
+[`tenantToken`](tenant-tokens.md) refuses, before signing, a missing
+`expiresAt` (a token without one would last as long as its key), one
 already past, a number of milliseconds, a fraction of a second, or an
 invalid `Date` — the last three measured to be accepted wrongly, or not
 decoded, by the server. An `expiresAt` can come from a request, so it has a
 code a handler can answer 400 to:
 
 ```ts
-const error = await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], expiresAt: Date.now() }).catch((e) => e);
+const error = await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { movies: null }, expiresAt: Date.now() }).catch((e) => e);
 error.code;     // 'INVALID_EXPIRES_AT'
 error.message;  // 'tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date'
 error.indexUid; // 'movies'
@@ -172,8 +173,9 @@ Three places where this package steps in front of the SDK, and only three:
 
 Besides `SearchIndexError`, the package throws bare `TypeError`s for a call
 it refuses before sending or signing anything, with no code: `rebuild`'s
-`nextUid` equal to the uid, and `tenantToken`'s `searchRules` naming a uid
-none of its indexes has, or not a plain object. They come from code, not
+`nextUid` equal to the uid, and `tenantToken`'s `searchRules` missing a
+rule for one of its indexes, naming a uid none of its indexes has, or not a
+plain object. They come from code, not
 from a request — see [troubleshooting.md](../troubleshooting.md#tenant-tokens)
 for each message.
 

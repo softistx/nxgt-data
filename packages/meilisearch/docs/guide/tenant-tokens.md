@@ -37,8 +37,8 @@ the token when a client made from it searches.
 | `apiKey` | `string` | required | the key that signs. It needs the `search` action on every index the token names |
 | `apiKeyUid` | `string` | required | that key's `uid`, a UUID v4 |
 | `indexes` | bound indexes, at least one | required | the indexes the token may search; every other one is refused |
-| `searchRules` | `{ [uid]?: { filter? } \| null }` | `{}`: no filter on any index | keyed by the uids of `indexes`, and nothing else |
-| `expiresAt` | `Date \| number` | none: the token lives as long as its key | a `Date`, or whole **seconds** since the epoch |
+| `searchRules` | `{ [uid]: { filter } \| null }` | required, one rule **per index** | keyed by the uids of `indexes`, and nothing else; `null` searches that index with no filter |
+| `expiresAt` | `Date \| number` | required | a `Date`, or whole **seconds** since the epoch |
 | `algorithm` | `'HS256' \| 'HS384' \| 'HS512'` | `'HS256'` | the SDK's |
 | `force` | `boolean` | `false` | the SDK's: skip its check that it runs on a server |
 
@@ -47,8 +47,27 @@ declare, so a rule for an index the token was not given, or a misspelt uid,
 does not compile. `filter` is the SDK's `Filter`, a string or an array, as in
 a search.
 
-An index in `indexes` with no rule, or with `null`, is searched with no
-filter. An index **not** in `indexes` cannot be searched at all.
+Every index in `indexes` needs a rule. `{ filter }` is added to every
+search on it; `null` searches it with **no** filter, and has to be written
+out. An index **not** in `indexes` cannot be searched at all.
+
+```ts
+await tenantToken({
+	apiKey: searchKey.key,
+	apiKeyUid: searchKey.uid,
+	indexes: [movieIndex, genreIndex],
+	searchRules: { movies: { filter: `tenant = ${JSON.stringify(user.tenant)}` }, genres: null },
+	expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+});
+```
+
+A rule left out does not compile. The function checks again at run time,
+since a uid can be dynamic, and a missing rule — or one that is
+`undefined` — throws a `TypeError` before anything is signed:
+
+```
+tenantToken for "movies", "people": searchRules has no rule for "people"; give each index { filter: … }, or null to search it with no filter
+```
 
 The types check the keys against the uids the definitions **declare**; the
 function checks them again against the uids the indexes **have**, and a key
@@ -65,8 +84,23 @@ way, since an inherited rule is not read:
 `tenantToken for "movies": searchRules must be a plain object`. An object
 with a `null` prototype is plain, and accepted.
 
-An unmatched uid is the one case the types cannot see: `rebuild` hands `fill` an index
-whose uid is `movies_next`, typed `string` — any key compiles for it.
+A missing or unmatched uid is the one case the types cannot see: `rebuild`
+hands `fill` an index whose uid is `movies_next`, typed `string` — any key
+compiles for it, and none is required. Key its rule by its runtime uid:
+
+```ts
+await movieIndex.rebuild(async (next) => {
+	await next.add(await loadMovies());
+	const token = await tenantToken({
+		apiKey, apiKeyUid, indexes: [next],
+		searchRules: { [next.uid]: { filter: 'genres = scifi' } },
+		expiresAt: new Date(Date.now() + 60_000),
+	});
+});
+```
+
+Beside an index with a literal uid, that one's rule is still required by
+the types.
 
 ## What was measured
 
@@ -104,11 +138,17 @@ before anything is signed, when `expiresAt` is:
 
 | `expiresAt` | Message, after `tenantToken for "movies": expiresAt ` |
 | --- | --- |
+| missing: `undefined` or `null` | `is missing; it takes a Date, or whole seconds since the epoch` |
 | a `Date` or a number of seconds already past | `is in the past` |
 | a number past 10¹¹ | `is a number of milliseconds; it takes seconds, or a Date` |
 | a number with a fraction | `is not a whole number of seconds` |
 | an invalid `Date` | `is an invalid Date` |
 | `NaN`, `Infinity` | `is neither a Date nor a finite number` |
+
+A missing `expiresAt` takes the same code as a wrong one, not a
+`TypeError`: it is the same option, it can come from a request body just as
+well, and a handler that answers `INVALID_EXPIRES_AT` with a 400 should not
+need a second branch for it.
 
 The message never holds the key, the time, or anything else it was given.
 `indexUid` is the token's uids joined by `,` — `'movies,people'`.
@@ -117,7 +157,7 @@ The message never holds the key, the time, or anything else it was given.
 import { SearchIndexError } from '@nxgt/meilisearch';
 
 try {
-	return await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], expiresAt });
+	return await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { movies: { filter } }, expiresAt });
 } catch (error) {
 	if (error instanceof SearchIndexError && error.code === 'INVALID_EXPIRES_AT') {
 		return c.json({ error: 'expiresAt' }, 400);
@@ -128,11 +168,16 @@ try {
 
 ## Traps
 
-- **No `expiresAt` and no rule make a permanent, unfiltered credential.**
-  Without `expiresAt` a token lives as long as its key; an index given no
-  rule is searched with no filter. A token like that, handed to a browser,
-  reads every document of the index for as long as the key exists. Give
-  every browser token both.
+- **Why `expiresAt` and a rule per index are required.** Before 0.5.0 both
+  were optional: without `expiresAt` a token lived as long as its key, and
+  an index given no rule was searched with no filter. A token that forgot
+  both — one line left out, or a `filter` that came back `undefined` — was a
+  permanent, unfiltered credential, handed to a browser, reading every
+  document of the index for as long as the key existed, and nothing said
+  so. Now the omission is refused, in the types and at run time, and an
+  unfiltered index takes an explicit `null` a reviewer can see.
+- **`null` still reads everything.** Write it only for an index every
+  holder of the token may read in full, and keep `expiresAt` short.
 - **Sign with a search key, never the master key.** The signing key lives
   on your server as long as tokens are issued: make it one that can only
   search, on only the indexes the tokens name.

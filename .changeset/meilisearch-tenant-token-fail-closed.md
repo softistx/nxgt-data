@@ -1,0 +1,16 @@
+---
+'@nxgt/meilisearch': minor
+---
+
+`tenantToken` fails closed. `expiresAt` is required, and so is a rule in `searchRules` for **every** index the token is given: `{ filter }`, or an explicit `null` meaning "this index, no filter". Before, both were optional, and a token that left out both — one forgotten line, or a filter that came back `undefined` — was a permanent, unfiltered credential: it lived as long as its key and read every document of the index, and nothing said so.
+
+Both are refused in the types and at run time, before anything is signed:
+
+- a missing `expiresAt` — `undefined` or `null` — is a `SearchIndexError` with the existing code `INVALID_EXPIRES_AT`, like every other `expiresAt` it refuses, since it is the same option and can come from a request just as well: `tenantToken for "movies": expiresAt is missing; it takes a Date, or whole seconds since the epoch`;
+- an index with no rule — its key left out, set to `undefined`, or `searchRules` left out altogether — is a bare `TypeError`, like the other `searchRules` refusals: `tenantToken for "movies", "people": searchRules has no rule for "people"; give each index { filter: … }, or null to search it with no filter`. The message names the call and the uids, never a rule or a key.
+
+`TenantTokenRules<Indexes>` now requires one key per literal uid of `Indexes`, and a new `TenantTokenRule` names one rule (`{ filter?: Filter } | null`). An index whose uid is typed only `string` — a rebuild's next index — adds a `string` index signature, so its rule is keyed by `next.uid` and checked at run time only; an index with a literal uid beside it still needs its rule in the types. What already worked is unchanged: a key that is none of the indexes' uids and a `searchRules` that is not a plain object are refused, and `force` is passed through.
+
+**What stops compiling:** a `tenantToken` call with no `expiresAt`, no `searchRules`, or a `searchRules` that leaves out one of its indexes' uids — `Property 'expiresAt' is missing…`, `Property 'people' is missing…`. Add `expiresAt: new Date(Date.now() + 60 * 60 * 1000)` (or whole seconds), and a rule per index, writing `people: null` where an index was deliberately unfiltered. An annotation `TenantTokenRules<typeof indexes>` given an object missing a uid stops compiling the same way. Where a rule came from a variable that may be `undefined`, decide: a filter, or `null`.
+
+**Why a minor.** Code that compiled and ran on 0.4.x stops compiling, and a call that signed a token now throws; on 0.x a minor is how this repository ships a "what stops compiling" change, as `@nxgt/redis` 0.3.0 and `@nxgt/drizzle` 0.6.0 did. `@nxgt/mongo-meilisearch` and `@nxgt/drizzle-meilisearch` get their patch republish with the new peer range automatically; neither calls `tenantToken`.

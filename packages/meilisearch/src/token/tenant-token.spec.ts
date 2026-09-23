@@ -75,11 +75,13 @@ describe('tenantToken', () => {
 		expect(viaMulti.hits.map((m) => m.id).sort()).toEqual([1, 2, 4]);
 	});
 
-	test('an index with no rule is searched with no filter', async () => {
+	test('an index whose rule is null is searched with no filter', async () => {
 		const token = await tenantToken({
 			apiKey: key.key,
 			apiKeyUid: key.uid,
 			indexes: [movieIndex()],
+			searchRules: { movies: null },
+			expiresAt: inAnHour(),
 		});
 		const result = await as(token).index('movies').search('');
 		expect(result.hits).toHaveLength(4);
@@ -90,6 +92,8 @@ describe('tenantToken', () => {
 			apiKey: key.key,
 			apiKeyUid: key.uid,
 			indexes: [movieIndex()],
+			searchRules: { movies: null },
+			expiresAt: inAnHour(),
 		});
 		const error = await as(token)
 			.index('people')
@@ -107,6 +111,8 @@ describe('tenantToken', () => {
 			apiKey: key.key,
 			apiKeyUid: key.uid,
 			indexes: [bindIndex(t.client, people)],
+			searchRules: { people: null },
+			expiresAt: inAnHour(),
 		});
 		const error = await as(token)
 			.index('people')
@@ -145,6 +151,7 @@ describe('tenantToken', () => {
 			apiKeyUid: key.uid,
 			indexes: [movieIndex()],
 			searchRules: { movies: { filter: 'rating > 8' } },
+			expiresAt: inAnHour(),
 		});
 		const error = await as(token)
 			.index('movies')
@@ -163,6 +170,7 @@ describe('tenantToken', () => {
 			apiKey: key.key,
 			apiKeyUid: key.uid,
 			indexes: [movieIndex()],
+			searchRules: { movies: null },
 			expiresAt: inAnHour(),
 		});
 		await t.client.deleteKey(key.uid);
@@ -174,13 +182,14 @@ describe('tenantToken', () => {
 	});
 
 	describe('expiresAt is refused before anything is signed', () => {
-		const refused = async (expiresAt: Date | number) => {
+		const refused = async (expiresAt: Date | number | null | undefined) => {
 			const error = await tenantToken({
 				apiKey: key.key,
 				// Not a UUID: had it been signed, the SDK would have thrown first.
 				apiKeyUid: 'not-a-uuid',
 				indexes: [movieIndex(), bindIndex(t.client, people)],
-				expiresAt,
+				searchRules: { movies: { filter: 'genres = scifi' }, people: null },
+				expiresAt: expiresAt as Date,
 			}).catch((e) => e);
 			expect(error).toBeInstanceOf(SearchIndexError);
 			expect(error.code).toBe('INVALID_EXPIRES_AT');
@@ -188,6 +197,14 @@ describe('tenantToken', () => {
 			expect(error.message.includes(key.key)).toBe(false);
 			return error.message;
 		};
+
+		test('a missing expiresAt, which would last as long as the key', async () => {
+			const missing =
+				'tenantToken for "movies", "people": expiresAt is missing; it takes a Date, or whole seconds since the epoch';
+			expect(await refused(undefined)).toBe(missing);
+			// A JSON body's null is missing too.
+			expect(await refused(null)).toBe(missing);
+		});
 
 		test('a past Date, or a past number of seconds', async () => {
 			const past =
@@ -228,6 +245,7 @@ describe('tenantToken', () => {
 				movies: { filter: 'genres = scifi' },
 				films: { filter: 'genres = scifi' },
 			} as never,
+			expiresAt: inAnHour(),
 		}).catch((e) => e);
 		expect(error).toBeInstanceOf(TypeError);
 		expect(error.message).toBe(
@@ -242,6 +260,7 @@ describe('tenantToken', () => {
 			apiKeyUid: 'not-a-uuid',
 			indexes: [movieIndex()],
 			searchRules: inherited,
+			expiresAt: inAnHour(),
 		}).catch((e) => e);
 		expect(error).toBeInstanceOf(TypeError);
 		expect(error.message).toBe(
@@ -258,6 +277,7 @@ describe('tenantToken', () => {
 			apiKeyUid: 'not-a-uuid',
 			indexes: [movieIndex()],
 			searchRules: new Rules(),
+			expiresAt: inAnHour(),
 		}).catch((e) => e);
 		expect(error).toBeInstanceOf(TypeError);
 		expect(error.message).toBe(
@@ -280,11 +300,83 @@ describe('tenantToken', () => {
 		expect(result.hits.map((m) => m.id).sort()).toEqual([1, 2, 4]);
 	});
 
+	describe('an index with no rule is refused before anything is signed', () => {
+		const refused = async (searchRules: unknown) => {
+			const error = await tenantToken({
+				apiKey: key.key,
+				// Not a UUID: had it been signed, the SDK would have thrown first.
+				apiKeyUid: 'not-a-uuid',
+				indexes: [movieIndex(), bindIndex(t.client, people)],
+				searchRules: searchRules as never,
+				expiresAt: inAnHour(),
+			}).catch((e) => e);
+			expect(error).toBeInstanceOf(TypeError);
+			expect(error.message.includes(key.key)).toBe(false);
+			// The message reports a shape, never a rule it was given.
+			expect(error.message.includes('scifi')).toBe(false);
+			return error.message;
+		};
+
+		test('one of two indexes left out', async () => {
+			expect(await refused({ movies: { filter: 'genres = scifi' } })).toBe(
+				'tenantToken for "movies", "people": searchRules has no rule for "people"; ' +
+					'give each index { filter: … }, or null to search it with no filter',
+			);
+		});
+
+		test('no searchRules at all, or null', async () => {
+			const none =
+				'tenantToken for "movies", "people": searchRules has no rule for "movies", "people"; ' +
+				'give each index { filter: … }, or null to search it with no filter';
+			expect(await refused(undefined)).toBe(none);
+			expect(await refused(null)).toBe(none);
+			expect(await refused({})).toBe(none);
+		});
+
+		test('a rule that is undefined, which is not null', async () => {
+			expect(
+				await refused({
+					movies: { filter: 'genres = scifi' },
+					people: undefined,
+				}),
+			).toBe(
+				'tenantToken for "movies", "people": searchRules has no rule for "people"; ' +
+					'give each index { filter: … }, or null to search it with no filter',
+			);
+		});
+	});
+
+	test('a rebuild’s next index takes a rule under its runtime uid', async () => {
+		const index = movieIndex();
+		await index.sync();
+		const all = await t.client.createKey({
+			actions: ['search'],
+			indexes: ['*'],
+			expiresAt: null,
+		});
+		let hits: number[] = [];
+		await index.rebuild(async (next) => {
+			await next.add(sampleMovies, { wait: true });
+			const token = await tenantToken({
+				apiKey: all.key,
+				apiKeyUid: all.uid,
+				indexes: [next],
+				searchRules: { [next.uid]: { filter: 'genres = scifi' } },
+				expiresAt: inAnHour(),
+			});
+			const result = await as(token).index(next.uid).search('');
+			hits = result.hits.map((m) => m.id as number).sort();
+		});
+		expect(hits).toEqual([1, 2, 4]);
+	});
+
 	test('a key uid that is not a UUID is the SDK’s own refusal', async () => {
 		const error = await tenantToken({
 			apiKey: key.key,
 			apiKeyUid: 'not-a-uuid',
 			indexes: [movieIndex()],
+			searchRules: { movies: null },
+			expiresAt: inAnHour(),
 		}).catch((e) => e);
 		expect(error.message).toBe('the uid of your key is not a valid UUIDv4');
 	});

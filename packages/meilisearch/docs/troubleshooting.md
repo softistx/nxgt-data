@@ -2,9 +2,9 @@
 
 This package throws one error class of its own, `SearchIndexError`, with a
 `code` of `PRIMARY_KEY_MISMATCH`, `TASK_FAILED`, `REBUILD_FAILED` or
-`INVALID_EXPIRES_AT`, and three bare `TypeError`s for a call it refuses before
+`INVALID_EXPIRES_AT`, and four bare `TypeError`s for a call it refuses before
 sending or signing anything: `rebuild`'s `nextUid`, and `tenantToken`'s
-unmatched and inherited `searchRules`. Everything else comes from the
+missing rule, unmatched rule, and `searchRules` that is not a plain object. Everything else comes from the
 official SDK as it is: `MeilisearchApiError` (whose `cause.code` is
 Meilisearch's own error code) and `MeilisearchTaskTimeOutError`. The headings
 below are what each one prints; the Meilisearch messages were measured on
@@ -34,6 +34,8 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [``Inside `.queries[1]`: Index `nobody` not found.``](#inside-queries1-index-nobody-not-found)
   - [A search right after a write finds nothing](#a-search-right-after-a-write-finds-nothing)
 - **Tenant tokens**
+  - [`tenantToken for "movies": expiresAt is missing; it takes a Date, or whole seconds since the epoch`](#tenanttoken-for-movies-expiresat-is-missing-it-takes-a-date-or-whole-seconds-since-the-epoch)
+  - [`tenantToken for "movies", "people": searchRules has no rule for "people"; give each index { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-people-searchrules-has-no-rule-for-people-give-each-index--filter---or-null-to-search-it-with-no-filter)
   - [`tenantToken for "movies": expiresAt is in the past`](#tenanttoken-for-movies-expiresat-is-in-the-past)
   - [`tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date`](#tenanttoken-for-movies-expiresat-is-a-number-of-milliseconds-it-takes-seconds-or-a-date)
   - [`tenantToken for "movies_next": searchRules names "movies", which is not the uid of any of its indexes`](#tenanttoken-for-movies_next-searchrules-names-movies-which-is-not-the-uid-of-any-of-its-indexes)
@@ -456,6 +458,36 @@ resolving quietly.
 
 ## Tenant tokens
 
+### `tenantToken for "movies": expiresAt is missing; it takes a Date, or whole seconds since the epoch`
+
+**When:** `tenantToken` with no `expiresAt`, or with `undefined` or `null` —
+a field a request body left out. A `SearchIndexError` with
+`code: 'INVALID_EXPIRES_AT'`, like the other refused times, thrown before
+anything is signed. Since 0.5.0; before, the token was signed.
+**Why:** a token without `exp` lasts as long as its key — for a browser
+token, that is a credential nobody meant to be permanent.
+**Fix:** give every token an end:
+
+```ts
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { movies: { filter } }, expiresAt: new Date(Date.now() + 60 * 60 * 1000) });
+```
+
+### `tenantToken for "movies", "people": searchRules has no rule for "people"; give each index { filter: … }, or null to search it with no filter`
+
+**When:** `tenantToken` whose `searchRules` has no rule for one of its
+`indexes` — the key left out, set to `undefined`, or `searchRules` left out
+altogether. A bare `TypeError`, thrown before anything is signed. The types
+refuse it too for an index whose uid is a literal; for a rebuild's next
+index, typed `string`, only this check sees it. Since 0.5.0.
+**Why:** an index with no rule would be searched with **no filter** by
+anyone holding the token. That has to be asked for, with `null`, never
+reached by leaving a line out. The message names the uids, never a rule.
+**Fix:** a rule per index, `null` for one that may be read in full:
+
+```ts
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex, peopleIndex], searchRules: { movies: { filter }, people: null }, expiresAt });
+```
+
 ### `tenantToken for "movies": expiresAt is in the past`
 
 Three siblings end the same line differently: `is not a whole number of
@@ -505,7 +537,7 @@ refused instead.
 
 ```ts
 await movieIndex.rebuild(async (next) => {
-	await tenantToken({ apiKey, apiKeyUid, indexes: [next], searchRules: { [next.uid]: { filter } } });
+	await tenantToken({ apiKey, apiKeyUid, indexes: [next], searchRules: { [next.uid]: { filter } }, expiresAt });
 });
 ```
 
@@ -522,7 +554,7 @@ and accepted.
 **Fix:** spread it into a plain object:
 
 ```ts
-await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { ...defaults, ...rules } });
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { ...defaults, ...rules }, expiresAt });
 ```
 
 ### `the uid of your key is not a valid UUIDv4`
@@ -536,7 +568,7 @@ the server looks the key up by it.
 
 ```ts
 const searchKey = await admin.getKey(process.env.MEILI_SEARCH_KEY_UID!);
-await tenantToken({ apiKey: searchKey.key, apiKeyUid: searchKey.uid, indexes: [movieIndex] });
+await tenantToken({ apiKey: searchKey.key, apiKeyUid: searchKey.uid, indexes: [movieIndex], searchRules: { movies: { filter } }, expiresAt });
 ```
 
 ### `failed to detect a server-side environment; do not generate tokens on the frontend in production!`
@@ -555,7 +587,7 @@ who opens the page.
 not recognise, `force: true` skips the check:
 
 ```ts
-await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], expiresAt, force: true });
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { movies: { filter } }, expiresAt, force: true });
 ```
 
 ### ``Tenant token expired. Was valid up to `1790139850` and we're now `1790139910`.``
@@ -573,10 +605,10 @@ searches.
 **When:** a search, with the token, on an index that was not in its
 `indexes`. `cause.code` `invalid_api_key`, status 403.
 **Why:** the token may search exactly the indexes it names, and no other.
-**Fix:** add the index to `indexes`, with its own rule if it needs one:
+**Fix:** add the index to `indexes`, with its own rule — `null` if it may be read in full:
 
 ```ts
-await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex, peopleIndex], searchRules: { movies: { filter } } });
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex, peopleIndex], searchRules: { movies: { filter }, people: null }, expiresAt });
 ```
 
 ### ``The API key used to generate this tenant token cannot acces the index `people`.``

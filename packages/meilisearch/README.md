@@ -320,16 +320,34 @@ const token = await tenantToken({
 `meilisearch/token`) and sends nothing. The token may search only the bound
 `indexes` given, and `searchRules` is keyed by their uids — a rule for
 another index, or a misspelt uid, does not compile. The filter is **added**
-to every search made with the token, measured on v1.53.2. A `searchRules`
+to every search made with the token, measured on v1.53.2.
+
+It **fails closed**: `expiresAt` and a rule for **every** index are
+required, in the types and at run time. An index that may be searched with
+no filter says so with `null`:
+
+```ts
+await tenantToken({
+	apiKey: searchKey.key,
+	apiKeyUid: searchKey.uid,
+	indexes: [movieIndex, peopleIndex],
+	searchRules: { movies: { filter: `genres = ${JSON.stringify(user.genre)}` }, people: null },
+	expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+});
+```
+
+A missing rule — or one that is `undefined` — throws a `TypeError` before
+anything is signed: `tenantToken for "movies", "people": searchRules has no rule for "people"; give each index { filter: … }, or null to search it with no filter`. A `searchRules`
 key that is not the uid one of the indexes has at run time, or a
 `searchRules` that is not a plain object — a class instance, or one that
 inherits its rules — throws a `TypeError` before anything is signed, rather
 than leave an index unfiltered.
 
-`expiresAt` is a `Date` or whole seconds since the epoch. One that is already
-past, a number of milliseconds (which the server accepts, for millennia), a
-fraction of a second (which the server cannot decode) or an invalid `Date`
-throws a `SearchIndexError` (`INVALID_EXPIRES_AT`) before anything is signed.
+`expiresAt` is a `Date` or whole seconds since the epoch. One that is
+missing (`undefined` or `null`), already past, a number of milliseconds
+(which the server accepts, for millennia), a fraction of a second (which the
+server cannot decode) or an invalid `Date` throws a `SearchIndexError`
+(`INVALID_EXPIRES_AT`) before anything is signed.
 
 ## Errors
 
@@ -339,7 +357,8 @@ its `MeilisearchApiError`, with `cause.code`, a timeout its
 task reaches you as the `cause` of a `REBUILD_FAILED`. Before that — the
 `nextUid` refusal, a bare `TypeError`, and looking up or deleting a
 leftover `_next` — and after it — deleting the previous index — errors
-arrive unwrapped. `tenantToken`'s refusals of `searchRules` are bare
+arrive unwrapped. `tenantToken`'s refusals of `searchRules` — a missing
+rule, a rule under another uid, one that is not a plain object — are bare
 `TypeError`s too.
 
 This package throws one error of its own, `SearchIndexError`:
@@ -349,7 +368,7 @@ This package throws one error of its own, `SearchIndexError`:
 | `PRIMARY_KEY_MISMATCH` | `sync` found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
 | `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error`, whose sentence the message leaves out — it can quote a filter or a document id |
 | `REBUILD_FAILED` | `rebuild` stopped before the swap and deleted `_next`, or says it could not; its swap task came back `failed`; or it could not wait for the swap, and deleted nothing | `cause`: what stopped it; `task` when a task failed |
-| `INVALID_EXPIRES_AT` | `tenantToken` was given an `expiresAt` past, in milliseconds, fractional or invalid | `indexUid`: the token's uids, joined by `,` |
+| `INVALID_EXPIRES_AT` | `tenantToken` was given no `expiresAt`, or one past, in milliseconds, fractional or invalid | `indexUid`: the token's uids, joined by `,` |
 
 ```ts
 import { SearchIndexError } from '@nxgt/meilisearch';
@@ -462,9 +481,10 @@ function multiSearch<const Queries extends readonly { index: TypedIndex<any> }[]
 function tenantToken<const Indexes extends TokenIndexes>(options: TenantTokenOptions<Indexes>): Promise<string>;
 ```
 
-- `interface TenantTokenOptions<Indexes> { apiKey: string; apiKeyUid: string; indexes: Indexes; searchRules?: TenantTokenRules<Indexes>; expiresAt?: Date | number; algorithm?: 'HS256' | 'HS384' | 'HS512'; force?: boolean }`. A `searchRules` key that is not the runtime uid of one of `indexes` throws a `TypeError`.
+- `interface TenantTokenOptions<Indexes> { apiKey: string; apiKeyUid: string; indexes: Indexes; searchRules: TenantTokenRules<Indexes>; expiresAt: Date | number; algorithm?: 'HS256' | 'HS384' | 'HS512'; force?: boolean }`. `searchRules` and `expiresAt` are required. A missing `expiresAt` throws `INVALID_EXPIRES_AT`; an index with no rule, a `searchRules` key that is not the runtime uid of one of `indexes`, or a `searchRules` that is not a plain object throws a `TypeError`.
 - `type TokenIndexes = readonly [TypedIndex<any>, ...TypedIndex<any>[]]`: at least one bound index.
-- `type TenantTokenRules<Indexes>`: `{ [uid]?: { filter?: Filter } | null }`, keyed by the uids of `Indexes`.
+- `type TenantTokenRule = { filter?: Filter } | null`: one index's rule; `null` searches it with no filter.
+- `type TenantTokenRules<Indexes>`: `{ [uid]: TenantTokenRule }`, one **required** key per literal uid of `Indexes`. An index whose uid is typed only `string` — a rebuild's next index — adds a `string` index signature, so its rule is checked at run time only.
 
 ### `SearchIndexError`
 
@@ -521,10 +541,13 @@ function tenantToken<const Indexes extends TokenIndexes>(options: TenantTokenOpt
   a crashed run: a `nextUid` naming another live index deletes that index.
 - **Two rebuilds of one index at once collide**: the second deletes the
   first one's `movies_next` as a leftover. Run it from one job.
-- **A tenant token with no `expiresAt` and no rule is a permanent,
-  unfiltered credential.** Without `expiresAt` it lives as long as its key;
-  an index given no rule is searched with no filter. Handed to a browser,
-  that is every document of the index, for as long as the key exists.
+- **`null` is a decision, not a default.** A tenant token needs a rule for
+  every index, and `null` searches that index with no filter: every
+  document, for anyone holding the token until its `expiresAt`. Write it
+  only for an index that is public anyway.
+- **A rebuild's next index is checked at run time only.** Its uid is typed
+  `string`, so `searchRules: {}` compiles for it; key its rule by
+  `next.uid`, or `tenantToken` throws.
 - **`tenantToken` refuses to run in a browser** — the SDK's
   `failed to detect a server-side environment` — unless `force: true`.
   Sign on the server.

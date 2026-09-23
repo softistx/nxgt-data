@@ -7,24 +7,47 @@ import { generateTenantToken } from 'meilisearch/token';
 import { SearchIndexError } from '../errors/search-index-error';
 import type { TypedIndex } from '../index/bind-index';
 
-/** The uid a bound index's definition gives, as a literal. */
-type UidOf<Index> = Index extends {
+/**
+ * The uid a bound index's definition declares, when it is a literal. A uid
+ * typed `string`, such as a rebuild's next index, gives `never`.
+ */
+type LiteralUidOf<Index> = Index extends {
 	definition: { uid: infer Uid extends string };
 }
-	? Uid
+	? string extends Uid
+		? never
+		: Uid
+	: never;
+
+/** Whether one of the indexes has a uid typed only as `string`. */
+type HasDynamicUid<Index> = Index extends {
+	definition: { uid: infer Uid extends string };
+}
+	? string extends Uid
+		? true
+		: never
 	: never;
 
 /** At least one bound index: a token for none can search nothing. */
 export type TokenIndexes = readonly [TypedIndex<any>, ...TypedIndex<any>[]];
 
 /**
- * The rules of a token, keyed by the uids of its indexes and by nothing
- * else. `filter` is added to every search on that index; a missing rule, or
- * `null`, lets the index be searched with no filter.
+ * One index's rule: `filter` is added to every search on it, and `null`
+ * searches it with no filter — which has to be said, never left out.
+ */
+export type TenantTokenRule = TokenIndexRules | null;
+
+/**
+ * The rules of a token: one per index, keyed by its uid, and nothing else. A
+ * rule left out does not compile for an index whose uid is a literal; for
+ * one whose uid is only a `string` — a rebuild's next index — any key
+ * compiles, and a missing or unmatched rule is refused at run time.
  */
 export type TenantTokenRules<Indexes extends TokenIndexes> = {
-	readonly [Uid in UidOf<Indexes[number]>]?: TokenIndexRules | null;
-};
+	readonly [Uid in LiteralUidOf<Indexes[number]>]: TenantTokenRule;
+} & ([HasDynamicUid<Indexes[number]>] extends [never]
+	? unknown
+	: { readonly [uid: string]: TenantTokenRule });
 
 export interface TenantTokenOptions<Indexes extends TokenIndexes> {
 	/** The key that signs the token. It must hold `search` on these indexes. */
@@ -33,13 +56,18 @@ export interface TenantTokenOptions<Indexes extends TokenIndexes> {
 	apiKeyUid: string;
 	/** The indexes the token may search; every other one is refused. */
 	indexes: Indexes;
-	searchRules?: TenantTokenRules<Indexes>;
+	/**
+	 * A rule for every index given, keyed by its uid: `{ filter }`, or `null`
+	 * to search that index with no filter. A missing rule is refused.
+	 */
+	searchRules: TenantTokenRules<Indexes>;
 	/**
 	 * When the token stops working: a `Date`, or a whole number of **seconds**
-	 * since the epoch. Refused when it is already past, or when it is a number
-	 * of milliseconds. Without it, the token lasts as long as its key.
+	 * since the epoch. Required: a token without one would last as long as
+	 * its key. Refused when it is already past, or when it is a number of
+	 * milliseconds.
 	 */
-	expiresAt?: Date | number;
+	expiresAt: Date | number;
 	/** The SDK's: `HS256` by default. */
 	algorithm?: TenantTokenGeneratorOptions['algorithm'];
 	/**
@@ -76,6 +104,63 @@ function expiryProblem(expiresAt: Date | number, now: number) {
 const quoted = (uids: readonly string[]) =>
 	uids.map((uid) => `"${uid}"`).join(', ');
 
+/** Refuses an `expiresAt` that is missing, or cannot be signed. */
+function checkExpiry(expiresAt: unknown, uids: readonly string[]) {
+	const problem =
+		expiresAt === undefined || expiresAt === null
+			? 'is missing; it takes a Date, or whole seconds since the epoch'
+			: expiryProblem(expiresAt as Date | number, Date.now());
+	if (problem) {
+		throw new SearchIndexError(
+			`tenantToken for ${quoted(uids)}: expiresAt ${problem}`,
+			{ code: 'INVALID_EXPIRES_AT', indexUid: uids.join(',') },
+		);
+	}
+}
+
+/**
+ * The rules to sign, one per uid, or a `TypeError`: a rule that would be
+ * dropped, or an index given none, would leave that index unfiltered.
+ */
+function checkedRules(given: unknown, uids: readonly string[]) {
+	const call = `tenantToken for ${quoted(uids)}`;
+	// A rule inherited from a prototype is not an own key: it would be
+	// dropped, and its index searched with no filter.
+	const prototype =
+		given === undefined || given === null
+			? Object.prototype
+			: Object.getPrototypeOf(given);
+	if (prototype !== Object.prototype && prototype !== null) {
+		throw new TypeError(`${call}: searchRules must be a plain object`);
+	}
+	const rules = (given ?? {}) as Record<string, TenantTokenRule | undefined>;
+	// A rule under a uid no index has would otherwise be dropped: the types
+	// cannot see a uid that differs at run time, such as a rebuild's next
+	// index.
+	const unmatched = Object.keys(rules).filter((uid) => !uids.includes(uid));
+	if (unmatched.length > 0) {
+		throw new TypeError(
+			`${call}: searchRules names ${quoted(unmatched)}, ` +
+				'which is not the uid of any of its indexes',
+		);
+	}
+	// An index given no rule, or `undefined`, is refused rather than searched
+	// with no filter: that takes an explicit `null`.
+	const missing = uids.filter(
+		(uid) => !Object.hasOwn(rules, uid) || rules[uid] === undefined,
+	);
+	if (missing.length > 0) {
+		throw new TypeError(
+			`${call}: searchRules has no rule for ${quoted([...new Set(missing)])}; ` +
+				'give each index { filter: … }, or null to search it with no filter',
+		);
+	}
+	const signed: TokenSearchRules = Object.fromEntries(
+		uids.map((uid) => [uid, rules[uid] ?? null]),
+	);
+	return signed;
+}
+
 /**
  * Signs a tenant token that may search only the indexes given, each with
  * its own rule, with the SDK's `generateTenantToken`. Nothing is sent: the
@@ -91,56 +176,24 @@ const quoted = (uids: readonly string[]) =>
  * });
  * ```
  *
- * An `expiresAt` that is past, or not a time Meilisearch reads, throws a
- * `SearchIndexError` (`INVALID_EXPIRES_AT`) before anything is signed; a
- * `searchRules` key that is not the uid of one of `indexes` throws a
- * `TypeError`, rather than leave that index unfiltered.
+ * It fails closed. An `expiresAt` that is missing, past, or not a time
+ * Meilisearch reads throws a `SearchIndexError` (`INVALID_EXPIRES_AT`); an
+ * index with no rule in `searchRules`, a rule under a uid none of `indexes`
+ * has, or a `searchRules` that is not a plain object throws a `TypeError`.
+ * Both are thrown before anything is signed.
  */
 export async function tenantToken<const Indexes extends TokenIndexes>(
 	options: TenantTokenOptions<Indexes>,
 ): Promise<string> {
 	const { apiKey, apiKeyUid, indexes, expiresAt, algorithm, force } = options;
 	const uids = indexes.map((index) => index.uid);
-	if (expiresAt !== undefined) {
-		const problem = expiryProblem(expiresAt, Date.now());
-		if (problem) {
-			throw new SearchIndexError(
-				`tenantToken for ${quoted(uids)}: expiresAt ${problem}`,
-				{ code: 'INVALID_EXPIRES_AT', indexUid: uids.join(',') },
-			);
-		}
-	}
-	const given: object = options.searchRules ?? {};
-	// A rule inherited from a prototype is not an own key: it would be
-	// dropped, and its index searched with no filter.
-	const prototype = Object.getPrototypeOf(given);
-	if (prototype !== Object.prototype && prototype !== null) {
-		throw new TypeError(
-			`tenantToken for ${quoted(uids)}: searchRules must be a plain object`,
-		);
-	}
-	const rules = given as Record<string, TokenIndexRules | null | undefined>;
-	// A rule under a uid no index has would otherwise be dropped, and its
-	// index searched with no filter: the types cannot see a uid that differs
-	// at run time, such as a rebuild's next index.
-	const unmatched = Object.keys(rules).filter((uid) => !uids.includes(uid));
-	if (unmatched.length > 0) {
-		throw new TypeError(
-			`tenantToken for ${quoted(uids)}: searchRules names ${quoted(unmatched)}, ` +
-				'which is not the uid of any of its indexes',
-		);
-	}
-	const searchRules: TokenSearchRules = Object.fromEntries(
-		uids.map((uid) => [
-			uid,
-			Object.hasOwn(rules, uid) ? (rules[uid] ?? null) : null,
-		]),
-	);
+	checkExpiry(expiresAt, uids);
+	const searchRules = checkedRules(options.searchRules, uids);
 	return generateTenantToken({
 		apiKey,
 		apiKeyUid,
 		searchRules,
-		...(expiresAt === undefined ? {} : { expiresAt }),
+		expiresAt,
 		...(algorithm === undefined ? {} : { algorithm }),
 		...(force === undefined ? {} : { force }),
 	});

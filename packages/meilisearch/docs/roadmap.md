@@ -37,6 +37,12 @@ _Nothing queued._
 
 ## Shipped
 
+- **Tenant tokens fail closed** — `tenantToken` requires `expiresAt` and a
+  rule for every index it is given, in the types and at run time: a missing
+  `expiresAt` is `INVALID_EXPIRES_AT`, a missing rule a `TypeError`, and an
+  index searched with no filter takes an explicit `null`. A token can no
+  longer become a permanent, unfiltered credential by a line left out —
+  0.5.0.
 - **Tenant tokens typed by their indexes** — `tenantToken({ apiKey,
   apiKeyUid, indexes, searchRules, expiresAt })` signs a token that may search
   only the bound indexes given, with `searchRules` keyed by their uids, and

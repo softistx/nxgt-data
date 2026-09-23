@@ -359,6 +359,7 @@ describe('rebuild', () => {
 				apiKeyUid: key.uid,
 				indexes: [next],
 				searchRules: { movies: { filter: 'genres = scifi' } },
+				expiresAt: new Date(Date.now() + 60_000),
 			}).catch((e) => e);
 			await next.add(remade);
 		});
