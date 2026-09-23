@@ -263,13 +263,26 @@ matching key in `exports`.
   fails with the very error it came to assert — a loaded CI runner fails
   where an idle laptop passes, which is exactly how this was found. Hold it
   with a plain `.then(onResolved, onRejected)` whose resolved arm throws
-  (`rejection` in `packages/mongo/src/collection/changes/subscription.spec.ts`),
-  and assert on `expect(await held)`. **Not** `expect(promise).rejects`:
-  measured on bun 1.4.2, holding that assertion across an `await` and
-  finishing it later never returns — the whole file runs out of time and the
-  per-test timeout does not fire. A fixture that hands back something
-  long-lived takes its `closed` at hand-over, the way `track()` does here and
-  in `packages/mongo-meilisearch/test/fixtures.ts`.
+  (`rejection` in `packages/mongo/test/rejection.ts`, with `rejectionMessage`
+  for a `toThrow`'s substring), and assert on `expect(await held)`. **Not**
+  `expect(promise).rejects`, even awaited on the spot — two failures, both
+  measured on bun 1.4.2:
+  - held across an `await` and finished later, it never returns — the whole
+    file runs out of time and the per-test timeout does not fire;
+  - awaited at once on a promise still doing I/O, on a loaded machine, it
+    leaves Bun no longer reading the test mongod's stdout. mongod logs each
+    DDL there, and once the unread socket buffer fills, its logger blocks
+    with the log lock held and the whole server stops answering: every hook
+    after it times out at 5000 ms, and Bun then kills the mongod, which ends
+    the file in a `(fail) (unnamed)`. That was the migration specs' CI
+    flake — on 2 CPUs beside six busy loops they failed 12 runs out of 12,
+    at 58–68 KB drained; with the helper, 0 out of 6, with ~150 KB drained.
+    The other `@nxgt/mongo` specs still use `.rejects` and are open to it.
+
+  A fixture that hands back something long-lived takes its `closed` at
+  hand-over, the way `track()` does in
+  `packages/mongo/src/collection/changes/subscription.spec.ts` and in
+  `packages/mongo-meilisearch/test/fixtures.ts`.
 
 ## Releasing
 

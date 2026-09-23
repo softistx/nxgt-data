@@ -7,6 +7,7 @@ import {
 	test,
 } from 'bun:test';
 import { MongoClient } from 'mongodb';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { startMongo, type TestServer } from '../../test/server';
 import { DataError } from '../errors/data-error';
 import { defineMigration } from './define-migration';
@@ -69,7 +70,7 @@ describe('the migration lock', () => {
 		expect(error.expiresAt).toEqual(expiresAt);
 		expect(error.message).toContain('locked by elsewhere:1 until');
 		expect(await t.db.collection('nxgt_migrations').countDocuments()).toBe(0);
-		await expect(rollback(t.db, [noop])).rejects.toBeInstanceOf(
+		expect(await rejection(rollback(t.db, [noop]))).toBeInstanceOf(
 			MigrationLockedError,
 		);
 	});
@@ -115,7 +116,7 @@ describe('the migration lock', () => {
 				throw new Error('boom');
 			},
 		});
-		await expect(migrate(t.db, [noop, broken])).rejects.toBeInstanceOf(
+		expect(await rejection(migrate(t.db, [noop, broken]))).toBeInstanceOf(
 			MigrationError,
 		);
 		expect(await lock().countDocuments()).toBe(0);
@@ -137,9 +138,9 @@ describe('the migration lock', () => {
 		const first = migrate(t.db, [migration], { lockTtlMs: 1000 });
 		await running;
 		await sleep(1600);
-		await expect(
-			migrate(t.db, [migration], { lockTtlMs: 1000 }),
-		).rejects.toBeInstanceOf(MigrationLockedError);
+		expect(
+			await rejection(migrate(t.db, [migration], { lockTtlMs: 1000 })),
+		).toBeInstanceOf(MigrationLockedError);
 		release();
 		await first;
 	});
@@ -192,7 +193,9 @@ describe('the migration lock', () => {
 	test.each([0, 999, 1.5, Number.NaN])(
 		'refuses a lockTtlMs of %p',
 		async (lockTtlMs) => {
-			await expect(migrate(t.db, [noop], { lockTtlMs })).rejects.toThrow(
+			expect(
+				await rejectionMessage(migrate(t.db, [noop], { lockTtlMs })),
+			).toContain(
 				'lockTtlMs must be a whole number of milliseconds, at least 1000',
 			);
 		},
