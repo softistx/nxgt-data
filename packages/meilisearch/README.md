@@ -165,7 +165,7 @@ await movieIndex.sync({ wait: { timeout: 120_000 } });
 
 ```ts
 const report = await movieIndex.rebuild(async (next) => {
-	// `next` is a TypedIndex<typeof movies> on 'movies_next'
+	// `next` is a TypedIndex<RebuildDefinition<typeof movies>> on 'movies_next'
 	await next.addInBatches(await loadAllMovies(), { batchSize: 1000 });
 });
 // { uid: 'movies', nextUid: 'movies_next', created: false, leftoverDeleted: false, sync, tasks: [indexSwap, indexDeletion] }
@@ -331,8 +331,10 @@ throws a `SearchIndexError` (`INVALID_EXPIRES_AT`) before anything is signed.
 
 The SDK's errors reach you as they are: a request Meilisearch refuses throws
 its `MeilisearchApiError`, with `cause.code`, a timeout its
-`MeilisearchTaskTimeOutError`. The one exception is `rebuild`: what stops it
-before its swap reaches you as the `cause` of a `REBUILD_FAILED`.
+`MeilisearchTaskTimeOutError`. The one exception is `rebuild`: what stops it between creating the next index and reading back its swap
+task reaches you as the `cause` of a `REBUILD_FAILED`. Before that — the
+`nextUid` refusal, a bare `TypeError`, and deleting a leftover `_next` —
+and after it — deleting the previous index — errors arrive unwrapped.
 
 This package throws one error of its own, `SearchIndexError`:
 
@@ -340,7 +342,7 @@ This package throws one error of its own, `SearchIndexError`:
 | --- | --- | --- |
 | `PRIMARY_KEY_MISMATCH` | `sync` found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
 | `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error` |
-| `REBUILD_FAILED` | `rebuild` stopped before the swap, or could not wait for it | `cause`: what stopped it; `task` when a task failed |
+| `REBUILD_FAILED` | `rebuild` stopped before the swap, its swap task came back `failed`, or it could not wait for the swap | `cause`: what stopped it; `task` when a task failed |
 | `INVALID_EXPIRES_AT` | `tenantToken` was given an `expiresAt` past, in milliseconds, fractional or invalid | `indexUid`: the token's uids, joined by `,` |
 
 ```ts
@@ -509,6 +511,8 @@ function tenantToken<const Indexes extends TokenIndexes>(options: TenantTokenOpt
   actions. Measured, in the specs: a key on `['movies', 'movies_next']` or
   `['movies*']` sends the swap, which happens, but cannot read its task, and
   the rebuild throws `REBUILD_FAILED` saying the outcome is unknown.
+- **`rebuild` deletes whatever is under `nextUid` first**, as a leftover of
+  a crashed run: a `nextUid` naming another live index deletes that index.
 - **Two rebuilds of one index at once collide**: the second deletes the
   first one's `movies_next` as a leftover. Run it from one job.
 - **A tenant token with no `expiresAt` and no rule is a permanent,

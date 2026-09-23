@@ -41,7 +41,10 @@ _Nothing queued._
   apiKeyUid, indexes, searchRules, expiresAt })` signs a token that may search
   only the bound indexes given, with `searchRules` keyed by their uids, and
   refuses an `expiresAt` that is past, in milliseconds, fractional or invalid
-  before signing, as `INVALID_EXPIRES_AT` — 0.4.0.
+  before signing, as `INVALID_EXPIRES_AT`; a rule under a uid none of the
+  indexes has, or inherited from a prototype, is refused rather than
+  dropped, which would leave its index unfiltered; the SDK's `force` is
+  passed through — 0.4.0.
 - **Several indexes in one typed request** — `multiSearch(client, [{ index,
   q, …options }, …])` sends the SDK's multi-search and resolves to a tuple,
   each result typed by its own index, and each query's `sort`, `facets`,

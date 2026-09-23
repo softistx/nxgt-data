@@ -24,7 +24,7 @@ try {
 | --- | --- | --- |
 | `PRIMARY_KEY_MISMATCH` | [`sync`](sync.md) found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
 | `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error` |
-| `REBUILD_FAILED` | [`rebuild`](rebuild.md) stopped before the swap, or sent it and could not wait for it | `cause`: what stopped it; `task` when a task failed |
+| `REBUILD_FAILED` | [`rebuild`](rebuild.md) stopped before the swap, its swap task came back `failed`, or it sent the swap and could not wait for it | `cause`: what stopped it; `task` when a task failed |
 | `INVALID_EXPIRES_AT` | [`tenantToken`](tenant-tokens.md) was given an `expiresAt` it will not sign | `indexUid`: the token's uids, joined by `,` |
 
 ```ts
@@ -151,9 +151,12 @@ Three places where this package steps in front of the SDK, and only three:
   answer.
 - `sync` treats `index_not_found` while reading as "create it", and an
   `index_already_exists` from a racing creation as "use theirs".
-- `rebuild` wraps whatever stopped it before its swap — the SDK's error
-  included — in a `REBUILD_FAILED`, as `cause`, because it cleaned up after
-  it. A failure after the swap is not wrapped.
+- `rebuild` wraps whatever stops it between creating the next index and
+  reading back its swap task — the SDK's error included — in a
+  `REBUILD_FAILED`, as `cause`, because it cleaned up after it. Not
+  wrapped: the `nextUid` refusal (a bare `TypeError`) and a failure to
+  delete a leftover `_next`, both before; a failure to delete the previous
+  index, after the swap.
 
 ## One handler for the app
 

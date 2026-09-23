@@ -12,7 +12,7 @@ import { movies } from './indexes';
 const movieIndex = bindIndex(client, movies);
 
 const report = await movieIndex.rebuild(async (next) => {
-	// `next` is a TypedIndex<typeof movies> bound to 'movies_next'
+	// `next` is a TypedIndex<RebuildDefinition<typeof movies>> bound to 'movies_next'
 	for await (const page of readMoviesFromTheDatabase()) {
 		await next.addInBatches(page, { batchSize: 1000 });
 	}
@@ -51,7 +51,15 @@ leaves the live one as it was, and throws a `SearchIndexError` with
 `code: 'REBUILD_FAILED'`. The message says where:
 `Rebuild of index "movies" stopped while creating|filling|swapping "movies_next": …`.
 `cause` is what stopped it — the SDK's own error included — and `task` the
-failed task when there was one:
+failed task when there was one. When the next index could not be deleted —
+a key without `indexes.delete`, measured — the message says
+`"movies_next" could not be deleted; the next rebuild deletes it first`
+instead of `was deleted`.
+
+Not everything is wrapped. Before the next index is created, the `nextUid`
+refusal is a bare `TypeError` and a failure to delete a leftover `_next`
+arrives as it comes; after the swap, so does a failure to delete the
+previous index:
 
 ```ts
 import { SearchIndexError } from '@nxgt/meilisearch';
@@ -91,7 +99,7 @@ the swap happened, and the rebuild succeeded but for the cleanup.
 
 | Option | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `nextUid` | `string` | `'<uid>_next'` | the uid of the index filled beside the live one; the uid itself is refused |
+| `nextUid` | `string` | `'<uid>_next'` | the uid of the index filled beside the live one; the uid itself is refused, and **an index already under it is deleted as a leftover** |
 | `wait` | `{ timeout?: number; interval?: number }` | the SDK's (5 s) | how long to wait for each task, the fill's included, and how often to ask |
 
 ```ts
@@ -148,6 +156,9 @@ await bindIndex(client, movies).rebuild(async (next) => {
   for; one it started and did not await may not be enqueued yet when `fill`
   resolves, and is then swapped in unchecked — or not at all. The types
   refuse a `fill` that returns nothing, which catches the plain case.
+- **`nextUid` is deleted first, whatever it holds.** An index already under
+  it is taken for a leftover of a crashed run: name another live index there
+  and it is gone. Leave `nextUid` out, or give it a name nothing else uses.
 - **Two rebuilds of one index at once collide.** The second deletes the
   first one's next index as a leftover. Run one at a time — from a job, not
   from every instance at start-up.

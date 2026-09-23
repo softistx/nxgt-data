@@ -235,6 +235,20 @@ describe('tenantToken', () => {
 		);
 	});
 
+	test('a rule inherited from a prototype is refused, not dropped', async () => {
+		const inherited = Object.create({ movies: { filter: 'genres = scifi' } });
+		const error = await tenantToken({
+			apiKey: key.key,
+			apiKeyUid: 'not-a-uuid',
+			indexes: [movieIndex()],
+			searchRules: inherited,
+		}).catch((e) => e);
+		expect(error).toBeInstanceOf(TypeError);
+		expect(error.message).toBe(
+			'tenantToken for "movies": searchRules must be a plain object, not one that inherits its rules',
+		);
+	});
+
 	test('a key uid that is not a UUID is the SDK’s own refusal', async () => {
 		const error = await tenantToken({
 			apiKey: key.key,

@@ -53,19 +53,45 @@ export type RebuildFill<Def extends AnyIndexDefinition> = (
  */
 type Stop = 'creating' | 'filling' | 'swapping' | 'unknown';
 
-function stopped(uid: string, nextUid: string, stop: Stop, cause: unknown) {
+function stopped(
+	uid: string,
+	nextUid: string,
+	stop: Stop,
+	deleted: boolean,
+	cause: unknown,
+) {
+	const left = deleted
+		? `"${nextUid}" was deleted`
+		: `"${nextUid}" could not be deleted; the next rebuild deletes it first`;
 	const message =
 		stop === 'unknown'
 			? `Rebuild of index "${uid}" sent the swap with "${nextUid}" and could not wait for it: ` +
 				`whether "${uid}" was swapped is unknown, and "${nextUid}" was left for the next rebuild to delete.`
 			: `Rebuild of index "${uid}" stopped while ${stop} "${nextUid}": ` +
-				`"${nextUid}" was deleted, and "${uid}" is as it was.`;
+				`${left}, and "${uid}" is as it was.`;
 	return new SearchIndexError(`${message} The cause is on \`cause\`.`, {
 		code: 'REBUILD_FAILED',
 		indexUid: uid,
 		task: cause instanceof SearchIndexError ? cause.task : undefined,
 		cause,
 	});
+}
+
+/**
+ * Deletes the next index after a rebuild stopped, and says whether it is
+ * gone. It never throws: what stopped the rebuild is the error to report.
+ */
+async function discard(
+	client: Meilisearch,
+	nextUid: string,
+	wait: WaitOptions | undefined,
+): Promise<boolean> {
+	try {
+		await deleteIndex(client, nextUid, wait);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 async function deleteIndex(
@@ -168,14 +194,10 @@ export async function rebuildIndex<Def extends AnyIndexDefinition>(
 		assertSucceeded(task, uid);
 	} catch (error) {
 		// The cleanup must not hide what stopped the rebuild: a failure to
-		// delete leaves an index the next run deletes first.
-		if (stop !== 'unknown') {
-			await client
-				.deleteIndex(nextUid)
-				.waitTask(wait)
-				.catch(() => undefined);
-		}
-		throw stopped(uid, nextUid, stop, error);
+		// delete leaves an index the next run deletes first, and says so.
+		const deleted =
+			stop !== 'unknown' && (await discard(client, nextUid, wait));
+		throw stopped(uid, nextUid, stop, deleted, error);
 	}
 
 	const tasks = [task];

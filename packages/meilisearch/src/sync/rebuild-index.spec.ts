@@ -282,6 +282,29 @@ describe('rebuild', () => {
 			expect(await titles()).toEqual(before);
 		});
 
+		test('a key that may not delete indexes says so when a rebuild stops, and leaves the next index', async () => {
+			await live();
+			const before = await titles();
+			const client = await clientWith(['*'], ['indexes.delete']);
+			const boom = new Error('the source database went away');
+			const error = await bindIndex(client, movies)
+				.rebuild(async (next) => {
+					await next.add(remade, { wait: true });
+					throw boom;
+				})
+				.catch((e) => e);
+			expect(error).toBeInstanceOf(SearchIndexError);
+			expect(error.code).toBe('REBUILD_FAILED');
+			expect(error.cause).toBe(boom);
+			expect(error.message).toBe(
+				'Rebuild of index "movies" stopped while filling "movies_next": ' +
+					'"movies_next" could not be deleted; the next rebuild deletes it first, ' +
+					'and "movies" is as it was. The cause is on `cause`.',
+			);
+			expect(await uids()).toEqual(['movies', 'movies_next']);
+			expect(await titles()).toEqual(before);
+		});
+
 		test('a key that may not delete indexes swaps, then throws the SDK’s error unwrapped', async () => {
 			await live();
 			const client = await clientWith(['*'], ['indexes.delete']);

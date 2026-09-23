@@ -1,8 +1,10 @@
 # Troubleshooting
 
-This package throws one error of its own, `SearchIndexError`, with a `code` of
-`PRIMARY_KEY_MISMATCH`, `TASK_FAILED`, `REBUILD_FAILED` or `INVALID_EXPIRES_AT`.
-Everything else comes from the
+This package throws one error class of its own, `SearchIndexError`, with a
+`code` of `PRIMARY_KEY_MISMATCH`, `TASK_FAILED`, `REBUILD_FAILED` or
+`INVALID_EXPIRES_AT`, and three bare `TypeError`s for a call it refuses before
+sending or signing anything: `rebuild`'s `nextUid`, and `tenantToken`'s
+unmatched and inherited `searchRules`. Everything else comes from the
 official SDK as it is: `MeilisearchApiError` (whose `cause.code` is
 Meilisearch's own error code) and `MeilisearchTaskTimeOutError`. The headings
 below are what each one prints; the Meilisearch messages were measured on
@@ -17,6 +19,7 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`Task 7 (settingsUpdate) on index "movies" failed:`](#task-7-settingsupdate-on-index-movies-failed)
   - [`The provided API key is invalid.`](#the-provided-api-key-is-invalid)
   - [`Rebuild of index "movies" stopped while filling "movies_next":`](#rebuild-of-index-movies-stopped-while-filling-movies_next)
+  - [`Rebuild of index "movies" stopped while creating "movies_next":`](#rebuild-of-index-movies-stopped-while-creating-movies_next)
   - [`Rebuild of index "movies" sent the swap with "movies_next" and could not wait for it:`](#rebuild-of-index-movies-sent-the-swap-with-movies_next-and-could-not-wait-for-it)
   - [`rebuild on "movies": nextUid must differ from the index's own uid`](#rebuild-on-movies-nextuid-must-differ-from-the-indexs-own-uid)
   - [`The Authorization header is missing. It must use the bearer authorization method.`](#the-authorization-header-is-missing-it-must-use-the-bearer-authorization-method)
@@ -32,6 +35,7 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`tenantToken for "movies": expiresAt is in the past`](#tenanttoken-for-movies-expiresat-is-in-the-past)
   - [`tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date`](#tenanttoken-for-movies-expiresat-is-a-number-of-milliseconds-it-takes-seconds-or-a-date)
   - [`tenantToken for "movies_next": searchRules names "movies", which is not the uid of any of its indexes`](#tenanttoken-for-movies_next-searchrules-names-movies-which-is-not-the-uid-of-any-of-its-indexes)
+  - [`tenantToken for "movies": searchRules must be a plain object, not one that inherits its rules`](#tenanttoken-for-movies-searchrules-must-be-a-plain-object-not-one-that-inherits-its-rules)
   - [`the uid of your key is not a valid UUIDv4`](#the-uid-of-your-key-is-not-a-valid-uuidv4)
   - [`failed to detect a server-side environment; do not generate tokens on the frontend in production!`](#failed-to-detect-a-server-side-environment-do-not-generate-tokens-on-the-frontend-in-production)
   - [``Tenant token expired. Was valid up to `1790139850` and we're now `1790139910`.``](#tenant-token-expired-was-valid-up-to-1790139850-and-were-now-1790139910)
@@ -163,11 +167,11 @@ every token it signed.
 ### `Rebuild of index "movies" stopped while filling "movies_next":`
 
 The line goes on: *"movies_next" was deleted, and "movies" is as it was.
-The cause is on `cause`.* The word after *while* is `creating` when creating
-the next index or applying its settings failed — measured with a key
-lacking `settings.update`, whose `cause` is the SDK's
-`The provided API key is invalid.` — and `swapping` when the swap task
-itself came back `failed`.
+The cause is on `cause`.* The word after *while* is `swapping` when the swap
+task itself came back `failed`; for `creating`, see the next entry. When
+the next index could not be deleted — a key without `indexes.delete`,
+measured — *was deleted* reads *could not be deleted; the next rebuild
+deletes it first*.
 
 **When:** `rebuild(fill)`, when `fill` threw, or when a write it left on the
 next index — waited for or only enqueued — ended `failed`.
@@ -183,6 +187,30 @@ if (error.code === 'REBUILD_FAILED') {
 	console.error(error.cause);              // what fill threw, or TASK_FAILED
 	console.error(error.task?.error?.code);  // e.g. 'invalid_document_id'
 }
+```
+
+### `Rebuild of index "movies" stopped while creating "movies_next":`
+
+The line goes on: *"movies_next" was deleted, and "movies" is as it was.
+The cause is on `cause`.*
+
+**When:** `rebuild(fill)`, before `fill` runs: creating `movies_next` or
+applying the definition's settings to it failed. Measured with a key
+lacking `settings.update`: `cause` is the SDK's `MeilisearchApiError`
+`The provided API key is invalid.` (`invalid_api_key`).
+**Why:** the next index is created by the same `syncIndex` as `sync()`, so
+it needs the same actions; the half-made index is deleted so that nothing
+of it is swapped in later.
+**Fix:** give the rebuilding key what `sync` needs, plus `indexes.swap`,
+`indexes.delete` and `documents.add`, on every index:
+
+```ts
+const key = await admin.createKey({
+	actions: ['indexes.create', 'indexes.get', 'indexes.update', 'indexes.swap', 'indexes.delete',
+		'settings.get', 'settings.update', 'tasks.get', 'documents.add'],
+	indexes: ['*'],
+	expiresAt: null,
+});
 ```
 
 ### `Rebuild of index "movies" sent the swap with "movies_next" and could not wait for it:`
@@ -421,6 +449,19 @@ refused instead.
 await movieIndex.rebuild(async (next) => {
 	await tenantToken({ apiKey, apiKeyUid, indexes: [next], searchRules: { [next.uid]: { filter } } });
 });
+```
+
+### `tenantToken for "movies": searchRules must be a plain object, not one that inherits its rules`
+
+**When:** `tenantToken` with a `searchRules` whose prototype is neither
+`Object.prototype` nor `null` — `Object.create(defaults)`, or an instance of
+a class. A bare `TypeError`, thrown before anything is signed.
+**Why:** only a rule that is an **own** key is read. An inherited one would
+be dropped, and its index searched with no filter.
+**Fix:** spread it into a plain object:
+
+```ts
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { ...defaults, ...rules } });
 ```
 
 ### `the uid of your key is not a valid UUIDv4`

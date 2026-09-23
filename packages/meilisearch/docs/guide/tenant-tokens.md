@@ -59,7 +59,11 @@ unfiltered:
 tenantToken for "movies_next": searchRules names "movies", which is not the uid of any of its indexes
 ```
 
-That is the one case the types cannot see: `rebuild` hands `fill` an index
+A `searchRules` that inherits its rules — `Object.create({ movies: … })` —
+is refused the same way, since an inherited rule is not read:
+`tenantToken for "movies": searchRules must be a plain object, not one that inherits its rules`.
+
+An unmatched uid is the one case the types cannot see: `rebuild` hands `fill` an index
 whose uid is `movies_next`, typed `string` — any key compiles for it.
 
 ## What was measured

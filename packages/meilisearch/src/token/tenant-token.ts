@@ -86,7 +86,7 @@ const quoted = (uids: readonly string[]) =>
  * 	apiKey: searchKey.key,
  * 	apiKeyUid: searchKey.uid,
  * 	indexes: [movieIndex],
- * 	searchRules: { movies: { filter: `studio = ${JSON.stringify(studio)}` } },
+ * 	searchRules: { movies: { filter: `genres = ${JSON.stringify(genre)}` } },
  * 	expiresAt: new Date(Date.now() + 60 * 60 * 1000),
  * });
  * ```
@@ -110,10 +110,17 @@ export async function tenantToken<const Indexes extends TokenIndexes>(
 			);
 		}
 	}
-	const rules = (options.searchRules ?? {}) as Record<
-		string,
-		TokenIndexRules | null | undefined
-	>;
+	const given: object = options.searchRules ?? {};
+	// A rule inherited from a prototype is not an own key: it would be
+	// dropped, and its index searched with no filter.
+	const prototype = Object.getPrototypeOf(given);
+	if (prototype !== Object.prototype && prototype !== null) {
+		throw new TypeError(
+			`tenantToken for ${quoted(uids)}: searchRules must be a plain object, ` +
+				'not one that inherits its rules',
+		);
+	}
+	const rules = given as Record<string, TokenIndexRules | null | undefined>;
 	// A rule under a uid no index has would otherwise be dropped, and its
 	// index searched with no filter: the types cannot see a uid that differs
 	// at run time, such as a rebuild's next index.
