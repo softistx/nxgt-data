@@ -1,0 +1,10 @@
+description: |
+  A request with this `Idempotency-Key` is still running, and did not finish
+  while this one waited. Retry it as it is.
+headers:
+  Retry-After:
+    $ref: ../headers/Retry-After.yaml
+content:
+  application/json:
+    schema:
+      $ref: ../schemas/Problem.yaml

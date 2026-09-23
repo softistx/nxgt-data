@@ -1,0 +1,3 @@
+description: Seconds to wait before trying again, rounded up — a delay, never a date.
+schema:
+  type: integer

@@ -1,0 +1,7 @@
+description: |
+  This `Idempotency-Key` was already used for a request with another body.
+  A new request takes a new key.
+content:
+  application/json:
+    schema:
+      $ref: ../schemas/Problem.yaml

@@ -1,0 +1,7 @@
+description: |
+  `true` when this answer is the one an earlier request with the same
+  `Idempotency-Key` got, and nothing was written this time.
+schema:
+  type: string
+  enum:
+    - 'true'

@@ -1,0 +1,12 @@
+name: Idempotency-Key
+in: header
+required: false
+description: |
+  Made up by the client, once per article it means to write, and sent again
+  with every retry of that write: the article is written once, and a retry
+  gets the first answer back. Scoped to the user, so two users who pick the
+  same key never share an answer. Without it, every request writes.
+schema:
+  type: string
+  minLength: 1
+  maxLength: 255

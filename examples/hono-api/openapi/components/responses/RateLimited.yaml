@@ -1,0 +1,14 @@
+description: This user has written too much, too fast. Nothing was written.
+headers:
+  RateLimit-Limit:
+    $ref: ../headers/RateLimit-Limit.yaml
+  RateLimit-Remaining:
+    $ref: ../headers/RateLimit-Remaining.yaml
+  RateLimit-Reset:
+    $ref: ../headers/RateLimit-Reset.yaml
+  Retry-After:
+    $ref: ../headers/Retry-After.yaml
+content:
+  application/json:
+    schema:
+      $ref: ../schemas/Problem.yaml

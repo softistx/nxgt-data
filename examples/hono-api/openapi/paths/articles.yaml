@@ -31,7 +31,15 @@ post:
   tags:
     - articles
   summary: Write an article, as the user the request carries.
+  description: |
+    Limited to five writes a minute per user, counted once the request is
+    valid and before anything is written: from there on every answer carries
+    the `RateLimit-*` headers, and a denial is a 429 with `Retry-After`. With
+    an `Idempotency-Key`, a retry of the same write gets the first answer
+    back rather than a second article.
   operationId: createArticle
+  parameters:
+    - $ref: ../components/parameters/IdempotencyKey.yaml
   requestBody:
     required: true
     content:
@@ -40,7 +48,19 @@ post:
           $ref: ../components/schemas/NewArticle.yaml
   responses:
     '201':
-      description: The article, with its author's count already raised.
+      description: |
+        The article, with its author's count already raised — or, for a
+        repeat of an `Idempotency-Key`, the article that key wrote the first
+        time.
+      headers:
+        RateLimit-Limit:
+          $ref: ../components/headers/RateLimit-Limit.yaml
+        RateLimit-Remaining:
+          $ref: ../components/headers/RateLimit-Remaining.yaml
+        RateLimit-Reset:
+          $ref: ../components/headers/RateLimit-Reset.yaml
+        Idempotent-Replayed:
+          $ref: ../components/headers/Idempotent-Replayed.yaml
       content:
         application/json:
           schema:
@@ -49,3 +69,9 @@ post:
       $ref: ../components/responses/Unauthorized.yaml
     '404':
       $ref: ../components/responses/NotFound.yaml
+    '409':
+      $ref: ../components/responses/InProgress.yaml
+    '422':
+      $ref: ../components/responses/KeyReused.yaml
+    '429':
+      $ref: ../components/responses/RateLimited.yaml

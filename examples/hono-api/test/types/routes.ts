@@ -1,5 +1,7 @@
+import type { RedisClient } from 'bun';
 import { api } from '../../src/api';
 import type { Kit } from '../../src/db';
+import { ArticleGuards } from '../../src/modules/articles/articles.guards';
 import { ArticleService } from '../../src/modules/articles/articles.service';
 import { router } from '../../src/modules/users';
 import { UserService } from '../../src/modules/users/users.service';
@@ -55,3 +57,16 @@ articles.edit('68ca1f0f2b1c4d5e6f7a8b90', {
 	// @ts-expect-error `updatedBy` is stamped from the kit's actor
 	updatedBy: 'someone',
 });
+
+/**
+ * A guard's key is typed by its definition: an `Idempotency-Key` is scoped
+ * to the user, and the rate limit counts per user, so neither compiles
+ * without one.
+ */
+const guards = new ArticleGuards({} as RedisClient);
+
+// @ts-expect-error a key scoped to nobody would be shared by every client
+void guards.creation.run({ key: 'k-1' }, () => null);
+
+// @ts-expect-error the bucket is the user's, not an address's
+void guards.writes.consume({ ip: '203.0.113.7' });

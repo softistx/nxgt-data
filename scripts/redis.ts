@@ -26,10 +26,11 @@
  * `$REDIS_BIN`, when set, names a `redis-server` to use instead — a system
  * one, or a build for a platform this cannot compile on.
  *
- * Raise the version in `packages/redis/test/server.ts` **and in its two
- * copies, `packages/redis-kit/test/server.ts` and
- * `packages/redis-guard/test/server.ts`**: the three pin the same
- * `REDIS_VERSION`, and CI keys its cache on the hash of all three files and
+ * Raise the version in `packages/redis/test/server.ts` **and in its three
+ * copies, `packages/redis-kit/test/server.ts`,
+ * `packages/redis-guard/test/server.ts` and
+ * `examples/hono-api/test/redis.ts`**: the four pin the same
+ * `REDIS_VERSION`, and CI keys its cache on the hash of all four files and
  * this one. A version raised in one copy alone is a second compile.
  */
 

@@ -1,9 +1,10 @@
+import type { RedisClient } from 'bun';
 import { Hono } from 'hono';
 import { api } from './api';
-import type { Env } from './context';
+import { bindGuards, type Env, type GuardOptions } from './context';
 import type { Kit } from './db';
 import { operations } from './generated/operations';
-import { provideServices } from './middlewares';
+import { provideGuards, provideServices } from './middlewares';
 import { routes } from './modules';
 
 /**
@@ -31,15 +32,20 @@ export function assertServed(app: Hono<Env>): void {
 }
 
 /**
- * The application, over a kit the caller opened. The kit is still an
- * argument — that is what lets the specs run it against a server of their
+ * The application, over a kit and a Redis the caller opened. Both are still
+ * arguments — that is what lets the specs run it against servers of their
  * own — but no module is handed anything: each exports its own app, and
  * this file only mounts them and says what every request carries.
  */
-export function buildApp(kit: Kit): Hono<Env> {
+export function buildApp(
+	kit: Kit,
+	redis: RedisClient,
+	options: GuardOptions = {},
+): Hono<Env> {
 	const app = new Hono<Env>();
 
 	app.use(provideServices(kit));
+	app.use(provideGuards(bindGuards(redis, options)));
 
 	// `routes` is an object literal, so its values keep the order they were
 	// written in: that is what decides which module answers a path two of
