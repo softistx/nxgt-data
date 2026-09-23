@@ -25,8 +25,9 @@ import type { LimitResult } from './types';
  *   clock that goes back by at most a full refill never refills: `base`
  *   only moves forward, so the bucket carries on from the latest time it
  *   has seen, and a failover between two servers whose clocks disagree by
- *   less than that cannot count one stretch of time twice. The key's `PX` is counted from `now`, the server's own
- *   clock for the expiry, plus how far `base` is ahead of it.
+ *   at most that cannot count one stretch of time twice. The key's `PX` is
+ *   counted from `now`, the server's own clock for the expiry, plus how far
+ *   `base` is ahead of it.
  * - A stored value is used only if it is a state this script could have
  *   written: two digit strings of at most 16 digits, each at most 2^53 − 1,
  *   `ahead` at most the tolerance, and `base` ahead of `now` by at most a
