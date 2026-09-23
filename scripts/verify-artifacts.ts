@@ -353,6 +353,69 @@ try {
 	}
 	console.log(`\nAll ${subpaths.length} subpaths load.`);
 
+	// ── one class per package ─────────────────────────────────────────────────
+	//
+	// A class must be DEFINED once in a package, not once per entry point.
+	// `Bun.build` inlines a shared module into every entry bundle unless
+	// `splitting` is on, so a package with several entry points can hand an app
+	// two copies of one class — and `instanceof` across them is false. It is the
+	// failure `packages: 'external'` was chosen to prevent, arriving from the
+	// other side: that setting already refuses to duplicate a DEPENDENCY's
+	// classes, and this is the same argument for the package's own.
+	//
+	// This repo already builds with `splitting: true`, and `build.ts` says why. What
+	// it did not have is anything that would notice the setting being removed —
+	// which is what this is. Found in nxgt-ory, where two copies of
+	// `OryUnavailable` meant nine routes answered 500 instead of 503.
+	//
+	// A scan of the entry bundles rather than a runtime `instanceof` probe,
+	// because duplication can be real in the artifact and still unreachable
+	// through the export surface — inert today, live the day one more export is
+	// added. A runtime probe passes in exactly that case, which is the case that
+	// survives longest.
+	//
+	// Against the INSTALLED TARBALL, like everything else here: that is the only
+	// artifact a consumer sees.
+	console.log('\nChecking each class is defined once per package…\n');
+	let duplicated = 0;
+	for (const pkg of packages) {
+		const dist = join(workdir, 'node_modules', pkg.name, 'dist');
+		const where = new Map<string, string[]>();
+		const glob = new Bun.Glob('**/*.js');
+		for await (const rel of glob.scan({ cwd: dist, onlyFiles: true })) {
+			// Chunks are the fix, not the symptom: a class defined in one shared
+			// chunk is exactly what this asserts, so only entry bundles are read.
+			if (rel.startsWith('chunks/')) continue;
+			const text = await Bun.file(join(dist, rel)).text();
+			for (const match of text.matchAll(/^class ([A-Za-z_$][\w$]*)/gm)) {
+				const cls = match[1];
+				if (!cls) continue;
+				where.set(cls, [...(where.get(cls) ?? []), rel]);
+			}
+		}
+		const twice = [...where].filter(([, files]) => files.length > 1);
+		if (twice.length === 0) {
+			console.log(`  ok      ${pkg.name}`);
+			continue;
+		}
+		duplicated++;
+		for (const [cls, files] of twice) {
+			console.log(`  FAIL    ${pkg.name}: ${cls} in ${files.join(', ')}`);
+		}
+	}
+	if (duplicated > 0) {
+		console.error(
+			`\n${duplicated} package(s) define a class more than once. An ` +
+				'`instanceof` across\ntwo entry points of such a package is false, and ' +
+				'nothing else reports it —\nit typechecks, and every subpath loads. ' +
+				'`splitting: true` in build.ts is what\nshares them; see its comment.',
+		);
+		process.exit(1);
+	}
+	console.log(
+		`\nEach class is defined once in all ${packages.length} packages.`,
+	);
+
 	const bins = packages.flatMap((p) => p.bins);
 	if (bins.length > 0) {
 		console.log(`\nRunning ${bins.length} declared bin(s) with --help…\n`);
