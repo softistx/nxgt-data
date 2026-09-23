@@ -29,7 +29,7 @@ import {
 	renameFile,
 } from './operations/writes';
 import { serveFile } from './serve';
-import type { FileSource } from './source';
+import type { FileSource } from './source/read';
 import type { BucketDefinition, FileId, MetadataAsGiven } from './types';
 
 /** What a write may say about a file, typed by the bucket's metadata schema. */

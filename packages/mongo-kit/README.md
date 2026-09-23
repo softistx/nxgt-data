@@ -362,9 +362,13 @@ Each is a `@ts-expect-error` case in this package's type tests.
 - **With `autoSync`, a bucket's first upload inside a transaction runs the
   body twice.** The indexes `autoSync` creates outside the session create the
   chunks collection after the transaction's snapshot, the commit fails
-  (112), and the driver retries. A stream source is spent by then and is
-  stored as an empty file. Call `syncBuckets()` at start-up, before any
-  transactional upload, and the body runs once.
+  (112), and the driver retries. A stream source is spent by then, and
+  `@nxgt/mongo/gridfs` refuses it with a `TypeError`
+  (`put on "uploads": this stream was already read, …`), so the transaction
+  commits nothing — it used to be stored as an empty file. Call
+  `syncBuckets()` at start-up, before any transactional upload, and the body
+  runs once; read a stream into bytes before the transaction, since any
+  transient error runs it twice.
 - **`kit.db` throws `SEVERAL_DATABASES` on a kit with several databases**,
   where its type is already `never`: the message names the databases to read
   instead.

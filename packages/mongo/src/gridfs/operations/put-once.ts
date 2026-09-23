@@ -2,7 +2,7 @@ import { ObjectId } from 'mongodb';
 import { dropChunks } from '../chunks';
 import type { BucketContext } from '../context';
 import { syncBucketIndexesOnce } from '../indexes';
-import { digestOf, type FileSource, readSource } from '../source';
+import { digestOf, type FileSource, readSource } from '../source/read';
 import { claim, giveUp, type PutOnceResult } from './claim';
 import { fileWithDigest } from './reads';
 import { type PutOptions, putOptionsFor, writeBody } from './writes';
@@ -54,7 +54,7 @@ export async function putFileOnce(
 		const already = await fileWithDigest(ctx, await digestOf(source));
 		if (already) return { file: already, stored: false };
 	}
-	const read = readSource(source);
+	const read = readSource(source, `putOnce on "${ctx.name}"`);
 	// The bytes go down under an id of this call's own, because the id they
 	// decide is not known until the last of them has been read.
 	const body = await writeBody(

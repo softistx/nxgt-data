@@ -7,7 +7,7 @@ import { type BucketContext, noSuchFile, run } from '../context';
 import { FileHandle, type StoredFile } from '../handle';
 import { HASH_KEY } from '../keys';
 import { metadataFor } from '../metadata';
-import { type FileSource, type ReadSource, readSource } from '../source';
+import { type FileSource, type ReadSource, readSource } from '../source/read';
 import type { FileId } from '../types';
 import { fileExists, findFile } from './reads';
 
@@ -38,7 +38,7 @@ export async function putFile(
 	source: FileSource,
 	options: PutOptions = {},
 ): Promise<FileHandle> {
-	const read = readSource(source);
+	const read = readSource(source, `put on "${ctx.name}"`);
 	const _id =
 		options.id === undefined ? new ObjectId() : toObjectId(options.id);
 	// An id the caller chose may already be taken, and a write onto a taken id
