@@ -236,7 +236,9 @@ matching key in `exports`.
   the way `@nxgt/meilisearch`'s runs `scripts/meilisearch.ts`: that build does
   not belong inside a test's timeout. The script holds no logic of its own —
   `redisBinary` lives beside the server that starts it — and
-  `scripts/redis.spec.ts` covers its `$REDIS_BIN` branch. `$REDIS_BIN` names a `redis-server` to
+  `scripts/redis.spec.ts` covers its `$REDIS_BIN` branch. The root `test` script runs it
+  once **before** the parallel suites: three packages start a Redis, and on a
+  cold cache their three builds into one directory broke each other on CI. `$REDIS_BIN` names a `redis-server` to
   use instead. CI caches `.cache/redis`, keyed on **all three** copies of
   `test/server.ts` — `@nxgt/redis`'s, `@nxgt/redis-kit`'s and
   `@nxgt/redis-guard`'s — and the script. `@nxgt/redis`'s `test/fixtures.ts` calls `closeRedis()` before stopping the server,

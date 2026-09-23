@@ -13,6 +13,12 @@
  * not belong inside a test's timeout. The package's `test` script runs this
  * first, the same way `@nxgt/meilisearch`'s runs `scripts/meilisearch.ts`.
  *
+ * The root `test` script runs it too, **before** the packages' suites, which
+ * run in parallel: three packages start a Redis, and on a cold cache their
+ * three builds compiled into the same directory at once — measured on CI,
+ * one `make` deleted the files another was installing ("install: cannot stat
+ * 'redis-server'"). Built once first, each package's own run finds it there.
+ *
  * It holds no logic of its own — `redisBinary` lives beside the server that
  * starts it, so `REDIS_VERSION` and the cache path have one home. Its
  * `$REDIS_BIN` branch is covered by `scripts/redis.spec.ts`.
