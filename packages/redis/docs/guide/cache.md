@@ -99,7 +99,7 @@ const countCache = defineCache({
 const counts = bindCache(redis.client, countCache);
 
 await counts.set('u1', { n: '3' }); // compiles, and stores { n: 3 }
-await counts.set('u1', {});         // does not compile: `n` is still required
+// await counts.set('u1', {});      // does not compile: `n` is still required
 ```
 
 A value read back is not always one `set` accepts. Where a transform changes a

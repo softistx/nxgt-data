@@ -230,8 +230,9 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
   field's input type is `unknown` — `z.coerce.number()` — the compiler accepts
   any value there, though the key is still required; a whole `z.preprocess`
   schema accepts anything. There the schema refuses a wrong value at run time.
-  A value read back (`z.output`) is not always a valid input: a transform's
-  output passed to `set`, or returned by a loader, does not compile — see
+  A value read back (`z.output`) is not always a valid input: where a
+  transform changes a type, its output passed to `set`, or returned by a
+  loader, does not compile — see
   [troubleshooting](docs/troubleshooting.md#types).
 - **`ttl` is seconds for a cache and milliseconds for a lock.** A cache's is
   Redis's `EX`; a lock's is its `PX`, because a lock's deadline is usually
