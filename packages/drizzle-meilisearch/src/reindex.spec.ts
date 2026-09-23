@@ -73,7 +73,7 @@ describe('reindexAll', () => {
 			{ title: 'd' },
 			{ title: 'e' },
 		]);
-		const seen: { progress: object; there: number }[] = [];
+		const seen: { progress: ReindexProgress; there: number }[] = [];
 		const report = await sync().reindexAll({
 			pageSize: 2,
 			onPage: async (progress) => {
@@ -89,7 +89,7 @@ describe('reindexAll', () => {
 			{ pages: 3 },
 		]);
 		for (const [i, { progress, there }] of seen.entries()) {
-			const { indexed, skipped } = progress as ReindexProgress;
+			const { indexed, skipped } = progress;
 			expect(there).toBe(indexed);
 			expect(indexed + skipped).toBe(Math.min(5, 2 * (i + 1)));
 		}
@@ -115,6 +115,34 @@ describe('reindexAll', () => {
 		expect(error.cause).toBe(stop);
 		expect(calls).toBe(1);
 		expect(await indexed()).toHaveLength(2);
+	});
+
+	test("a SearchSyncError thrown by onPage is still this reindex's FAILED", async () => {
+		await seed([{ title: 'a' }]);
+		const other = new SearchSyncError('from another sync', {
+			code: 'FAILED',
+			sync: 'other',
+		});
+		const error = (await sync()
+			.reindexAll({
+				onPage: () => {
+					throw other;
+				},
+			})
+			.catch((e: unknown) => e)) as SearchSyncError;
+		expect(error).not.toBe(other);
+		expect(error.code).toBe('FAILED');
+		expect(error.sync).toBe(sync().name);
+		expect(error.message).toBe(
+			`Search sync "${sync().name}" failed reporting progress: from another sync`,
+		);
+		expect(error.cause).toBe(other);
+	});
+
+	test('an empty table is still one page, with nothing in it', async () => {
+		const seen: ReindexProgress[] = [];
+		await sync().reindexAll({ onPage: (progress) => void seen.push(progress) });
+		expect(seen).toEqual([{ pages: 1, indexed: 0, skipped: 0 }]);
 	});
 
 	test('a pageSize given to the call wins over the one given to the sync', async () => {

@@ -264,7 +264,9 @@ The same wrapper names what the sync was doing: `failed reindexing: …` from
 `reindexAll`, `failed indexing rows: …` from `indexRow` and `indexRows`,
 `failed removing documents: …` from `removeRow`, `remove` and `removeMany`,
 and `failed reading an index id: …` when `toIndexId` throws on the `removeRow`
-path, where the id is read before anything is sent. A `toIndexId` that throws
+path, where the id is read before anything is sent, and `failed reporting
+progress: …` when `reindexAll`'s `onPage` throws — whatever it threw, a
+`SearchSyncError` included, is then the `cause`. A `toIndexId` that throws
 under `indexRow` or `indexRows` surfaces as `failed indexing rows`, and under
 `reindexAll` as `failed reindexing`. Code `FAILED`, and the original error is
 the `cause`.

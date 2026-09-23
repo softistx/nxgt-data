@@ -2,8 +2,29 @@ import { MeilisearchApiError } from 'meilisearch';
 import { deleteIds, sendDocuments } from './batch';
 import { type Doc, positive, type SyncContext } from './context';
 import { entryOf, keyOf } from './documents';
-import { failed } from './errors';
-import type { ReindexOptions, ReindexReport } from './types';
+import { failed, SearchSyncError } from './errors';
+import type { ReindexOptions, ReindexProgress, ReindexReport } from './types';
+
+/**
+ * Calls the caller's `onPage`. What it throws is this reindex's `FAILED`, with
+ * it as the cause — even a `SearchSyncError`, which `failed` would otherwise
+ * pass on as it is, under another sync's name or code.
+ */
+async function report(
+	ctx: SyncContext,
+	onPage: ReindexOptions['onPage'],
+	progress: ReindexProgress,
+): Promise<void> {
+	try {
+		await onPage?.(progress);
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		throw new SearchSyncError(
+			`Search sync "${ctx.name}" failed reporting progress: ${reason}`,
+			{ code: 'FAILED', sync: ctx.name, cause: error },
+		);
+	}
+}
 
 /** Every row the repository pages through, transformed and sent. */
 async function sendAll(
@@ -34,7 +55,7 @@ async function sendAll(
 		await sendDocuments(ctx, documents, true);
 		indexed += documents.length;
 		pages += 1;
-		await onPage?.({ pages, indexed, skipped });
+		await report(ctx, onPage, { pages, indexed, skipped });
 		after = page.nextCursor;
 	} while (after);
 	return { indexed, skipped };

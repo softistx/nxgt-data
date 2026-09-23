@@ -132,12 +132,20 @@ longer gives comes after the last page, and is in the final report's
 `removed`. The counts are the same numbers the report ends with, so the last
 `onPage` and the report agree on `indexed` and `skipped`.
 
+An empty table is still one page, with nothing in it: `onPage` is called
+once, with `{ pages: 1, indexed: 0, skipped: 0 }`. A progress bar never
+waits on a call that does not come.
+
 `onPage` may be `async`, and is awaited before the next page is read — so a
 slow callback slows the reindex, and a callback that writes somewhere can
 rely on the page being in the index already.
 
 **One that throws stops the reindex.** The call rejects with a
-`SearchSyncError`, code `FAILED`, whose `cause` is what the callback threw.
+`SearchSyncError`, code `FAILED`, whose `cause` is what the callback threw,
+and whose message is `Search sync "articles:articles" failed reporting
+progress: …` with the thrown error's message. That holds even for a
+`SearchSyncError` — one from another sync the callback drives, say: it is the
+`cause`, never the error itself, so `error.sync` always names this reindex.
 That is also how to stop a reindex on purpose — the documents already sent
 stay, and the removal never ran, as with any reindex that fails half-way:
 
