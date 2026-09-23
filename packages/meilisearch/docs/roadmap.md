@@ -37,6 +37,15 @@ _Nothing queued._
 
 ## Shipped
 
+- **A uid is checked where it is defined** — `defineIndex` refuses a uid
+  Meilisearch would refuse (empty, over 400 characters, or holding anything
+  but ASCII letters, digits, `-` and `_`) with a `TypeError` that names the
+  shape and never the uid, at definition rather than on the first request or
+  when a token is signed; a literal `'*'`, `''`, or one with a space, a dot or
+  a slash does not compile. `bindIndex` checks a definition that did not come
+  from `defineIndex`, and `rebuild` refuses a next uid past the server's
+  bound — a uid over 395 characters needs a shorter `nextUid` — before
+  sending anything. One rule, shared with `tenantToken` — 0.6.0.
 - **Tenant tokens fail closed** — `tenantToken` requires `expiresAt` and a
   rule for every index it is given, in the types and at run time: a missing
   `expiresAt` is `INVALID_EXPIRES_AT`, a missing or empty rule a

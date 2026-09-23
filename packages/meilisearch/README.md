@@ -117,6 +117,25 @@ objects included: `director.name`, `reviews.score`, four levels deep. A
 misspelt attribute, a misspelt setting name, or a primary key that is not a
 string or number attribute does not compile.
 
+**The uid is checked where it is defined.** A Meilisearch index uid is 1 to
+400 characters, each an ASCII letter, a digit, `-` or `_`; anything else —
+empty, 401 characters, a `*`, a space, a dot, a slash, a unicode lookalike —
+throws a bare `TypeError` from `defineIndex`, before any request, naming the
+shape and never the uid:
+
+```ts
+defineIndex<Movie>()({ uid: `docs_${tenant}`, primaryKey: 'id' });
+// with a tenant of 'acme*' — TypeError: defineIndex: the uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _
+```
+
+A literal uid that is empty or holds a space, a `*`, a dot or a slash does
+not even compile; any other refused uid, and every uid typed `string`, is
+refused at run time only. A `*` matters beyond the server's refusal: a tenant
+token reads its rule keys as index patterns, so a uid holding one would
+widen a token to other indexes. `bindIndex` checks the uid again, for a
+definition that did not come from `defineIndex`. Keep a uid to **395**
+characters if it is to be rebuilt under the default `<uid>_next`.
+
 ## Sync
 
 ```ts
@@ -190,6 +209,12 @@ timeout, a lost response, a key that cannot read it — may hide a swap that
 happened: `REBUILD_FAILED` then says the outcome is unknown, and nothing is
 deleted; the next rebuild deletes the leftover. Options: `nextUid`, and
 `wait` for each task.
+
+A next uid Meilisearch would refuse throws a `TypeError` before anything is
+sent — a `nextUid` holding a `*`, or the default `<uid>_next` of a uid over
+395 characters, which is past the server's 400; pass a shorter `nextUid`
+then:
+`rebuild on "movies": the next index's uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _; a uid over 395 characters needs a shorter nextUid`.
 
 `fill` is handed an index whose definition's `uid` is `movies_next`, typed
 `string` rather than `'movies'`.
@@ -354,7 +379,10 @@ Every index's uid must be a Meilisearch index uid — letters, digits, `-` and
 `_` — or `tenantToken` throws a `TypeError` naming no uid: `tenantToken: an index uid is not a valid Meilisearch uid (letters, digits, - and _ only), and a * in it would widen the token to other indexes`.
 Meilisearch reads a token's rule keys as index **patterns**, so an index
 bound under a uid built from a request, `docs_${tenant}`, whose tenant held a
-`*`, would sign a token for every matching index.
+`*`, would sign a token for every matching index. `defineIndex` and
+`bindIndex` refuse such a uid first, with the same check; `tenantToken`'s
+still fires for an index that did not come from `bindIndex`, or whose `uid`
+was reassigned after it.
 
 Each rule is read **once**, into a plain copy, and that copy is what is
 checked and signed — the SDK signs `JSON.stringify` of its rules, which a
@@ -382,9 +410,11 @@ The SDK's errors reach you as they are: a request Meilisearch refuses throws
 its `MeilisearchApiError`, with `cause.code`, a timeout its
 `MeilisearchTaskTimeOutError`. The one exception is `rebuild`: what stops it between creating the next index and reading back its swap
 task reaches you as the `cause` of a `REBUILD_FAILED`. Before that — the
-`nextUid` refusal, a bare `TypeError`, and looking up or deleting a
+`nextUid` refusals, bare `TypeError`s, and looking up or deleting a
 leftover `_next` — and after it — deleting the previous index — errors
-arrive unwrapped. `tenantToken`'s refusals of `searchRules` are bare
+arrive unwrapped. A uid that is not a Meilisearch uid is a bare `TypeError`
+from `defineIndex`, `bindIndex` and `rebuild`, before any request.
+`tenantToken`'s refusals of `searchRules` are bare
 `TypeError`s too: an index uid that is not a Meilisearch uid, a `searchRules` that is not a plain object, a rule under
 another uid, a missing rule, an empty rule, and a rule that is not `null`
 or a plain `{ filter }` — an array, a class instance, a getter, a `toJSON`,
@@ -432,7 +462,7 @@ function defineIndex<Doc extends object>(): <const Config extends IndexConfig<Do
 ) => IndexDefinition<Doc, Config>;
 ```
 
-- `interface IndexConfig<Doc> { uid: string; primaryKey: PrimaryKeyOf<Doc>; settings?: IndexSettings<Doc> }`.
+- `interface IndexConfig<Doc> { uid: string; primaryKey: PrimaryKeyOf<Doc>; settings?: IndexSettings<Doc> }`. `uid` is 1 to 400 characters, each an ASCII letter, a digit, `-` or `_`, or `defineIndex` throws a `TypeError`; a literal uid that is empty or holds a space, `*`, `.` or `/` does not compile.
 - `interface IndexSettings<Doc>`: the settings in the [table above](#definition), each optional.
 - `type IndexDefinition<Doc, Config>`: the config, read-only, carrying `Doc`. `type AnyIndexDefinition` is any of them.
 - `type DocumentPath<T>`: the keys of `T` and the dot paths into it, four levels deep.
@@ -459,7 +489,8 @@ function syncIndexes(client: Meilisearch, definitions: readonly AnyIndexDefiniti
 function bindIndex<Def extends AnyIndexDefinition>(client: Meilisearch, definition: Def): TypedIndex<Def>;
 ```
 
-Sends nothing. `TypedIndex<Def>`, where `Doc` is `DocumentOf<Def>` and `Id`
+Sends nothing. Throws a `TypeError` for a definition whose uid is not a
+Meilisearch uid — one that did not come from `defineIndex`. `TypedIndex<Def>`, where `Doc` is `DocumentOf<Def>` and `Id`
 is `IdOf<Def>`:
 
 | Member | |
@@ -569,6 +600,13 @@ function tenantToken<const Indexes extends TokenIndexes>(options: TenantTokenOpt
   the rebuild throws `REBUILD_FAILED` saying the outcome is unknown.
 - **`rebuild` deletes whatever is under `nextUid` first**, as a leftover of
   a crashed run: a `nextUid` naming another live index deletes that index.
+- **A uid over 395 characters cannot rebuild under `<uid>_next`**, which
+  would be past the server's 400: `rebuild` throws a `TypeError` before
+  sending anything. Pass a shorter `nextUid`, or keep uids short.
+- **A uid typed `string` is checked at run time only.** The types refuse a
+  literal `'*'`, `''`, or one holding a space, a dot or a slash; a uid built
+  from a request, or holding a unicode lookalike, compiles and throws from
+  `defineIndex`.
 - **Two rebuilds of one index at once collide**: the second deletes the
   first one's `movies_next` as a leftover. Run it from one job.
 - **`null` is a decision, not a default.** A tenant token needs a rule for

@@ -3,7 +3,8 @@
 This package throws one error class of its own, `SearchIndexError`, with a
 `code` of `PRIMARY_KEY_MISMATCH`, `TASK_FAILED`, `REBUILD_FAILED` or
 `INVALID_EXPIRES_AT`, and bare `TypeError`s for a call it refuses before
-sending or signing anything: `rebuild`'s `nextUid`, and `tenantToken`'s
+sending or signing anything: a uid that is not a Meilisearch uid, from
+`defineIndex`, `bindIndex` or `rebuild`, `rebuild`'s `nextUid`, and `tenantToken`'s
 index uid that is not a Meilisearch uid, missing rule, empty rule, unmatched rule, `searchRules` that is not a plain
 object, and rule that is not `null` or a plain `{ filter }`. Everything else comes from the
 official SDK as it is: `MeilisearchApiError` (whose `cause.code` is
@@ -16,6 +17,8 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`Argument of type '{ sort: string[]; }' is not assignable to parameter of type 'SearchOptions<…>'`](#argument-of-type--sort-string--is-not-assignable-to-parameter-of-type-searchoptions)
   - [`Argument of type '{ readonly sortableAttributes: readonly ["year"]; … }' is not assignable to parameter of type 'Settings'.`](#argument-of-type--readonly-sortableattributes-readonly-year---is-not-assignable-to-parameter-of-type-settings)
 - **Configuration and sync**
+  - [`defineIndex: the uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _`](#defineindex-the-uid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_)
+  - [`bindIndex: the definition's uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _`](#bindindex-the-definitions-uid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_)
   - [`Index "movies" has the primary key "id", but its definition says "movieId".`](#index-movies-has-the-primary-key-id-but-its-definition-says-movieid)
   - [`Task 7 (add) on index "movies" failed: invalid_document_id`](#task-7-add-on-index-movies-failed-invalid_document_id)
   - [`The provided API key is invalid.`](#the-provided-api-key-is-invalid)
@@ -24,6 +27,7 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`Rebuild of index "movies" stopped while swapping "movies_next":`](#rebuild-of-index-movies-stopped-while-swapping-movies_next)
   - [`Rebuild of index "movies" sent the swap with "movies_next" and could not wait for it:`](#rebuild-of-index-movies-sent-the-swap-with-movies_next-and-could-not-wait-for-it)
   - [`rebuild on "movies": nextUid must differ from the index's own uid`](#rebuild-on-movies-nextuid-must-differ-from-the-indexs-own-uid)
+  - [`rebuild on "movies": the next index's uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _; a uid over 395 characters needs a shorter nextUid`](#rebuild-on-movies-the-next-indexs-uid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_-a-uid-over-395-characters-needs-a-shorter-nextuid)
   - [`The Authorization header is missing. It must use the bearer authorization method.`](#the-authorization-header-is-missing-it-must-use-the-bearer-authorization-method)
 - **Runtime**
   - [`timeout of 5000ms has exceeded on task 12 when waiting for it to be resolved.`](#timeout-of-5000ms-has-exceeded-on-task-12-when-waiting-for-it-to-be-resolved)
@@ -116,6 +120,47 @@ Before 0.2.0, the cast at the call site — `movies.settings as Settings` — wa
 the way through.
 
 ## Configuration and sync
+
+### `defineIndex: the uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _`
+
+**When:** `defineIndex<Doc>()({ uid, … })` with a uid Meilisearch would
+refuse: empty, over 400 characters, or holding anything but ASCII letters,
+digits, `-` and `_` — a `*`, a space, a dot, a slash, a unicode lookalike
+(`＊`, a Cyrillic `о`), a trailing newline. Typically a uid built from a
+request, `docs_${tenant}`. A bare `TypeError`, thrown at definition, before
+any request; it names no uid, since one built from a request should stay out
+of logs. Since 0.6.0: before, the server refused it on the first request
+(`invalid_index_uid`), and `tenantToken` on signing.
+**Why:** the rule is the server's, measured on v1.53.2. A `*` matters beyond
+that refusal: a tenant token reads its rule keys as index **patterns**, so a
+uid holding one would widen a token to other indexes. A literal `'*'`, `''`,
+or one with a space, a dot or a slash does not compile; everything else,
+and every uid typed `string`, is caught here at run time.
+**Fix:** use `_` or `-` where the uid had a dot or a space, and check a
+uid built from a request before defining it — the whole uid, since the
+prefix counts toward the 400, and 395 if the index is to be rebuilt under
+`<uid>_next`:
+
+```ts
+const uid = `docs_${tenant}`;
+if (!/^[A-Za-z0-9_-]{1,395}$/.test(uid)) throw new Error('bad tenant');
+const docs = bindIndex(client, defineIndex<Doc>()({ uid, primaryKey: 'id' }));
+```
+
+An existing index whose uid held a dot cannot be on the server: Meilisearch
+v1.53.2 refuses to create one.
+
+### `bindIndex: the definition's uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _`
+
+**When:** `bindIndex(client, definition)` with a definition that did not come
+from `defineIndex` — an object written by hand, or cast — whose uid
+Meilisearch would refuse. A bare `TypeError`, before any request; it names
+no uid.
+**Why:** `defineIndex` is where a uid is checked, but `bindIndex` takes any
+object shaped like a definition, and the typed index it returns is what
+`tenantToken` signs for. It checks with the same rule.
+**Fix:** define the index with `defineIndex`, which refuses the same uid
+earlier, and check a uid built from a request as above.
 
 ### `Index "movies" has the primary key "id", but its definition says "movieId".`
 
@@ -299,6 +344,22 @@ is the half-empty search it exists to avoid.
 
 ```ts
 await movieIndex.rebuild(fill, { nextUid: 'movies_building' });
+```
+
+### `rebuild on "movies": the next index's uid must be 1 to 400 characters, each an ASCII letter, a digit, - or _; a uid over 395 characters needs a shorter nextUid`
+
+**When:** `rebuild(fill, options)` whose next uid Meilisearch would refuse:
+the default `<uid>_next` of a uid over 395 characters, which is past the
+server's 400, or a `nextUid` given with a `*`, a dot or anything else a uid
+may not hold. A bare `TypeError`, thrown before anything is sent: no index is
+created or deleted. It names the live uid, never the `nextUid`.
+**Why:** measured on v1.53.2, a 400-character uid is created and a
+401-character one is refused with `invalid_index_uid`; without this check the
+rebuild failed on its first request with the SDK's error.
+**Fix:** pass a shorter `nextUid`, or keep uids to 395 characters:
+
+```ts
+await longIndex.rebuild(fill, { nextUid: 'reports_next' });
 ```
 
 ### `The Authorization header is missing. It must use the bearer authorization method.`
@@ -697,21 +758,17 @@ await movieIndex.rebuild(async (next) => {
 ### `tenantToken: an index uid is not a valid Meilisearch uid (letters, digits, - and _ only), and a * in it would widen the token to other indexes`
 
 **When:** `tenantToken` with an index whose uid is not a Meilisearch index
-uid — `*`, `movies*`, an empty uid, or one with a space — typically an index
-bound under a uid built from a request: `docs_${tenant}`. A bare
-`TypeError`, before anything is signed. It names no uid.
+uid — `*`, `movies*`, an empty uid, or one with a space. Since 0.6.0
+`defineIndex` and `bindIndex` refuse such a uid first, so this is left for an
+index that did not come from `bindIndex`, or whose `uid` was reassigned
+after it. A bare `TypeError`, before anything is signed. It names no uid.
 **Why:** Meilisearch reads a token's rule keys as index **patterns**.
 Measured on v1.53.2: an index bound as `*` with a `null` rule signed a token
 that searched every other index. A rule keyed by a pattern beside valid
 indexes is refused as an unmatched key, above.
-**Fix:** check a uid built from a request before binding it:
-
-```ts
-const uid = `docs_${tenant}`;
-// The whole uid, not the tenant alone: the prefix counts toward the 400.
-if (!/^[A-Za-z0-9_-]{1,400}$/.test(uid)) throw new Error('bad tenant');
-const docs = bindIndex(client, defineIndex<Doc>()({ uid, primaryKey: 'id' }));
-```
+**Fix:** sign for the index `bindIndex` returned, as it returned it; and
+check a uid built from a request before defining it, as
+[above](#defineindex-the-uid-must-be-1-to-400-characters-each-an-ascii-letter-a-digit---or-_).
 
 ### `tenantToken for "movies": searchRules must be a plain object`
 

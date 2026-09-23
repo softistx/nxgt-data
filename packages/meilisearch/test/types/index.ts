@@ -280,3 +280,29 @@ await index.rebuild((next) => {
 });
 // @ts-expect-error nextUid is a string
 await index.rebuild(async () => {}, { nextUid: 42 });
+
+// A literal uid that is empty or holds a space, a `*`, a dot or a slash does
+// not compile: a cheap denylist. Anything else a uid may not hold — a unicode
+// lookalike, a 401st character — compiles and is refused at run time, as is
+// a uid typed `string` or a union of literals.
+const versioned = defineIndex<Movie>()({
+	uid: 'movies_2026-v2',
+	primaryKey: 'id',
+});
+// The check keeps the literal: it types a tenant token's rule key.
+assertType<Equal<(typeof versioned)['uid'], 'movies_2026-v2'>>(true);
+// @ts-expect-error a * would widen a tenant token
+defineIndex<Movie>()({ uid: '*', primaryKey: 'id' });
+// @ts-expect-error a * anywhere in it
+defineIndex<Movie>()({ uid: 'movies*', primaryKey: 'id' });
+// @ts-expect-error a space
+defineIndex<Movie>()({ uid: 'my movies', primaryKey: 'id' });
+// @ts-expect-error a dot
+defineIndex<Movie>()({ uid: 'movies.v2', primaryKey: 'id' });
+// @ts-expect-error a slash
+defineIndex<Movie>()({ uid: 'tenant/movies', primaryKey: 'id' });
+// @ts-expect-error empty
+defineIndex<Movie>()({ uid: '', primaryKey: 'id' });
+declare const someUid: string;
+defineIndex<Movie>()({ uid: someUid, primaryKey: 'id' });
+defineIndex<Movie>()({ uid: 'movies＊', primaryKey: 'id' });

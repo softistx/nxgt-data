@@ -60,7 +60,9 @@ deletion fails `index_not_found`, which counts as gone, and the message says
 `was deleted`.
 
 Not everything is wrapped. Before the next index is created, the `nextUid`
-refusal is a bare `TypeError`, and a failure to look up a leftover `_next`
+refusals are bare `TypeError`s — the uid itself, and a next uid Meilisearch
+would refuse, such as the default `<uid>_next` of a uid over 395
+characters — and a failure to look up a leftover `_next`
 or to delete it arrives as it comes; after the swap, so does a failure to
 delete the previous index:
 
@@ -102,7 +104,7 @@ the swap happened, and the rebuild succeeded but for the cleanup.
 
 | Option | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `nextUid` | `string` | `'<uid>_next'` | the uid of the index filled beside the live one; the uid itself is refused, and **an index already under it is deleted as a leftover** |
+| `nextUid` | `string` | `'<uid>_next'` | the uid of the index filled beside the live one; the uid itself is refused, as is one Meilisearch would refuse (past 400 characters: keep the uid to 395 for the default), and **an index already under it is deleted as a leftover** |
 | `wait` | `{ timeout?: number; interval?: number }` | the SDK's (5 s) | how long to wait for each task, the fill's included, and how often to ask |
 
 ```ts

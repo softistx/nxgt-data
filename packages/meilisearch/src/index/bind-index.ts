@@ -4,6 +4,7 @@ import type {
 	DocumentOf,
 	IdOf,
 } from '../definition/define-index';
+import { INDEX_UID_SHAPE, isIndexUid } from '../definition/uid';
 import {
 	type RebuildFill,
 	type RebuildOptions,
@@ -135,6 +136,10 @@ export interface TypedIndex<Def extends AnyIndexDefinition> {
  * Binds a definition to a client: the typed index. Nothing is sent: call
  * `sync` to create the index and apply its settings.
  *
+ * The uid is checked again here, since a definition need not come from
+ * `defineIndex`: one Meilisearch would refuse throws a `TypeError`, whose
+ * message names no uid.
+ *
  * ```ts
  * const movieIndex = bindIndex(client, movies);
  * await movieIndex.sync();
@@ -144,6 +149,11 @@ export function bindIndex<Def extends AnyIndexDefinition>(
 	client: Meilisearch,
 	definition: Def,
 ): TypedIndex<Def> {
+	if (!isIndexUid(definition.uid)) {
+		throw new TypeError(
+			`bindIndex: the definition's uid must be ${INDEX_UID_SHAPE}`,
+		);
+	}
 	const ctx = createContext(client, definition);
 	const index: TypedIndex<Def> = {
 		uid: ctx.uid,
