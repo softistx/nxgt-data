@@ -1,3 +1,4 @@
+import type { SyncOptions, SyncReport } from '@nxgt/meilisearch';
 import type {
 	ReindexReport,
 	RunningSearchSync,
@@ -19,6 +20,15 @@ export interface SearchKit<S> {
 	readonly syncs: ByKey<S, SearchSync>;
 	/** Where each sync stands; `undefined` for one that never reindexed. */
 	state(): Promise<ByKey<S, SearchSyncState | undefined>>;
+	/**
+	 * Brings every index the kit wires in line with its definition — created
+	 * with its primary key, its settings updated where they differ — one
+	 * after another, and reports each under its key. `@nxgt/meilisearch`'s
+	 * `syncIndex`, per entry; the first that throws stops the rest, so
+	 * `dryRun` is the way to see everything at once. A deployment step, run
+	 * before `reindexAll` or `start`.
+	 */
+	syncIndexes(options?: SyncOptions): Promise<ByKey<S, SyncReport>>;
 	/**
 	 * Reindexes every collection, one after another, and reports each under
 	 * its key. The first that throws stops the rest — a reindex removes what

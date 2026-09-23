@@ -5,9 +5,7 @@ version an item shipped in is the only number on this page.
 
 ## Now
 
-- **`syncIndexes()`** — one call that brings every index the kit wires in step
-  with its definition, the way the Mongo kit's `sync()` does for the
-  collections, so a deployment step is two calls and not one per index.
+_Nothing in progress._
 
 ## Next
 
@@ -31,6 +29,11 @@ _Nothing queued._
 
 ## Shipped
 
+- **`syncIndexes()`** — one call that brings every index the kit wires in step
+  with its definition, the way the Mongo kit's `sync()` does for the
+  collections, so a deployment step is two calls and not one per index; each
+  report is `@nxgt/meilisearch`'s, under its key, and `dryRun` shows every
+  difference without sending anything — 0.2.0.
 - **Documentation that travels with the package** — a guide page for wiring
   the syncs and one for their lifecycle, a troubleshooting page whose headings
   are the exact error text, and this roadmap, installed in `docs/` rather than
