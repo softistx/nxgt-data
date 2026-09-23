@@ -36,7 +36,7 @@ the token when a client made from it searches.
 | --- | --- | --- | --- |
 | `apiKey` | `string` | required | the key that signs. It needs the `search` action on every index the token names |
 | `apiKeyUid` | `string` | required | that key's `uid`, a UUID v4 |
-| `indexes` | bound indexes, at least one | required | the indexes the token may search; every other one is refused |
+| `indexes` | bound indexes, at least one | required | the indexes the token may search; every other one is refused. Each uid must be letters, digits, `-` and `_`: a `*` would be read as a pattern |
 | `searchRules` | `{ [uid]: { filter } \| null }` | required, one rule **per index** | keyed by the uids of `indexes`, and nothing else; `filter` is required in a rule, and must filter something; `null`, and only `null`, searches that index with no filter |
 | `expiresAt` | `Date \| number` | required | a `Date`, or whole **seconds** since the epoch |
 | `algorithm` | `'HS256' \| 'HS384' \| 'HS512'` | `'HS256'` | the SDK's |
@@ -74,8 +74,11 @@ types require it, where the SDK's `TokenIndexRules` leaves it optional — so
 `{}`, `{ filter: undefined }` and `{ filter: null }` do not compile. A filter
 that filters nothing does compile, since the SDK's `Filter` is any string or
 array, and is refused at run time with the rest: a blank string (`''`,
-`'  '` — whitespace, U+0085 (NEL) and U+FEFF included, which `trim()` keeps but Meilisearch
-reads as blank), an empty array, or an array of those (`['', []]`):
+`'  '`, `'\u0085'` — blank as the server reads it: Rust's `White_Space`, which is JavaScript's `\s` plus U+0085 (NEL), measured on v1.53.2; `trim()`
+keeps U+0085, which is why it is not used. U+FEFF is in `\s`, so a filter
+of only U+FEFF is refused too, though the server answers it with a 400
+rather than reading it as no filter), an empty array, or an array of those
+(`['', []]`):
 
 ```
 tenantToken for "movies", "people": searchRules has an empty rule for "people"; give it { filter: … }, or null to search it with no filter
@@ -102,6 +105,7 @@ index and the shape, never the value:
 | an array, `['']` | `that is an array` |
 | a string or a number | `that is a string`, `that is a number` |
 | a getter on `searchRules` | `that is a getter` |
+| a non-enumerable rule on `searchRules` | `that is not enumerable` |
 | a `toJSON` on the rule, or on its filter | `that has a toJSON`, `whose filter has a toJSON` |
 | a key beside `filter` | `that has a key other than filter` |
 | a `filter` that is a getter, or not enumerable | `whose filter is a getter`, `whose filter is not enumerable` |
@@ -157,6 +161,23 @@ for one index, so it is keyed by its `uid`, and checked at run time:
 const index = user.isStaff ? movieIndex : peopleIndex;
 await tenantToken({ apiKey, apiKeyUid, indexes: [index], searchRules: { [index.uid]: { filter } }, expiresAt });
 ```
+
+## Index uids
+
+Meilisearch reads the keys of a token's rules as index **patterns**, not
+names: measured on v1.53.2, an index bound under the uid `*` with a `null`
+rule signed a token that searched every other index. An index is
+therefore refused unless its uid is a Meilisearch index uid:
+
+| Index uid | Refused as |
+| --- | --- |
+| `*`, `movies*`, `docs_${tenant}` where the tenant holds a `*` | `tenantToken: an index uid is not a valid Meilisearch uid (letters, digits, - and _ only), and a * in it would widen the token to other indexes` |
+| `''`, or one with a space or any other character | the same |
+
+The message names no uid, since one built from a request could hold
+anything. A rule keyed by a pattern beside valid indexes is refused as an
+unmatched key. `defineIndex` does not check the uid today; build a uid from
+a request only after checking it against `/^[A-Za-z0-9_-]{1,400}$/`.
 
 ## What was measured
 

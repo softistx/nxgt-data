@@ -122,8 +122,11 @@ index is whole either way.
 
 [`tenantToken`](tenant-tokens.md) refuses, before signing, a missing
 `expiresAt` (a token without one would last as long as its key), one
-already past, a number of milliseconds, a fraction of a second, or an
-invalid `Date` — the last three measured to be accepted wrongly, or not
+already past, a number of milliseconds, a fraction of a second, an
+invalid `Date`, a `Date` past the year 5138 (built from milliseconds times
+1000), or an object that is not a real `Date` — which the intrinsic
+`Date.prototype.getTime` refuses to read. The number of milliseconds, the
+fraction and the fake `Date` were measured to be accepted wrongly, or not
 decoded, by the server. An `expiresAt` can come from a request, so it has a
 code a handler can answer 400 to:
 

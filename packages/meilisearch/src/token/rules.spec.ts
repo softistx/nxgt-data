@@ -148,7 +148,7 @@ describe('tenantToken searchRules', () => {
 			expect(await refused({ filter: ['', []] })).toBe(emptyPeople);
 		});
 
-		test('U+0085 and U+FEFF, which trim keeps and Meilisearch reads as blank', async () => {
+		test('U+0085, which trim keeps and Meilisearch reads as blank, and U+FEFF, which \\s holds', async () => {
 			expect(await refused({ filter: '\u0085' })).toBe(emptyPeople);
 			expect(await refused({ filter: ['\u0085'] })).toBe(emptyPeople);
 			expect(await refused({ filter: [['\u0085', ' \u0085']] })).toBe(
@@ -188,5 +188,58 @@ describe('tenantToken searchRules', () => {
 				'give each index { filter: … }, or null to search it with no filter',
 		);
 		expect(error.message.split('"movies"')).toHaveLength(3);
+	});
+
+	describe('a uid that is not an index uid is refused, since a rule key is a pattern', () => {
+		const notAUid =
+			'tenantToken: an index uid is not a valid Meilisearch uid ' +
+			'(letters, digits, - and _ only), and a * in it would widen the token ' +
+			'to other indexes';
+		/** The refusal for an index bound under `uid`, with a null rule. */
+		const refused = async (uid: string) => {
+			const index = bindIndex(
+				client,
+				defineIndex<{ slug: string }>()({ uid, primaryKey: 'slug' }),
+			);
+			const error = await tenantToken({
+				apiKey,
+				apiKeyUid: 'not-a-uuid',
+				indexes: [movieIndex(), index],
+				searchRules: { movies: { filter: 'genres = scifi' }, [uid]: null },
+				expiresAt: inAnHour(),
+			}).catch((e) => e);
+			expect(error).toBeInstanceOf(TypeError);
+			expect(error.message.includes(apiKey)).toBe(false);
+			return error.message;
+		};
+
+		test('*, which would reach every index', async () => {
+			expect(await refused('*')).toBe(notAUid);
+		});
+
+		test('movies*, which would reach every index it prefixes', async () => {
+			expect(await refused('movies*')).toBe(notAUid);
+			// The message names no uid: one built from a request stays out of logs.
+			expect((await refused('docs_acme*')).includes('acme')).toBe(false);
+		});
+
+		test('an empty uid, or one with a character no uid has', async () => {
+			expect(await refused('')).toBe(notAUid);
+			expect(await refused('docs acme')).toBe(notAUid);
+		});
+
+		test('a rule keyed by a pattern beside valid indexes is an unmatched key', async () => {
+			const error = await tenantToken({
+				apiKey,
+				apiKeyUid: 'not-a-uuid',
+				indexes: [movieIndex()],
+				searchRules: { movies: null, 'movies*': null } as never,
+				expiresAt: inAnHour(),
+			}).catch((e) => e);
+			expect(error).toBeInstanceOf(TypeError);
+			expect(error.message).toBe(
+				'tenantToken for "movies": searchRules names "movies*", which is not the uid of any of its indexes',
+			);
+		});
 	});
 });

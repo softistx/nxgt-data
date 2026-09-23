@@ -101,6 +101,26 @@ export interface TenantTokenOptions<Indexes extends TokenIndexes> {
 	force?: boolean;
 }
 
+/** A Meilisearch index uid: nothing else may key a token's rules. */
+const INDEX_UID = /^[A-Za-z0-9_-]{1,400}$/;
+
+/**
+ * Refuses a uid that is not an index uid. Meilisearch reads a token's rule
+ * keys as index **patterns**: measured on v1.53.2, a uid of `*` with a `null`
+ * rule signed a token that searched every other index. A uid built from a
+ * request — `docs_${tenant}` — can hold one. The message names no uid.
+ */
+function checkUids(uids: readonly string[]) {
+	if (uids.every((uid) => typeof uid === 'string' && INDEX_UID.test(uid))) {
+		return;
+	}
+	throw new TypeError(
+		'tenantToken: an index uid is not a valid Meilisearch uid ' +
+			'(letters, digits, - and _ only), and a * in it would widen the token ' +
+			'to other indexes',
+	);
+}
+
 /**
  * Signs a tenant token that may search only the indexes given, each with
  * its own rule, with the SDK's `generateTenantToken`. Nothing is sent: the
@@ -116,7 +136,9 @@ export interface TenantTokenOptions<Indexes extends TokenIndexes> {
  * });
  * ```
  *
- * It fails closed. An `expiresAt` that is missing, past, not a real `Date`
+ * It fails closed. An index whose uid is not a Meilisearch index uid —
+ * letters, digits, `-` and `_` — throws a `TypeError`: a `*` would be read
+ * as a pattern, widening the token to other indexes. An `expiresAt` that is missing, past, not a real `Date`
  * or a finite number, or not a time Meilisearch reads throws a
  * `SearchIndexError` (`INVALID_EXPIRES_AT`); it is read once, into the whole
  * seconds that are signed. A
@@ -135,6 +157,7 @@ export async function tenantToken<const Indexes extends TokenIndexes>(
 	const { apiKey, apiKeyUid, indexes, expiresAt, algorithm, force } = options;
 	// An index given twice is one uid: the messages name it once.
 	const uids = [...new Set(indexes.map((index) => index.uid))];
+	checkUids(uids);
 	const call = `tenantToken for ${quoted(uids)}`;
 	// The seconds, never the caller's object: the SDK would read it again.
 	const seconds = expirySeconds(expiresAt, uids, call);

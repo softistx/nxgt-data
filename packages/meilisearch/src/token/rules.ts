@@ -26,8 +26,12 @@ const shapeOf = (value: unknown) => {
 	return `a ${typeof value}`;
 };
 
-/** Whitespace as Meilisearch reads it: `\s`, U+0085 and U+FEFF. */
-const BLANK = /[\s\u0085\uFEFF]/g;
+/**
+ * Blank as Meilisearch reads a filter: Rust's `White_Space`, which is JS's
+ * `\s` plus U+0085 (NEL), measured on v1.53.2. U+FEFF is in `\s`, so it is
+ * refused too, though the server answers a filter of only U+FEFF with a 400.
+ */
+const BLANK = /[\s\u0085]/g;
 
 /** Whether a copied filter filters nothing: blank, or only blanks. */
 function isEmpty(filter: unknown): boolean {

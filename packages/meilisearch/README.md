@@ -342,13 +342,19 @@ A missing rule — or one that is `undefined` — throws a `TypeError` before
 anything is signed: `tenantToken for "movies", "people": searchRules has no rule for "people"; give each index { filter: … }, or null to search it with no filter`.
 "No filter" is spelled only `null`: a rule object must carry a `filter` (in
 the types too), and one whose filter is absent, `undefined`, `null`, a blank
-string (only whitespace, U+0085 (NEL) and U+FEFF included) or an array of nothing (`[]`,
+string (blank as the server reads it: Rust's `White_Space`, which is JavaScript's `\s` plus U+0085 (NEL), measured on v1.53.2) or an array of nothing (`[]`,
 `['']`) throws too:
 `tenantToken for "movies", "people": searchRules has an empty rule for "people"; give it { filter: … }, or null to search it with no filter`. A `searchRules`
 key that is not the uid one of the indexes has at run time, or a
 `searchRules` that is not a plain object — a class instance, or one that
 inherits its rules — throws a `TypeError` before anything is signed, rather
 than leave an index unfiltered.
+
+Every index's uid must be a Meilisearch index uid — letters, digits, `-` and
+`_` — or `tenantToken` throws a `TypeError` naming no uid: `tenantToken: an index uid is not a valid Meilisearch uid (letters, digits, - and _ only), and a * in it would widen the token to other indexes`.
+Meilisearch reads a token's rule keys as index **patterns**, so an index
+bound under a uid built from a request, `docs_${tenant}`, whose tenant held a
+`*`, would sign a token for every matching index.
 
 Each rule is read **once**, into a plain copy, and that copy is what is
 checked and signed — the SDK signs `JSON.stringify` of its rules, which a
@@ -379,7 +385,7 @@ task reaches you as the `cause` of a `REBUILD_FAILED`. Before that — the
 `nextUid` refusal, a bare `TypeError`, and looking up or deleting a
 leftover `_next` — and after it — deleting the previous index — errors
 arrive unwrapped. `tenantToken`'s refusals of `searchRules` are bare
-`TypeError`s too: a `searchRules` that is not a plain object, a rule under
+`TypeError`s too: an index uid that is not a Meilisearch uid, a `searchRules` that is not a plain object, a rule under
 another uid, a missing rule, an empty rule, and a rule that is not `null`
 or a plain `{ filter }` — an array, a class instance, a getter, a `toJSON`,
 another key, or a filter that is inherited, hidden, or not a string or an
@@ -392,7 +398,7 @@ This package throws one error of its own, `SearchIndexError`:
 | `PRIMARY_KEY_MISMATCH` | `sync` found the index with another primary key | `expectedPrimaryKey`, `actualPrimaryKey` |
 | `TASK_FAILED` | a task this package waited for ended `failed` or `canceled` | `task`, and `cause`: the task's `error`, whose sentence the message leaves out — it can quote a filter or a document id |
 | `REBUILD_FAILED` | `rebuild` stopped before the swap and deleted `_next`, or says it could not; its swap task came back `failed`; or it could not wait for the swap, and deleted nothing | `cause`: what stopped it; `task` when a task failed |
-| `INVALID_EXPIRES_AT` | `tenantToken` was given no `expiresAt`, or one past, in milliseconds, fractional or invalid | `indexUid`: the token's uids, joined by `,` |
+| `INVALID_EXPIRES_AT` | `tenantToken` was given no `expiresAt`, or one past, in milliseconds, fractional, an invalid `Date`, a `Date` past the year 5138, or an object that is not a real `Date` | `indexUid`: the token's uids, joined by `,` |
 
 ```ts
 import { SearchIndexError } from '@nxgt/meilisearch';
