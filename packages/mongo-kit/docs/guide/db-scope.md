@@ -47,11 +47,11 @@ closes it at the end of the block.
 
 ## The scope is a `Db` underneath
 
-The collections are own properties; everything else is read through to the
-driver's `Db`:
+The collections — and the buckets, when the database wires any — are own
+properties; everything else is read through to the driver's `Db`:
 
 ```ts
-Object.keys(kit.db);            // ['users', 'posts'] — not the driver's members
+Object.keys(kit.db);            // ['users', 'posts'] (and any buckets) — not the driver's members
 'users' in kit.db;              // true
 'command' in kit.db;            // true
 
