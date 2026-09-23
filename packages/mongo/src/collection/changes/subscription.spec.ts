@@ -8,6 +8,7 @@ import {
 	test,
 } from 'bun:test';
 import { MongoClient } from 'mongodb';
+import { rejection } from '../../../test/rejection';
 import { posts } from '../../../test/schema';
 import { startMongo, type TestServer } from '../../../test/server';
 import { sleep, until } from '../../../test/until';
@@ -44,33 +45,6 @@ function track<S extends ChangeSubscription>(subscription: S): S {
 	open.push(subscription);
 	subscription.closed.catch(() => undefined);
 	return subscription;
-}
-
-/**
- * The reason this promise rejects, taken up before the failure that rejects
- * it.
- *
- * `closed` has to be held from the moment the subscription is made, and not
- * after the change that makes it fail: it can already have rejected while
- * that line is still awaiting, and a rejection nothing is yet waiting for is
- * an unhandled one — the spec then fails with the very error it came to
- * assert. Measured: a 500 ms gap before the assertion made the unfixed spec
- * fail every time, and a loaded CI runner was gap enough.
- *
- * Resolving is a failure too, and named: an assertion on the rejection would
- * otherwise read `Received: undefined` and say nothing about what happened.
- *
- * Not `expect(promise).rejects`: measured on bun 1.4.2, holding that
- * assertion across an `await` and finishing it later never returns — the file
- * runs out of time instead of failing, and the per-test timeout never fires.
- */
-function rejection(promise: Promise<unknown>): Promise<unknown> {
-	return promise.then(
-		(value) => {
-			throw new Error(`it resolved, with ${String(value)}`);
-		},
-		(error: unknown) => error,
-	);
 }
 
 /**

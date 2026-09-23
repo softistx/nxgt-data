@@ -7,6 +7,7 @@ import {
 	test,
 } from 'bun:test';
 import type { ClientSession } from 'mongodb';
+import { rejectionMessage } from '../../test/rejection';
 import { startMongo, type TestServer } from '../../test/server';
 import { DataError } from '../errors/data-error';
 import { defineMigration } from './define-migration';
@@ -139,7 +140,7 @@ describe('migrate', () => {
 				throw new Error('boom');
 			},
 		});
-		await expect(migrate(t.db, [failing])).rejects.toThrow(
+		expect(await rejectionMessage(migrate(t.db, [failing]))).toContain(
 			'it ran without a transaction, so what it did before failing stays: boom',
 		);
 		expect(await recordIds()).toEqual([]);
@@ -148,7 +149,7 @@ describe('migrate', () => {
 
 	test('a commit that fails keeps neither the migration nor its record', async () => {
 		await t.failNext(['commitTransaction'], { errorCode: 2 });
-		await expect(migrate(t.db, list.slice(0, 1))).rejects.toThrow(
+		expect(await rejectionMessage(migrate(t.db, list.slice(0, 1)))).toContain(
 			'Migration "one" failed up, and nothing it did was kept',
 		);
 		expect(await recordIds()).toEqual([]);
@@ -156,7 +157,7 @@ describe('migrate', () => {
 
 		await migrate(t.db, list.slice(0, 1));
 		await t.failNext(['commitTransaction'], { errorCode: 2 });
-		await expect(rollback(t.db, list.slice(0, 1))).rejects.toThrow(
+		expect(await rejectionMessage(rollback(t.db, list.slice(0, 1)))).toContain(
 			'failed down',
 		);
 		expect(await recordIds()).toEqual(['one']);
@@ -165,10 +166,10 @@ describe('migrate', () => {
 
 	test('a list edited under an applied database is refused before anything runs', async () => {
 		await migrate(t.db, list.slice(0, 1));
-		await expect(migrate(t.db, list.slice(1))).rejects.toThrow(
+		expect(await rejectionMessage(migrate(t.db, list.slice(1)))).toContain(
 			'Migration "one" is recorded as applied and is no longer in the list',
 		);
-		await expect(migrate(t.db, [two, one])).rejects.toThrow(
+		expect(await rejectionMessage(migrate(t.db, [two, one]))).toContain(
 			'Migration "two" is pending and listed before',
 		);
 		expect(await posts().countDocuments()).toBe(1);
@@ -241,9 +242,9 @@ describe('rollback', () => {
 		const oneWay = defineMigration({ id: 'one-way', up: async () => {} });
 		const mixed = [one, oneWay, two];
 		await migrate(t.db, mixed);
-		await expect(rollback(t.db, mixed, { to: 'one' })).rejects.toThrow(
-			'Migration "one-way" has no down',
-		);
+		expect(
+			await rejectionMessage(rollback(t.db, mixed, { to: 'one' })),
+		).toContain('Migration "one-way" has no down');
 		expect(await recordIds()).toHaveLength(3);
 		expect(await posts().countDocuments()).toBe(2);
 	});
@@ -258,7 +259,7 @@ describe('rollback', () => {
 			},
 		});
 		await migrate(t.db, [one, stuck]);
-		await expect(rollback(t.db, [one, stuck])).rejects.toThrow(
+		expect(await rejectionMessage(rollback(t.db, [one, stuck]))).toContain(
 			'Migration "stuck" failed down, and nothing it did was kept: nope',
 		);
 		expect(await recordIds()).toEqual(['one', 'stuck']);
@@ -279,7 +280,7 @@ describe('migrationStatus', () => {
 	});
 
 	test('a list with an id twice is still refused', async () => {
-		await expect(migrationStatus(t.db, [one, one])).rejects.toThrow(
+		expect(await rejectionMessage(migrationStatus(t.db, [one, one]))).toContain(
 			'listed twice',
 		);
 	});
