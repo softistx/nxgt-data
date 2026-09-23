@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/mongo-kit",
-	"version": "0.4.0",
+	"version": "0.4.1",
 	"description": "An application's MongoDB wiring in one object: a validated config, the clients it opens from it, and every collection typed on the database it lives in, and its GridFS files beside them in the same transactions",
 	"license": "MIT",
 	"type": "module",

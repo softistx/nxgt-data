@@ -1,5 +1,15 @@
 # @nxgt/mongo-kit
 
+## 0.4.1
+
+### Patch Changes
+
+- [#105](https://github.com/softistx/nxgt-data/pull/105) [`528be97`](https://github.com/softistx/nxgt-data/commit/528be97359691b5bfe8f0ad08f09e0fc525e9115) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `put` and `putOnce` in `@nxgt/mongo/gridfs` refuse a source that has nothing left to give, rather than storing it as an empty file. A `ReadableStream` that was read — to the end or in part — or that someone holds a reader on, a `Response` whose body was read or is held that way, a node `Readable` that was read, ended or destroyed, and a generator these calls read before are now a `TypeError` naming the call and the bucket (`put on "avatars": this stream was already read, or is held by another reader, so it has nothing left to store. …`), thrown on the first read, before any chunk is written. The case that mattered is a transaction the driver retries — a bucket's first upload with `autoSync` fails its commit with 112 and is one: the second run read the spent stream as empty and stored a file of 0 bytes, with no error, beside whatever the callback committed. It now fails the transaction, which commits nothing. A put refused before it reads — an `_id` already taken — leaves the stream to the next call. `@nxgt/mongo-kit`'s docs on the `autoSync` retry say the stream is refused now, and a spec pins it through the kit.
+  
+  Two messages changed with it. A `Response` whose body was already read gets the refusal above instead of `put: this Response has no body…`, which now only answers a response that never had a body and reads `put on "avatars": this Response has no body, so it has nothing to store.` A source of no readable shape reads `put on "avatars": expected a file, a blob, a response, a stream or bytes, not a number` — the call, the bucket and the kind or class of what was given, where it used to print the value itself. Not detected, and documented as such: an iterable that hands out a new iterator over a one-shot resource, and a generator the caller drained before `put`.
+- Updated dependencies [[`528be97`](https://github.com/softistx/nxgt-data/commit/528be97359691b5bfe8f0ad08f09e0fc525e9115), [`77e7140`](https://github.com/softistx/nxgt-data/commit/77e7140570a540ba3ed66edb0d9cc98b4a23ccfc)]:
+  - @nxgt/mongo@0.17.1
+
 ## 0.4.0
 
 ### Minor Changes
