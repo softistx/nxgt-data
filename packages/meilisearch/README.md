@@ -170,6 +170,7 @@ await movieIndex.add(movies); // adds, or replaces those whose id exists
 await movieIndex.update([{ id: 1, rating: 9 }]); // merges into document 1
 await movieIndex.delete(1);
 await movieIndex.delete([2, 3]);
+await movieIndex.deleteByFilter('year < 1980'); // one task, no ids read first
 await movieIndex.deleteAll(); // keeps the index and its settings
 
 await movieIndex.addInBatches(thousands, { batchSize: 500 }); // one task per 500
@@ -333,6 +334,7 @@ is `IdOf<Def>`:
 | `addInBatches(documents, options?: BatchWriteOptions): BatchWriteResult` | `batchSize`, 1000 by default |
 | `updateInBatches(documents, options?: BatchWriteOptions): BatchWriteResult` | |
 | `delete(ids: Id \| readonly Id[], options?: WriteOptions): WriteResult` | |
+| `deleteByFilter(filter: Filter, options?: WriteOptions): WriteResult` | the SDK's `Filter`, on `filterableAttributes`; an empty one is refused by the server |
 | `deleteAll(options?: WriteOptions): WriteResult` | |
 | `get(id: Id, options?: { fields? }): Promise<Doc \| undefined>` | `Pick<Doc, …>` with `fields` |
 | `getMany(ids: readonly Id[], options?: { fields? }): Promise<Doc[]>` | |
