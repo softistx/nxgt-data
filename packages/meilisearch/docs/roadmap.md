@@ -46,8 +46,8 @@ _Nothing queued._
   from `defineIndex`, and `rebuild` refuses a next uid past the server's
   bound — a uid over 395 characters needs a shorter `nextUid` — and a
   `nextUid` given that is not a valid uid, with its own message that never
-  quotes it, both before sending anything. A generic uid or a union of
-  literals still compiles, and is checked at run time. One rule, shared with
+  quotes it, both before sending anything. A generic uid, or a union of
+  literals with one valid member, still compiles and is checked at run time. One rule, shared with
   `tenantToken` — 0.6.0.
 - **Tenant tokens fail closed** — `tenantToken` requires `expiresAt` and a
   rule for every index it is given, in the types and at run time: a missing
