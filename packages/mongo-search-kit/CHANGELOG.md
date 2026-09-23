@@ -1,5 +1,15 @@
 # @nxgt/mongo-search-kit
 
+## 0.2.1
+
+### Patch Changes
+
+- [#95](https://github.com/softistx/nxgt-data/pull/95) [`d0276ab`](https://github.com/softistx/nxgt-data/commit/d0276abcec0b4efa7f75b3ae47b350b39b9b6216) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `createSearchKit` refuses a key the kit wires a GridFS bucket under with its own message, `this kit wires no collection called "uploads"`. `@nxgt/mongo-kit` 0.4.0 puts buckets on the scope beside the collections, and a bucket carries a `definition` too, so the old check let it through to fail later on something unrelated. It now reads the definition's shape: a collection's has a schema, a bucket's does not.
+- Updated dependencies [[`c065f43`](https://github.com/softistx/nxgt-data/commit/c065f430bdc41923fb8562cd348a27d396b11703), [`348c1f3`](https://github.com/softistx/nxgt-data/commit/348c1f3672f2a596abecaa1a7d08dcdf04a55696), [`2151598`](https://github.com/softistx/nxgt-data/commit/2151598e72c2a8fadaa06ae6fb3f68c5ebda3eb5)]:
+  - @nxgt/meilisearch@0.4.0
+  - @nxgt/mongo-kit@0.4.0
+  - @nxgt/mongo-meilisearch@0.3.1
+
 ## 0.2.0
 
 ### Minor Changes
