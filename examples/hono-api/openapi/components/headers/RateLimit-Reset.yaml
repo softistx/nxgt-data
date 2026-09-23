@@ -1,0 +1,3 @@
+description: Seconds until the bucket is full again, rounded up.
+schema:
+  type: integer

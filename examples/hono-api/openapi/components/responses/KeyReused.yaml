@@ -1,0 +1,14 @@
+description: |
+  This `Idempotency-Key` was already used for a request with another body.
+  A new request takes a new key.
+headers:
+  RateLimit-Limit:
+    $ref: ../headers/RateLimit-Limit.yaml
+  RateLimit-Remaining:
+    $ref: ../headers/RateLimit-Remaining.yaml
+  RateLimit-Reset:
+    $ref: ../headers/RateLimit-Reset.yaml
+content:
+  application/json:
+    schema:
+      $ref: ../schemas/Problem.yaml

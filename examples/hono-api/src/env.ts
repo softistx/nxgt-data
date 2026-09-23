@@ -11,6 +11,9 @@ const envSchema = z.object({
 
 	// Database
 	MONGO_URI: z.string().default('mongodb://127.0.0.1:27017/blog'),
+
+	// Redis: the rate limit's buckets and the idempotency keys
+	REDIS_URL: z.string().default('redis://127.0.0.1:6379'),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -46,4 +49,5 @@ export const env = parseEnv({
 	NODE_ENV: Bun.env.NODE_ENV,
 	PORT: Bun.env.PORT,
 	MONGO_URI: Bun.env.MONGO_URI,
+	REDIS_URL: Bun.env.REDIS_URL,
 });

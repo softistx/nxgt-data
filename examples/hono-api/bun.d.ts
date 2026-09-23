@@ -13,5 +13,8 @@ declare module 'bun' {
 
 		/** Database */
 		MONGO_URI: string;
+
+		/** Redis, for the rate limit and the idempotency keys */
+		REDIS_URL: string;
 	}
 }
