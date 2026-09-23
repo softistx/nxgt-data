@@ -1,6 +1,6 @@
 import { connectMongo, type MongoConnection } from '@nxgt/mongo';
 import type { Db } from 'mongodb';
-import { checkDatabase } from '../config/checks';
+import { bucketsOf, checkDatabase } from '../config/checks';
 import type { DatabaseConfig, KitConfig } from '../config/types';
 import { KitError } from '../errors/kit-error';
 import type { DatabaseContext, KitContext } from './context';
@@ -32,14 +32,20 @@ async function open(
  * A key the driver's `Db` already answers to would be unreachable on the
  * scope. The types refuse it where the config is written; this asks the
  * object itself, so a member the driver adds in a later release is caught
- * here rather than silently shadowed.
+ * here rather than silently shadowed. A bucket's key is asked the same
+ * question, since it sits on the same scope.
  */
-function checkCollisions(name: string, db: Db, keys: readonly string[]): void {
+function checkCollisions(
+	name: string,
+	db: Db,
+	keys: readonly string[],
+	what: 'collection' | 'bucket',
+): void {
 	for (const key of keys) {
 		if (key in db) {
 			throw new KitError(
 				'COLLISION',
-				`createKit: database "${name}" wires a collection under "${key}", ` +
+				`createKit: database "${name}" wires a ${what} under "${key}", ` +
 					"which is a member of the driver's Db: it would be unreachable. " +
 					'Export that definition under another name.',
 				{ database: name, key },
@@ -71,6 +77,7 @@ export async function createKit<C>(config: KitConfig<C>): Promise<MongoKit<C>> {
 	try {
 		for (const [name, database] of entries) {
 			const wired = checkDatabase(name, database);
+			const buckets = bucketsOf(database.buckets ?? {});
 			const { db, connection } = await open(database);
 			databases.push({
 				name,
@@ -80,12 +87,21 @@ export async function createKit<C>(config: KitConfig<C>): Promise<MongoKit<C>> {
 				options: (database.options ?? {}) as never,
 				optionsFor: (database.optionsFor ?? {}) as never,
 				autoSync: database.autoSync === true,
+				buckets,
+				bucketOptions: database.bucketOptions ?? {},
 				connection,
 			});
 			checkCollisions(
 				name,
 				db,
 				wired.map(([key]) => key),
+				'collection',
+			);
+			checkCollisions(
+				name,
+				db,
+				buckets.map(([key]) => key),
+				'bucket',
 			);
 		}
 	} catch (error) {

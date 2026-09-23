@@ -1,4 +1,5 @@
 import type { AnyCollectionDefinition, CollectionOptions } from '@nxgt/mongo';
+import type { BucketDefinition, BucketOptions } from '@nxgt/mongo/gridfs';
 import type { Db, MongoClient, MongoClientOptions } from 'mongodb';
 
 /**
@@ -9,6 +10,22 @@ import type { Db, MongoClient, MongoClientOptions } from 'mongodb';
 export type CollectionsOf<C> = {
 	[K in keyof C as C[K] extends AnyCollectionDefinition ? K : never]: C[K];
 };
+
+/**
+ * The buckets of a module, as `import * as buckets` gives them: what is not a
+ * bucket definition is left out, as `CollectionsOf` leaves out what is not a
+ * collection.
+ */
+export type BucketsOf<B> = {
+	[K in keyof B as B[K] extends BucketDefinition ? K : never]: B[K];
+};
+
+/**
+ * The options of every bucket of a database, minus what the kit decides: the
+ * session a derived kit or a transaction carries, and the database's
+ * `autoSync`.
+ */
+export type KitBucketOptions = Omit<BucketOptions, 'session' | 'autoSync'>;
 
 /**
  * A name the driver's `Db` already uses. The scope carries the collections
@@ -35,6 +52,49 @@ export type NoCollision<C> = [Collides<C>] extends [never]
 			[K in Collides<C>]: `"${K & string}" is a member of the driver's Db: wire this collection under another key`;
 		};
 
+/** The bucket keys of `B` that a `Db` already answers to. */
+export type BucketCollides<B> = Extract<keyof BucketsOf<B>, ReservedName>;
+
+/** The keys under which a database wires both a collection and a bucket. */
+export type BothWired<Cols, B> = Extract<
+	keyof BucketsOf<B>,
+	keyof CollectionsOf<Cols>
+>;
+
+/**
+ * Makes a bucket key unassignable when the scope could not reach it — a
+ * member of the driver's `Db`, or a key a collection already holds — and
+ * says which, the way `NoCollision` does for a collection.
+ */
+export type NoBucketCollision<Cols, B> = ([BucketCollides<B>] extends [never]
+	? unknown
+	: {
+			[K in BucketCollides<B>]: `"${K & string}" is a member of the driver's Db: wire this bucket under another key`;
+		}) &
+	([BothWired<Cols, B>] extends [never]
+		? unknown
+		: {
+				[K in BothWired<
+					Cols,
+					B
+				>]: `"${K & string}" is also a collection of this database: wire this bucket under another key`;
+			});
+
+/** The bucket options the kit decides, which `bucketOptions` may not name. */
+type OwnedBucketOption = 'session' | 'autoSync';
+
+/** Makes `session` or `autoSync` in `bucketOptions` unassignable, and says why. */
+export type NoOwnedBucketOption<BO> = [
+	Extract<keyof BO, OwnedBucketOption>,
+] extends [never]
+	? unknown
+	: {
+			[K in Extract<
+				keyof BO,
+				OwnedBucketOption
+			>]: `"${K & string}" is the kit's to decide: withSession and transactions carry the session, and autoSync is the database's`;
+		};
+
 /**
  * Makes options written for a key no collection is wired under unassignable,
  * and says so under that key — the same shape as `NoCollision`.
@@ -57,7 +117,7 @@ export type KitCollectionOptions<Def> = Omit<
 >;
 
 /** One database: where it is, and what it holds. */
-export interface DatabaseConfig<C> {
+export interface DatabaseConfig<C, B = object> {
 	/**
 	 * Where to connect. One of `uri` and `client`, never both. Databases on
 	 * one URI share a client, which the kit closes with its last holder.
@@ -86,6 +146,14 @@ export interface DatabaseConfig<C> {
 	 * production, where `sync()` is a deployment step.
 	 */
 	autoSync?: boolean;
+	/**
+	 * `import * as buckets from './files'`, passed as it is: every
+	 * `@nxgt/mongo/gridfs` bucket in it is reached on the scope under the key
+	 * it is exported by, as a collection is.
+	 */
+	buckets?: B;
+	/** For every bucket of this database. */
+	bucketOptions?: KitBucketOptions;
 }
 
 /** One database, or several under their names. */
@@ -108,13 +176,19 @@ export type Checked<C> = C extends { databases: infer D }
 		}
 	: CheckedDatabase<C>;
 
-/** One database's collections, and the options written for them. */
+/** One database's collections and buckets, and the options written for them. */
 type CheckedDatabase<D> = D extends { collections: infer Cols }
 	? { collections: Cols & NoCollision<Cols> } & (D extends {
 			optionsFor: infer OF;
 		}
 			? { optionsFor: OF & Unwired<Cols, OF> }
-			: unknown)
+			: unknown) &
+			(D extends { buckets: infer B }
+				? { buckets: B & NoBucketCollision<Cols, B> }
+				: unknown) &
+			(D extends { bucketOptions: infer BO }
+				? { bucketOptions: BO & NoOwnedBucketOption<BO> }
+				: unknown)
 	: D;
 
 /** The databases of a config, whichever of the two shapes it was written in. */
@@ -132,6 +206,13 @@ export type CollectionsIn<C, N extends DbName<C>> = DatabasesOf<C>[N] extends {
 	? Cols
 	: never;
 
+/** The buckets of one database, as they were passed; none when it has none. */
+export type BucketsIn<C, N extends DbName<C>> = DatabasesOf<C>[N] extends {
+	buckets: infer B;
+}
+	? B
+	: Record<never, never>;
+
 /**
  * What `defineConfig` gives back: the databases under their names, checked
  * and frozen, carrying the shape it was written in — which is what decides
@@ -139,6 +220,9 @@ export type CollectionsIn<C, N extends DbName<C>> = DatabasesOf<C>[N] extends {
  */
 export interface KitConfig<C> {
 	readonly databases: {
-		readonly [N in DbName<C>]: DatabaseConfig<CollectionsIn<C, N>>;
+		readonly [N in DbName<C>]: DatabaseConfig<
+			CollectionsIn<C, N>,
+			BucketsIn<C, N>
+		>;
 	};
 }

@@ -3,7 +3,7 @@ import { KitError } from '../errors/kit-error';
 import { databaseOf, derived, type KitContext } from './context';
 import { pingKit } from './ping';
 import { scopeOf } from './scope';
-import { syncKit } from './sync';
+import { syncKit, syncKitBuckets } from './sync';
 import { transact } from './transaction';
 import type { KitTransactionOptions, MongoKit } from './types';
 
@@ -91,6 +91,9 @@ export function kitOf<C>(ctx: KitContext): MongoKit<C> {
 		},
 		sync(options?: SyncOptions) {
 			return syncKit(ctx, options) as never;
+		},
+		syncBuckets() {
+			return syncKitBuckets(ctx) as never;
 		},
 		ping(options?: { timeoutMS?: number }) {
 			return pingKit(ctx, options) as never;

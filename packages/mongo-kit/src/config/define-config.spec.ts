@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { defineCollection, id } from '@nxgt/mongo';
+import { defineBucket } from '@nxgt/mongo/gridfs';
 import { MongoClient } from 'mongodb';
 import { z } from 'zod';
 import { KitError } from '../errors/kit-error';
@@ -14,6 +15,11 @@ const people = defineCollection({
 	name: 'users',
 	schema: z.object({ _id: id(), email: z.string() }),
 });
+
+const avatars = defineBucket({ name: 'avatars' });
+
+/** Another key on the same server bucket. */
+const pictures = defineBucket({ name: 'avatars' });
 
 const uri = 'mongodb://127.0.0.1:27017/app';
 
@@ -58,6 +64,17 @@ describe('defineConfig', () => {
 				collections: { users },
 			}),
 		).not.toThrow();
+	});
+
+	test('keeps the buckets and their options it was given', () => {
+		const config = defineConfig({
+			uri,
+			collections: { users },
+			buckets: { avatars, helper: 1 },
+			bucketOptions: { hash: false },
+		});
+		expect(config.databases.default?.buckets?.avatars).toBe(avatars);
+		expect(config.databases.default?.bucketOptions).toEqual({ hash: false });
 	});
 
 	test('takes a client the application opened', () => {
@@ -205,6 +222,80 @@ describe('defineConfig', () => {
 					optionsFor: { users: { autoSync: true } },
 				} as never),
 			).toThrow('has "autoSync" in the options of "users"');
+		});
+
+		describe('of the buckets', () => {
+			test('a key that is also a collection', () => {
+				const error = thrown(() =>
+					defineConfig({
+						uri,
+						collections: { users },
+						buckets: { users: avatars },
+					} as never),
+				);
+				expect(error).toBeInstanceOf(KitError);
+				expect(error).toHaveProperty('code', 'CONFIG');
+				expect(error).toHaveProperty('key', 'users');
+				expect(error).toHaveProperty(
+					'message',
+					'defineConfig: database "default" wires "users" as both a ' +
+						'collection and a bucket: export one of them under another name',
+				);
+			});
+
+			test('two keys on one bucket', () => {
+				expect(() =>
+					defineConfig({
+						uri,
+						collections: { users },
+						buckets: { avatars, pictures },
+					}),
+				).toThrow(
+					'wires "avatars" and "pictures" to the same bucket, "avatars"',
+				);
+			});
+
+			test('a module with no bucket in it', () => {
+				// A collection is no bucket: the shapes tell them apart.
+				for (const bad of [{ users }, {}, 'avatars']) {
+					expect(() =>
+						defineConfig({
+							uri,
+							collections: { users },
+							buckets: bad,
+						} as never),
+					).toThrow('has a buckets object with no bucket definition in it');
+				}
+			});
+
+			test('the session, which the kit decides', () => {
+				expect(() =>
+					defineConfig({
+						uri,
+						collections: { users },
+						buckets: { avatars },
+						bucketOptions: { hash: false, session: undefined },
+					} as never),
+				).toThrow('has "session" in bucketOptions, which the kit decides');
+			});
+
+			test('autoSync, which is the database`s', () => {
+				const error = thrown(() =>
+					defineConfig({
+						uri,
+						collections: { users },
+						buckets: { avatars },
+						bucketOptions: { autoSync: true },
+					} as never),
+				);
+				expect(error).toHaveProperty('code', 'CONFIG');
+				expect(error).toHaveProperty(
+					'message',
+					expect.stringContaining(
+						'has "autoSync" in bucketOptions, which the kit decides',
+					),
+				);
+			});
 		});
 
 		test('and names the database it is talking about', () => {

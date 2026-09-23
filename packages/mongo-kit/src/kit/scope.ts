@@ -1,4 +1,5 @@
 import { getCollection } from '@nxgt/mongo';
+import { type BucketDefinition, getFiles } from '@nxgt/mongo/gridfs';
 import type { DatabaseContext, KitContext } from './context';
 
 /**
@@ -31,10 +32,39 @@ export function collectionAt(
 }
 
 /**
- * A database with its collections on it. The collections are own properties,
- * so `Object.keys` lists them; everything else is the driver's `Db`, read
- * through a proxy — the shape `getCollection` already uses to put this
- * package's methods over the driver's collection.
+ * The bucket under `key`, built and kept the way `collectionAt` keeps a
+ * collection, in the same cache: a key is a collection or a bucket, never
+ * both, which `defineConfig` refuses. It runs in the kit's session, so a
+ * file written in a transaction is part of it, and takes the database's
+ * `autoSync`. A bucket has no actor to carry.
+ */
+export function bucketAt(
+	ctx: KitContext,
+	database: DatabaseContext,
+	key: string,
+	definition: BucketDefinition,
+): unknown {
+	let built = ctx.cache.get(database.name);
+	if (!built) {
+		built = new Map();
+		ctx.cache.set(database.name, built);
+	}
+	const found = built.get(key);
+	if (found) return found;
+	const bucket = getFiles(database.db, definition, {
+		...database.bucketOptions,
+		...(database.autoSync ? { autoSync: true } : {}),
+		...(ctx.session ? { session: ctx.session } : {}),
+	});
+	built.set(key, bucket);
+	return bucket;
+}
+
+/**
+ * A database with its collections and its buckets on it. They are own
+ * properties, so `Object.keys` lists them; everything else is the driver's
+ * `Db`, read through a proxy — the shape `getCollection` already uses to put
+ * this package's methods over the driver's collection.
  *
  * A key the `Db` already answers to never reaches here: `createKit` refuses
  * it, and the types refuse it before that.
@@ -45,6 +75,12 @@ export function scopeOf(ctx: KitContext, database: DatabaseContext): object {
 		Object.defineProperty(collections, key, {
 			enumerable: true,
 			get: () => collectionAt(ctx, database, key, definition),
+		});
+	}
+	for (const [key, definition] of database.buckets) {
+		Object.defineProperty(collections, key, {
+			enumerable: true,
+			get: () => bucketAt(ctx, database, key, definition),
 		});
 	}
 	return new Proxy(collections, {

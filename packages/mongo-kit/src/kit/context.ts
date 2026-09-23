@@ -1,10 +1,14 @@
 import type { AnyCollectionDefinition, MongoConnection } from '@nxgt/mongo';
+import type { BucketDefinition } from '@nxgt/mongo/gridfs';
 import type { ClientSession, Db, MongoClient } from 'mongodb';
-import type { KitCollectionOptions } from '../config/types';
+import type { KitBucketOptions, KitCollectionOptions } from '../config/types';
 import { KitError } from '../errors/kit-error';
 
 /** A collection as the kit holds it: the key it is reached by, and its definition. */
 export type Wired = readonly [key: string, definition: AnyCollectionDefinition];
+
+/** A bucket as the kit holds it, the same way. */
+export type WiredBucket = readonly [key: string, definition: BucketDefinition];
 
 /** One database of a kit, resolved once: data, like `@nxgt/mongo`'s own context. */
 export interface DatabaseContext {
@@ -16,6 +20,10 @@ export interface DatabaseContext {
 	readonly options: KitCollectionOptions<never>;
 	readonly optionsFor: Readonly<Record<string, KitCollectionOptions<never>>>;
 	readonly autoSync: boolean;
+	/** The buckets, beside the collections; none when the config gave none. */
+	readonly buckets: readonly WiredBucket[];
+	/** For every bucket, without the session or `autoSync`, which are the kit's. */
+	readonly bucketOptions: KitBucketOptions;
 	/**
 	 * The connection the kit opened, or `undefined` when the config gave a
 	 * client: what it did not open is not its to close.

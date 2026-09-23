@@ -1,12 +1,16 @@
 export { defineConfig } from './config/define-config';
 export type {
+	BucketsIn,
+	BucketsOf,
 	CollectionsIn,
 	CollectionsOf,
 	DatabaseConfig,
 	DbName,
+	KitBucketOptions,
 	KitCollectionOptions,
 	KitConfig,
 	KitConfigInput,
+	NoBucketCollision,
 	NoCollision,
 	ReservedName,
 	Unwired,
@@ -19,6 +23,7 @@ export {
 } from './errors/kit-error';
 export { createKit } from './kit/create-kit';
 export type {
+	BucketSyncReport,
 	DbScope,
 	KitActor,
 	KitOf,

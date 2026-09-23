@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach } from 'bun:test';
 import { closeMongo, defineCollection, id, objectId } from '@nxgt/mongo';
+import { defineBucket } from '@nxgt/mongo/gridfs';
 import { z } from 'zod';
 import { startMongo, type TestServer } from './server';
 
@@ -39,6 +40,21 @@ export const events = defineCollection({
 
 /** What an application passes as `import * as collections`. */
 export const collections = { users, posts };
+
+/** A bucket whose metadata is typed, an id included, so coercion shows. */
+export const avatars = defineBucket({
+	name: 'avatars',
+	metadata: z.object({ userId: objectId(), width: z.int().optional() }),
+});
+
+/** A bucket with no metadata schema. */
+export const uploads = defineBucket({ name: 'uploads' });
+
+/**
+ * What an application passes as `import * as buckets`, with an export that
+ * is no bucket, which the kit leaves out.
+ */
+export const buckets = { avatars, uploads, MAX_SIZE: 1024 };
 
 /**
  * One mongod per spec file, emptied before every test, and the kits a test

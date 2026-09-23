@@ -6,12 +6,19 @@ import type {
 	TypedCollection,
 } from '@nxgt/mongo';
 import type {
+	BucketDefinition,
+	BucketIndexReport,
+	TypedBucket,
+} from '@nxgt/mongo/gridfs';
+import type {
 	ClientSession,
 	Db,
 	MongoClient,
 	TransactionOptions,
 } from 'mongodb';
 import type {
+	BucketsIn,
+	BucketsOf,
 	CollectionsIn,
 	CollectionsOf,
 	DbName,
@@ -19,12 +26,31 @@ import type {
 } from '../config/types';
 
 /**
- * A database with its collections on it: `db.users` is the typed collection,
- * and everything the driver's `Db` answers to is still there.
+ * A database with its collections and buckets on it: `db.users` is the typed
+ * collection, `db.avatars` the typed bucket, and everything the driver's `Db`
+ * answers to is still there.
  */
-export type DbScope<C> = {
+export type DbScope<C, B = Record<never, never>> = {
 	readonly [K in keyof CollectionsOf<C>]: TypedCollection<CollectionsOf<C>[K]>;
+} & {
+	readonly [K in keyof BucketsOf<B>]: BucketsOf<B>[K] extends infer D extends
+		BucketDefinition
+		? TypedBucket<D>
+		: never;
 } & Db;
+
+/** The scope of the database named `N`. */
+type ScopeOf<C, N extends DbName<C>> = DbScope<
+	CollectionsIn<C, N>,
+	BucketsIn<C, N>
+>;
+
+/** What `syncBuckets` reports: per database, per bucket key. */
+export type BucketSyncReport<C> = {
+	[N in DbName<C>]: {
+		[K in keyof BucketsOf<BucketsIn<C, N>>]: BucketIndexReport[];
+	};
+};
 
 /** Every definition the kit wires, whichever database it belongs to. */
 type WiredDefinition<C> = {
@@ -59,7 +85,7 @@ export type KitActor<C> = [ActorOf<WiredDefinition<C>>] extends [never]
 export type SoleScope<C> =
 	DbName<C> extends infer N extends DbName<C>
 		? [Exclude<DbName<C>, N>] extends [never]
-			? DbScope<CollectionsIn<C, N>>
+			? ScopeOf<C, N>
 			: never
 		: never;
 
@@ -84,7 +110,7 @@ export interface MongoKit<C> extends AsyncDisposable {
 	 * when it named none.
 	 */
 	readonly databases: {
-		readonly [N in DbName<C>]: DbScope<CollectionsIn<C, N>>;
+		readonly [N in DbName<C>]: ScopeOf<C, N>;
 	};
 	/**
 	 * The client of each database, under the same names; two databases on one
@@ -93,7 +119,7 @@ export interface MongoKit<C> extends AsyncDisposable {
 	readonly clients: { readonly [N in DbName<C>]: MongoClient };
 	/** What this kit stamps into the `*By` fields, if any. */
 	readonly actor: KitActor<C> | undefined;
-	/** The session every collection of this kit runs in, if any. */
+	/** The session every collection and bucket of this kit runs in, if any. */
 	readonly session: ClientSession | undefined;
 
 	/** The same kit, stamping this actor: one call for every collection. */
@@ -101,7 +127,9 @@ export interface MongoKit<C> extends AsyncDisposable {
 	/** The same kit, running in this session; `undefined` takes it away. */
 	withSession(session: ClientSession | undefined): MongoKit<C>;
 	/**
-	 * Runs `fn` in a transaction, with a kit whose collections are all in it.
+	 * Runs `fn` in a transaction, with a kit whose collections and buckets
+	 * are all in it: a file written there commits or rolls back with the
+	 * documents beside it.
 	 *
 	 * The driver **retries `fn` from the start** on a transient error, so it
 	 * must be safe to run twice. A transaction lives on one client: `on` says
@@ -120,6 +148,14 @@ export interface MongoKit<C> extends AsyncDisposable {
 	 * `dryRun` is the way to see everything at once.
 	 */
 	sync(options?: SyncOptions): Promise<Record<DbName<C>, SyncReport[]>>;
+	/**
+	 * Creates the indexes of every wired bucket, database by database, and
+	 * reports each bucket under its key — `sync` leaves buckets alone. Until
+	 * it has run, or a database's `autoSync` has, every read of a bucket
+	 * scans its chunks. The first database that throws stops the rest; there
+	 * is no `dryRun`, since a bucket's index creation has none.
+	 */
+	syncBuckets(): Promise<BucketSyncReport<C>>;
 	/**
 	 * Sends `ping` to every database at once, and reports each under its name:
 	 * `{ ok: true, latencyMs }`, or `{ ok: false, error }`. Never throws, and
