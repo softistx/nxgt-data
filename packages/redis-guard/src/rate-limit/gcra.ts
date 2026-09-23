@@ -42,8 +42,10 @@ local function ms(us)
 	return math.ceil(us / 1000)
 end
 -- How many requests of cost 1 fit before the TAT would pass the tolerance.
--- The extra microsecond absorbs the rounding of a stored TAT, which could
--- otherwise read one request short when the interval is not whole.
+-- The extra microsecond absorbs the rounding up of a stored TAT, which
+-- could otherwise read one request short when the interval is not whole.
+-- It is less than an interval, because an interval is at least 2 µs —
+-- defineRateLimit refuses a faster rate — so it can never add a request.
 local function left(t)
 	local n = math.floor((tolerance - (t - now) + 1) / interval)
 	if n < 0 then return 0 end
@@ -51,7 +53,9 @@ local function left(t)
 	return n
 end
 
-local newTat = tat + cost * interval
+-- Rounded up to the microsecond, before the decision: rounding never goes in
+-- the caller's favour, and what is decided on is exactly what is stored.
+local newTat = math.ceil(tat + cost * interval)
 local allowAt = newTat - tolerance
 if allowAt > now then
 	return {0, left(tat), ms(tat - now), ms(allowAt - now)}

@@ -140,6 +140,7 @@ code `COST`, and the promise rejects — nothing is sent to Redis.
 ## Four ways to ask
 
 ```ts
+const params = { ip: '203.0.113.7' };          // what `loginLimit`'s key takes
 const counted = await login.consume(params);   // counts it if allowed
 const enforced = await login.enforce(params);  // counts it, or throws RATE_LIMITED
 const peeked = await login.peek(params);       // what consume would say; counts nothing

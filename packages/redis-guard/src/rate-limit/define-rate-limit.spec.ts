@@ -63,6 +63,28 @@ describe('defineRateLimit', () => {
 		).not.toThrow();
 	});
 
+	test('refuses more than 500 requests a millisecond, and takes exactly 500', () => {
+		// 2 µs between requests is the shortest interval the script can count.
+		expect(() =>
+			defineRateLimit({ ...base, limit: 500, per: 1 }),
+		).not.toThrow();
+		expect(() =>
+			defineRateLimit({ ...base, limit: 1_000_000, per: 2_000 }),
+		).not.toThrow();
+		for (const [limit, per] of [
+			[501, 1],
+			[1_000_001, 2_000],
+			[10_000_000, 1_000],
+			[8_000, 1],
+			[Number.MAX_SAFE_INTEGER, 1],
+		] as const) {
+			expect(() => defineRateLimit({ ...base, limit, per })).toThrow(
+				`defineRateLimit: "login" has a limit of ${limit} per ${per}ms, more than 500 per millisecond; ` +
+					'the script counts in microseconds, and needs at least 2 between requests',
+			);
+		}
+	});
+
 	test('a refusal is a bare TypeError, not a GuardError', () => {
 		let caught: unknown;
 		try {

@@ -127,6 +127,23 @@ describe('consume', () => {
 		expect((await limit.consume('a')).allowed).toBe(true);
 	});
 
+	test('the fastest rate it takes still counts: 500 a millisecond', async () => {
+		// 2 µs between requests. Below 1 µs, `newTat - now` rounded to 0 and
+		// every consume failed on `PX 0`, and a rounded TAT reported one
+		// request more remaining than the burst allowed.
+		const fastest = defineRateLimit({
+			name: 'fastest',
+			key: (id: string) => id,
+			limit: 500,
+			per: 1,
+			burst: 1,
+		});
+		const limit = bindRateLimit(servers.redis.client, fastest);
+		const result = await limit.consume('a');
+		expect(result).toMatchObject({ allowed: true, limit: 1, remaining: 0 });
+		expect(result.resetAfter).toBe(1);
+	});
+
 	test('the key lives no longer than resetAfter, and a full bucket leaves none', async () => {
 		const limit = login();
 		const result = await limit.consume(ada, 2);

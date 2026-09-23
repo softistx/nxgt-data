@@ -174,8 +174,9 @@ came from a request.
 **`TypeError`s come earlier, at definition time**, and normally at import:
 `defineRateLimit` (and `bindRateLimit`, for a definition written by hand)
 refuses an empty `name`, a `key` that is not a function, a `limit`, `per` or
-`burst` that is not a whole number of at least 1, and a rate that would take
-more than ten years to refill from empty. Redis's own failures come back as
+`burst` that is not a whole number of at least 1, a rate faster than 500
+requests a millisecond, and a rate that would take more than ten years to
+refill from empty. Redis's own failures come back as
 they are, from Bun's client. Every message is in
 [troubleshooting](docs/troubleshooting.md).
 
@@ -206,6 +207,10 @@ Each is a `@ts-expect-error` case in `test/types/guard.ts`.
   60 ms is a legitimate window. A rate that would take more than ten years to
   refill is refused, which catches a `per` written in microseconds, but not
   one written in seconds.
+- **No faster than 500 a millisecond.** The script counts in microseconds and
+  needs at least 2 between requests, so `per × 1000 ÷ limit` under 2 is
+  refused at definition. `limit: 60_000, per: 1` — the two swapped — is the
+  usual way to hit it.
 - **Bun only.** It takes Bun's `RedisClient`, and runs on Node never.
 - **The clock is the Redis server's.** `now` is read with `TIME` inside the
   script, so a host with a wrong clock cannot refill a bucket or empty one,

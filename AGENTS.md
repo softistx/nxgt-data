@@ -17,7 +17,7 @@ registry:
 | `@nxgt/mongo-kit` | an application's MongoDB wiring in one object: `defineConfig` checking a configuration of one or several databases, and `createKit` giving a `db` that is the driver's `Db` with every `@nxgt/mongo` collection typed on it — and every `@nxgt/mongo/gridfs` bucket the config's `buckets` wires, beside them, in the kit's session so a file write joins a transaction — plus the actor, the session, transactions, `sync`, `syncBuckets` (bucket indexes, which `sync` leaves alone), `ping` and `close`. `discoverCollections` reads definitions from a glob, for scripts |
 | `@nxgt/mongo-search-kit` | a search kit over the wiring kit: `createSearchKit(kit, config)` takes one entry per collection — an index and a transform, under the key the kit wires that collection under — and gives one `reindexAll`, one `start` and one `close` for all of them. Each entry's sync is `@nxgt/mongo-meilisearch`'s, unchanged |
 | `@nxgt/redis` | Redis on Bun's own `RedisClient`, with no third-party driver: `connectRedis`/`closeRedis` sharing one client per URI, `defineCache`/`bindCache` with the key built by a typed function and the value checked by its schema both ways, `withLock` over `SET NX PX` released by a compare-and-delete script, and `defineChannel`/`publish`/`subscribe` typed the same way. Its one error is `RedisError` |
-| `@nxgt/redis-guard` | guards on Bun's own `RedisClient`, each one a single Lua script on the server: `defineRateLimit`/`bindRateLimit`, GCRA over one key holding the theoretical arrival time in microseconds, timed by the server's `TIME` and never the host's clock, with `consume`, `enforce`, `peek` and `reset`, a `cost` per call, and results as delays in milliseconds (`resetAfter`, `retryAfter`) rather than dates. A denial and a `peek` write nothing, and the key's `PX` ends when the bucket is full again. Scripts go through `scripts/run-script.ts`: `EVALSHA` by a SHA-1 computed once, `EVAL` on `NOSCRIPT`. Its one error is `GuardError` (`RATE_LIMITED`, `COST`), which names the definition and never the key or the params; a definition that could never work is a bare `TypeError`. Idempotency is its next slice |
+| `@nxgt/redis-guard` | guards on Bun's own `RedisClient`, each one a single Lua script on the server: `defineRateLimit`/`bindRateLimit`, GCRA over one key holding the theoretical arrival time in microseconds, timed by the server's `TIME` and never the host's clock, with `consume`, `enforce`, `peek` and `reset`, a `cost` per call, and results as delays in milliseconds (`resetAfter`, `retryAfter`) rather than dates. A denial and a `peek` write nothing, and the key's `PX` ends when the bucket is full again. Scripts go through `src/scripts/run-script.ts`: `EVALSHA` by a SHA-1 computed once, `EVAL` on `NOSCRIPT`. Its one error is `GuardError` (`RATE_LIMITED`, `COST`), which names the definition and never the key or the params; a definition that could never work is a bare `TypeError` — including a rate under 2 µs between requests (more than 500 a millisecond): near now a double resolves only to 0.25 µs, so a smaller interval rounded to `PX 0`, which Redis refuses, and the stored TAT is rounded **up** so rounding never favours the caller. Idempotency is its next slice |
 | `@nxgt/redis-kit` | an application's Redis wiring in one object: `defineConfig` checking a configuration of one or several Redis instances, and `connectKit` opening the clients and giving `kit.cache.<key>` and `kit.channels.<key>` — every `@nxgt/redis` cache and channel typed under the key it is exported as, renamed under the instance's prefix — plus the subscriptions it tracks and closes, `lock`, `ping` and `close`. It has no error of its own: its refusals are bare `TypeError`s, and what a caller catches at run time is `@nxgt/redis`'s `RedisError` |
 | `@nxgt/s3` | S3 on Bun's own `S3Client`, with no AWS SDK: `defineBucket` naming the bucket, the key-building function, the content types and the maximum size, and `bindBucket` giving `put`/`bytes`/`text`/`exists`/`stat`/`delete`, a `list` in this repository's cursor shape, and `presignGet`/`presignPut`/`presignPost` from the same definition. The content type and the size are refused **before** the request goes out; `presignPost` signs an S3 POST policy itself (SigV4, `node:crypto` — Bun has no POST presigning), so the **service** holds a browser upload to a size range and a content type. Its error class for refusals is `S3Error`; it also throws a `TypeError` from `defineBucket` for a definition that could never work and from `presignPost` when its secret is not Bun's, and a plain `Error` from `presignPost` when the URL Bun signed cannot be read |
 
@@ -40,8 +40,8 @@ them changes there for a reason that applies here, change it here too.
 ## Layering
 
 Every package is **standalone**: it depends on no sibling, only on the
-library it wraps, as a peer — except the bridge, `@nxgt/mongo-meilisearch`,
-below. A package that would use a sibling declares it
+library it wraps, as a peer — except the two bridges and the three kits
+below, which peer on the siblings they join or wire. A package that would use a sibling declares it
 by `workspace:^` and imports it by its published name, as in nxgt-http; there
 is no tsconfig `paths` to a sibling and no relative import into one.
 
@@ -588,9 +588,9 @@ the file.
 
 ## Known state
 
-`bun run test` is **1318 pass, 0 fail**: drizzle 152, meilisearch 117,
+`bun run test` is **1320 pass, 0 fail**: drizzle 152, meilisearch 117,
 mongo 541, drizzle-meilisearch 42, mongo-meilisearch 58, mongo-kit 101,
-mongo-search-kit 17, redis 46, redis-guard 33, redis-kit 55, s3 104,
+mongo-search-kit 17, redis 46, redis-guard 35, redis-kit 55, s3 104,
 hono-api-example 31, scripts 21. It runs one process
 per package, then the scripts' specs. Treat any failure as yours.
 

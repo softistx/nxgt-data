@@ -9,6 +9,16 @@ import type { RateLimitDefinition } from './types';
  */
 const MAX_REFILL = 10 * 365 * 24 * 60 * 60 * 1000;
 
+/**
+ * The shortest interval between requests, in microseconds: `per × 1000 ÷
+ * limit` must be at least this. Near now (about 1.79e15 µs) a double resolves
+ * only to 0.25 µs, so a sub-microsecond interval rounds `newTat - now` to 0 —
+ * Redis then refuses `PX 0` on every call — and the rounding up of a stored
+ * TAT, and the 1 µs slack in `remaining`, would each be worth more than a
+ * whole request. At 2 µs neither is. That is 500 requests a millisecond.
+ */
+const MIN_INTERVAL = 2;
+
 const isCount = (n: unknown): n is number =>
 	typeof n === 'number' && Number.isSafeInteger(n) && n >= 1;
 
@@ -42,6 +52,12 @@ export function checkRateLimit<P>(
 	if (burst !== undefined && !isCount(burst)) {
 		throw new TypeError(
 			`${call}: "${name}" has a burst of ${burst}; it is a whole number of requests, and must be at least 1`,
+		);
+	}
+	if ((per * 1000) / limit < MIN_INTERVAL) {
+		throw new TypeError(
+			`${call}: "${name}" has a limit of ${limit} per ${per}ms, more than 500 per millisecond; ` +
+				'the script counts in microseconds, and needs at least 2 between requests',
 		);
 	}
 	if (((burst ?? limit) * per) / limit > MAX_REFILL) {
