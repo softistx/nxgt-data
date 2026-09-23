@@ -53,6 +53,22 @@ describe('the lease on a sync name', () => {
 		);
 	});
 
+	test('a lease document without a string holder gives neither field', async () => {
+		// Written by hand, not by this package: what is not a holder is not one.
+		await servers.mongo.db.collection('nxgt_search_sync').insertOne({
+			_id: { lease: 'articles:articles' } as never,
+			holder: 42,
+			expiresAt: new Date(Date.now() + 60_000),
+		});
+		const error = await rejection(sync().start());
+		expect(error.code).toBe('RUNNING');
+		expect(error.holder).toBeUndefined();
+		expect(error.expiresAt).toBeUndefined();
+		expect(error.message).toStartWith(
+			'Search sync "articles:articles" is held by another process until ',
+		);
+	});
+
 	test('a standby that waits until expiresAt takes over a dead holder, with no fixed sleep', async () => {
 		// A holder that died: its lease is not renewed, and lapses at `lapse`.
 		// Far enough ahead that a stalled runner cannot reach it before the

@@ -105,7 +105,7 @@ export async function acquire(
 		typeof current?.holder === 'string' ? current.holder : undefined;
 	const expiresAt = theirs === undefined ? undefined : until;
 	throw new SearchSyncError(
-		`Search sync "${ctx.name}" is held by ${current?.holder ?? 'another process'} ` +
+		`Search sync "${ctx.name}" is held by ${theirs ?? 'another process'} ` +
 			`until ${until?.toISOString() ?? 'it lets go'}: ` +
 			`wait for it to close, or for its lease to lapse, before you ${doing}.`,
 		{
