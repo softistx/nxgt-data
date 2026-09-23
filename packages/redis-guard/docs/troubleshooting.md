@@ -246,13 +246,16 @@ redis-cli --scan --pattern 'login:*' | xargs -r redis-cli del
 
 ### `WRONGTYPE Operation against a key holding the wrong kind of value`
 
-**When:** any call on a limit, when a key under its name — `<name>:<key>` —
-holds a hash, a list, a set or anything but a string.
+**When:** `consume`, `enforce` or `peek` on a limit, when a key under its
+name — `<name>:<key>` — holds a hash, a list, a set or anything but a string.
 **Why:** the script reads the key with `GET`, and Redis refuses `GET` on a
 key of another type. The error is Redis's own, passed through as Bun's
 `RedisError`, not a `GuardError`: nothing was decided. A *string* the script
 could not have written is different — it reads as a full bucket and the
 next allowed call replaces it.
+`reset` does not fail here: it runs `DEL`, which takes any type, so it
+deletes the clashing key — somebody else's live data as readily as a
+leftover.
 **Fix:** give the limit a name no other part of the application uses as a
 key prefix, or delete the clashing key if it is left over:
 

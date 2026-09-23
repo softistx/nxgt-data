@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { consumeAt as consumeWith, useRedis } from '../../test/fixtures';
+import { rejectionMessage } from '../../test/rejection';
+import { bindRateLimit } from './bind-rate-limit';
+import { defineRateLimit } from './define-rate-limit';
 import type { Rate } from './gcra';
 
 // What the script trusts in its key, and what a clock that moves back does.
@@ -140,5 +143,34 @@ describe('a clock that moves back', () => {
 		const pttl = await servers.redis.client.pttl(KEY);
 		expect(pttl).toBeGreaterThan(700);
 		expect(pttl).toBeLessThanOrEqual(800);
+	});
+});
+
+describe('a key of another type', () => {
+	const clash = defineRateLimit({
+		name: 'clash',
+		key: (p: { id: string }) => p.id,
+		limit: 10,
+		per: 1000,
+	});
+
+	test('fails consume and peek with Redis’s WRONGTYPE, and reset deletes it', async () => {
+		const { client } = servers.redis;
+		await client.hset('clash:a', 'field', 'theirs');
+		const limit = bindRateLimit(client, clash);
+		// Each call made where it is held, as test/rejection.ts asks.
+		for (const call of [
+			() => limit.consume({ id: 'a' }),
+			() => limit.peek({ id: 'a' }),
+		]) {
+			expect(await rejectionMessage(call())).toStartWith(
+				'WRONGTYPE Operation against a key holding the wrong kind of value',
+			);
+		}
+		// Nothing was written over it.
+		expect(await client.hget('clash:a', 'field')).toBe('theirs');
+		// DEL takes any type: reset removes somebody else's key as readily.
+		expect(await limit.reset({ id: 'a' })).toBe(true);
+		expect(await client.exists('clash:a')).toBe(false);
 	});
 });
