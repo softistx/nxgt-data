@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/redis-kit",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "An application's Redis wiring in one object: a validated config, the clients it opens from it, and every cache and channel typed under the name it is wired as",
 	"license": "MIT",
 	"type": "module",

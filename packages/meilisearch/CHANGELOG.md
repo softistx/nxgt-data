@@ -1,5 +1,11 @@
 # @nxgt/meilisearch
 
+## 0.3.0
+
+### Minor Changes
+
+- [#86](https://github.com/softistx/nxgt-data/pull/86) [`c4069fc`](https://github.com/softistx/nxgt-data/commit/c4069fcdddc6efb3e74ec352f42c094a7d285fb1) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `deleteByFilter(filter, options)` on a bound index takes every document a filter matches out of the index in one task, without reading their ids first. The filter is Meilisearch's own, on the definition's `filterableAttributes`; an empty one is refused by the server when the request is sent, so nothing is deleted, and one on an attribute that is not filterable fails the task — a `SearchIndexError` with `TASK_FAILED` when the call waits.
+
 ## 0.2.0
 
 ### Minor Changes
