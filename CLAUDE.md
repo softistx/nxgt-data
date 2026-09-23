@@ -17,9 +17,11 @@ The skills come from the `nxgt-core` marketplace, enabled in the committed
 `write-a-repo-script`), `nxgt-package` (`create-a-package`,
 `release-a-package-change`), `nxgt-docs` (`keep-docs-current`, and the
 agents `documentation-auditor`, `documentation-writer`,
-`troubleshooting-writer` and `roadmap-keeper`) and `nxgt-review`
+`troubleshooting-writer` and `roadmap-keeper`), `nxgt-review`
 (`review-before-a-pr`, and the `code-reviewer` agent, which reads
-`references/nxgt-data.md`). They are authored in `softistx/nxgt-core`, under
+`references/nxgt-data.md`) and `nxgt-autonomy` (`work-autonomously`, and the
+agents `work-queue-auditor`, `improvement-scout` and `green-bar-verifier`).
+They are authored in `softistx/nxgt-core`, under
 `plugins/`; nothing is copied here, and there is no local agent.
 
 A skill that is genuinely only about this repository goes in
