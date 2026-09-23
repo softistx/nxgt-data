@@ -13,5 +13,5 @@ idempotent result.
 | [Troubleshooting](troubleshooting.md) | a call threw, a limit allows more or less than you expected, or the same request ran twice |
 | [Roadmap](roadmap.md) | you want to know what is coming — a lease heartbeat and `wait` next — and what has been ruled out |
 
-The [README](../README.md) is the short version: install, one example, the
-API, and the traps in one line each.
+The [README](../README.md) is the short version: install, an example for
+each primitive, the API, the errors and the traps.
