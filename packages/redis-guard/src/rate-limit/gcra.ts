@@ -19,9 +19,13 @@ import type { LimitResult } from './types';
  * - A denial writes nothing, and neither does a `peek`.
  * - The key expires when the bucket would be full again, so an idle limit
  *   leaves nothing behind.
- * - Numbers are written with `%.0f`, never `tostring`, which would give
- *   `1.79e+15`; and only integers are returned, because Redis truncates a Lua
- *   number to an integer reply anyway.
+ * - The TAT is stored **exactly**, with `%.2f` — never `tostring`, which
+ *   would give `1.79e+15`, and never rounded to the microsecond, which once
+ *   made a full burst on an empty bucket unreachable. A double between 2^50
+ *   and 2^51 µs (2005 to 2041) steps by 0.25, and from there to 2^53 by 0.5
+ *   or 1, so its decimal expansion has at most two places: `%.2f` prints it
+ *   exactly and `tonumber` reads the same double back. Only integers are
+ *   returned, because Redis truncates a Lua number to an integer reply.
  *
  * ARGV: `per` (ms), `limit`, `burst`, `cost`, and `1` to write or `0` not to.
  * Returns `{ allowed, remaining, resetAfter, retryAfter }`, the last two in
@@ -35,36 +39,47 @@ local burst = tonumber(ARGV[3])
 local cost = tonumber(ARGV[4])
 local tolerance = interval * burst
 
+-- How far ahead of now the TAT is, 0 for a full bucket. Everything below
+-- is an offset from now: the difference of two nearby doubles is exact, and
+-- an empty bucket's offset is exactly 0, so burst * interval compares
+-- equal to the tolerance it is.
+local ahead = 0
 local tat = tonumber(redis.call('GET', KEYS[1]))
-if tat == nil or tat < now then tat = now end
+if tat ~= nil and tat > now then ahead = tat - now end
 
+-- The one comparison: whether n more requests fit from an offset. The
+-- decision and remaining both use it, so they cannot disagree.
+local function fits(d, n)
+	return d + n * interval <= tolerance
+end
+-- The most requests of cost 1 that fit: estimated by division, then settled
+-- by the comparison itself, which is monotonic in n.
+local function left(d)
+	local n = math.floor((tolerance - d) / interval)
+	if n < 0 then n = 0 end
+	if n > burst then n = burst end
+	while n > 0 and not fits(d, n) do n = n - 1 end
+	while n < burst and fits(d, n + 1) do n = n + 1 end
+	return n
+end
 local function ms(us)
 	return math.ceil(us / 1000)
 end
--- How many requests of cost 1 fit before the TAT would pass the tolerance.
--- The extra microsecond absorbs the rounding up of a stored TAT, which
--- could otherwise read one request short when the interval is not whole.
--- It is less than an interval, because an interval is at least 2 µs —
--- defineRateLimit refuses a faster rate — so it can never add a request.
-local function left(t)
-	local n = math.floor((tolerance - (t - now) + 1) / interval)
-	if n < 0 then return 0 end
-	if n > burst then return burst end
-	return n
-end
 
--- Rounded up to the microsecond, before the decision: rounding never goes in
--- the caller's favour, and what is decided on is exactly what is stored.
-local newTat = math.ceil(tat + cost * interval)
-local allowAt = newTat - tolerance
-if allowAt > now then
-	return {0, left(tat), ms(tat - now), ms(allowAt - now)}
+if not fits(ahead, cost) then
+	return {0, left(ahead), ms(ahead), ms(ahead + cost * interval - tolerance)}
 end
+-- The new TAT, as the double it is: %.2f writes it exactly, since near
+-- now a double's step is a quarter of a microsecond. The offset is taken
+-- back from that double, so what this call reports is what the next call
+-- reads.
+local newTat = now + ahead + cost * interval
+local after = newTat - now
 if ARGV[5] == '1' and cost > 0 then
-	redis.call('SET', KEYS[1], string.format('%.0f', newTat),
-		'PX', string.format('%.0f', ms(newTat - now)))
+	redis.call('SET', KEYS[1], string.format('%.2f', newTat),
+		'PX', string.format('%.0f', ms(after)))
 end
-return {1, left(newTat), ms(newTat - now), 0}
+return {1, left(after), ms(after), 0}
 `);
 
 /** What the script needs from a definition, resolved. */

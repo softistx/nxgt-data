@@ -21,8 +21,8 @@ written by hand, says `bindRateLimit` instead.
   - [`defineRateLimit: "login" has a limit of 0; it is a whole number of requests, and must be at least 1`](#defineratelimit-login-has-a-limit-of-0-it-is-a-whole-number-of-requests-and-must-be-at-least-1)
   - [`defineRateLimit: "login" has a per of 0.5; it is a whole number of milliseconds, and must be at least 1`](#defineratelimit-login-has-a-per-of-05-it-is-a-whole-number-of-milliseconds-and-must-be-at-least-1)
   - [`defineRateLimit: "login" has a burst of 0; it is a whole number of requests, and must be at least 1`](#defineratelimit-login-has-a-burst-of-0-it-is-a-whole-number-of-requests-and-must-be-at-least-1)
-  - [`defineRateLimit: "login" would take longer than ten years to refill from empty (burst × per ÷ limit); check that per is in milliseconds`](#defineratelimit-login-would-take-longer-than-ten-years-to-refill-from-empty-burst--per--limit-check-that-per-is-in-milliseconds)
   - [`defineRateLimit: "login" has a limit of 1000 per 1ms, more than 500 per millisecond; the script counts in microseconds, and needs at least 2 between requests`](#defineratelimit-login-has-a-limit-of-1000-per-1ms-more-than-500-per-millisecond-the-script-counts-in-microseconds-and-needs-at-least-2-between-requests)
+  - [`defineRateLimit: "login" would take longer than ten years to refill from empty (burst × per ÷ limit); check that per is in milliseconds`](#defineratelimit-login-would-take-longer-than-ten-years-to-refill-from-empty-burst--per--limit-check-that-per-is-in-milliseconds)
 - **Runtime**
   - [`enforce on "login": the limit of 5 per 60000ms is spent; retryAfter says when to try again`](#enforce-on-login-the-limit-of-5-per-60000ms-is-spent-retryafter-says-when-to-try-again)
   - [`consume on "login": a cost must be a whole number from 1 to the burst of 5`](#consume-on-login-a-cost-must-be-a-whole-number-from-1-to-the-burst-of-5)
@@ -112,6 +112,23 @@ at least 1.
 **Fix:** leave it out for the default, which is `limit`, or give a whole
 number.
 
+### `defineRateLimit: "login" has a limit of 1000 per 1ms, more than 500 per millisecond; the script counts in microseconds, and needs at least 2 between requests`
+
+**When:** at import, when `per × 1000 ÷ limit` — the microseconds between two
+requests at the rate — is under 2: more than 500 requests a millisecond.
+**Why:** the script keeps time in microseconds, in a Lua double, which near
+the present resolves only to a quarter of one. With less than a couple of
+microseconds between requests, what one request adds to the bucket is lost
+in that resolution, and the count stops being a count. Nobody limits
+anything to that rate on purpose; it is usually `per` written in a larger
+unit than milliseconds, or `limit` and `per` swapped.
+**Fix:**
+
+```ts
+// Not `limit: 60_000, per: 1`:
+defineRateLimit({ name: 'login', key, limit: 1, per: 60_000 });
+```
+
 ### `defineRateLimit: "login" would take longer than ten years to refill from empty (burst × per ÷ limit); check that per is in milliseconds`
 
 **When:** at import, when `burst × per ÷ limit` — how long an empty bucket
@@ -123,24 +140,6 @@ microseconds, exact only up to a bound this keeps it well inside.
 
 ```ts
 per: 60_000,   // a minute — not 60e9
-```
-
-### `defineRateLimit: "login" has a limit of 1000 per 1ms, more than 500 per millisecond; the script counts in microseconds, and needs at least 2 between requests`
-
-**When:** at import, when `per × 1000 ÷ limit` — the microseconds between two
-requests at the rate — is under 2: more than 500 requests a millisecond.
-**Why:** the script keeps time in microseconds, in a Lua double, which near
-the present resolves only to a quarter of one. Below 1 µs between requests,
-the time a request adds rounds to nothing: Redis would refuse every
-`consume` with `ERR invalid expire time in 'set' command`, and what was
-counted would be off by a request. Nobody limits anything to that rate on
-purpose; it is usually `per` written in a larger unit than milliseconds, or
-`limit` and `per` swapped.
-**Fix:**
-
-```ts
-// Not `limit: 60_000, per: 1`:
-defineRateLimit({ name: 'login', key, limit: 1, per: 60_000 });
 ```
 
 ## Runtime
