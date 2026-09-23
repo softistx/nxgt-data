@@ -1,9 +1,12 @@
 # @nxgt/redis-guard
 
-Guards on **Bun's own Redis client**: rate limits described once, keyed by a
-typed function, and checked by one atomic script on the server — timed by the
-**Redis server's clock**, so every process sharing the Redis shares the limit
-exactly.
+Guards on **Bun's own Redis client**, each described once, keyed by a typed
+function, and checked by atomic scripts on the server — timed by the **Redis
+server's clock**, so every process sharing the Redis agrees:
+
+- **rate limits** — so many requests per window, per caller;
+- **idempotency** — run an operation once per key, and replay its result to
+  every repeat.
 
 ```ts
 import { RedisClient } from 'bun';
@@ -31,13 +34,14 @@ async function handleLogin(ip: string): Promise<Response> {
 }
 ```
 
-> **0.x.** Rate limits are the first guard; idempotency is next — see the
+> **0.x.** Rate limits and idempotency are here; an idempotent run's lease is
+> not renewed yet, and waiting for a running key is next — see the
 > [roadmap](docs/roadmap.md).
 
 ## Install
 
 ```sh
-bun add @nxgt/redis-guard
+bun add @nxgt/redis-guard zod
 bun add -d @types/bun typescript
 ```
 
@@ -46,6 +50,10 @@ bun add -d @types/bun typescript
   Node.
 - `typescript` `^6.0.3`: required peer, the version every `@nxgt` package
   pins.
+- `zod` `>=4.6.5 <5`: required peer, since 0.2.0. An idempotent result is
+  checked against your schema both ways, so your copy of zod has to be the one
+  it parses with. A rate limit parses nothing, but the peer is required all
+  the same.
 - `@types/bun`: required to typecheck. The shipped declarations name Bun's
   `RedisClient`, so without Bun's types the first `tsc` fails with
   `Cannot find module 'bun'`.
@@ -118,12 +126,101 @@ The [rate limits guide](docs/guide/rate-limits.md) has the algorithm in
 detail, choosing `limit`, `per` and `burst`, and an HTTP recipe with the
 `RateLimit-*` and `Retry-After` headers for any framework.
 
+## Idempotency
+
+```ts
+import { RedisClient } from 'bun';
+import { z } from 'zod';
+import { bindIdempotency, defineIdempotency, GuardError } from '@nxgt/redis-guard';
+
+const redis = new RedisClient(process.env.REDIS_URL);
+
+export const createOrder = defineIdempotency({
+	name: 'orders.create',
+	key: (p: { user: string; key: string }) => `${p.user}/${p.key}`,
+	ttl: 86_400,        // SECONDS a finished result is replayed
+	lease: 30_000,      // MILLISECONDS the work may take — see Traps
+	schema: z.object({
+		orderId: z.string(),
+		status: z.string().default('placed'),
+	}),
+});
+
+const orders = bindIdempotency(redis, createOrder);
+
+async function postOrder(request: Request, user: string): Promise<Response> {
+	const key = request.headers.get('Idempotency-Key');
+	if (!key) return new Response('Idempotency-Key is required', { status: 400 });
+	const body = await request.text();
+	try {
+		const { value, replayed } = await orders.run(
+			{ user, key },
+			() => placeOrder(JSON.parse(body)),   // returns { orderId }
+			{ fingerprint: body },               // the raw body, hashed
+		);
+		return Response.json(value, {
+			status: 201,
+			headers: replayed ? { 'Idempotent-Replayed': 'true' } : {},
+		});
+	} catch (error) {
+		if (error instanceof GuardError && error.code === 'IN_PROGRESS') {
+			const seconds = Math.ceil((error.retryAfter ?? 0) / 1000);
+			return new Response('Still running', {
+				status: 409,
+				headers: { 'Retry-After': String(seconds) },
+			});
+		}
+		if (error instanceof GuardError && error.code === 'MISMATCH') {
+			return new Response('This key was used for another request', { status: 422 });
+		}
+		throw error;
+	}
+}
+```
+
+The first call with a key runs `work` and stores what it returned; every
+repeat within `ttl` gets that result back — `replayed: true` — and `work` is
+not called. A repeat that arrives while the first is still running is
+refused with `IN_PROGRESS`, and one with a different fingerprint with
+`MISMATCH`. **An error thrown by `work` is never stored**: the key is given
+back and the error passes through as it is, so the next call runs again.
+
+A failure the client should get back on every repeat — a card declined, not a
+database that was down — is a **result**, not an error: return it as one
+member of a union schema.
+
+```ts
+export const chargeCard = defineIdempotency({
+	name: 'payments.charge',
+	key: (key: string) => key,
+	ttl: 86_400,
+	schema: z.discriminatedUnion('ok', [
+		z.object({ ok: z.literal(true), chargeId: z.string() }),
+		z.object({ ok: z.literal(false), reason: z.string() }),
+	]),
+});
+
+const { value } = await bindIdempotency(redis, chargeCard).run(key, async () => {
+	const charge = await provider.charge(amount);
+	return charge.declined
+		? { ok: false as const, reason: charge.declineCode }
+		: { ok: true as const, chargeId: charge.id };
+});
+```
+
+Each step is one Lua script over one hash: taking the key, storing the
+result under this run's own token, and giving the key back. The
+[idempotency guide](docs/guide/idempotency.md) has the storage, the
+fingerprint, choosing `ttl` and `lease`, and the HTTP recipe in full.
+
 ## API
 
 | Function | |
 | --- | --- |
 | `defineRateLimit({ name, key, limit, per, burst? })` | describes a rate limit; talks to nothing. Frozen. A definition that could never work is a bare `TypeError`, normally at import |
 | `bindRateLimit(client, definition)` | binds it to a `RedisClient`. Checks the definition again, for one written by hand |
+| `defineIdempotency({ name, key, ttl, lease?, schema })` | describes an idempotent operation; talks to nothing. Frozen. A definition that could never work is a bare `TypeError` |
+| `bindIdempotency(client, definition)` | binds it to a `RedisClient`. Checks the definition again |
 
 | `RateLimitDefinition<P>` | |
 | --- | --- |
@@ -156,11 +253,32 @@ Every duration is a **delay in milliseconds**, measured on the Redis server's
 clock and rounded up — never a `Date`, which would carry the difference
 between two clocks. Waiting `retryAfter` is always enough.
 
+| `IdempotencyDefinition<P, S>` | |
+| --- | --- |
+| `name` | the key's prefix. A stored key is `` `<name>:<key(params)>` `` |
+| `key(params)` | the rest of the key — usually the client's `Idempotency-Key`, scoped to its user |
+| `ttl` | how long a finished result is replayed, **in seconds**. A whole number, at least 1 |
+| `lease` | how long the work may take before a repeat may run it again, **in milliseconds**. Default `10_000`. Not renewed — see Traps |
+| `schema` | a zod schema for the result, checked on the way in and on every replay |
+
+| `BoundIdempotency<P, T, I>` | |
+| --- | --- |
+| `keyFor(params)` | the key it would use |
+| `run(params, work, { fingerprint? })` | runs `work` once per key, and replays its result. `work` returns what the schema accepts (`I`); `run` resolves to `{ value, replayed }`, `value` as the schema gives it back (`T`) |
+| `forget(params)` | deletes the key, finished or running. `true` when something was there |
+
+`fingerprint` is a string or an `ArrayBufferView` — the raw body, usually.
+Only its SHA-256 is stored.
+
 | Type | |
 | --- | --- |
 | `RateLimitDefinition<P>` | what `defineRateLimit` takes and gives back |
 | `BoundRateLimit<P>` | what `bindRateLimit` gives back |
 | `LimitResult` | what every check answers |
+| `IdempotencyDefinition<P, S>` | what `defineIdempotency` takes and gives back |
+| `BoundIdempotency<P, T, I>` | what `bindIdempotency` gives back |
+| `Idempotent<T>` | what `run` resolves to: `{ value, replayed }` |
+| `RunOptions` | `run`'s options: `{ fingerprint? }` |
 | `GuardError`, `GuardErrorCode` | the error, and its codes |
 
 ## Errors
@@ -173,13 +291,24 @@ came from a request.
 | --- | --- | --- |
 | `RATE_LIMITED` | `enforce` found the limit spent. Carries `retryAfter`, in milliseconds | `enforce on "login": the limit of 5 per 60000ms is spent; retryAfter says when to try again` |
 | `COST` | a cost that is not a whole number from 1 (0 for `peek`) to the burst | `consume on "login": a cost must be a whole number from 1 to the burst of 5` |
+| `IN_PROGRESS` | `run` found the key still running. Carries `retryAfter`: milliseconds until its lease ends | `run on "orders.create": the same key is still running; retryAfter says when its lease ends` |
+| `MISMATCH` | `run` found the key first used with a different fingerprint — or with one where this call has none, or the reverse | `run on "orders.create": this key was first used with a different fingerprint; a repeat must send the same request` |
+| `INVALID` | what `work` returned does not match the schema — not stored, key given back; or what was stored no longer does — kept, and `work` **not** run again; or the record at the key is not one `run` wrote | `run on "orders.create": the result does not match the schema, so it was not stored (invalid_type)` |
+| `LEASE_LOST` | `work` finished after its lease lapsed, so a repeat may have run it too. Its result was not stored | `run on "orders.create": the work outlasted its lease of 30000ms, so a repeat may have run it too; its result was not stored` |
+
+An `INVALID` message lists zod's issue **codes** only — never zod's messages
+nor the paths, which can quote what the value held.
 
 **`TypeError`s come earlier, at definition time**, and normally at import:
 `defineRateLimit` (and `bindRateLimit`, for a definition written by hand)
 refuses an empty `name`, a `key` that is not a function, a `limit`, `per` or
 `burst` that is not a whole number of at least 1, a `burst × per` above
 9,007,199,254,740 (the most the script counts exactly), and a rate that would
-take more than ten years to refill from empty. Redis's own failures come back as
+take more than ten years to refill from empty; `defineIdempotency` (and
+`bindIdempotency`) refuses an empty `name`, a `key` that is not a function, a
+`ttl` or `lease` that is not a whole number of at least 1, and a missing
+`schema`. A `fingerprint` that is neither a string nor an `ArrayBufferView`
+rejects with a `TypeError` before anything is sent. Redis's own failures come back as
 they are, from Bun's client. Every message is in
 [troubleshooting](docs/troubleshooting.md).
 
@@ -196,6 +325,16 @@ Each is a `@ts-expect-error` case in `test/types/guard.ts`.
   it is defined, and `bindRateLimit` without a client.
 - A `GuardErrorCode` it does not have, and `retryAfter` read as if it were
   always there.
+
+In `test/types/idempotency.ts`:
+
+- A `work` that returns what the schema does not accept — a field of the
+  wrong type, a required field left out, a union member the schema lacks.
+- A `fingerprint` that is a number, params missing a field, `forget` with a
+  bare string, and a result written to.
+- A definition without `ttl` or `schema`, a `ttl` given as a string, an
+  option it does not have — `timeout` for `lease` — a definition changed
+  after it is defined, and `bindIdempotency` without a client.
 
 ## Traps
 
@@ -238,11 +377,55 @@ Each is a `@ts-expect-error` case in `test/types/guard.ts`.
 - **A cost above the burst is refused, not queued.** No bucket ever holds more
   than `burst`, so it could never be allowed.
 
+Idempotency:
+
+- **The lease is not renewed yet.** A run holds its key for `lease`
+  milliseconds (default 10 s); work that runs longer loses it, and a repeat
+  that arrives after that **runs the work a second time**. The first run then
+  fails with `LEASE_LOST` and stores nothing, and the second one's result is
+  what replays. Set `lease` above the longest the work can take. A heartbeat
+  that renews it is on the [roadmap](docs/roadmap.md).
+- **`ttl` is seconds; `lease` is milliseconds.** `ttl` follows Redis's
+  `EXPIRE` and `@nxgt/redis`'s `defineCache`; `lease` follows every other
+  duration in this package. `ttl: 86_400` is a day; `lease: 86_400` is under
+  a minute and a half.
+- **A thrown error is not stored.** The key is given back and the next repeat
+  runs the work again — right for a failure worth retrying (a timeout, a
+  database that was down). A failure the client must get back unchanged is a
+  result: return it as a union member of the schema.
+- **The schema has to read what was stored for as long as `ttl`.** A replay
+  parses the stored result with **today's** schema. A deploy that adds a
+  required field makes every result stored before it `INVALID` until it
+  expires — and `INVALID` on replay does **not** run the work again, since
+  that would repeat what it did. Add fields as optional or with a
+  `.default()`, or rename the operation.
+- **A result must survive JSON, and the schema must accept its own output.**
+  It is stored as JSON and parsed again on each replay. A `z.date()`, a
+  `bigint`, or a transform that does not accept what it produced is refused
+  on the first run, before anything is stored.
+- **Fingerprint the raw body, not a re-serialised object.** `JSON.stringify`
+  of a parsed body depends on key order and on what the parser dropped; two
+  identical requests could then disagree, and two different ones agree. Hash
+  what arrived: `await request.text()`, or the bytes.
+- **Scope the key.** A client's `Idempotency-Key` is only unique to that
+  client: key on the user or the tenant as well, or two users choosing the
+  same key would get each other's result. The fingerprint catches most of
+  that, but only when both send one.
+- **If storing the result fails, the work has still happened.** A connection
+  lost between `work` and the store leaves the key running until its lease
+  lapses, and the error is Redis's. A repeat within the lease gets
+  `IN_PROGRESS`; after it, the work runs again.
+- **A running key cannot be waited for yet.** A repeat during the first run
+  gets `IN_PROGRESS` and its `retryAfter`; waiting for the result instead is
+  on the roadmap.
+
 ## Documentation
 
 - [docs/README.md](docs/README.md) — the guide index.
 - [docs/guide/rate-limits.md](docs/guide/rate-limits.md) — GCRA, choosing a
   rate, and the HTTP recipe.
+- [docs/guide/idempotency.md](docs/guide/idempotency.md) — the storage, the
+  fingerprint, `ttl` and `lease`, and the HTTP recipe.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — every error this
   package can raise, by the message you will see.
 - [docs/roadmap.md](docs/roadmap.md) — what is coming, and what has been
