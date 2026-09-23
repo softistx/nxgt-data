@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/redis-guard",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Guards on Bun's own Redis client: rate limits as one atomic GCRA script, timed by the Redis server's clock",
 	"license": "MIT",
 	"type": "module",
