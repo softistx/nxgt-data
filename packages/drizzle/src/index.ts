@@ -12,6 +12,7 @@ export {
 	InvalidValueError,
 	NotFoundError,
 	NotNullViolationError,
+	OptimisticLockError,
 } from './errors/data-error';
 export { toDataError } from './errors/to-data-error';
 export type { CursorPayload } from './pagination/cursor';

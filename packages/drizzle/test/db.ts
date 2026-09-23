@@ -15,7 +15,7 @@ export async function createTestDb() {
 		client,
 		reset: () =>
 			client.exec(
-				'truncate teams, users, posts, memberships, logs restart identity cascade',
+				'truncate teams, users, posts, memberships, logs, tickets restart identity cascade',
 			),
 		close: () => client.close(),
 	};

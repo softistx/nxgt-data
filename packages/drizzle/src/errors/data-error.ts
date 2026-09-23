@@ -5,6 +5,7 @@ export type DataErrorCode =
 	| 'FOREIGN_KEY'
 	| 'CHECK_VIOLATION'
 	| 'NOT_NULL_VIOLATION'
+	| 'OPTIMISTIC_LOCK'
 	| 'INVALID_VALUE'
 	| 'INVALID_CURSOR'
 	| 'DATABASE';
@@ -125,6 +126,39 @@ export class NotNullViolationError extends DataError {
 			...options,
 			code: 'NOT_NULL_VIOLATION',
 		});
+	}
+}
+
+/**
+ * The row changed since it was read: its version is no longer the one the
+ * update expected, and nothing was written. Raised by `update` given the
+ * version it read, on a repository with an optimistic lock.
+ *
+ * It is not a `ConflictError`: no constraint refused anything, and the
+ * answer is different — a client re-reads and decides again, where a
+ * duplicate key has nothing to re-read. Most handlers still answer both 409.
+ */
+export class OptimisticLockError extends DataError {
+	override name = 'OptimisticLockError';
+	/** The id of the row the update was for. */
+	readonly id: unknown;
+	/** The version the patch said the row was at. */
+	readonly expectedVersion: number | undefined;
+	/** The version the row is at: someone else wrote first. */
+	readonly actualVersion: number | undefined;
+
+	constructor(
+		message = 'Version conflict',
+		options: Omit<DataErrorOptions, 'sqlState'> & {
+			id?: unknown;
+			expectedVersion?: number | undefined;
+			actualVersion?: number | undefined;
+		} = {},
+	) {
+		super(message, { ...options, code: 'OPTIMISTIC_LOCK' });
+		this.id = options.id;
+		this.expectedVersion = options.expectedVersion;
+		this.actualVersion = options.actualVersion;
 	}
 }
 

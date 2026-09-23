@@ -1,4 +1,5 @@
 import type { PgColumn, PgTable } from 'drizzle-orm/pg-core';
+import { ArgumentError } from '../../errors/argument-error';
 import { NotFoundError } from '../../errors/data-error';
 import { toDataError } from '../../errors/to-data-error';
 import { DEFAULT_MAX_PAGE_SIZE } from '../../pagination/page';
@@ -32,21 +33,29 @@ export interface RepositoryContext {
 	 * `refuseHeldDatabase` protects inside an open transaction.
 	 */
 	readonly explicit: boolean;
+	/**
+	 * Who is writing, stamped into `createdBy`, `updatedBy` and `deletedBy`;
+	 * `undefined` for nobody. Set by the `actor` option and by `as()`.
+	 */
+	readonly actor: unknown;
 }
 
 export function createContext(
 	db: PgDatabase,
 	table: PgTable,
 	info: TableInfo,
-	options: RepositoryOptions<any, any, any>,
+	options: RepositoryOptions<any, any, any, any>,
 ): RepositoryContext {
-	return {
+	const ctx: RepositoryContext = {
 		db,
 		table,
 		info,
 		maxPageSize: options.maxPageSize ?? DEFAULT_MAX_PAGE_SIZE,
 		explicit: false,
+		actor: undefined,
 	};
+	// The option is `as()` said earlier, and refused the same way.
+	return options.actor === undefined ? ctx : acting(ctx, options.actor);
 }
 
 /**
@@ -60,6 +69,34 @@ export function rebound(
 	db: PgDatabase,
 ): RepositoryContext {
 	return { ...ctx, db, explicit: true };
+}
+
+/**
+ * The same repository, writing as someone else, as `as()` gives it back.
+ *
+ * The actor is not read or converted: it is whatever the actor columns hold,
+ * and the database checks it on the first write. An `undefined` or a `null`
+ * is refused rather than taken as nobody — an actor that never arrived is a
+ * session that was not read, and a repository that quietly stamped nothing
+ * would hide it.
+ */
+export function acting(
+	ctx: RepositoryContext,
+	actor: unknown,
+): RepositoryContext {
+	const { createdBy, updatedBy, deletedBy } = ctx.info;
+	if (!createdBy && !updatedBy && !deletedBy) {
+		throw new TypeError(
+			`as on "${ctx.info.name}": the table has no createdBy, updatedBy or deletedBy column to stamp`,
+		);
+	}
+	if (actor === undefined || actor === null) {
+		throw new ArgumentError(
+			'actor',
+			`as on "${ctx.info.name}": the actor is ${String(actor)}. Pass who is writing, or use the repository without as()`,
+		);
+	}
+	return { ...ctx, actor };
 }
 
 /**

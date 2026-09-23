@@ -1,6 +1,7 @@
 import type { PgTable } from 'drizzle-orm/pg-core';
 import {
 	type AnyRow,
+	acting,
 	createContext,
 	type RepositoryContext,
 	rebound,
@@ -32,6 +33,7 @@ import type {
 	FindFirstOptions,
 	FindManyOptions,
 	HasColumn,
+	LockOf,
 	PaginateOptions,
 	PgDatabase,
 	PrimaryKeyOf,
@@ -54,15 +56,16 @@ export function createRepository<
 	TTable extends PgTable,
 	TKey extends ColumnKey<TTable> = PrimaryKeyOf<TTable>,
 	TSoft extends boolean = HasColumn<TTable, 'deletedAt'>,
+	TLock extends boolean = LockOf<TTable>,
 >(
 	db: PgDatabase,
 	table: TTable,
-	options: RepositoryOptions<TTable, TKey, TSoft> = {},
-): Repository<TTable, TKey, TSoft> {
+	options: RepositoryOptions<TTable, TKey, TSoft, TLock> = {},
+): Repository<TTable, TKey, TSoft, TLock> {
 	const info = tableInfo(table, options);
 	return build(
 		createContext(db, table, info, options),
-	) as unknown as Repository<TTable, TKey, TSoft>;
+	) as unknown as Repository<TTable, TKey, TSoft, TLock>;
 }
 
 /**
@@ -75,6 +78,7 @@ function build(ctx: RepositoryContext) {
 		table: ctx.table,
 		db: ctx.db,
 		with: (other: PgDatabase) => build(rebound(ctx, other)),
+		as: (actor: unknown) => build(acting(ctx, actor)),
 
 		findById: (id: unknown, opts?: ReadOptions) => findById(ctx, id, opts),
 		getById: (id: unknown, opts?: ReadOptions) => getById(ctx, id, opts),
