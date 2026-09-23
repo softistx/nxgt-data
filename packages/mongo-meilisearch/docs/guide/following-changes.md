@@ -96,6 +96,31 @@ is checked first. The holder is `host:pid:<id>`, and the date is when its
 lease ends unless it is renewed. For `reindex()` the message ends
 `before you reindex.`
 
+Both are on the error too, read from the lease document, so a caller waits
+for that moment instead of guessing:
+
+```ts
+import { SearchSyncError } from '@nxgt/mongo-meilisearch';
+
+try {
+	await articleSearch.start();
+} catch (error) {
+	if (!(error instanceof SearchSyncError) || error.code !== 'RUNNING') throw error;
+	error.holder;    // 'worker-1:4127:66f0c2e5a1b2c3d4e5f60718'
+	error.expiresAt; // 2026-09-22T09:14:07.512Z, a Date on MongoDB's clock
+}
+```
+
+| Field | Type | Set when |
+| --- | --- | --- |
+| `holder` | `string \| undefined` | the lease refused the call: who holds the name, as that process described itself. A label for a log — do not parse it |
+| `expiresAt` | `Date \| undefined` | with `holder`: when that lease lapses if its holder stops renewing it. A live holder renews it every `leaseMs / 3`, so trying again at that time can be refused again, with a later one |
+
+Both are `undefined` on the sync object's own refusal — the name is this
+process's, renewed for as long as it follows, so there is no time to wait for,
+only a `close()` — on every other code, and when the holder let go between
+the refusal and the read of its lease.
+
 | Option | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `leaseMs` | `number` | `30000` | How long the lease lasts without being renewed. A running sync renews it every `leaseMs / 3`. A whole number above 0 |
@@ -125,11 +150,19 @@ Several processes can run the same code; one follows, the others wait for
 the name. The loop is `follow()`, in the README's
 [One process per sync name](../../README.md#one-process-per-sync-name): it
 retries `start()` on `RUNNING`, and on `LEASE_LOST`, which a `start()` whose
-first reindex lost the name rejects with.
+first reindex lost the name rejects with. Each time it waits until the
+error's `expiresAt`, plus a margin for a host clock ahead of MongoDB's, or a
+fixed pause when there is none — a `LEASE_LOST` has none. A host further
+ahead is refused again, and retries every 250 ms until the lease lapses.
 
 ```ts
 const running = await follow(); // resolves once this process holds the name
 ```
+
+A holder that died is taken over as soon as its lease lapses, not a fixed
+pause after. One that is alive has renewed its lease by then, so the standby
+is refused again with a later `expiresAt` and waits once more: about one lease
+per try, one `start()` against MongoDB each time.
 
 ### When the lease is lost
 

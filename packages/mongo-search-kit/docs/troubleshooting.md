@@ -8,8 +8,9 @@ name is written as it comes out by default — `<collection>:<index uid>`, here
 Each sync is [`@nxgt/mongo-meilisearch`](https://www.npmjs.com/package/@nxgt/mongo-meilisearch)'s,
 unchanged, so its errors are this package's errors: a `SearchSyncError` with a
 `code` (`HISTORY_LOST`, `ID_MISMATCH`, `NOT_A_DOCUMENT`, `RUNNING`,
-`LEASE_LOST`, `FAILED`), the sync's `name`
-and the original error as `cause`. **Its own `docs/troubleshooting.md` covers
+`LEASE_LOST`, `FAILED`), the sync's name as `sync`, on a `RUNNING` the
+lease refused the `holder` and when its lease ends as `expiresAt`, and the
+original error as `cause`. **Its own `docs/troubleshooting.md` covers
 the transform, the ids, the resume point and the privileges a sync needs**;
 what is below is what this kit adds — the config, and the syncs started and
 stopped together.
@@ -191,7 +192,8 @@ Code `RUNNING`. `reindexAll()` while the kit is running ends
 `… before you reindex.`
 
 **When:** a second `start()` on the same search kit, or a `reindexAll()` while
-it is running.
+it is running. Its `holder` and `expiresAt` are `undefined`: there is no lease
+to wait out, only a `close()`.
 
 **Why:** a reindex removes what the index holds and the collection no longer
 gives it — including what the running follower has just indexed, which it will
@@ -226,13 +228,15 @@ keeps two followers off one name. Its full entry is the bridge's:
 [`… is held by …`](https://github.com/softistx/nxgt-data/blob/develop/packages/mongo-meilisearch/docs/troubleshooting.md#search-sync-articlesarticles-is-held-by--until--wait-for-it-to-close-or-for-its-lease-to-lapse-before-you-start-it).
 
 **Fix:** run one kit per set of names, and let a second replica wait and retry
-`start()`:
+`start()`. The error carries the lease's `holder` and its `expiresAt` — the
+first held name's, since `start()` stops there — so the replica waits until
+then rather than a fixed time:
 
 ```ts
 import { SearchSyncError } from '@nxgt/mongo-meilisearch';
 
 // Another process holds a name, or took one over while this start reindexed.
-const heldElsewhere = (error: unknown) =>
+const heldElsewhere = (error: unknown): error is SearchSyncError =>
 	error instanceof SearchSyncError &&
 	(error.code === 'RUNNING' || error.code === 'LEASE_LOST');
 
@@ -242,13 +246,20 @@ async function follow() {
 			return await search.start();
 		} catch (error) {
 			if (!heldElsewhere(error)) throw error;
-			await new Promise((resolve) => setTimeout(resolve, 10_000));
+			// Until that lease lapses when it is known, 10 s when not; the
+			// margin covers a host clock ahead of MongoDB's.
+			const until = error.expiresAt?.getTime() ?? Date.now() + 10_000;
+			const wait = Math.max(until - Date.now(), 0) + 250;
+			await new Promise((resolve) => setTimeout(resolve, wait));
 		}
 	}
 }
 
 const running = await follow();
 ```
+
+A host whose clock is further ahead of MongoDB's than the 250 ms margin is
+refused again, and retries every 250 ms until the lease lapses.
 
 Two search kits over one collection share the name, because it defaults to
 `<collection>:<index uid>` — and with it the recorded point and the lease. Give

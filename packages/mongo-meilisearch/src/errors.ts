@@ -23,6 +23,10 @@ export interface SearchSyncErrorOptions {
 	code: SearchSyncErrorCode;
 	sync: string;
 	cause?: unknown;
+	/** Who holds the lease, on a `RUNNING` the lease refused. */
+	holder?: string | undefined;
+	/** When that lease lapses unrenewed, on a `RUNNING` the lease refused. */
+	expiresAt?: Date | undefined;
 }
 
 /** An error of a sync, with the sync's name and what caused it. */
@@ -31,6 +35,22 @@ export class SearchSyncError extends Error {
 	readonly code: SearchSyncErrorCode;
 	/** The sync's name. */
 	readonly sync: string;
+	/**
+	 * On a `RUNNING` the lease refused: who holds the name, as that process
+	 * described itself (`host:pid:<ObjectId>`). A label for a log, not a value
+	 * to parse. `undefined` on every other error, on the `RUNNING` of a sync
+	 * object that is already following in this process, and when the holder
+	 * let go before it could be read.
+	 */
+	readonly holder: string | undefined;
+	/**
+	 * On a `RUNNING` the lease refused: when the holder's lease lapses if it
+	 * stops renewing it, read from the lease document and so on the MongoDB
+	 * server's clock. A live holder renews it every third of `leaseMs`, so a
+	 * start at this time can still be refused, with a later one. `undefined`
+	 * whenever `holder` is.
+	 */
+	readonly expiresAt: Date | undefined;
 
 	constructor(message: string, options: SearchSyncErrorOptions) {
 		super(
@@ -39,6 +59,8 @@ export class SearchSyncError extends Error {
 		);
 		this.code = options.code;
 		this.sync = options.sync;
+		this.holder = options.holder;
+		this.expiresAt = options.expiresAt;
 	}
 }
 

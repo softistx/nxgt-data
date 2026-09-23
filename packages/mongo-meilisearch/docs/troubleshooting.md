@@ -223,7 +223,8 @@ Code `RUNNING`. `reindex()` on a sync that is following ends
 `… before you reindex.`
 
 **When:** a second `start()`, or a `reindex()`, on a sync object that is
-already following.
+already following. Its `holder` and `expiresAt` are `undefined`: the name is
+this object's own, so there is no lease to wait out, only a `close()`.
 
 **Why:** a reindex removes what the index holds and the collection no longer
 gives it — including the documents the running follower has just indexed, which
@@ -259,13 +260,16 @@ MongoDB server's clock, so hosts whose clocks disagree still agree on it.
 
 **Fix:** run one follower per name. A second replica can stand by, retrying
 `start()` until the name is free — on `RUNNING`, and on `LEASE_LOST`, which a
-`start()` whose first reindex lost the name to another process rejects with:
+`start()` whose first reindex lost the name to another process rejects with.
+The error carries the holder as `holder` and the end of its lease as
+`expiresAt` (a `Date`, from the lease document), so the standby waits until
+then rather than a fixed time:
 
 ```ts
 import { type RunningSearchSync, SearchSyncError } from '@nxgt/mongo-meilisearch';
 
 // The name is held elsewhere, or was taken over while this start reindexed.
-const heldElsewhere = (error: unknown) =>
+const heldElsewhere = (error: unknown): error is SearchSyncError =>
 	error instanceof SearchSyncError &&
 	(error.code === 'RUNNING' || error.code === 'LEASE_LOST');
 
@@ -275,11 +279,23 @@ async function follow(): Promise<RunningSearchSync> {
 			return await articleSearch.start();
 		} catch (error) {
 			if (!heldElsewhere(error)) throw error;
-			await new Promise((resolve) => setTimeout(resolve, 10_000));
+			// Until the holder's lease lapses when it is known, 10 s when not;
+			// the margin covers a host clock ahead of MongoDB's.
+			const until = error.expiresAt?.getTime() ?? Date.now() + 10_000;
+			const wait = Math.max(until - Date.now(), 0) + 250;
+			await new Promise((resolve) => setTimeout(resolve, wait));
 		}
 	}
 }
 ```
+
+A live holder renews its lease every third of `leaseMs`, so the next try is
+refused again with a later `expiresAt`; a dead one is taken over as soon as
+its lease lapses. `expiresAt` is `undefined` on a `LEASE_LOST`, and on a
+`RUNNING` whose holder let go before its lease could be read; the loop then
+falls back to its fixed pause. The 250 ms margin covers a host clock ahead of
+MongoDB's; a host further ahead is refused again, and retries every 250 ms
+until the lease lapses.
 
 Close the sync on shutdown (`await running.close()` on `SIGTERM`): that lets go
 of the name at once, where a killed process leaves it held until its lease

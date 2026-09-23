@@ -8,6 +8,7 @@ import { z } from 'zod';
 import {
 	createSearchSync,
 	type ReindexReport,
+	SearchSyncError,
 	type SearchSyncState,
 } from '../../src';
 import { articleIndex, articles } from '../fixtures';
@@ -164,3 +165,21 @@ export async function results() {
 	await using _disposed = running;
 	return { report, state, reason };
 }
+
+// A RUNNING says who holds the name and until when, both possibly unknown.
+export function waitFor(error: SearchSyncError) {
+	const holder: string | undefined = error.holder;
+	const expiresAt: Date | undefined = error.expiresAt;
+	// @ts-expect-error it may be unknown: check it before reading a time
+	const ms: number = error.expiresAt.getTime();
+	// @ts-expect-error read-only, as every field of the error
+	error.expiresAt = new Date();
+	return { holder, expiresAt, ms };
+}
+
+new SearchSyncError('held', {
+	code: 'RUNNING',
+	sync: 'articles:articles',
+	// @ts-expect-error a Date, as MongoDB gives it, not its ISO string
+	expiresAt: '2026-09-23T00:00:00.000Z',
+});
