@@ -9,6 +9,7 @@ import {
 import { createHash } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { Readable } from 'node:stream';
 import type { Collection, Db } from 'mongodb';
 import { Binary, GridFSBucket, ObjectId } from 'mongodb';
 import { avatars, clips, uploads } from '../../test/buckets';
@@ -140,10 +141,53 @@ describe('writing a file', () => {
 
 	test('refuses a source it cannot read', async () => {
 		const files = anything();
-		await expect(files.put(42 as never)).rejects.toThrow(/expected a file/);
-		const drained = new Response('a');
-		await drained.text();
-		await expect(files.put(drained)).rejects.toThrow(/no body/);
+		// The call, the bucket and the shape — never the value.
+		for (const [source, shape] of [
+			[42, 'a number'],
+			[null, 'null'],
+			[{ secret: 'x' }, 'an object'],
+			[new Map(), 'a Map'],
+			// An own `constructor` is data from the caller, never a class name.
+			[JSON.parse('{"constructor":{"name":"sk_live_SECRET"}}'), 'an object'],
+			[{ constructor: Map }, 'an object'],
+			// Nor is a prototype's `constructor` that is not a function.
+			[Object.create({ constructor: { name: 'sk_live_SECRET' } }), 'an object'],
+			[
+				Object.defineProperty({}, 'constructor', {
+					get() {
+						throw new Error('the getter ran');
+					},
+				}),
+				'an object',
+			],
+			[
+				Object.create(
+					Object.defineProperty({}, 'constructor', {
+						get() {
+							throw new Error('the prototype getter ran');
+						},
+					}),
+				),
+				'an object',
+			],
+		] as const) {
+			const failed = await files.put(source as never).then(
+				() => undefined,
+				(error: unknown) => error,
+			);
+			expect(failed).toBeInstanceOf(TypeError);
+			expect((failed as Error).message).toBe(
+				'put on "uploads": expected a file, a blob, a response, a stream ' +
+					`or bytes, not ${shape}`,
+			);
+		}
+		const empty = await files.put(new Response(null)).then(
+			() => undefined,
+			(error: unknown) => error,
+		);
+		expect((empty as Error).message).toBe(
+			'put on "uploads": this Response has no body, so it has nothing to store.',
+		);
 	});
 
 	test('takes an `_id` the caller chose, in either form', async () => {
@@ -634,6 +678,202 @@ describe('a bucket in a transaction', () => {
 		// part of the transaction.
 		expect(await files.exists(file.id)).toBe(true);
 		expect(await (await files.get(file.id)).bytes()).toEqual(bytes(2048));
+	});
+});
+
+describe('a stream that was already read', () => {
+	/** A web stream of `n` bytes, as a request body would be. */
+	const streamOf = (n: number) =>
+		new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(bytes(n));
+				controller.close();
+			},
+		});
+	/** Holds the rejection where it is made; a resolved call is the failure. */
+	const refusal = (promise: Promise<unknown>) =>
+		promise.then(
+			() => {
+				throw new Error('the call was expected to be refused');
+			},
+			(error: unknown) => error,
+		);
+	const spent = (call: string) =>
+		new RegExp(`^${call} on "uploads": this stream was already read`);
+	const count = (name: string) => t.db.collection(name).countDocuments();
+
+	test('a transaction the driver runs twice is refused, not stored empty', async () => {
+		// Measured on mongod 8.2.6: `autoSync` creates `uploads.chunks` outside
+		// the session, after the snapshot the insert below opened, so the
+		// commit fails with 112 and the driver runs the body again — over the
+		// stream its first run spent. Before the refusal, that second run
+		// stored a file of 0 bytes and committed the row beside it.
+		const files = getFiles(t.db, uploads, { autoSync: true });
+		const stream = streamOf(10);
+		let attempts = 0;
+		const failed = await refusal(
+			withTransaction(t.client, async (session) => {
+				attempts += 1;
+				await t.db.collection('rows').insertOne({ attempts }, { session });
+				await files.withSession(session).put(stream);
+			}),
+		);
+		expect(attempts).toBe(2);
+		expect(failed).toBeInstanceOf(TypeError);
+		expect((failed as Error).message).toMatch(spent('put'));
+		expect(await count('uploads.files')).toBe(0);
+		expect(await count('uploads.chunks')).toBe(0);
+		expect(await count('rows')).toBe(0);
+	});
+
+	test('a second put of the same stream is refused, and writes nothing', async () => {
+		const files = anything();
+		const stream = streamOf(10);
+		expect((await files.put(stream)).size).toBe(10);
+		const again = await refusal(files.put(stream));
+		expect(again).toBeInstanceOf(TypeError);
+		expect((again as Error).message).toMatch(spent('put'));
+		const once = await refusal(files.putOnce(stream));
+		expect((once as Error).message).toMatch(spent('putOnce'));
+		expect(await count('uploads.files')).toBe(1);
+		expect(await count('uploads.chunks')).toBe(1);
+	});
+
+	test('refuses one the caller drained, read partly, or holds locked', async () => {
+		const files = anything();
+		const drained = streamOf(10);
+		await new Response(drained).arrayBuffer();
+		const partly = streamOf(10);
+		const reader = partly.getReader();
+		await reader.read();
+		reader.releaseLock();
+		const locked = streamOf(10);
+		locked.getReader();
+		// A response whose body somebody holds a reader on: not used yet, so
+		// `bodyUsed` is false, and still nothing this call can read.
+		const body = streamOf(4);
+		const response = new Response(body);
+		body.getReader();
+		for (const source of [drained, partly, locked, response]) {
+			const failed = await refusal(files.put(source));
+			expect((failed as Error).message).toMatch(spent('put'));
+		}
+		expect(await count('uploads.files')).toBe(0);
+	});
+
+	test('refuses a generator or a node stream the first put read', async () => {
+		const files = anything();
+		async function* generated() {
+			yield bytes(3);
+			yield bytes(4);
+		}
+		const generator = generated();
+		const node = Readable.from([Buffer.from(bytes(5))]);
+		expect((await files.put(generator)).size).toBe(7);
+		expect((await files.put(node)).size).toBe(5);
+		for (const source of [generator, node]) {
+			const failed = await refusal(files.put(source));
+			expect((failed as Error).message).toMatch(spent('put'));
+		}
+		expect(await count('uploads.files')).toBe(2);
+	});
+
+	test('refuses a Response the first put read, through putOnce too', async () => {
+		const files = anything();
+		const response = new Response('hello');
+		expect((await files.put(response)).size).toBe(5);
+		const again = await refusal(files.put(response));
+		expect((again as Error).message).toMatch(spent('put'));
+		const once = await refusal(files.putOnce(response));
+		expect((once as Error).message).toMatch(spent('putOnce'));
+		expect(await count('uploads.files')).toBe(1);
+	});
+
+	test('refuses a node stream the caller read one byte of, ended or destroyed', async () => {
+		// Each flag on its own: `read(1)` sets `readableDidRead` alone,
+		// `destroy()` on a stream nobody read sets `destroyed` alone — which
+		// without the refusal fails with `Premature close`, not this — and a
+		// stream that ended while flowing with nothing read sets
+		// `readableEnded` alone, and would be read as no bytes.
+		const make = () => {
+			const node = new Readable({ read() {} });
+			node.push(Buffer.from('abcdef'));
+			node.push(null);
+			return node;
+		};
+		const partly = make();
+		partly.read(1);
+		const destroyed = make();
+		destroyed.destroy();
+		const ended = new Readable({ read() {}, autoDestroy: false });
+		ended.push(null);
+		ended.resume();
+		await new Promise((resolve) => ended.once('end', resolve));
+		expect([
+			ended.readableDidRead,
+			ended.readableEnded,
+			ended.destroyed,
+		]).toEqual([false, true, false]);
+		for (const source of [partly, destroyed, ended]) {
+			const failed = await refusal(anything().put(source));
+			expect((failed as Error).message).toMatch(spent('put'));
+		}
+		expect(await count('uploads.files')).toBe(0);
+	});
+
+	test('a generator a put refused before reading is stored whole by the next', async () => {
+		// Marked on its first pull, not when it is handed over: a conflict on
+		// the id reads nothing, so the generator still has every byte.
+		const files = anything();
+		async function* generated() {
+			yield bytes(3);
+			yield bytes(4);
+		}
+		const generator = generated();
+		const taken = new ObjectId();
+		await files.put(bytes(1), { id: taken });
+		const conflict = await refusal(files.put(generator, { id: taken }));
+		expect(conflict).toBeInstanceOf(ConflictError);
+		const stored = await files.put(generator);
+		expect(await stored.bytes()).toEqual(
+			new Uint8Array([...bytes(3), ...bytes(4)]),
+		);
+	});
+
+	test('an iterable with a `next` of its own is read afresh, not refused', async () => {
+		// Only an iterator that is its own `Symbol.asyncIterator` is spent by
+		// being read; this one hands out a new generator every time.
+		const afresh = {
+			next: () => Promise.resolve({ done: true as const, value: undefined }),
+			async *[Symbol.asyncIterator]() {
+				yield bytes(6);
+			},
+		};
+		const files = anything();
+		expect((await files.put(afresh)).size).toBe(6);
+		expect((await files.put(afresh)).size).toBe(6);
+	});
+
+	test('still takes an empty stream nobody read, and a source that reads afresh', async () => {
+		const files = anything();
+		const empty = new ReadableStream<Uint8Array>({ start: (c) => c.close() });
+		expect((await files.put(empty)).size).toBe(0);
+		// An iterable that hands out a new iterator each time is not spent by
+		// being read: it is not refused, and it stores its bytes every time.
+		const afresh = {
+			async *[Symbol.asyncIterator]() {
+				yield bytes(6);
+			},
+		};
+		expect((await files.put(afresh)).size).toBe(6);
+		expect((await files.put(afresh)).size).toBe(6);
+		// A put refused before reading leaves the stream for the next one.
+		const stream = streamOf(10);
+		const taken = new ObjectId();
+		await files.put(bytes(1), { id: taken });
+		const conflict = await refusal(files.put(stream, { id: taken }));
+		expect(conflict).toBeInstanceOf(ConflictError);
+		expect((await files.put(stream)).size).toBe(10);
 	});
 });
 

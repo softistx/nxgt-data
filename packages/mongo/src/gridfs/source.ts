@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { once, pieces, spent } from './read-once';
 /**
  * What a write may be given.
  *
@@ -55,30 +56,35 @@ function nameOf(source: Blob): string | undefined {
 	return tail === '' ? undefined : tail;
 }
 
-/**
- * A web stream, read piece by piece.
- *
- * `for await (… of stream)` works in bun and in node, and the DOM lib does
- * not declare it, so the reader is spelled out rather than cast away.
- */
-async function* pieces(
-	stream: ReadableStream<Uint8Array>,
-): AsyncIterable<Uint8Array> {
-	const reader = stream.getReader();
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) return;
-			if (value) yield value;
-		}
-	} finally {
-		reader.releaseLock();
-	}
-}
-
 /** One piece, for a source that is already whole in memory. */
 async function* one(bytes: Uint8Array): AsyncIterable<Uint8Array> {
 	yield bytes;
+}
+
+/**
+ * What a source that is none of the shapes turned out to be, for a message:
+ * its kind or its class, never its value — and with the article it needs.
+ *
+ * The class is read off the **prototype**, and only when it is a function:
+ * an object's own `constructor` is data, and `JSON.parse` of a request body
+ * can put anything there, a secret included, or a getter that throws.
+ */
+function shapeOf(value: unknown): string {
+	if (value === null || value === undefined) return String(value);
+	if (Array.isArray(value)) return 'an array';
+	let named = '';
+	if (typeof value === 'object') {
+		try {
+			const ctor: unknown = Object.getPrototypeOf(value)?.constructor;
+			named = typeof ctor === 'function' ? ctor.name : '';
+		} catch {
+			// A prototype's `constructor` getter threw. (A proxy whose
+			// `getPrototypeOf` throws never gets here: `readSource`'s
+			// `instanceof` checks ask it first.)
+		}
+	}
+	const kind = named && named !== 'Object' ? named : typeof value;
+	return `${/^[aeiou]/i.test(kind) ? 'an' : 'a'} ${kind}`;
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<Uint8Array> {
@@ -89,8 +95,11 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<Uint8Array> {
 	);
 }
 
-/** Reads a source down to the stream GridFS wants, and what it already knew. */
-export function readSource(source: FileSource): ReadSource {
+/**
+ * Reads a source down to the stream GridFS wants, and what it already knew.
+ * `where` names the call and the bucket a refusal is on: `put on "uploads"`.
+ */
+export function readSource(source: FileSource, where = 'put'): ReadSource {
 	if (typeof source === 'string') {
 		const bytes = new TextEncoder().encode(source);
 		return {
@@ -103,7 +112,7 @@ export function readSource(source: FileSource): ReadSource {
 	}
 	if (source instanceof Blob) {
 		return {
-			chunks: pieces(source.stream()),
+			chunks: pieces(source.stream(), where),
 			type: typeOf(source.type),
 			filename: nameOf(source),
 			// A `Bun.file` that is not there reports a size, and fails when it
@@ -112,16 +121,17 @@ export function readSource(source: FileSource): ReadSource {
 		};
 	}
 	if (source instanceof Response) {
-		const body = source.bodyUsed ? null : source.body;
+		// A body read before is what a transaction's second run hands over.
+		if (source.bodyUsed) throw spent(where);
+		const body = source.body;
 		if (!body) {
 			throw new TypeError(
-				'put: this Response has no body. A response that was already ' +
-					'read, or that never had one, has nothing to store.',
+				`${where}: this Response has no body, so it has nothing to store.`,
 			);
 		}
 		const length = Number(source.headers.get('content-length'));
 		return {
-			chunks: pieces(body),
+			chunks: pieces(body, where),
 			type: typeOf(source.headers.get('content-type')),
 			filename: undefined,
 			size: Number.isFinite(length) && length >= 0 ? length : undefined,
@@ -150,7 +160,7 @@ export function readSource(source: FileSource): ReadSource {
 	}
 	if (source instanceof ReadableStream) {
 		return {
-			chunks: pieces(source),
+			chunks: pieces(source, where),
 			type: undefined,
 			filename: undefined,
 			size: undefined,
@@ -158,14 +168,14 @@ export function readSource(source: FileSource): ReadSource {
 	}
 	if (isAsyncIterable(source)) {
 		return {
-			chunks: source,
+			chunks: once(source, where),
 			type: undefined,
 			filename: undefined,
 			size: undefined,
 		};
 	}
 	throw new TypeError(
-		`put: expected a file, a blob, a response, a stream or bytes, not ${String(source)}`,
+		`${where}: expected a file, a blob, a response, a stream or bytes, not ${shapeOf(source)}`,
 	);
 }
 

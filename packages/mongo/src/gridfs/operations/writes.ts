@@ -38,7 +38,7 @@ export async function putFile(
 	source: FileSource,
 	options: PutOptions = {},
 ): Promise<FileHandle> {
-	const read = readSource(source);
+	const read = readSource(source, `put on "${ctx.name}"`);
 	const _id =
 		options.id === undefined ? new ObjectId() : toObjectId(options.id);
 	// An id the caller chose may already be taken, and a write onto a taken id

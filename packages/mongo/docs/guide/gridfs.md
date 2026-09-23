@@ -213,6 +213,56 @@ await withTransaction(client, async (session) => {
 `files.raw` is still the driver's bucket, and still takes no session: it is
 an escape hatch, not a transactional one.
 
+### A stream is read once, and the callback may run twice
+
+The driver runs a transaction's callback again from the start on a transient
+error. A bucket's first upload with `autoSync` is one, and a predictable one:
+the indexes it creates outside the session create `<name>.chunks` after the
+transaction's snapshot, and the commit fails with 112 — measured on mongod
+8.2.6. The file the first run wrote is rolled back with it; the **source** is
+not. A `ReadableStream`, a node `Readable` or a generator the first run read
+has nothing left for the second.
+
+So `put` and `putOnce` refuse such a source rather than store it. All of
+these are a `TypeError`, thrown before any chunk is written:
+
+- a `ReadableStream` that was read — to the end or in part — or that someone
+  holds a reader on;
+- a `Response` whose body was read (`bodyUsed`) or is held that way;
+- a node `Readable` that was read, even one byte of it, that ended, or that
+  was destroyed;
+- a generator these calls read before.
+
+```
+put on "avatars": this stream was already read, or is held by another reader, so it has nothing left to store. …
+```
+
+The transaction then fails and commits nothing. Before this refusal, the
+second run stored a file of **0 bytes, with no error**, beside whatever the
+callback committed. Give the call a source it can read again:
+
+```ts
+const body = await request.bytes(); // outside the transaction
+await withTransaction(client, async (session) => {
+	await files.withSession(session).put(body, { type: 'image/png' });
+});
+```
+
+A `Blob` and a `Bun.file` are read afresh each time, and bytes are bytes. A
+put refused **before** it reads — an `_id` already taken — leaves the stream
+alone, so the next call can still store it. `syncIndexes()` at start-up takes
+the first-upload retry away, but not the others: any transient error runs the
+callback twice.
+
+**What is not detected.** An iterable that hands out a **new** iterator each
+time is read again, as it should be when each iterator starts over — but one
+whose iterators all read the same one-shot resource, such as a wrapper whose
+`[Symbol.asyncIterator]()` returns `stream.values()`, looks exactly like it,
+and is stored as whatever is left. So is a generator **the caller** drained
+before calling `put`: nothing on a finished generator says it was read, and
+only the ones these calls read are remembered. Pass the stream itself, or
+bytes.
+
 ## Create the indexes
 
 Nothing creates a bucket's indexes on its own, except `putOnce`. The driver

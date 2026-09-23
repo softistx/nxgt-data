@@ -1552,6 +1552,21 @@ operator, and getting it subtly wrong is worse than being honest about it.
   because nothing else about a bucket says it is unindexed. `syncIndexes` runs in
   the bucket's session, so mongod refuses it inside a transaction; `autoSync`
   drops the session for that reason.
+- **A stream is read once, and a transaction's callback may run twice.** The
+  driver retries it from the start on a transient error — a bucket's first
+  upload with `autoSync` fails its commit with 112 and is one — and a stream
+  the first run read is spent. `put` and `putOnce` refuse a `ReadableStream`
+  that was read or is locked, a `Response` whose body was used, a node
+  `Readable` that was read, ended or destroyed, and a generator they read
+  before, with a `TypeError`
+  (`put on "avatars": this stream was already read, …`) thrown before any
+  chunk is written, so the transaction commits nothing. They used to store it
+  as a file of 0 bytes, with no error. **Not detected**: an iterable that
+  hands out a new iterator over a one-shot resource (a wrapper returning
+  `stream.values()`), or a generator the caller drained before `put` — those
+  are stored as whatever is left. Pass the stream itself or bytes; read a
+  request body into bytes before the transaction, or pass a `Blob` or a
+  `Bun.file`, which are read afresh.
 - **`uploadDate` is not unique.** Two files written in the same millisecond
   share it, so the listing orders on `uploadDate` **and** `_id`. A cursor
   written for one order is refused by the other.

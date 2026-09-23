@@ -110,8 +110,9 @@ outside any transaction.
 It creates each [bucket](files.md)'s indexes before its first call too, and
 there it has a cost: when that first call is an upload inside a transaction,
 the chunks collection appears after the transaction's snapshot, the commit
-fails, and the driver runs the body twice — a stream source is stored empty
-on the second run. Call [`kit.syncBuckets()`](files.md#indexes-syncbuckets)
+fails, and the driver runs the body twice — a stream source the first run
+read is refused on the second with a `TypeError`, and the transaction commits
+nothing. Call [`kit.syncBuckets()`](files.md#indexes-syncbuckets)
 at start-up, before any transactional upload, and it runs once. The
 [details are in Files](files.md#autosync-and-the-first-upload-in-a-transaction).
 

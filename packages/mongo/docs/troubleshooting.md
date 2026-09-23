@@ -69,10 +69,12 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`putOnce: the bytes decide the id, so this call cannot be given one.`](#putonce-the-bytes-decide-the-id-so-this-call-cannot-be-given-one)
   - [``putOnce: "avatars" is bound with `hash: false`, and without a digest there is nothing to compare.``](#putonce-avatars-is-bound-with-hash-false-and-without-a-digest-there-is-nothing-to-compare)
   - [`put: "avatars" already has a file with _id 6721….`](#put-avatars-already-has-a-file-with-_id-6721)
+  - [`put on "avatars": this stream was already read, or is held by another reader, so it has nothing left to store.`](#put-on-avatars-this-stream-was-already-read-or-is-held-by-another-reader-so-it-has-nothing-left-to-store)
   - [`Chunk 3 of file 6721… in "avatars" is missing`](#chunk-3-of-file-6721-in-avatars-is-missing)
   - [`File 6721… in "avatars" reads 900 bytes where its chunks should hold 1024: a chunk of it was truncated`](#file-6721-in-avatars-reads-900-bytes-where-its-chunks-should-hold-1024-a-chunk-of-it-was-truncated)
   - [``put: "contentType" and "sha256" are kept by "avatars" itself.``](#put-contenttype-and-sha256-are-kept-by-avatars-itself)
-  - [`put: expected a file, a blob, a response, a stream or bytes, not null`](#put-expected-a-file-a-blob-a-response-a-stream-or-bytes-not-null)
+  - [`put on "avatars": expected a file, a blob, a response, a stream or bytes, not null`](#put-on-avatars-expected-a-file-a-blob-a-response-a-stream-or-bytes-not-null)
+  - [`put on "avatars": this Response has no body, so it has nothing to store.`](#put-on-avatars-this-response-has-no-body-so-it-has-nothing-to-store)
   - [`Chunk 3 of file 6721… in "avatars" holds a string where its bytes should be`](#chunk-3-of-file-6721-in-avatars-holds-a-string-where-its-bytes-should-be)
   - [`defineBucket: "avatars.small" is not a bucket name.`](#definebucket-avatarssmall-is-not-a-bucket-name)
   - [`(node:1) [NxgtGridFSMissingIndex] Warning: Bucket "avatars" has no files_id_1_n_1 on "avatars.chunks": every read scans the whole collection, …`](#node1-nxgtgridfsmissingindex-warning-bucket-avatars-has-no-files_id_1_n_1-on-avatarschunks-every-read-scans-the-whole-collection-)
@@ -917,6 +919,45 @@ await files.delete(id);       // replace it deliberately…
 const saved = await files.put(source); // …or let the bucket give it an id
 ```
 
+### `put on "avatars": this stream was already read, or is held by another reader, so it has nothing left to store.`
+
+The message goes on: *A transaction the driver retries runs this call again
+over the stream its first run read. Read it into bytes before the
+transaction, or pass a Blob or a `Bun.file`.* From `putOnce`, it begins
+`putOnce on "avatars"`.
+
+**When:** `put` or `putOnce` with a source that can be read only once and
+has been: a `ReadableStream` that was read — to the end or in part — or that
+someone holds a reader on, a `Response` whose body was read (`bodyUsed`) or
+is held that way, a node `Readable` that was read, ended or was destroyed, or
+a generator these calls read before. A `Response` read before used to get
+`put: this Response has no body…`; it gets this message now. Most often
+it is the **second run of a transaction**: the driver runs the callback again
+from the start on a transient error — a bucket's first upload with
+`autoSync` is one, whose commit fails with 112 — and the stream the first run
+read is spent by then.
+**Why:** a spent stream reads as empty. Before this refusal, the second run
+stored a file of **0 bytes, with no error**, and committed whatever the
+callback wrote beside it. A `TypeError`, since it is a mistake in the call,
+and it is thrown on the first read, before any chunk is written: in a
+transaction, nothing commits.
+**Fix:** give the call something it can read again, or create the indexes
+first so the usual first-upload retry does not happen:
+
+```ts
+const body = await request.bytes(); // read once, outside the transaction
+await withTransaction(client, async (session) => {
+	const file = await files.withSession(session).put(body, { type });
+	await users.withSession(session).update(userId, { avatarId: file._id });
+});
+
+await files.syncIndexes(); // at start-up: the first upload runs the body once
+```
+
+A `Blob` or a `Bun.file` is read afresh each time and needs neither. A
+stream too large to hold in memory does not belong in a transaction anyway:
+every chunk it writes is held until the commit.
+
 ### `Chunk 3 of file 6721… in "avatars" is missing`
 
 **When:** reading the bytes — `stream()`, `bytes()`, `text()`, `json()`,
@@ -958,13 +999,16 @@ await files.put(source, { type: 'image/png', metadata: { userId } });
 The digest is the bucket's to compute. A bucket's metadata schema may not
 declare either name, which `defineBucket` refuses with a message of its own.
 
-### `put: expected a file, a blob, a response, a stream or bytes, not null`
+### `put on "avatars": expected a file, a blob, a response, a stream or bytes, not null`
 
-**When:** `put` or `putOnce` with a source that is none of those — the `null`
-a `FormData` field gives when nothing was sent, a plain object, or a string.
+**When:** `put` or `putOnce` (`putOnce on "avatars"`) with a source that is
+none of those — the `null` a `FormData` field gives when nothing was sent, a
+number, a plain object (`not an object`) or an instance of some other class
+(`not a Map`). The message names the kind or the class, never the value.
 **Why:** the source is read as a `File` or `Blob`, a `Response`, a
-`ReadableStream`, an async iterable of chunks, or bytes; nothing else can be
-turned into chunks. A `TypeError`, since it is a mistake in the call.
+`ReadableStream`, an async iterable of chunks, bytes or a string; nothing
+else can be turned into chunks. A `TypeError`, since it is a mistake in the
+call.
 **Fix:**
 
 ```ts
@@ -973,7 +1017,23 @@ if (!(field instanceof File)) return badRequest('avatar');
 const saved = await files.put(field, { type: field.type });
 ```
 
-A string is not bytes on purpose: encode it first (`new TextEncoder().encode(text)`).
+A string is stored as its UTF-8 bytes.
+
+### `put on "avatars": this Response has no body, so it has nothing to store.`
+
+**When:** `put` or `putOnce` with a `Response` that never had a body — a
+`204`, a `HEAD` answer, `new Response(null)`. One whose body was already read
+is the
+[spent-stream refusal](#put-on-avatars-this-stream-was-already-read-or-is-held-by-another-reader-so-it-has-nothing-left-to-store)
+instead.
+**Why:** there are no bytes to store. A `TypeError`.
+**Fix:** check the answer before storing it:
+
+```ts
+const answer = await fetch(url);
+if (!answer.ok || !answer.body) return failed(answer.status);
+await files.put(answer);
+```
 
 ### `Chunk 3 of file 6721… in "avatars" holds a string where its bytes should be`
 

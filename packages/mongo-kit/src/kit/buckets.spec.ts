@@ -197,6 +197,33 @@ describe('autoSync and a transaction', () => {
 		expect(await count('users')).toBe(1);
 	});
 
+	test('a stream the first run spent is refused, and nothing commits', async () => {
+		// The second run used to read the stream as empty and commit a file
+		// of 0 bytes beside the user: `@nxgt/mongo/gridfs` refuses it now.
+		const kit = await bucketKit({ autoSync: true });
+		const stream = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(bytes(10));
+				controller.close();
+			},
+		});
+		let attempts = 0;
+		const failed = await rejection(
+			kit.transaction(async (tx) => {
+				attempts += 1;
+				await tx.db.users.create({ email: 'ada@example.com' });
+				await tx.db.uploads.put(stream);
+			}),
+		);
+		expect(attempts).toBe(2);
+		expect(failed).toBeInstanceOf(TypeError);
+		expect((failed as Error).message).toStartWith(
+			'put on "uploads": this stream was already read',
+		);
+		expect(await count('uploads.files')).toBe(0);
+		expect(await count('users')).toBe(0);
+	});
+
 	test('runs it once when syncBuckets ran first', async () => {
 		const kit = await bucketKit({ autoSync: true });
 		await kit.syncBuckets();

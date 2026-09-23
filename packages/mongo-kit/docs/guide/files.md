@@ -137,9 +137,10 @@ no session. The limits are MongoDB's:
   start-up with `syncBuckets()` — see below for why `autoSync` is not enough;
 - the body may **run twice**: the driver retries it from the start on a
   transient error. The file the failed attempt wrote went with it, but a
-  source that can be read only once — a request body's stream — is spent.
-  Read it into bytes before the transaction, or pass a `Bun.file`, which is
-  read afresh each time.
+  source that can be read only once — a request body's stream — is spent,
+  and the second `put` or `putOnce` refuses it with a `TypeError`, so the
+  transaction fails and commits nothing. Read it into bytes before the
+  transaction, or pass a `Bun.file`, which is read afresh each time.
 
 Two members of a bucket do not follow the transaction:
 
@@ -160,10 +161,18 @@ commit fails — measured on mongod 8.2.6, `commitTransaction` answers 112,
 the body a second time**, and that one commits.
 
 That second run is harmless for bytes or a `Bun.file`, and the document the
-first run wrote was rolled back with it. It is not harmless for a stream:
-spent on the first run, it is read as empty on the second, and — measured —
-the file is stored with **0 bytes and no error**. That silent empty file is
-`@nxgt/mongo/gridfs`'s to refuse, and is queued there.
+first run wrote was rolled back with it. It is not harmless for a stream,
+spent on the first run: `@nxgt/mongo/gridfs` **refuses** it on the second,
+before any chunk is written, and the transaction fails and commits nothing:
+
+```
+put on "uploads": this stream was already read, or is held by another reader, so it has nothing left to store. …
+```
+
+That is a `TypeError`, since it is a mistake in the call. It used to be
+worse — measured, the second run read the stream as empty and stored a file
+of **0 bytes, with no error**, beside the user it committed — and the
+refusal is what replaced it.
 
 So: **call `syncBuckets()` at start-up, before any transactional upload**.
 With the indexes already there, the same transaction runs once. `autoSync`
