@@ -2,7 +2,7 @@ import { ObjectId } from 'mongodb';
 import { dropChunks } from '../chunks';
 import type { BucketContext } from '../context';
 import { syncBucketIndexesOnce } from '../indexes';
-import { digestOf, type FileSource, readSource } from '../source';
+import { digestOf, type FileSource, readSource } from '../source/read';
 import { claim, giveUp, type PutOnceResult } from './claim';
 import { fileWithDigest } from './reads';
 import { type PutOptions, putOptionsFor, writeBody } from './writes';

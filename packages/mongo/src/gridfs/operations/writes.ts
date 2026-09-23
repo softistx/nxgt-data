@@ -7,7 +7,7 @@ import { type BucketContext, noSuchFile, run } from '../context';
 import { FileHandle, type StoredFile } from '../handle';
 import { HASH_KEY } from '../keys';
 import { metadataFor } from '../metadata';
-import { type FileSource, type ReadSource, readSource } from '../source';
+import { type FileSource, type ReadSource, readSource } from '../source/read';
 import type { FileId } from '../types';
 import { fileExists, findFile } from './reads';
 

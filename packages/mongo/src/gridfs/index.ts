@@ -30,7 +30,7 @@ export type { FilePageOptions } from './operations/paginate';
 export type { PutOnceResult } from './operations/put-once';
 export type { PutOptions } from './operations/writes';
 export { parseRange } from './serve';
-export type { FileSource } from './source';
+export type { FileSource } from './source/read';
 export type {
 	BucketConfig,
 	BucketDefinition,
