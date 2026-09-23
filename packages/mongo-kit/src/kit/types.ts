@@ -1,5 +1,6 @@
 import type {
 	ActorOf,
+	PingResult,
 	SyncOptions,
 	SyncReport,
 	TypedCollection,
@@ -119,6 +120,17 @@ export interface MongoKit<C> extends AsyncDisposable {
 	 * `dryRun` is the way to see everything at once.
 	 */
 	sync(options?: SyncOptions): Promise<Record<DbName<C>, SyncReport[]>>;
+	/**
+	 * Sends `ping` to every database at once, and reports each under its name:
+	 * `{ ok: true, latencyMs }`, or `{ ok: false, error }`. Never throws, and
+	 * answers within `timeoutMS` (default 2 s) either way — for a health
+	 * endpoint. A database the kit opened reports the driver's own errors; one the
+	 * config gave a `client` goes through a timer of its own, since an
+	 * unconnected client's first connect ignores `timeoutMS`.
+	 */
+	ping(options?: {
+		timeoutMS?: number;
+	}): Promise<Record<DbName<C>, PingResult>>;
 	/**
 	 * Closes what this kit opened. Idempotent; a client the config gave is
 	 * left alone, and only the kit `createKit` returned may be closed.

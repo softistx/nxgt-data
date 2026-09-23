@@ -153,6 +153,17 @@ a **deployment step**: `collMod` needs the `dbAdmin` role, and an index build
 runs outside any transaction. For tests and development, `autoSync: true` in
 the config syncs each collection before its first operation instead.
 
+## Health
+
+```ts
+const health = await kit.ping({ timeoutMS: 1_000 });
+// { main: { ok: true, latencyMs: 3.1 }, analytics: { ok: false, error } }
+const up = Object.values(health).every((result) => result.ok);
+```
+
+[Health](docs/guide/health.md) has the details, including the handed-over
+client that has to be connected first.
+
 ## Closing
 
 ```ts
@@ -203,6 +214,7 @@ Opens what the configuration describes, and gives a `MongoKit`:
 | `withSession(session)` | The same kit, in that session; `undefined` takes it away. |
 | `transaction(fn, options?)` | `fn` with a kit in a transaction. May run twice. |
 | `sync(options?)` | `SyncReport[]` per database, under its name. |
+| `ping(options?)` | `PingResult` (`import type { PingResult } from '@nxgt/mongo'`) per database, under its name. Never throws; `timeoutMS`, 2 s by default. |
 | `close()` | Gives back what it opened. Idempotent. |
 
 `KitOf<typeof config>` is that kit's type, for an application that declares
@@ -299,6 +311,11 @@ Each is a `@ts-expect-error` case in this package's type tests.
 - **A transaction reaches one client's databases.** With `{ on: 'main' }`,
   an operation on a database of another client carries a session that client
   does not own, and the driver refuses it.
+- **A client handed over unconnected dies on a failed first connect.** Its
+  implicit connect waits `serverSelectionTimeoutMS`, not `timeoutMS` —
+  `ping` keeps its deadline with a timer of its own — and if it fails, the
+  driver closes the client: every later command throws
+  `MongoTopologyClosedError`. Pass `await new MongoClient(uri).connect()`.
 - **`kit.db` throws `SEVERAL_DATABASES` on a kit with several databases**,
   where its type is already `never`: the message names the databases to read
   instead.
@@ -313,6 +330,7 @@ Each is a `@ts-expect-error` case in this package's type tests.
 - [The actor, sessions and transactions](docs/guide/actor-and-transactions.md)
   — `as`, `withSession` and `transaction`.
 - [Syncing](docs/guide/sync.md) — the deployment step, and `dryRun`.
+- [Health](docs/guide/health.md) — `ping()`, for a health endpoint.
 - [Errors](docs/guide/errors.md) — `KitError`, its codes, and what each one
   is thrown by.
 - [`discoverCollections`](docs/guide/discover-collections.md) — definitions

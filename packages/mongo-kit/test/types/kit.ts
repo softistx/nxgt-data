@@ -50,6 +50,16 @@ void kit.as(actor);
 // @ts-expect-error — a string is no ObjectId.
 void kit.as('ada');
 
+// `ping` reports under the database names, and nothing else.
+void kit.ping({ timeoutMS: 500 }).then((health) => {
+	const ok: boolean = health.default.ok;
+	void ok;
+	// @ts-expect-error — this kit has no database "main".
+	void health.main;
+});
+// @ts-expect-error — the option is spelt `timeoutMS`, as the driver spells it.
+void kit.ping({ timeoutMs: 500 });
+
 // A config's shape decides what `KitOf` gives back.
 type Kit = KitOf<typeof config>;
 const sameKit: Kit = kit;

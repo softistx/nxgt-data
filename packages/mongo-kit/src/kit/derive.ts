@@ -1,6 +1,7 @@
 import type { SyncOptions } from '@nxgt/mongo';
 import { KitError } from '../errors/kit-error';
 import { databaseOf, derived, type KitContext } from './context';
+import { pingKit } from './ping';
 import { scopeOf } from './scope';
 import { syncKit } from './sync';
 import { transact } from './transaction';
@@ -90,6 +91,9 @@ export function kitOf<C>(ctx: KitContext): MongoKit<C> {
 		},
 		sync(options?: SyncOptions) {
 			return syncKit(ctx, options) as never;
+		},
+		ping(options?: { timeoutMS?: number }) {
+			return pingKit(ctx, options) as never;
 		},
 		close() {
 			return closeKit(ctx);

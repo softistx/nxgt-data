@@ -5,9 +5,7 @@ an item shipped in is the only number on this page.
 
 ## Now
 
-- **`ping()`** — one call that says whether the databases the kit wires
-  answer, and how long they took, for a health endpoint that does not reach
-  for the driver itself.
+_Nothing in progress._
 
 ## Next
 
@@ -42,6 +40,10 @@ _Nothing queued._
 
 ## Shipped
 
+- **`ping()`** — one call that says whether each database the kit wires
+  answers, and how long it took, under its name, for a health endpoint that
+  does not reach for the driver itself; it never throws, and keeps its
+  deadline even for a client that was handed over unconnected — 0.3.0.
 - **Every refusal is a `KitError`, with a code** — `CONFIG`, `COLLISION`,
   `NO_DATABASE`, `SEVERAL_DATABASES`, `TRANSACTION`, `DERIVED` or `DISCOVERY`,
   beside the database and the key it is about, so a caller switches on the
