@@ -17,6 +17,11 @@ export interface TableInfo {
 	/** By key on the table object, which is also the key on a row. */
 	columns: Record<string, PgColumn>;
 	primaryKey: StampColumn | { error: string };
+	/**
+	 * The keys no update moves: every column of the declared primary key,
+	 * composite or not, and the column the methods by id address rows by.
+	 */
+	keys: string[];
 	deletedAt: StampColumn | undefined;
 	updatedAt: StampColumn | undefined;
 	/** The optimistic lock's column, when the repository locks. */
@@ -46,7 +51,10 @@ export function tableInfo(
 
 	// Before the stamps, as it always was: a missing key is the first thing
 	// a caller hears about.
-	const primaryKey = primaryKeyOf(name, table, columns, options.primaryKey);
+	// Read once: both the key the methods by id use and the keys no update
+	// moves come from it.
+	const composite = getTableConfig(table).primaryKeys[0]?.columns ?? [];
+	const primaryKey = primaryKeyOf(name, composite, columns, options.primaryKey);
 	if (options.softDelete === true && !columns.deletedAt) {
 		throw new TypeError(
 			`createRepository: softDelete needs a "deletedAt" column, and "${name}" has none`,
@@ -56,6 +64,7 @@ export function tableInfo(
 		name,
 		columns,
 		primaryKey,
+		keys: keysOf(composite, columns, primaryKey),
 		deletedAt: options.softDelete !== false ? at('deletedAt') : undefined,
 		updatedAt: options.touchUpdatedAt !== false ? at('updatedAt') : undefined,
 		version: versionOf(name, at('version'), options.optimisticLock),
@@ -96,9 +105,33 @@ function versionOf(
 	return counts ? column : undefined;
 }
 
+/**
+ * The keys of the declared primary key's columns — `.primaryKey()` on one, or
+ * `primaryKey({ columns })` on several — and of the column rows are addressed
+ * by, when it is another one: `primaryKey` names it, or it is the `id` a table
+ * with no declared key falls back on.
+ */
+function keysOf(
+	composite: readonly PgColumn[],
+	columns: Record<string, PgColumn>,
+	addressed: TableInfo['primaryKey'],
+): string[] {
+	// By name, not identity: measured on drizzle-orm 1.0.0-rc.4, the columns
+	// `getTableConfig` gives for a `primaryKey({ columns })` are not the table's
+	// own column objects, and `includes(column)` finds none of them.
+	const names = composite.map((column) => column.name);
+	const keys = Object.entries(columns)
+		.filter(([, column]) => column.primary || names.includes(column.name))
+		.map(([key]) => key);
+	if ('key' in addressed && !keys.includes(addressed.key)) {
+		keys.push(addressed.key);
+	}
+	return keys;
+}
+
 function primaryKeyOf(
 	name: string,
-	table: PgTable,
+	composite: readonly PgColumn[],
 	columns: Record<string, PgColumn>,
 	named: string | undefined,
 ): TableInfo['primaryKey'] {
@@ -111,10 +144,9 @@ function primaryKeyOf(
 		}
 		return { key: named, column };
 	}
-	const composite = getTableConfig(table).primaryKeys[0];
 	const declared = Object.entries(columns).filter(([, c]) => c.primary);
-	if (composite) {
-		const names = composite.columns.map((c) => c.name).join(', ');
+	if (composite.length > 0) {
+		const names = composite.map((c) => c.name).join(', ');
 		return {
 			error:
 				`"${name}" has a composite primary key (${names}): the methods by id ` +

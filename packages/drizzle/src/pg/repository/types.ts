@@ -80,27 +80,39 @@ export type ActorOf<TTable extends PgTable> = [
 	: ActorUnder<TTable, 'createdBy'>;
 
 /**
- * The values `update` takes. On a repository that locks, `version` is the
- * version the row must still be at — a whole number, never SQL — and not a
- * value to write.
+ * The values `update` takes: no primary key — an update never moves a row to
+ * another key — and, on a repository that locks, `version` is the version the
+ * row must still be at — a whole number, never SQL — and not a value to write.
+ *
+ * The types leave out `TKey`: the column `primaryKey` names, else `id` when
+ * the table has one (`PrimaryKeyOf<TTable>`, `never` without one); every other
+ * primary-key column is refused at run time only. Drizzle 1.0's PostgreSQL
+ * column types do not say which columns a key covers.
  */
 export type UpdatePatch<
 	TTable extends PgTable,
 	TLock extends boolean,
+	TKey extends PropertyKey = PrimaryKeyOf<TTable>,
 > = TLock extends true
-	? Omit<Patch<TTable>, 'version'> & { version?: number }
-	: Patch<TTable>;
+	? Omit<Patch<TTable>, 'version' | TKey> & { version?: number } & {
+			[K in TKey]?: never;
+		}
+	: Omit<Patch<TTable>, TKey> & { [K in TKey]?: never };
 
 /**
- * The values `updateMany` takes: on a repository that locks, no `version` —
- * one version cannot stand for many rows, and every update raises it.
+ * The values `updateMany` takes: no primary key, as for `update`, and on a
+ * repository that locks, no `version` — one version cannot stand for many
+ * rows, and every update raises it.
  */
 export type ManyPatch<
 	TTable extends PgTable,
 	TLock extends boolean,
+	TKey extends PropertyKey = PrimaryKeyOf<TTable>,
 > = TLock extends true
-	? Omit<Patch<TTable>, 'version'> & { version?: never }
-	: Patch<TTable>;
+	? Omit<Patch<TTable>, 'version' | TKey> & { version?: never } & {
+			[K in TKey]?: never;
+		}
+	: Omit<Patch<TTable>, TKey> & { [K in TKey]?: never };
 
 /**
  * What identifies the row an `upsert` writes: its values under columns a
@@ -290,7 +302,7 @@ export interface BaseRepository<
 	 */
 	update(
 		id: Row<TTable>[TKey],
-		patch: UpdatePatch<TTable, TLock>,
+		patch: UpdatePatch<TTable, TLock, TKey>,
 	): Promise<Row<TTable>>;
 	/**
 	 * Updates every row that matches and returns them. `where` is required:
@@ -298,7 +310,7 @@ export interface BaseRepository<
 	 */
 	updateMany(
 		where: Where<TTable>,
-		patch: ManyPatch<TTable, TLock>,
+		patch: ManyPatch<TTable, TLock, TKey>,
 	): Promise<Row<TTable>[]>;
 	/**
 	 * Inserts the row the `where` identifies, or updates the live one that is

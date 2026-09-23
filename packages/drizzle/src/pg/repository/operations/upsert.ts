@@ -146,14 +146,14 @@ function seeded(ctx: RepositoryContext, row: AnyRow): AnyRow {
 const CREATION = ['createdAt', 'createdBy'];
 
 /**
- * Whether the update half leaves this key alone: a creation stamp, or the
- * primary key. A `values` that names the id chooses it for an insert; on a
- * row that is already there it would move the row to another id, which
- * `@nxgt/mongo`'s upsert does not do to `_id` either.
+ * Whether the update half leaves this key alone: a creation stamp, or a
+ * primary-key column — every one of a composite key's. A `values` that names
+ * the id chooses it for an insert; on a row that is already there it would
+ * move the row to another id, which `@nxgt/mongo`'s upsert does not do to
+ * `_id` either, and which `update` refuses outright.
  */
 function kept(ctx: RepositoryContext, key: string): boolean {
-	const pk = ctx.info.primaryKey;
-	return CREATION.includes(key) || ('key' in pk && pk.key === key);
+	return CREATION.includes(key) || ctx.info.keys.includes(key);
 }
 
 /**

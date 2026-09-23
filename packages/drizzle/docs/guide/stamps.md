@@ -122,9 +122,10 @@ when someone is [acting](#who-is-writing).
 **The update** does what `update` does: the values, `updatedAt = now()`
 (unless the values set it, or the column has `$onUpdate`), `updatedBy`, and
 `version + 1`. It **never** moves `createdAt` or `createdBy`, even when the
-values name them — they say how the row came to be — nor the primary key: an
-`id` in the values is the id an insert gets, and a row already there keeps
-its own. Each value is read back
+values name them — they say how the row came to be — nor the primary key,
+any of its columns: an `id` in the values is the id an insert gets, and a
+row already there keeps its own. (`update` goes further and refuses a key in
+its patch outright: [no update moves the key](repository.md#no-update-moves-the-key).) Each value is read back
 from `excluded`, so it is sent once, SQL included:
 
 ```ts
@@ -341,6 +342,7 @@ purpose:
 | The upsert target | a unique constraint on the `where`'s columns, which PostgreSQL requires | a unique index, which MongoDB does not require | `ON CONFLICT` needs a target; MongoDB can insert twice without one |
 | An upsert with nothing to write, on a row that is there | writes nothing: no `updatedAt`, no `updatedBy`, no version | stamps `updatedAt`, `updatedBy` and raises the version | here it is what an empty `update` does, which writes nothing either |
 | A lock column with no default, on an upsert's insert | seeded at 0 | seeded at 0 | the same, and a `create` must name it: its types require it |
+| A primary key in an update's patch | refused before anything is sent: an `ArgumentError`, and the addressed key is out of `UpdatePatch`/`ManyPatch` | neither refused nor typed out: `_id` is left in the patch types, and MongoDB answers a changed `_id` itself (`ImmutableField`, 66), which reaches the caller as a plain `DataError` with `serverCode: 66` | PostgreSQL would move the row; MongoDB never changes an `_id`, so the server is the refusal there |
 | Which half ran | not reported | told to the hooks | there are no hooks here yet |
 | Hooks | none | `beforeCreate`, `afterUpdate`… | not built yet — see the [roadmap](../roadmap.md) |
 
@@ -349,8 +351,8 @@ purpose:
 ```ts
 interface BaseRepository<TTable, TKey, TSoft, TLock> {
 	as(actor: ActorOf<TTable>): Repository<TTable, TKey, TSoft, TLock>;
-	update(id: Row[TKey], patch: UpdatePatch<TTable, TLock>): Promise<Row>;
-	updateMany(where: Where<TTable>, patch: ManyPatch<TTable, TLock>): Promise<Row[]>;
+	update(id: Row[TKey], patch: UpdatePatch<TTable, TLock, TKey>): Promise<Row>;
+	updateMany(where: Where<TTable>, patch: ManyPatch<TTable, TLock, TKey>): Promise<Row[]>;
 	upsert<const W extends UpsertWhere<TTable, TLock>>(
 		where: UpsertWhereOf<TTable, TLock, W>,   // W, with no other key, and at least one
 		values: UpsertValues<TTable, keyof W, TLock>,
@@ -364,12 +366,13 @@ interface RepositoryOptions<TTable, TKey, TSoft, TLock> {
 	// …primaryKey, softDelete, touchUpdatedAt, maxPageSize
 }
 
-type UpdatePatch<TTable, TLock> = TLock extends true
-	? Omit<Patch<TTable>, 'version'> & { version?: number }
-	: Patch<TTable>;
-type ManyPatch<TTable, TLock> = TLock extends true
-	? Omit<Patch<TTable>, 'version'> & { version?: never }
-	: Patch<TTable>;
+// TKey: the key rows are addressed by, `id` or `primaryKey`'s; never in a patch
+type UpdatePatch<TTable, TLock, TKey> = TLock extends true
+	? Omit<Patch<TTable>, 'version' | TKey> & { version?: number } & { [K in TKey]?: never }
+	: Omit<Patch<TTable>, TKey> & { [K in TKey]?: never };
+type ManyPatch<TTable, TLock, TKey> = TLock extends true
+	? Omit<Patch<TTable>, 'version' | TKey> & { version?: never } & { [K in TKey]?: never }
+	: Omit<Patch<TTable>, TKey> & { [K in TKey]?: never };
 type UpsertWhere<TTable, TLock> = { [K in keyof Row<TTable>]?: NonNullable<Row<TTable>[K]> };   // no `version` where it locks
 type UpsertValues<TTable, TWhereKey, TLock> = TLock extends true
 	? Omit<Insert<TTable>, TWhereKey | 'version'> & { version?: never }

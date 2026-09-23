@@ -209,6 +209,7 @@ Three edges worth knowing:
 | `createMany([])` | sends nothing, returns `[]` |
 | `update(id, {})` | sends no update, returns the row (and still throws `NotFoundError` when there is none) |
 | `updateMany(where, …)` / `deleteMany(where)` with no `where` | throws an `ArgumentError`: pass `` sql`true` `` to mean every row |
+| `update(id, { id: other })` / `updateMany(where, { id: other })` | throws an `ArgumentError`: [no update moves the key](#no-update-moves-the-key) |
 
 ```ts
 await userRepository.deleteMany(sql`true`); // yes, all of them
@@ -244,6 +245,53 @@ await membershipRepository.findMany({ where: { userId, teamId } }); // fine
 await membershipRepository.getById(userId);
 ```
 
+### No update moves the key
+
+`update` and `updateMany` refuse a patch that gives a value — SQL included —
+to a column of the primary key: `.primaryKey()`'s column, every column of a
+`primaryKey({ columns })`, and the column the `primaryKey` option names. The
+row keeps its identity, so the id a caller addressed, a foreign key, a search
+index or a cache keyed on it still finds it; `upsert` keeps it the same way.
+It is an `ArgumentError`, `argument: 'patch'`, with the column in `key`, and
+the message never prints the value
+([troubleshooting](../troubleshooting.md#update-on-users-id-is-a-primary-key-column-which-an-update-never-moves-leave-it-out-a-row-that-needs-another-key-is-a-new-row)).
+
+```ts
+await userRepository.update(ada.id, { id: crypto.randomUUID() });
+// ArgumentError: update on "users": "id" is a primary-key column, which an
+// update never moves. Leave it out; a row that needs another key is a new row
+
+const { id: _, ...patch } = body; // a body that carries the id: take it out
+await userRepository.update(ada.id, patch);
+```
+
+The types say it first, so the call above does not compile — but only for
+one column. The types leave out `TKey`: the column `primaryKey` names, else
+`id` when the table has one; every other primary-key column is refused at run
+time only. Drizzle 1.0's column types do not say which columns a key covers.
+
+```ts
+const membershipRepository = createRepository(db, memberships); // (userId, teamId)
+await membershipRepository.updateMany({ userId }, { role: 'owner' }); // fine
+await membershipRepository.updateMany({ userId }, { teamId: 2 }); // compiles; ArgumentError
+```
+
+One mismatch follows from the default: on a table with an ordinary `id`
+column whose primary key is another column, created with no `primaryKey`
+option, the types refuse `id` in `updateMany` while the run time refuses the
+real key and lets `id` through. Pass `primaryKey` and the two agree.
+
+A patch typed `Partial<typeof users.$inferInsert>` or `Patch<typeof users>`
+no longer fits `update`, since either may carry the key: type it
+`UpdatePatch<typeof users, LockOf<typeof users>, 'id'>`, or take the key out
+first. Name the repository's own `TKey` when you write `UpdatePatch` yourself;
+the default is `PrimaryKeyOf<TTable>`, which is not the key a repository given
+another `primaryKey` uses.
+
+An `id: undefined` is dropped, as any undefined value in a patch is. A row
+that really needs another key is a new row: `create` it and `hardDelete` the
+old one (or `delete` it, on a table without soft delete), in one transaction.
+
 ## Soft delete
 
 A table with a `deletedAt` column is soft-deleted, and the repository gains
@@ -275,8 +323,8 @@ that.
 | `findMany(options?)` | `Row[]` | |
 | `create(values)` | `Row` | `ConflictError`, `ForeignKeyError`… |
 | `createMany(values)` | `Row[]` | the same |
-| `update(id, patch)` | `Row` | `NotFoundError`, `OptimisticLockError` for a `version` the row is no longer at, and the above |
-| `updateMany(where, patch)` | `Row[]` | `ArgumentError` without a `where`, or with a `version` on a table that locks |
+| `update(id, patch)` | `Row` | `NotFoundError`, `OptimisticLockError` for a `version` the row is no longer at, `ArgumentError` for a primary-key column, and the above |
+| `updateMany(where, patch)` | `Row[]` | `ArgumentError` without a `where`, with a primary-key column, or with a `version` on a table that locks |
 | `upsert(where, values)` | `Row` | `ConflictError` on a soft-deleted row; `ArgumentError` for a `where` that cannot be inserted; see [guide/stamps.md](stamps.md#upsert) |
 | `delete(id)` | `Row` | `NotFoundError` |
 | `deleteMany(where)` | `Row[]` | `ArgumentError` without a `where` |

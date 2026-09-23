@@ -144,7 +144,11 @@ await users.deleteMany({ teamId: 2 }); // the rows
 
 `createMany([])` sends nothing and returns `[]`. `update(id, {})` sends no
 update and returns the row. `updateMany` and `deleteMany` need a `where`:
-pass `` sql`true` `` to target every row.
+pass `` sql`true` `` to target every row. No update moves a row's primary key:
+
+```ts
+await users.update(ada.id, { id: crypto.randomUUID() }); // does not compile, and throws an ArgumentError
+```
 
 ### Primary keys
 
@@ -160,6 +164,12 @@ await tagRepository.getById('drizzle');
 A table with a composite primary key, or none, has no method by id: they do
 not compile, and throw a `TypeError` that says why. Its other methods work,
 and `primaryKey` can name any unique column.
+
+`update` and `updateMany` refuse a patch that names a column of the primary
+key — every one of a composite key's, and the one `primaryKey` names — with an
+`ArgumentError`. The types leave out `TKey`: the column `primaryKey` names,
+else `id` when the table has one; every other primary-key column is refused
+at run time only. `upsert` keeps the key of a row that is there.
 
 ### Soft delete
 
@@ -593,8 +603,8 @@ function createRepository<
 | `findMany(options?: FindManyOptions): Promise<Row[]>` | `where`, `orderBy`, `limit`, `offset`, `withDeleted` |
 | `create(values: Insert): Promise<Row>` | |
 | `createMany(values: readonly Insert[]): Promise<Row[]>` | |
-| `update(id, patch: UpdatePatch): Promise<Row>` | throws `NotFoundError`; `OptimisticLockError` for a `version` the row is no longer at |
-| `updateMany(where, patch: ManyPatch): Promise<Row[]>` | no `version` on a table that locks |
+| `update(id, patch: UpdatePatch): Promise<Row>` | throws `NotFoundError`; `OptimisticLockError` for a `version` the row is no longer at; `ArgumentError` for a primary-key column |
+| `updateMany(where, patch: ManyPatch): Promise<Row[]>` | no primary key; no `version` on a table that locks |
 | `upsert(where: UpsertWhereOf<TTable, TLock, W>, values: UpsertValues<TTable, keyof W, TLock>): Promise<Row>`, `W extends UpsertWhere<TTable, TLock>` | `ON CONFLICT` on the where's columns; `ConflictError` on a soft-deleted row |
 | `delete(id): Promise<Row>` | soft on a table with soft delete; throws `NotFoundError` |
 | `deleteMany(where): Promise<Row[]>` | |
@@ -613,7 +623,7 @@ The types it uses:
 - `type Where<TTable> = SQL | WhereObject<TTable> | undefined`; `type WhereObject<TTable> = { [K in keyof Row]?: Row[K] }`.
 - `type OrderBy<TTable> = SQL | SQL.Aliased | PgColumn | ReadonlyArray<SQL | SQL.Aliased | PgColumn> | { [K in keyof Row]?: 'asc' | 'desc' }`; `type OrderDirection = 'asc' | 'desc'`.
 - `interface RepositoryOptions<TTable, TKey, TSoft, TLock> { primaryKey?: TKey; softDelete?: TSoft; touchUpdatedAt?: boolean; optimisticLock?: TLock; actor?: ActorOf<TTable>; maxPageSize?: number }`.
-- `type UpdatePatch<TTable, TLock>`: `Patch`, with `version?: number` — the expected version — where it locks. `type ManyPatch<TTable, TLock>`: `Patch`, with no `version` where it locks.
+- `type UpdatePatch<TTable, TLock, TKey>`: `Patch` without the key `TKey` (default `PrimaryKeyOf<TTable>`: `id` when the table has one, else `never`), with `version?: number` — the expected version — where it locks. `type ManyPatch<TTable, TLock, TKey>`: `Patch` without `TKey`, and with no `version` where it locks.
 - `type UpsertWhere<TTable, TLock> = { [K in keyof Row]?: NonNullable<Row[K]> }`, without `version` where it locks, and `type UpsertWhereOf<TTable, TLock, W>`, the `where` `upsert` takes: `W` with no other key, and at least one; `type UpsertValues<TTable, TWhereKey, TLock>`: `Insert` without the where's keys, and without `version` where it locks.
 - `type ActorOf<TTable>`: the type of `createdBy`, else `updatedBy`, else `deletedBy`, not null; `never` without any. `type LockOf<TTable>`: whether the table has an integer `NOT NULL` `version`.
 - `interface ReadOptions { withDeleted?: boolean }`, and `FindFirstOptions`, `FindManyOptions`, `PaginateOptions`, `CursorPaginateOptions` as in the table.
@@ -714,6 +724,25 @@ function withTransaction<TDb extends PgDatabase, T>(
   raises it. Pass `optimisticLock: false` to keep 0.4's behaviour. And
   `DataErrorCode` gained `'OPTIMISTIC_LOCK'`, so an exhaustive
   `Record<DataErrorCode, …>` needs the key before it compiles.
+- **Upgrading to 0.6.0: an update no longer moves a row's key.**
+  `update(id, { id: other })` used to rewrite the primary key; it is now an
+  `ArgumentError` (`argument: 'patch'`), and `UpdatePatch`/`ManyPatch` leave
+  the key out. More than that call stops compiling: a patch typed
+  `Partial<$inferInsert>` or `Patch<T>` no longer fits; type it
+  `UpdatePatch<T, L, K>` or drop the key; pass the repository's `TKey` when
+  naming `UpdatePatch` yourself.
+  That covers the usual validated `PATCH` body — `Partial<typeof
+  users.$inferInsert>`, drizzle-zod's `createUpdateSchema` included — and
+  `UpdatePatch<T, L>` left at its default key on a repository given another
+  `primaryKey`.
+
+  ```ts
+  const { id: _, ...patch } = body; // Partial<typeof users.$inferInsert>
+  await users.update(id, patch);
+  ```
+
+  Not every key column is caught at compile time: see
+  [No update moves the key](docs/guide/repository.md#no-update-moves-the-key).
 - **An `ArgumentError` is a 400, not a 500.** Test for it *before* any
   `TypeError` branch in an error handler — it extends `TypeError`, so a
   broader branch placed first swallows it. A repository used on the database

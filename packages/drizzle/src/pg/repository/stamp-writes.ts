@@ -47,6 +47,31 @@ export function touched(ctx: RepositoryContext, patch: AnyRow): AnyRow {
 	return set;
 }
 
+/**
+ * Refuses a patch that names a primary-key column. An update changes a row;
+ * one that set its key would move it to another identity — the `id` a caller
+ * addressed would find nothing afterwards, and a search index or a cache keyed
+ * on it would keep the old one. `upsert` keeps the key the same way, by never
+ * writing it on the update half. An `undefined` value is dropped by `touched`
+ * anyway, so only a value is refused; the message names the column, never the
+ * value, which came off a request body more often than not.
+ */
+export function unmoved(
+	ctx: RepositoryContext,
+	method: 'update' | 'updateMany',
+	patch: AnyRow,
+): void {
+	for (const key of ctx.info.keys) {
+		if (patch[key] === undefined) continue;
+		throw new ArgumentError(
+			'patch',
+			`${method} on "${ctx.info.name}": "${key}" is a primary-key column, which an update never moves. ` +
+				'Leave it out; a row that needs another key is a new row',
+			{ key },
+		);
+	}
+}
+
 /** A patch, and the version it is conditional on. */
 export interface Expecting {
 	patch: AnyRow;

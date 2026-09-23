@@ -40,6 +40,7 @@ one.
   - [`where: "teamId" is undefined. Leave the key out, or pass null for IS NULL`](#where-teamid-is-undefined-leave-the-key-out-or-pass-null-for-is-null)
   - [`where: "users" has no column under the key "teamID"`](#where-users-has-no-column-under-the-key-teamid)
   - [`updateMany needs a where. …`](#updatemany-needs-a-where-)
+  - [`update on "users": "id" is a primary-key column, which an update never moves. Leave it out; a row that needs another key is a new row`](#update-on-users-id-is-a-primary-key-column-which-an-update-never-moves-leave-it-out-a-row-that-needs-another-key-is-a-new-row)
   - [`where: expected a Drizzle condition or an object`](#where-expected-a-drizzle-condition-or-an-object)
   - [`orderBy: "createdAt" must be 'asc' or 'desc', not DESC`](#orderby-createdat-must-be-asc-or-desc-not-desc)
   - [`orderBy: expected a Drizzle ordering, a list, or an object`](#orderby-expected-a-drizzle-ordering-a-list-or-an-object)
@@ -424,6 +425,42 @@ import { sql } from 'drizzle-orm';
 
 await users.deleteMany(sql`true`); // every row, said out loud
 ```
+
+### `update on "users": "id" is a primary-key column, which an update never moves. Leave it out; a row that needs another key is a new row`
+
+**When:** `update` or `updateMany` with a patch that gives a value — SQL
+included — to a column of the primary key: the one column, every column of
+a composite key, or the column `primaryKey` names. `updateMany on …` is the
+same refusal from `updateMany`. Before 0.6.0 the write went through and moved
+the row to the new key; nothing is sent now.
+**Why:** an update changes a row, it does not give it another identity.
+Moved, the row is no longer where the id the caller addressed points, and
+whatever holds that id — a URL, a foreign key, a search index, a cache —
+points at nothing. `upsert` already kept the key on its update half. An
+`ArgumentError`, `argument: 'patch'`, `key: 'id'`; the message names the
+column, never the value. The types refuse it too, partly: they leave out
+`TKey`, the column `primaryKey` names, else `id` when the table has one; every
+other primary-key column is refused at run time only. The column types do not
+say which columns a key covers.
+An `id: undefined` is dropped like any undefined value, so a patch whose id
+was set to `undefined` still works.
+**Fix:** leave the key out. A body parsed into a patch should not carry it,
+and a row that really needs another key is a new row:
+
+```ts
+const { id: _, ...patch } = body;
+await users.update(id, patch);
+
+// another key: a new row, in one transaction
+await withTransaction(db, async (tx) => {
+	const old = await users.with(tx).getById(id);
+	await users.with(tx).create({ ...old, id: newId });
+	await users.with(tx).hardDelete(id); // or delete(id), on a table without soft delete
+});
+```
+
+`hardDelete` the old row, or `delete` it on a table without soft delete,
+where `hardDelete` does not exist.
 
 ### `where: expected a Drizzle condition or an object`
 
