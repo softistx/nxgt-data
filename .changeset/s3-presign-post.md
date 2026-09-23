@@ -16,3 +16,7 @@ The form goes to the endpoint, region and access key that Bun signs a `presignPu
 - `expiresIn`: `…; got a number above that`, `zero`, `NaN`… (was the value).
 
 A refusal from `presignGet`, `presignPut` or `presignPost` also ends with the call, for example `(presignPut)`.
+
+Two errors from `presignPost` are not `S3Error`s, because neither is a refusal of the caller's input:
+- a plain `Error` when the URL Bun signed has no credential scope, or does not end in the probe key, so there is nowhere to post the form. Only a Bun that signs differently from 1.4.2 would do this;
+- a `TypeError` when there is no secret to sign with. `bindBucket` cannot produce it, because it resolves the secret as Bun does and Bun's `ERR_S3_MISSING_CREDENTIALS` comes first. It guards a context built any other way.

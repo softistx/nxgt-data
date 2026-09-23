@@ -211,8 +211,8 @@ for a size, a `type` of the wrong shape, an `expiresIn` or an `acl`, and
 
 ### What the service answers
 
-Measured against SeaweedFS 4.47's S3 gateway, each one in
-`presign-post.spec.ts`:
+Measured against SeaweedFS 4.47's S3 gateway, each one pinned in
+[`presign-post.spec.ts`](https://github.com/softistx/nxgt-data/blob/develop/packages/s3/src/bucket/operations/presign-post.spec.ts) in the repository:
 
 | The upload | Status | `<Code>` | `<Message>` |
 | --- | --- | --- | --- |

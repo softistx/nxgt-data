@@ -5,8 +5,8 @@ This package throws one error of its own, `S3Error`, with a `code` of
 `key` it was about — never the body. Every one of them is raised **before**
 anything is sent, so a refused write stored nothing. The service's own
 failures come back as Bun raises them; the entries below say which is which.
-A wrong `acl` is this package's own refusal on a `put` **and** on a
-`presign`, so one class and one code cover both. A message reports what was
+A wrong `acl` is this package's own refusal on a `put` **and** on the
+presigned calls, so one class and one code cover them all. A message reports what was
 wrong by its **shape** — `another string`, `a fraction`, `the type given` —
 and never quotes the value, which can come off a request body; a refusal from
 a presigned call ends with the call, `(presignGet)`, `(presignPut)` or
@@ -30,7 +30,7 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [`"avatars" has a maxSize, and this body's size cannot be known before sending it. …`](#avatars-has-a-maxsize-and-this-bodys-size-cannot-be-known-before-sending-it-)
   - [`storageClass must be one of STANDARD, DEEP_ARCHIVE, EXPRESS_ONEZONE, …; got another string`](#storageclass-must-be-one-of-standard-deep_archive-express_onezone--got-another-string)
   - [`acl must be one of private, public-read, public-read-write, …; got another string`](#acl-must-be-one-of-private-public-read-public-read-write--got-another-string)
-  - [`expiresIn is seconds, and must be above 0 and at most 604800 …; got a number above that`](#expiresin-is-seconds-and-must-be-above-0-and-at-most-604800-seven-days-which-is-s3s-own-limit-got-a-number-above-that)
+  - [`expiresIn is seconds, and must be above 0 and at most 604800 …; got a number above that (presignGet)`](#expiresin-is-seconds-and-must-be-above-0-and-at-most-604800-seven-days-which-is-s3s-own-limit-got-a-number-above-that-presignget)
 - **Presigned POSTs refused before they are signed**
   - [``presignPost on "uploads": this bucket has no maxSize, … Pass `maxSize`, in bytes``](#presignpost-on-uploads-this-bucket-has-no-maxsize-and-a-presigned-post-is-a-bound-on-what-a-browser-uploads-pass-maxsize-in-bytes)
   - [`presignPost on "avatars": maxSize cannot be above the bucket's own 2097152 bytes; got a larger number`](#presignpost-on-avatars-maxsize-cannot-be-above-the-buckets-own-2097152-bytes-got-a-larger-number)
@@ -250,7 +250,8 @@ was given (`got "everyone"`); it now gives only its shape.
 **Why:** the same `code: 'WRONG_OPTION'`, before anything is sent or signed.
 The two guarded options are `acl` and `storageClass`; `contentDisposition`
 and `contentEncoding` are plain strings to the service and accept anything.
-`presign` takes no `storageClass` — nothing is stored by signing a URL.
+`presignGet`, `presignPut` and `presignPost` take no `storageClass` —
+nothing is stored by signing a URL or a form.
 **Fix:**
 
 ```ts
@@ -258,11 +259,12 @@ await avatars.put({ userId }, bytes, { acl: 'public-read' });
 const url = avatars.presignPut({ userId }, { acl: 'private', expiresIn: 300 });
 ```
 
-### `expiresIn is seconds, and must be above 0 and at most 604800 (seven days, which is S3's own limit); got a number above that`
+### `expiresIn is seconds, and must be above 0 and at most 604800 (seven days, which is S3's own limit); got a number above that (presignGet)`
 
 **When:** `presignGet`, `presignPut` or `presignPost` with an `expiresIn`
-that is not a finite number of seconds inside S3's range. The line ends with
-the call — `(presignGet)` — and `got` names the shape: `a number above that`,
+that is not a finite number of seconds inside S3's range. Only the
+presigned calls take one, so the line always ends with the call —
+`(presignGet)`, `(presignPut)` or `(presignPost)` — and `got` names the shape: `a number above that`,
 `zero`, `a negative number`, `NaN`, `a string`. Before 0.4.0 it quoted the
 value (`got 1000000000000`).
 **Why:** an `S3Error` with `code: 'WRONG_OPTION'`, raised before anything is
@@ -365,11 +367,13 @@ const form = avatars.presignPost({ userId }, { type: 'image/jpeg' });
 guards a bucket context built some other way. `bindBucket` resolves the secret
 from the same option and the same two variables Bun reads, when the client is
 made, so a missing secret is Bun's `ERR_S3_MISSING_CREDENTIALS` first (the
-next section) — both are pinned in `presign-post.spec.ts`.
+next section) — both measured, and pinned in
+[`presign-post.spec.ts`](https://github.com/softistx/nxgt-data/blob/develop/packages/s3/src/bucket/operations/presign-post.spec.ts).
 **Why:** a POST policy is signed with the secret, and Bun's client never hands
 its own back. This package keeps it beside the bucket's context, never on
-it, so printing the context, the bucket or the form never shows it — pinned
-in `post-signer.spec.ts`.
+it, so printing the context, the bucket or the form never shows it —
+measured with a marker secret, in
+[`post-signer.spec.ts`](https://github.com/softistx/nxgt-data/blob/develop/packages/s3/src/bucket/operations/post-signer.spec.ts).
 **Fix:** give `bindBucket` a `secretAccessKey`, or set one of the variables
 before binding.
 
@@ -382,8 +386,8 @@ key (`nxgt-probe`) and reading the URL: the bucket's URL is the path before
 that key, and the region and access key are in `X-Amz-Credential`. A URL
 without either would post the form somewhere else, or sign it as nobody, so
 it is refused rather than guessed.
-**Fix:** use the Bun version this package declares, and report the Bun
-version that produced it.
+**Fix:** use Bun 1.4.2, the version this package was measured on, and
+[open an issue](https://github.com/softistx/nxgt-data/issues) naming the Bun version that produced it.
 
 ## The service
 
