@@ -105,7 +105,8 @@ run again.
 | `wait` | `number` | `0` | how long to wait for a run of the same key that is still going, **in milliseconds**, before `IN_PROGRESS`. A whole number, 0 or more. See [Waiting for a running key](#waiting-for-a-running-key) |
 
 Either one that is not of its type rejects with a bare `TypeError` before
-anything is sent.
+anything is sent — and so does a `wait` that is a number but not a whole one
+of 0 or more: negative, fractional, `NaN` or `Infinity`.
 
 ## What `run` does
 
@@ -131,9 +132,11 @@ When `work` has run:
   passes through **as the same object**, so an `instanceof` in your handler
   still works. The next call with that key runs `work` again.
 - **Redis failed while storing the result** — the error is Redis's, as Bun's
-  client gave it, and the work **has** happened. The key stays running until
-  its lease lapses, since nothing renews it any more: a repeat before then
-  gets `IN_PROGRESS`, and one after it runs `work` again. See
+  client gave it, and the work **has** happened. The key **may** stay
+  running until its lease lapses, since nothing renews it any more: a repeat
+  before then gets `IN_PROGRESS`, and one after it runs `work` again. If
+  only the reply was lost, the result **may** have been stored, and a repeat
+  replays it. See
   [troubleshooting](../troubleshooting.md#the-same-request-ran-twice).
 
 ### The value is what the schema gives back

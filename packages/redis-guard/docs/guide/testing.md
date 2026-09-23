@@ -41,8 +41,8 @@ afterAll(() => {
 - **There is no mock to swap in.** Every check is a Lua script the server
   runs — sent with `EVALSHA`, or `EVAL` when the server does not hold it yet —
   and the rate-limit script reads the server's `TIME` inside it. A stub of
-  `RedisClient` would have to run Lua. Any Redis 5 or later will do; this
-  package is tested against 7.4.
+  `RedisClient` would have to run Lua. This package is tested against
+  Redis 7.4.
 - **Empty it before each test.** A bucket or an idempotency key left by one
   test changes what the next one sees: a limit already spent, a result
   replayed instead of run. `FLUSHDB` empties the database in the URL (`/15`

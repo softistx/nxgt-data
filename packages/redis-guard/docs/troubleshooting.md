@@ -582,8 +582,10 @@ await orders.run(who, work, { wait: 2_000 });
   dropped, or the server refused the write. The first `run` rejected with
   Redis's own error (see [`Connection closed`](#connection-closed)), after
   `work` had done what it does. Nothing renews the key any more and nothing
-  gives it back, so it stays running until its lease lapses: a repeat before
-  then gets `IN_PROGRESS`, and one after it runs `work` again;
+  gives it back, so it **may** stay running until its lease lapses: a repeat
+  before then gets `IN_PROGRESS`, and one after it runs `work` again. If
+  only the reply was lost, the store **may** have happened, and a repeat
+  replays the result instead;
 - the second came after `ttl` seconds;
 - the two keys were not the same: `key(params)` differs, or the two
   definitions have different `name`s.
@@ -609,11 +611,17 @@ await orders.run(who, async () => {
 
 **When:** any call, while Redis cannot be reached — `consume`, `enforce`,
 `peek` and `reset` on a limit, `run` and `forget` on an idempotent operation.
-It is Bun's `RedisError`, not a `GuardError`: measured on Bun 1.4.2, `name`
-is `'RedisError'` and `code` is `'ERR_REDIS_CONNECTION_CLOSED'`, and the
-message is `Connection closed`, or `Max reconnection attempts reached` once
-Bun's client has given up reconnecting — which it tries first, so the call
-can take seconds to reject. Any other server error comes back the same way.
+It is Bun's own Redis error, not a `GuardError`. The message depends on the
+client's reconnect options; the `code` does not. Measured on Bun 1.4.2, every
+one carries `code: 'ERR_REDIS_CONNECTION_CLOSED'`:
+
+| Client | First call | Every call after |
+| --- | --- | --- |
+| Bun's defaults (reconnects) | `Max reconnection attempts reached`, after about 31 s of retrying | `Connection has failed`, at once |
+| `autoReconnect: false` | `Connection closed`, at once | `Connection has failed`, at once |
+
+A server's refusal — `WRONGTYPE` and the like — comes back the same way,
+unwrapped, with another `code` (`ERR_REDIS_SERVER_ERROR`).
 **Why:** this package opens no connection of its own, retries nothing and
 has no fallback: every step is one script, or a `DEL`, on your `RedisClient`,
 and an error from it passes through as it is, not wrapped. Where it happens
@@ -621,9 +629,9 @@ in `run` decides what it means:
 
 | Redis failed | `run` | `work` |
 | --- | --- | --- |
-| taking the key, or polling it during `wait` | rejects with Redis's error | not called |
+| taking the key, or polling it during `wait` | rejects with Redis's error. If only the reply was lost, the key **may** be held: repeats get `IN_PROGRESS` for up to a `lease` | not called |
 | renewing the lease while `work` runs | nothing: tried again at the next beat | runs on; the lease is lost only if no renewal gets through for a whole `lease` |
-| storing the result | rejects with Redis's error; the key stays running until its lease lapses | **has run** — see [The same request ran twice](#the-same-request-ran-twice) |
+| storing the result | rejects with Redis's error. The key **may** stay running until its lease lapses — or, if only the reply was lost, the result **may** be stored, and a repeat replays it | **has run** — see [The same request ran twice](#the-same-request-ran-twice) |
 | giving the key back after `work` threw | rejects with `work`'s own error; the key lapses with its lease | threw |
 
 On a limit, a failed check may or may not have counted: the script is one
@@ -633,14 +641,21 @@ since the request itself was fine — and decide per route whether a limit
 that cannot be checked lets the caller through:
 
 ```ts
-/** A 503 for Redis's own errors; undefined for anything else. */
+/** A 503 when Redis cannot be reached; undefined for anything else. */
 export function redisUnavailable(error: unknown): Response | undefined {
-	if (error instanceof Error && error.name === 'RedisError') {
+	const code = (error as { code?: unknown } | null)?.code;
+	if (typeof code === 'string' && code === 'ERR_REDIS_CONNECTION_CLOSED') {
 		return new Response('Try again shortly', { status: 503, headers: { 'Retry-After': '5' } });
 	}
 	return undefined;
 }
 ```
+
+It reads `code`, not `name`: Bun does not export its error class, so there is
+no `instanceof`, and `name` is `'RedisError'` for a server's refusal too — and
+for other libraries' errors, `@nxgt/redis`'s among them — so a check on it
+would answer a `WRONGTYPE` from a misconfigured name with 503 instead of the
+500 it is.
 
 The [roadmap](roadmap.md#not-planned) says why there is no in-memory
 fallback.

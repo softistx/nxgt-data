@@ -192,10 +192,10 @@ const exportLimit = defineRateLimit({
 });
 
 const redis = new RedisClient(process.env.REDIS_URL);
-const exportsLimit = bindRateLimit(redis, exportLimit);
+const exports = bindRateLimit(redis, exportLimit);
 
 // An export of 500 rows counts as five requests of 100 rows.
-const result = await exportsLimit.consume({ org: 'acme', user: 'u1' }, 5);
+const result = await exports.consume({ org: 'acme', user: 'u1' }, 5);
 // { allowed: true, limit: 20, remaining: 15, … } from a full bucket
 ```
 

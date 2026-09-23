@@ -174,8 +174,9 @@ async function postOrder(request: Request, user: string): Promise<Response> {
 
 A repeat within `ttl` gets the stored result, `replayed: true`, without
 calling `work`; one during the first run waits up to `wait` ms for it, and
-gets `IN_PROGRESS` if it is still running. **A thrown error is never stored**, so a failure the client
-must get back on every repeat is returned as a union member:
+gets `IN_PROGRESS` if it is still running. **A thrown error is never
+stored**, so a failure the client must get back on every repeat is returned
+as a union member:
 
 ```ts
 export const chargeCard = defineIdempotency({
@@ -349,7 +350,8 @@ Rate limits:
   is behind holds spent buckets until it catches up, and more than one full
   refill behind allows an extra burst. Keep the servers on NTP — [more](docs/troubleshooting.md#every-limited-caller-has-to-wait-much-longer-than-per).
 - **Every process must use the same definition**: two rates under one `name`
-  share one key. `name: 'login.v2'` when the rate changes a lot.
+  share one key. `name: 'login.v2'` when the rate changes a lot —
+  [the key](docs/guide/rate-limits.md#describing-a-limit).
 - **A cost beyond what is left is denied and counts nothing; one beyond the
   burst rejects with `COST`.** Check `cost <= (exportLimit.burst ?? exportLimit.limit)`
   where a request sets it — [more](docs/troubleshooting.md#consume-on-login-a-cost-must-be-a-whole-number-from-1-to-the-burst-of-5).
@@ -373,7 +375,8 @@ Idempotency:
   identical requests can mismatch. `{ fingerprint: await request.text() }` —
   [the fingerprint](docs/guide/idempotency.md#the-fingerprint).
 - **Scope the key**: an `Idempotency-Key` is unique only to its client.
-  `` key: (p) => `${p.user}/${p.key}` ``.
+  `` key: (p) => `${p.user}/${p.key}` `` —
+  [describing an operation](docs/guide/idempotency.md#describing-an-operation).
 - **A Redis error after `work` means the work happened**, and the key stays
   running until its lease lapses, then runs again. Make `work` safe to repeat
   where it can be — [the same request ran twice](docs/troubleshooting.md#the-same-request-ran-twice).
