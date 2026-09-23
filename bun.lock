@@ -165,7 +165,7 @@
     },
     "packages/redis-guard": {
       "name": "@nxgt/redis-guard",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "devDependencies": {
         "@types/bun": "^1.4.0",
         "redis-memory-server": "0.17.1",
