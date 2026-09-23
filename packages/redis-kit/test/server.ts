@@ -4,9 +4,10 @@ import RedisMemoryServer from 'redis-memory-server';
 import RedisBinary from 'redis-memory-server/lib/util/RedisBinary';
 
 /**
- * A copy of `@nxgt/redis`'s `test/server.ts`: this package reaches no
- * sibling's tests, so it carries its own. Keep `REDIS_VERSION` the same in
- * both copies — CI keys the Redis build cache on the hash of them.
+ * A copy of `@nxgt/redis`'s `test/server.ts`, as `@nxgt/redis-guard`'s is:
+ * this package reaches no sibling's tests, so it carries its own. Keep
+ * `REDIS_VERSION` the same in all three files — CI keys the Redis build
+ * cache on the hash of them.
  */
 
 /**

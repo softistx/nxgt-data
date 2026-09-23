@@ -68,7 +68,22 @@ post:
     '401':
       $ref: ../components/responses/Unauthorized.yaml
     '404':
-      $ref: ../components/responses/NotFound.yaml
+      description: |
+        The user the request carries is no user. Nothing was written — and,
+        under an `Idempotency-Key`, a retry replays this same 404.
+      headers:
+        RateLimit-Limit:
+          $ref: ../components/headers/RateLimit-Limit.yaml
+        RateLimit-Remaining:
+          $ref: ../components/headers/RateLimit-Remaining.yaml
+        RateLimit-Reset:
+          $ref: ../components/headers/RateLimit-Reset.yaml
+        Idempotent-Replayed:
+          $ref: ../components/headers/Idempotent-Replayed.yaml
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/Problem.yaml
     '409':
       $ref: ../components/responses/InProgress.yaml
     '422':

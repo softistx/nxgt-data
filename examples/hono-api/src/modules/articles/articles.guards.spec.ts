@@ -16,14 +16,20 @@ const { call, callWith, newUser, redis } = useApi('blog-articles-guards', {
 
 const draft = JSON.stringify({ title: 'On wiring', body: 'One object.' });
 
+/** The writes still in flight, which `afterEach` waits for. */
+const inflight = new Set<Promise<Response>>();
+
 /** A write as `user`, with an `Idempotency-Key` when one is given. */
 function post(user: string, body = draft, key?: string, send = call) {
-	return send('/articles', {
+	const sent = send('/articles', {
 		method: 'POST',
 		as: user,
 		body,
 		headers: key === undefined ? {} : { 'Idempotency-Key': key },
 	});
+	inflight.add(sent);
+	void sent.finally(() => inflight.delete(sent)).catch(() => undefined);
+	return sent;
 }
 
 /** How many articles `user` has, as the API reports it. */
@@ -49,11 +55,21 @@ function holdNextWrite() {
 			return original.call(this, values);
 		},
 	);
+	releaseHeld = finish.resolve;
 	return { started: started.promise, release: finish.resolve, spy };
 }
 
-// Every spy a test made is undone, however the test ended.
-afterEach(() => {
+/** The gate of the last `holdNextWrite`, for `afterEach` to open. */
+let releaseHeld: (() => void) | undefined;
+
+// However a test ended, a held write is let go — or a failed assertion would
+// leave a request running, its lease renewed for ever — and every spy it
+// made is undone.
+afterEach(async () => {
+	releaseHeld?.();
+	releaseHeld = undefined;
+	// And whatever it let go finishes here, not in the next test's database.
+	await Promise.allSettled(inflight);
 	mock.restore();
 });
 
@@ -167,7 +183,47 @@ describe('the Idempotency-Key', () => {
 			'k-1',
 		);
 		expect(reordered.status).toBe(422);
+
+		// The same fields in the same order, only laid out differently: a
+		// fingerprint of the parsed body would call it the same request.
+		const spaced = await post(
+			user,
+			JSON.stringify(JSON.parse(draft), null, 2),
+			'k-1',
+		);
+		expect(spaced.status).toBe(422);
 		expect(await countOf(user)).toBe(1);
+	});
+
+	test('leaves a record it cannot trust to the 500', async () => {
+		const user = await newUser();
+		// A hash `run` could not have written — one field of three — under
+		// this user's key: `INVALID`, which no status of the guide's answers.
+		await redis.redis.client.send('HSET', [
+			`articles.create:${user}/k-1`,
+			'state',
+			'done',
+		]);
+		const answer = await post(user, draft, 'k-1');
+		expect(answer.status).toBe(500);
+		expect(answer.headers.get('Idempotent-Replayed')).toBeNull();
+		expect(await countOf(user)).toBe(0);
+		// Kept as it was: `INVALID` never frees the key.
+		expect(
+			await redis.redis.client.send('HGETALL', [`articles.create:${user}/k-1`]),
+		).toEqual({ state: 'done' });
+	});
+
+	test('maps no error that is not a GuardError, whatever its code', async () => {
+		const user = await newUser();
+		// A failure of the write carrying a `code` a guard also uses: only
+		// `instanceof GuardError` tells the two apart, never the code.
+		spyOn(ArticleService.prototype, 'write').mockRejectedValue(
+			Object.assign(new Error('the write failed'), { code: 'MISMATCH' }),
+		);
+		const answer = await post(user, draft, 'k-1');
+		expect(answer.status).toBe(500);
+		expect(await countOf(user)).toBe(0);
 	});
 
 	test('scopes the key to the user', async () => {
@@ -211,8 +267,19 @@ describe('the Idempotency-Key', () => {
 		const first = post(user, draft, 'k-1');
 		await held.started;
 
-		const repeat = post(user, draft, 'k-1', patient);
-		await Bun.sleep(50);
+		// Count the scripts the repeat sends on this key. Its first `BEGIN`
+		// finds the key running; a second is a poll, which only a repeat that
+		// waits sends — so the first is let go only then, however loaded the
+		// machine. A repeat that does not wait answers first, and fails below.
+		const key = `articles.create:${user}/k-1`;
+		const scripts = spyOn(redis.redis.client, 'evalsha');
+		const onKey = () =>
+			scripts.mock.calls.filter((call) => call.includes(key)).length;
+		let answered = false;
+		const repeat = post(user, draft, 'k-1', patient).finally(() => {
+			answered = true;
+		});
+		while (onKey() < 2 && !answered) await Bun.sleep(5);
 		held.release();
 
 		const [a, b] = await Promise.all([first, repeat]);

@@ -2,6 +2,12 @@ description: |
   A request with this `Idempotency-Key` is still running, and did not finish
   while this one waited. Retry it as it is.
 headers:
+  RateLimit-Limit:
+    $ref: ../headers/RateLimit-Limit.yaml
+  RateLimit-Remaining:
+    $ref: ../headers/RateLimit-Remaining.yaml
+  RateLimit-Reset:
+    $ref: ../headers/RateLimit-Reset.yaml
   Retry-After:
     $ref: ../headers/Retry-After.yaml
 content:

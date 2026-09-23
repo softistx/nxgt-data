@@ -10,7 +10,7 @@
 		"dev": "bun --watch src/index.ts",
 		"sync": "bun src/sync.ts",
 		"typecheck": "bun run generate:api && tsc --noEmit",
-		"test": "bun run ../../scripts/redis.ts && bun run generate:api && bun test src",
+		"test": "bun ../../scripts/redis.ts && bun run generate:api && REDIS_BIN=$(bun ../../scripts/redis.ts) bun test src",
 		"lint": "biome lint",
 		"check": "biome check --write"
 	},

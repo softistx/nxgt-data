@@ -63,9 +63,12 @@ curl -i -X POST localhost:3000/articles -H 'x-user-id: <id>' \
 `bun run --filter hono-api-example test` needs no server of its own: the
 specs start a mongod in memory and a Redis on a free port, as the packages'
 specs do. Its `test` script runs `scripts/redis.ts` first, which **compiles**
-the Redis once into the repository's `.cache/redis` — nobody publishes a
+the repository's one pinned Redis into `.cache/redis` — nobody publishes a
 prebuilt one — so the first run on a fresh checkout takes a few minutes and
-every later one none; `$REDIS_BIN` names a `redis-server` to use instead.
+every later one none. The script prints the binary's path, and the `test`
+script hands it to the specs as `$REDIS_BIN`; a bare `bun test` has no
+Redis to start and says so. Set `REDIS_BIN` yourself to use another
+`redis-server`.
 
 ## The layout
 
@@ -119,10 +122,10 @@ module is measured where it is read.
 | `src/sync.ts` | `kit.sync()` as a deployment step, with `--dry-run` |
 | `src/modules/<name>/<name>.service.spec.ts` | the module's services with no HTTP at all — that is what the layer buys |
 | `src/modules/<name>/<name>.route.spec.ts` | the module's routes over HTTP, called as a client would, over a mongod in memory |
-| `src/modules/articles/articles.guards.spec.ts` | the guards over HTTP, against a real Redis: the headers counting down and the 429, a bucket per user, the replay and its header, the 422, and the 409 — two concurrent requests, the first held inside its write by a gate |
+| `src/modules/articles/articles.guards.spec.ts` | the guards over HTTP, against a real Redis: the headers counting down and the 429, a bucket per user, the replay and its header, the 422 (a re-spaced body included), the 500 for an `INVALID` record and for an error that is not a `GuardError`, and the 409 — two concurrent requests, the first held inside its write by a gate |
 | `src/app.spec.ts` | what is left over: the middleware every request goes through, and that the mounted modules serve the whole spec |
 | `test/kit.ts` | one mongod and one kit per spec file, the database emptied and synced before each test |
-| `test/redis.ts` | one Redis per spec file, `FLUSHDB` before each test — a copy of `@nxgt/redis`'s test server, since an example reaches no package's tests |
+| `test/redis.ts` | one Redis per spec file, `FLUSHDB` before each test, started from the binary `$REDIS_BIN` names — it pins no version and builds nothing |
 | `test/api.ts` | both, plus the built app: `call(path, { as })`, a user to send requests as, and `callWith(options)` for a second app on the same servers |
 | `test/types/routes.ts` | the `@ts-expect-error`s: the users module cannot register `/articles`, a service takes the API's types, and a guard's key needs the user. Nothing imports it — `tsc --noEmit` reading it is the test |
 
@@ -323,7 +326,9 @@ What `POST /articles` answers, in the order it decides:
   client's key: an `Idempotency-Key` is unique only to whoever made it up.
 - **The limit is counted first.** A denied write takes no idempotency key,
   so the same request, retried once the bucket refills, writes; a replay is
-  a request too, and counts.
+  a request too, and counts. So a client whose 201 was lost can spend its
+  retries on replays and get a 429, which hides the stored result until the
+  bucket refills.
 - **The fingerprint is the raw body**, `c.req.text()` — the validator read
   the body through `c.req`, which keeps the text for the next reader. The
   same fields in another order are another request, and a 422. Never
