@@ -189,7 +189,7 @@ describe('when the stream fails', () => {
 		expect(failure).toMatchObject({ serverCode: 43, collection: 'posts' });
 		// It never opened, so `ready` says so too. `ready` needs no holding of
 		// its own: the package takes its rejection when it makes it.
-		await expect(subscription.ready).rejects.toBe(failure);
+		expect(await rejection(subscription.ready)).toBe(failure);
 	});
 
 	test('a read that works ends a run of failures', async () => {
@@ -265,7 +265,7 @@ describe('when the stream fails', () => {
 			const subscription = collection.onChange(() => {}, {
 				startAfter: token as never,
 			});
-			await expect(subscription.closed).rejects.toBeInstanceOf(DataError);
+			expect(await rejection(subscription.closed)).toBeInstanceOf(DataError);
 			// Five retries would pause 3.1 seconds in all.
 			expect(Date.now() - started).toBeLessThan(1_000);
 		}

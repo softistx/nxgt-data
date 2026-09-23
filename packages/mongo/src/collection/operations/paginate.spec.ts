@@ -6,6 +6,7 @@ import {
 	expect,
 	test,
 } from 'bun:test';
+import { rejection, rejectionMessage } from '../../../test/rejection';
 import { posts, users } from '../../../test/schema';
 import { startMongo, type TestServer } from '../../../test/server';
 import { InvalidCursorError } from '../../errors/data-error';
@@ -106,7 +107,9 @@ describe('paginate', () => {
 
 	test('refuses a page that is not a positive integer', async () => {
 		const collection = getCollection(t.db, posts);
-		await expect(collection.paginate({ page: 0 })).rejects.toThrow(RangeError);
+		expect(await rejection(collection.paginate({ page: 0 }))).toBeInstanceOf(
+			RangeError,
+		);
 	});
 });
 
@@ -218,20 +221,27 @@ describe('paginateByCursor', () => {
 			{ email: 'c@example.com' },
 			{ email: 'd@example.com' },
 		]);
-		await expect(
-			collection.paginateByCursor({ limit: 2, orderBy: 'name' }),
-		).rejects.toThrow('"name" is null in a document of "users"');
+		expect(
+			await rejectionMessage(
+				collection.paginateByCursor({ limit: 2, orderBy: 'name' }),
+			),
+		).toContain('"name" is null in a document of "users"');
 	});
 
 	test('refuses a forged cursor, or one for another ordering', async () => {
 		const collection = await seedPosts();
 		const first = await collection.paginateByCursor({ limit: 2 });
-		await expect(
-			collection.paginateByCursor({ after: first.nextCursor, orderBy: 'rank' }),
-		).rejects.toBeInstanceOf(InvalidCursorError);
-		await expect(
-			collection.paginateByCursor({ after: 'garbage' }),
-		).rejects.toBeInstanceOf(InvalidCursorError);
+		expect(
+			await rejection(
+				collection.paginateByCursor({
+					after: first.nextCursor,
+					orderBy: 'rank',
+				}),
+			),
+		).toBeInstanceOf(InvalidCursorError);
+		expect(
+			await rejection(collection.paginateByCursor({ after: 'garbage' })),
+		).toBeInstanceOf(InvalidCursorError);
 		const wrong = encodeCursor({ key: '_id:asc', values: [1, 2] });
 		// It names the call, the collection and the ordering: every paginated
 		// call takes the same `after`, so `expected 1 value(s), got 2` on its
@@ -252,34 +262,40 @@ describe('paginateByCursor', () => {
 			'Invalid cursor in paginateByCursor on "posts": it holds 2 value(s) ' +
 				'where the ordering _id:asc needs 1 (_id)',
 		);
-		await expect(
-			collection.paginateByCursor({ after: 'garbage' }),
-		).rejects.toThrow(
+		expect(
+			await rejectionMessage(collection.paginateByCursor({ after: 'garbage' })),
+		).toContain(
 			'Invalid cursor in paginateByCursor on "posts": it cannot be decoded',
 		);
 	});
 
 	test('a `limit` it will not take names the call and the collection', async () => {
 		const collection = await seedPosts();
-		await expect(collection.paginateByCursor({ limit: 0 })).rejects.toThrow(
-			RangeError,
-		);
-		await expect(collection.paginateByCursor({ limit: 0 })).rejects.toThrow(
+		expect(
+			await rejection(collection.paginateByCursor({ limit: 0 })),
+		).toBeInstanceOf(RangeError);
+		expect(
+			await rejectionMessage(collection.paginateByCursor({ limit: 0 })),
+		).toContain(
 			'paginateByCursor on "posts": limit must be an integer of at least 1, not 0',
 		);
-		await expect(collection.paginate({ page: 0 })).rejects.toThrow(
+		expect(await rejectionMessage(collection.paginate({ page: 0 }))).toContain(
 			'paginate on "posts": page must be an integer of at least 1, not 0',
 		);
-		await expect(collection.paginate({ pageSize: -1 })).rejects.toThrow(
+		expect(
+			await rejectionMessage(collection.paginate({ pageSize: -1 })),
+		).toContain(
 			'paginate on "posts": pageSize must be an integer of at least 1, not -1',
 		);
 	});
 
 	test('refuses a field the schema does not have', async () => {
 		const collection = await seedPosts();
-		await expect(
-			collection.paginateByCursor({ orderBy: 'nope' as never }),
-		).rejects.toThrow('has no field "nope" in its schema');
+		expect(
+			await rejectionMessage(
+				collection.paginateByCursor({ orderBy: 'nope' as never }),
+			),
+		).toContain('has no field "nope" in its schema');
 	});
 
 	test('an empty collection gives an empty page and no cursor', async () => {

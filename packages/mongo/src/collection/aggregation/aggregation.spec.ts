@@ -6,6 +6,7 @@ import {
 	expect,
 	test,
 } from 'bun:test';
+import { rejection, rejectionMessage } from '../../../test/rejection';
 import {
 	bookings,
 	events,
@@ -157,17 +158,19 @@ describe('groupBy', () => {
 			{ total: 'score' },
 		];
 		for (const measures of bad) {
-			await expect(
-				people.groupBy('level', { measures } as never),
-			).rejects.toThrow(TypeError);
+			expect(
+				await rejection(people.groupBy('level', { measures } as never)),
+			).toBeInstanceOf(TypeError);
 		}
-		await expect(
-			people.groupBy('level', { sort: 'size' } as never),
-		).rejects.toThrow("sort is 'count' or 'key'");
+		expect(
+			await rejectionMessage(
+				people.groupBy('level', { sort: 'size' } as never),
+			),
+		).toContain("sort is 'count' or 'key'");
 		for (const limit of [0, -1, 1.5, Number.NaN]) {
-			await expect(people.groupBy('level', { limit })).rejects.toThrow(
-				'limit must be a whole number',
-			);
+			expect(
+				await rejectionMessage(people.groupBy('level', { limit })),
+			).toContain('limit must be a whole number');
 		}
 	});
 });
@@ -353,9 +356,9 @@ describe('populate', () => {
 			{ team: { from: team, by: 'teamId', on: 'x' } },
 		];
 		for (const relations of bad) {
-			await expect(people.populate([], relations as never)).rejects.toThrow(
-				TypeError,
-			);
+			expect(
+				await rejection(people.populate([], relations as never)),
+			).toBeInstanceOf(TypeError);
 		}
 	});
 });

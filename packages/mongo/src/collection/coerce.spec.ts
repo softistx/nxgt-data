@@ -8,6 +8,7 @@ import {
 } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { z } from 'zod';
+import { rejection } from '../../test/rejection';
 import { users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { defineCollection } from '../definition/define-collection';
@@ -210,12 +211,14 @@ describe('a write', () => {
 	test('still refuses what it could not read', async () => {
 		const { collection } = await seed();
 		// Handed on as the string it is, so the schema says why.
-		await expect(
-			collection.create({
-				email: 'eve@example.com',
-				teamId: 'not-an-id',
-			}),
-		).rejects.toThrow();
+		expect(
+			await rejection(
+				collection.create({
+					email: 'eve@example.com',
+					teamId: 'not-an-id',
+				}),
+			),
+		).toBeInstanceOf(Error);
 	});
 });
 

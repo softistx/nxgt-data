@@ -406,7 +406,16 @@ matching key in `exports`.
     the file in a `(fail) (unnamed)`. That was the migration specs' CI
     flake — on 2 CPUs beside six busy loops they failed 12 runs out of 12,
     at 58–68 KB drained; with the helper, 0 out of 6, with ~150 KB drained.
-    The other `@nxgt/mongo` specs still use `.rejects` and are open to it.
+    Every `@nxgt/mongo` and `@nxgt/mongo-meilisearch` spec now holds its
+    rejections this way; `grep -rn "\.rejects" packages/mongo/src
+    packages/mongo-meilisearch/src` finds nothing (`follow.spec.ts` there
+    holds them with its own file-local `rejection`, which also rethrows
+    anything but a `SearchSyncError`, so has no `test/rejection.ts`). The other packages'
+    specs (`drizzle`, `drizzle-meilisearch`, `mongo-kit`,
+    `mongo-search-kit`, `redis`, `redis-kit`, `s3`) still use `.rejects`
+    and are open to it; `grep -rn "\.rejects" packages/*/src
+    packages/*/test` lists them, and should end up listing only the
+    comments in the `rejection.ts` copies.
 
   A fixture that hands back something long-lived takes its `closed` at
   hand-over, the way `track()` does in

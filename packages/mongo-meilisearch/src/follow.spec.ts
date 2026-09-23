@@ -273,8 +273,8 @@ describe('what stops a running sync', () => {
 		);
 		expect(await search.state()).toEqual(before);
 		expect(await indexed()).toEqual([[String(kept._id), 'kept']]);
-		await expect(running.flush()).rejects.toBe(error);
-		await expect(running.close()).rejects.toBe(error);
+		expect(await rejection(running.flush())).toBe(error);
+		expect(await rejection(running.close())).toBe(error);
 	});
 
 	test('a document under another id', async () => {
@@ -300,7 +300,7 @@ describe('what stops a running sync', () => {
 		expect(error.message).toStartWith(
 			'Search sync "articles:articles" failed sending changes:',
 		);
-		await expect(running.flush()).rejects.toBe(error);
+		expect(await rejection(running.flush())).toBe(error);
 	});
 
 	test('a batch Meilisearch refuses, sent by flush', async () => {

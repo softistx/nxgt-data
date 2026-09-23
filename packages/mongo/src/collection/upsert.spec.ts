@@ -9,6 +9,7 @@ import {
 import type { Collection, Db } from 'mongodb';
 import { ObjectId } from 'mongodb';
 import { z } from 'zod';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { posts, tickets, users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { defineCollection } from '../definition/define-collection';
@@ -135,21 +136,25 @@ describe('an upsert that matches', () => {
 		await collection.delete(created._id);
 		// Scoped to the live documents like every write, so this inserts —
 		// and the unique index on `email` is what refuses a second live one.
-		await expect(
-			collection.upsert({ email: 'ada@example.com' }, { name: 'Ada' }),
-		).rejects.toBeInstanceOf(ConflictError);
+		expect(
+			await rejection(
+				collection.upsert({ email: 'ada@example.com' }, { name: 'Ada' }),
+			),
+		).toBeInstanceOf(ConflictError);
 	});
 });
 
 describe('what an upsert refuses', () => {
 	test('a filter that names no field by value', async () => {
 		const collection = await synced();
-		await expect(
-			collection.upsert({ age: { $gt: 5 } } as never, { name: 'x' }),
-		).rejects.toThrow(/matched rather than given a value/);
-		await expect(collection.upsert({} as never, { name: 'x' })).rejects.toThrow(
-			/at least one field by value/,
-		);
+		expect(
+			await rejectionMessage(
+				collection.upsert({ age: { $gt: 5 } } as never, { name: 'x' }),
+			),
+		).toMatch(/matched rather than given a value/);
+		expect(
+			await rejectionMessage(collection.upsert({} as never, { name: 'x' })),
+		).toMatch(/at least one field by value/);
 	});
 
 	test('a filter matching a shape, which seeds nothing either', async () => {
@@ -157,9 +162,11 @@ describe('what an upsert refuses', () => {
 		// Measured: an upsert filtered by a regular expression inserts a
 		// document without the field at all — the server seeds only the
 		// conditions that are equalities.
-		await expect(
-			collection.upsert({ email: /ada/ } as never, { name: 'Ada' }),
-		).rejects.toThrow(/matched rather than given a value/);
+		expect(
+			await rejectionMessage(
+				collection.upsert({ email: /ada/ } as never, { name: 'Ada' }),
+			),
+		).toMatch(/matched rather than given a value/);
 		expect(await collection.count()).toBe(0);
 	});
 
@@ -168,34 +175,42 @@ describe('what an upsert refuses', () => {
 		// Measured: the server seeds from the equalities inside `$and` and
 		// `$or` too, so neither can be allowed to stand — a filter saying
 		// "one team or the other" cannot say which one it would insert.
-		await expect(
-			collection.upsert(
-				{ email: 'a@b.c', $or: [{ name: 'Ada' }] } as never,
-				{},
+		expect(
+			await rejectionMessage(
+				collection.upsert(
+					{ email: 'a@b.c', $or: [{ name: 'Ada' }] } as never,
+					{},
+				),
 			),
-		).rejects.toThrow(/cannot upsert through "\$or"/);
-		await expect(
-			collection.upsert({ $and: [{ email: 'a@b.c' }] } as never, {}),
-		).rejects.toThrow(/cannot upsert through "\$and"/);
+		).toMatch(/cannot upsert through "\$or"/);
+		expect(
+			await rejectionMessage(
+				collection.upsert({ $and: [{ email: 'a@b.c' }] } as never, {}),
+			),
+		).toMatch(/cannot upsert through "\$and"/);
 	});
 
 	test('a filter naming a path inside a field, or no field of the schema', async () => {
 		const collection = await synced();
-		await expect(
-			collection.upsert({ 'name.first': 'Ada' } as never, {}),
-		).rejects.toThrow(/cannot upsert through the path "name.first"/);
+		expect(
+			await rejectionMessage(
+				collection.upsert({ 'name.first': 'Ada' } as never, {}),
+			),
+		).toMatch(/cannot upsert through the path "name.first"/);
 		// A filter refuses an unknown field nowhere else in this package — in
 		// an upsert it has to, because the server would **store** it.
-		await expect(collection.upsert({ nope: 1 } as never, {})).rejects.toThrow(
-			/has no field "nope"/,
-		);
+		expect(
+			await rejectionMessage(collection.upsert({ nope: 1 } as never, {})),
+		).toMatch(/has no field "nope"/);
 	});
 
 	test('a filter on a stamp the collection keeps', async () => {
 		const collection = await synced();
-		await expect(
-			collection.upsert({ version: 0 } as never, { name: 'Ada' }),
-		).rejects.toThrow(/keeps that field itself/);
+		expect(
+			await rejectionMessage(
+				collection.upsert({ version: 0 } as never, { name: 'Ada' }),
+			),
+		).toMatch(/keeps that field itself/);
 	});
 
 	test('a required field left out, on the half that matched too', async () => {
@@ -205,16 +220,20 @@ describe('what an upsert refuses', () => {
 		// The check cannot know which half will run, so a field an insert
 		// would need is needed every time. This is the cost of the guarantee
 		// that an upsert can always insert, and the README says so.
-		await expect(
-			collection.upsert({ email: 'ada@example.com' }, {}),
-		).rejects.toThrow(/plan/);
+		expect(
+			await rejectionMessage(
+				collection.upsert({ email: 'ada@example.com' }, {}),
+			),
+		).toMatch(/plan/);
 	});
 
 	test('a field the schema does not have', async () => {
 		const collection = await synced();
-		await expect(
-			collection.upsert({ email: 'a@b.c' }, { nope: 1 } as never),
-		).rejects.toThrow(/has no field "nope"/);
+		expect(
+			await rejectionMessage(
+				collection.upsert({ email: 'a@b.c' }, { nope: 1 } as never),
+			),
+		).toMatch(/has no field "nope"/);
 	});
 
 	test('a document it could not insert, before it asks the server', async () => {
@@ -222,9 +241,11 @@ describe('what an upsert refuses', () => {
 		await collection.sync();
 		// `create` would name the field; so does this, and for the same
 		// reason — an upsert that cannot insert is not an upsert.
-		const refused = collection.upsert({ email: 'ada@example.com' }, {});
-		await expect(refused).rejects.toBeInstanceOf(z.ZodError);
-		await expect(refused).rejects.toThrow(/plan/);
+		const error = await rejection(
+			collection.upsert({ email: 'ada@example.com' }, {}),
+		);
+		expect(error).toBeInstanceOf(z.ZodError);
+		expect((error as z.ZodError).message).toMatch(/plan/);
 		expect(await collection.findMany({ filter: {} })).toEqual([]);
 		// The same call with the field is fine, and the filter seeds `email`.
 		const written = await collection.upsert(
@@ -239,21 +260,25 @@ describe('what an upsert refuses', () => {
 		// Named, and named as the collection's own: measured, a stamp that
 		// reaches the schema instead is a `ZodError` that says only that the
 		// field is unrecognised, which tells a caller nothing about `raw`.
-		await expect(
-			collection.upsert({ email: 'a@b.c' }, { version: 3 } as never),
-		).rejects.toThrow(/"version" is kept by "users" itself/);
-		await expect(
-			collection.upsert({ email: 'a@b.c' }, {
-				createdBy: new ObjectId(),
-			} as never),
-		).rejects.toThrow(/"createdBy" is kept by "users" itself/);
+		expect(
+			await rejectionMessage(
+				collection.upsert({ email: 'a@b.c' }, { version: 3 } as never),
+			),
+		).toMatch(/"version" is kept by "users" itself/);
+		expect(
+			await rejectionMessage(
+				collection.upsert({ email: 'a@b.c' }, {
+					createdBy: new ObjectId(),
+				} as never),
+			),
+		).toMatch(/"createdBy" is kept by "users" itself/);
 	});
 
 	test('a value the schema refuses', async () => {
 		const collection = await synced();
-		await expect(
-			collection.upsert({ email: 'a@b.c' }, { age: -1 }),
-		).rejects.toThrow();
+		expect(
+			await rejection(collection.upsert({ email: 'a@b.c' }, { age: -1 })),
+		).toBeInstanceOf(Error);
 	});
 });
 
@@ -522,23 +547,27 @@ describe('the configurations an upsert honours', () => {
 		const collection = getCollection(t.db, users, { coerce: false });
 		await collection.sync();
 		const team = new ObjectId();
-		await expect(
-			collection.upsert({ email: 'a@b.c' }, {
-				teamId: team.toHexString(),
-			} as never),
-		).rejects.toThrow();
+		expect(
+			await rejection(
+				collection.upsert({ email: 'a@b.c' }, {
+					teamId: team.toHexString(),
+				} as never),
+			),
+		).toBeInstanceOf(Error);
 	});
 
 	test('rolls back with the transaction it ran in', async () => {
 		const collection = await synced();
-		await expect(
-			withTransaction(t.client, async (session) => {
-				await collection
-					.withSession(session)
-					.upsert({ email: 'ada@example.com' }, { name: 'Ada' });
-				throw new Error('rolled back');
-			}),
-		).rejects.toThrow('rolled back');
+		expect(
+			await rejectionMessage(
+				withTransaction(t.client, async (session) => {
+					await collection
+						.withSession(session)
+						.upsert({ email: 'ada@example.com' }, { name: 'Ada' });
+					throw new Error('rolled back');
+				}),
+			),
+		).toContain('rolled back');
 		expect(await collection.count()).toBe(0);
 	});
 });
@@ -557,9 +586,9 @@ describe('the edges an upsert answers for', () => {
 		});
 		const collection = getCollection(t.db, slugged);
 		await collection.sync();
-		await expect(
-			collection.upsert({ title: 'a' } as never, {}),
-		).rejects.toThrow(/needs "_id" in its filter/);
+		expect(
+			await rejectionMessage(collection.upsert({ title: 'a' } as never, {})),
+		).toMatch(/needs "_id" in its filter/);
 		// Named in the filter, it seeds the insert and everything holds.
 		const written = await collection.upsert({ _id: 'k_mine' } as never, {
 			title: 'a',
@@ -583,9 +612,11 @@ describe('the edges an upsert answers for', () => {
 
 	test('names itself when the values are not a document', async () => {
 		const collection = await synced();
-		await expect(
-			collection.upsert({ email: 'a@b.c' }, null as never),
-		).rejects.toThrow(/upsert: expected the document's fields, not null/);
+		expect(
+			await rejectionMessage(
+				collection.upsert({ email: 'a@b.c' }, null as never),
+			),
+		).toMatch(/upsert: expected the document's fields, not null/);
 	});
 
 	test('does not credit itself with a document it did not create', async () => {
