@@ -20,6 +20,15 @@ It reports one `SyncReport[]` per database, under the name the config gave it
 — `default` when it named none. Run it twice and the second run sends
 nothing.
 
+It leaves [buckets](files.md) alone: a bucket is not a collection
+definition. Their indexes are `kit.syncBuckets()`'s, the step to run beside
+this one:
+
+```ts
+await kit.sync();
+await kit.syncBuckets();   // { default: { avatars: [ … ], uploads: [ … ] } }
+```
+
 ## Options
 
 They are `@nxgt/mongo`'s `SyncOptions`, passed through as they are.

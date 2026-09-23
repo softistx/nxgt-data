@@ -3,7 +3,8 @@
 An application's MongoDB in one object: a configuration checked once, the
 clients it needs opened from it, and every collection of
 [`@nxgt/mongo`](https://www.npmjs.com/package/@nxgt/mongo) typed on the
-database it lives in.
+database it lives in — with its GridFS files beside them, in the same
+transactions.
 
 ```ts
 import { createKit, defineConfig } from '@nxgt/mongo-kit';
@@ -31,8 +32,10 @@ at each call site, no client to pass around, no session to thread by hand.
 bun add @nxgt/mongo-kit @nxgt/mongo mongodb zod
 ```
 
-- `@nxgt/mongo`: required peer. The collections, their options and their
-  behaviour are its; this package wires them.
+- `@nxgt/mongo` `^0.17.0`: required peer. The collections, the buckets, their
+  options and their behaviour are its; this package wires them. The kit
+  imports its `./gridfs` subpath, so a copy older than 0.14 fails at the first
+  import with `Cannot find module '@nxgt/mongo/gridfs'`.
 - `mongodb` `>=7.0.0 <8`: required peer, as `@nxgt/mongo` needs it. `zod` is
   `@nxgt/mongo`'s.
 - `typescript` 6: required peer, the version every `@nxgt` package pins.
@@ -121,8 +124,8 @@ one they came from is unchanged, so a request's kit never leaks into the
 next. The collections are built on the first read and kept, so a request
 pays for the collections it touches and no others.
 
-`transaction` runs the body with a kit whose collections are all in the
-session — nothing has to be passed. **The driver retries the body from the
+`transaction` runs the body with a kit whose collections and
+[buckets](#files) are all in the session — nothing has to be passed. **The driver retries the body from the
 start** on a transient error, so it must be safe to run twice: keep side
 effects that are not MongoDB's out of it. A transaction inside a transaction
 **joins** the outer one, and takes no `{ on }`, since the session already
@@ -137,6 +140,34 @@ and the driver refuses it.
 The actor's type is the one the collections agree on: a kit whose collections
 stamp an `ObjectId` takes an `ObjectId`, and one whose collections stamp
 nothing has no `as` to call.
+
+## Files
+
+GridFS buckets from
+[`@nxgt/mongo/gridfs`](https://www.npmjs.com/package/@nxgt/mongo) are wired
+the same way, from a module of `defineBucket`s, and reached beside the
+collections in the kit's session — so a file joins a transaction:
+
+```ts
+import * as buckets from './files';        // every `defineBucket` of the app
+
+export const kit = await createKit(
+	defineConfig({ uri: process.env.MONGO_URI!, collections, buckets }),
+);
+await kit.syncBuckets();                   // their indexes; `sync()` does not
+
+await kit.transaction(async (tx) => {
+	const user = await tx.db.users.create({ email: 'ada@example.com' });
+	await tx.db.avatars.put(Bun.file('ada.png'), {
+		metadata: { userId: user._id },    // typed by the bucket's schema
+	});
+});                                        // a throw takes the file with the user
+```
+
+`kit.db.avatars` is the `TypedBucket` `getFiles(db, avatars)` gives, built on
+first read and kept. `bucketOptions` (`validate`, `coerce`, `hash`) applies
+to every bucket of a database; the session and `autoSync` are the kit's. A
+bucket has no actor. [Files](docs/guide/files.md) has the details.
 
 ## Sync
 
@@ -192,7 +223,9 @@ and what is wrong throws here, where the application starts.
 | `collections` | — | `import * as collections from './models'`. |
 | `options` | `{}` | `@nxgt/mongo`'s collection options, for every collection. |
 | `optionsFor` | `{}` | The same, per key, merged over `options`. |
-| `autoSync` | `false` | Sync each collection before its first operation. |
+| `autoSync` | `false` | Sync each collection before its first operation, and create each bucket's indexes before its first call. A bucket's first call inside a transaction then makes the driver run the body twice: call `syncBuckets()` at start-up instead. |
+| `buckets` | — | `import * as buckets from './files'`: `@nxgt/mongo/gridfs` buckets, on the scope beside the collections. |
+| `bucketOptions` | `{}` | `validate`, `coerce`, `hash`, for every bucket. Not `session` or `autoSync`, and not without `buckets`. |
 
 `db`, `session`, `actor` and `autoSync` are not collection options here: the
 kit decides them, and one of them under `options` does not compile, while one
@@ -213,7 +246,8 @@ Opens what the configuration describes, and gives a `MongoKit`:
 | `as(actor)` | The same kit, stamping that actor. |
 | `withSession(session)` | The same kit, in that session; `undefined` takes it away. |
 | `transaction(fn, options?)` | `fn` with a kit in a transaction. May run twice. |
-| `sync(options?)` | `SyncReport[]` per database, under its name. |
+| `sync(options?)` | `SyncReport[]` per database, under its name. Collections only. |
+| `syncBuckets()` | Creates each bucket's four indexes: `BucketIndexReport[]` per bucket key, per database. |
 | `ping(options?)` | `PingResult` (`import type { PingResult } from '@nxgt/mongo'`) per database, under its name. Never throws; `timeoutMS`, 2 s by default. |
 | `close()` | Gives back what it opened. Idempotent. |
 
@@ -247,7 +281,7 @@ if (error instanceof KitError && error.code === 'CONFIG') {
 | `KitErrorCode` | |
 | --- | --- |
 | `CONFIG` | `defineConfig` refused the configuration |
-| `COLLISION` | a collection is wired under a name the driver's `Db` has |
+| `COLLISION` | a collection or a bucket is wired under a name the driver's `Db` has |
 | `NO_DATABASE` | `transaction(fn, { on })` named a database this kit does not hold |
 | `SEVERAL_DATABASES` | `kit.db` was read on a kit that holds more than one |
 | `TRANSACTION` | no client named where one is needed, or `{ on }` inside a session |
@@ -278,6 +312,10 @@ Each is a `@ts-expect-error` case in this package's type tests.
   `optionsFor`, the same four are refused by `defineConfig` instead.
 - `as` with an actor of the wrong type, and `as` at all when the
   collections stamp none or disagree.
+- A bucket under a key the driver's `Db` has, or one a collection of the
+  same database already holds; metadata the bucket's schema does not
+  describe; `session` or `autoSync` in `bucketOptions`, and `bucketOptions`
+  on a database with no `buckets`.
 
 ## Traps
 
@@ -316,6 +354,17 @@ Each is a `@ts-expect-error` case in this package's type tests.
   `ping` keeps its deadline with a timer of its own — and if it fails, the
   driver closes the client: every later command throws
   `MongoTopologyClosedError`. Pass `await new MongoClient(uri).connect()`.
+- **Bucket indexes are not created by `sync()`.** It syncs collection
+  definitions, and a bucket is not one: call `syncBuckets()` beside it.
+  Until one of them has run — or a database's `autoSync` has — every read of
+  a file scans the whole chunks collection, and `@nxgt/mongo/gridfs` says so
+  once with an `NxgtGridFSMissingIndex` process warning.
+- **With `autoSync`, a bucket's first upload inside a transaction runs the
+  body twice.** The indexes `autoSync` creates outside the session create the
+  chunks collection after the transaction's snapshot, the commit fails
+  (112), and the driver retries. A stream source is spent by then and is
+  stored as an empty file. Call `syncBuckets()` at start-up, before any
+  transactional upload, and the body runs once.
 - **`kit.db` throws `SEVERAL_DATABASES` on a kit with several databases**,
   where its type is already `never`: the message names the databases to read
   instead.
@@ -330,6 +379,8 @@ Each is a `@ts-expect-error` case in this package's type tests.
 - [The actor, sessions and transactions](docs/guide/actor-and-transactions.md)
   — `as`, `withSession` and `transaction`.
 - [Syncing](docs/guide/sync.md) — the deployment step, and `dryRun`.
+- [Files](docs/guide/files.md) — GridFS buckets on the kit, in its
+  transactions, and `syncBuckets()`.
 - [Health](docs/guide/health.md) — `ping()`, for a health endpoint.
 - [Errors](docs/guide/errors.md) — `KitError`, its codes, and what each one
   is thrown by.

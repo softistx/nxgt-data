@@ -22,6 +22,10 @@ driver's `Collection` with `@nxgt/mongo`'s pagination, soft delete,
 optimistic locking and stamps on it — so everything that package documents
 about a collection holds here.
 
+A database configured with `buckets` has them on the same scope, beside the
+collections: `kit.db.avatars` is the `TypedBucket` `@nxgt/mongo/gridfs`'s
+`getFiles` gives, in the kit's session. [Files](files.md) covers them.
+
 ## What the kit holds
 
 | Member | Type | Effect |
@@ -30,11 +34,12 @@ about a collection holds here.
 | `databases` | `{ [name]: DbScope }` | Every scope, under the name the config gave it — `default` when it named none |
 | `clients` | `{ [name]: MongoClient }` | The client of each database. Two databases on one URI share one |
 | `actor` | `KitActor<C> \| undefined` | What this kit stamps into the `*By` fields |
-| `session` | `ClientSession \| undefined` | The session every collection of this kit runs in |
+| `session` | `ClientSession \| undefined` | The session every collection and bucket of this kit runs in |
 | `as(actor)` | `MongoKit<C>` | [Another kit, stamping that actor](actor-and-transactions.md) |
 | `withSession(session)` | `MongoKit<C>` | [Another kit, in that session](actor-and-transactions.md) |
 | `transaction(fn, options?)` | `Promise<T>` | [`fn` with a kit in a transaction](actor-and-transactions.md) |
-| `sync(options?)` | `Promise<Record<DbName<C>, SyncReport[]>>` | [A deployment step](sync.md) |
+| `sync(options?)` | `Promise<Record<DbName<C>, SyncReport[]>>` | [A deployment step](sync.md), for the collections |
+| `syncBuckets()` | `Promise<BucketSyncReport<C>>` | [The buckets' indexes](files.md#indexes-syncbuckets), per database and bucket key |
 | `close()` | `Promise<void>` | Gives back what the kit opened. Idempotent |
 
 A kit is `AsyncDisposable`, so `await using kit = await createKit(config)`
@@ -42,11 +47,11 @@ closes it at the end of the block.
 
 ## The scope is a `Db` underneath
 
-The collections are own properties; everything else is read through to the
-driver's `Db`:
+The collections — and the buckets, when the database wires any — are own
+properties; everything else is read through to the driver's `Db`:
 
 ```ts
-Object.keys(kit.db);            // ['users', 'posts'] — not the driver's members
+Object.keys(kit.db);            // ['users', 'posts'] (and any buckets) — not the driver's members
 'users' in kit.db;              // true
 'command' in kit.db;            // true
 

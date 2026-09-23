@@ -9,10 +9,7 @@ _Nothing in progress._
 
 ## Next
 
-- **Files beside the collections** — a bucket declared in the configuration
-  and reached off the kit the way a collection is today, in the kit's session
-  and under its actor, so a file write joins a transaction with the documents
-  around it.
+_Nothing queued._
 
 ## Later
 
@@ -37,9 +34,24 @@ _Nothing queued._
   refused by the types where the configuration is written, and again by
   `createKit` against the object itself, so `kit.db.command(…)` is always the
   driver's.
+- **An actor on a bucket** — `@nxgt/mongo/gridfs` stamps no `*By` field, so
+  `as(actor)` has nothing to write on a file. Who uploaded one belongs in
+  its metadata, typed by the bucket's schema.
+- **`sync()` syncing buckets** — `sync()` applies collection definitions and
+  keeps its report shape; a bucket is not one. `syncBuckets()` is the step
+  beside it.
+- **A `dryRun` for `syncBuckets()`** — a bucket's index creation has none to
+  pass on: it creates what is missing and reports what was there.
 
 ## Shipped
 
+- **Files beside the collections** — `@nxgt/mongo/gridfs` buckets declared
+  in the configuration as `buckets`, reached off the kit the way a collection
+  is, typed by their metadata and in the kit's session, so a file write
+  joins a transaction with the documents around it; `bucketOptions` for
+  every bucket of a database, and `syncBuckets()` creating their indexes
+  beside `sync()`. A bucket has no actor to stamp, so only the session
+  carries over — 0.4.0.
 - **`ping()`** — one call that says whether each database the kit wires
   answers, and how long it took, under its name, for a health endpoint that
   does not reach for the driver itself; it never throws, and keeps its

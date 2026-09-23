@@ -29,8 +29,8 @@ is only about the wiring.
 
 | `code` | Thrown by | When |
 | --- | --- | --- |
-| `CONFIG` | `defineConfig` | the configuration cannot work: no `uri` and no `client`, both at once, `clientOptions` beside a `client`, a `collections` with no definition in it, two keys on one server collection, `optionsFor` under a key nothing is wired under, or one of the four options the kit decides |
-| `COLLISION` | `createKit` | a collection is wired under a name the driver's `Db` already has — `command`, `watch`, `collection`… — so it would be unreachable |
+| `CONFIG` | `defineConfig` | the configuration cannot work: no `uri` and no `client`, both at once, `clientOptions` beside a `client`, a `collections` with no definition in it, two keys on one server collection, `optionsFor` under a key nothing is wired under, or one of the four options the kit decides; for [buckets](files.md), a `buckets` with no bucket in it, a bucket key a collection already holds, two keys on one bucket, `session`/`autoSync` in `bucketOptions`, or `bucketOptions` on a database with no `buckets` |
+| `COLLISION` | `createKit` | a collection or a bucket is wired under a name the driver's `Db` already has — `command`, `watch`, `collection`… — so it would be unreachable |
 | `NO_DATABASE` | `transaction(fn, { on: '<name>' })` | this kit holds no database under that name; the message lists the ones it has. Reading `kit.databases.<name>` does **not** throw — an unknown key is plain `undefined` |
 | `SEVERAL_DATABASES` | reading `kit.db` | the kit holds more than one database, so there is no "the" database to give |
 | `TRANSACTION` | `transaction` | the kit holds several clients and the call named none, or it is already in a session and still passed `{ on }` |

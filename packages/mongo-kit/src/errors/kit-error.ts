@@ -2,7 +2,7 @@
 export type KitErrorCode =
 	/** The configuration object itself is wrong, and nothing connected. */
 	| 'CONFIG'
-	/** A collection is wired under a name that is a member of the driver's `Db`. */
+	/** A collection or a bucket is wired under a name that is a member of the driver's `Db`. */
 	| 'COLLISION'
 	/** A database was read by a name this kit does not hold. */
 	| 'NO_DATABASE'

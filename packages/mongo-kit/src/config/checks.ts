@@ -1,5 +1,6 @@
 import type { AnyCollectionDefinition } from '@nxgt/mongo';
-import { KitError } from '../errors/kit-error';
+import { checkBuckets } from './bucket-checks';
+import { refuse } from './refuse';
 import type { DatabaseConfig } from './types';
 
 /** A definition, told by its shape: `instanceof` has no class to ask. */
@@ -24,13 +25,6 @@ export function definitionsOf(
 			isDefinition(entry[1]),
 	);
 }
-
-const refuse = (name: string, said: string, key?: string): never => {
-	throw new KitError('CONFIG', `defineConfig: database "${name}" ${said}`, {
-		database: name,
-		key,
-	});
-};
 
 /**
  * The collection options the kit decides itself: the database each collection
@@ -125,5 +119,6 @@ export function checkDatabase(
 	for (const [key, options] of Object.entries(config.optionsFor ?? {})) {
 		checkOwned(name, `the options of "${key}"`, options, key);
 	}
+	checkBuckets(name, config, keys);
 	return definitions;
 }

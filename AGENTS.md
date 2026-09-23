@@ -14,7 +14,7 @@ registry:
 | `@nxgt/meilisearch` | a typed Meilisearch index on the official SDK: `defineIndex<Doc>()({ uid, primaryKey, settings })`, `syncIndex`/`syncIndexes` applying the settings idempotently, and `bindIndex` for typed documents and searches. Its one error is `SearchIndexError` |
 | `@nxgt/mongo` | a typed MongoDB collection from one Zod schema: `defineCollection` with its stamps and MongoDB's own collection options, `syncCollection`/`syncAll` applying the `$jsonSchema` validator, the collection options and the indexes idempotently, `getCollection` returning the driver's own `Collection` merged with pagination, soft delete, optimistic locking and audit stamps, `withTransaction`, `upsert` as one atomic pipeline update, migrations in code under the `./migrations` subpath, and files under `./gridfs` — a bucket described once, typed metadata, `Range`-aware serving, and chunk documents written by the package itself so that a file write can run in a transaction, which the driver's GridFS cannot. A string that arrives from outside is converted from the **schema** — a 24-hex string to `ObjectId` where the schema says `objectId()`, a date string to `Date` where it says `z.date()`, in ids, filters and writes alike — unless `coerce: false`. Its errors are `DataError` and its subclasses |
 | `@nxgt/mongo-meilisearch` | keeps a Meilisearch index in step with a MongoDB collection: `createSearchSync` with a `transform` typed by both definitions, `reindex`, and `start`, which follows the collection's changes in batches from a resume point kept in MongoDB. Its one error is `SearchSyncError` |
-| `@nxgt/mongo-kit` | an application's MongoDB wiring in one object: `defineConfig` checking a configuration of one or several databases, and `createKit` giving a `db` that is the driver's `Db` with every `@nxgt/mongo` collection typed on it, plus the actor, the session, transactions, `sync` and `close`. `discoverCollections` reads definitions from a glob, for scripts |
+| `@nxgt/mongo-kit` | an application's MongoDB wiring in one object: `defineConfig` checking a configuration of one or several databases, and `createKit` giving a `db` that is the driver's `Db` with every `@nxgt/mongo` collection typed on it — and every `@nxgt/mongo/gridfs` bucket the config's `buckets` wires, beside them, in the kit's session so a file write joins a transaction — plus the actor, the session, transactions, `sync`, `syncBuckets` (bucket indexes, which `sync` leaves alone), `ping` and `close`. `discoverCollections` reads definitions from a glob, for scripts |
 | `@nxgt/mongo-search-kit` | a search kit over the wiring kit: `createSearchKit(kit, config)` takes one entry per collection — an index and a transform, under the key the kit wires that collection under — and gives one `reindexAll`, one `start` and one `close` for all of them. Each entry's sync is `@nxgt/mongo-meilisearch`'s, unchanged |
 | `@nxgt/redis` | Redis on Bun's own `RedisClient`, with no third-party driver: `connectRedis`/`closeRedis` sharing one client per URI, `defineCache`/`bindCache` with the key built by a typed function and the value checked by its schema both ways, `withLock` over `SET NX PX` released by a compare-and-delete script, and `defineChannel`/`publish`/`subscribe` typed the same way. Its one error is `RedisError` |
 | `@nxgt/redis-kit` | an application's Redis wiring in one object: `defineConfig` checking a configuration of one or several Redis instances, and `connectKit` opening the clients and giving `kit.cache.<key>` and `kit.channels.<key>` — every `@nxgt/redis` cache and channel typed under the key it is exported as, renamed under the instance's prefix — plus the subscriptions it tracks and closes, `lock`, `ping` and `close`. It has no error of its own: its refusals are bare `TypeError`s, and what a caller catches at run time is `@nxgt/redis`'s `RedisError` |
@@ -78,6 +78,9 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   from one into another. `@nxgt/mongo-kit` has `@nxgt/mongo` as a required
   peer, by `workspace:^`, and as a devDependency the same way; `mongodb` is a
   peer with the sibling's range and pin. `@nxgt/mongo` knows nothing of it.
+  Its buckets come from the `@nxgt/mongo/gridfs` subpath of that same peer,
+  so they added no dependency; the build keeps the subpath external like the
+  root.
   `@nxgt/redis-kit` is the same over `@nxgt/redis`, and carries `zod` with
   the sibling's range and pin instead of a driver — `@nxgt/redis` has no
   driver peer to carry. `@nxgt/mongo-search-kit` peers on four siblings at
@@ -524,9 +527,9 @@ the file.
 
 ## Known state
 
-`bun run test` is **1081 pass, 0 fail**: drizzle 113, meilisearch 45,
-mongo 532, drizzle-meilisearch 42, mongo-meilisearch 55, mongo-kit 76,
-mongo-search-kit 16, redis 46, redis-kit 55, s3 52, hono-api-example 31,
+`bun run test` is **1106 pass, 0 fail**: drizzle 113, meilisearch 45,
+mongo 532, drizzle-meilisearch 42, mongo-meilisearch 55, mongo-kit 100,
+mongo-search-kit 17, redis 46, redis-kit 55, s3 52, hono-api-example 31,
 scripts 18. It runs one process
 per package, then the scripts' specs. Treat any failure as yours.
 
