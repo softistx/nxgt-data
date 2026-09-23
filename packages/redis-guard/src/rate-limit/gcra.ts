@@ -31,8 +31,10 @@ import type { LimitResult } from './types';
  * - A stored value is used only if it is a state this script could have
  *   written: two digit strings of at most 16 digits, each at most 2^53 − 1,
  *   `ahead` at most the tolerance, and `base` ahead of `now` by at most a
- *   full refill. Anything else — somebody else's value, a hand-edited key —
- *   is a full bucket (nothing counted), which the next allowed call overwrites with a `PX`.
+ *   full refill. Any other string — somebody else's value, a hand-edited
+ *   key — is a full bucket (nothing counted), which the next allowed call
+ *   overwrites with a `PX`. A key of another type fails the `GET` with
+ *   Redis's own `WRONGTYPE`.
  * - It is **one** script, so the read, the decision and the write are one
  *   step: two processes cannot both read the same state and both be allowed.
  * - A denial writes nothing, and neither does a `peek`.

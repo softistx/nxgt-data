@@ -30,6 +30,7 @@ written by hand, says `bindRateLimit` instead.
   - [A limit allows more than `limit` requests in its first `per`](#a-limit-allows-more-than-limit-requests-in-its-first-per)
   - [A limit barely limits anything](#a-limit-barely-limits-anything)
   - [Every limited caller has to wait much longer than `per`](#every-limited-caller-has-to-wait-much-longer-than-per)
+  - [`WRONGTYPE Operation against a key holding the wrong kind of value`](#wrongtype-operation-against-a-key-holding-the-wrong-kind-of-value)
 
 ## Install and import
 
@@ -241,4 +242,25 @@ nothing else:
 
 ```sh
 redis-cli --scan --pattern 'login:*' | xargs -r redis-cli del
+```
+
+### `WRONGTYPE Operation against a key holding the wrong kind of value`
+
+**When:** any call on a limit, when a key under its name — `<name>:<key>` —
+holds a hash, a list, a set or anything but a string.
+**Why:** the script reads the key with `GET`, and Redis refuses `GET` on a
+key of another type. The error is Redis's own, passed through as Bun's
+`RedisError`, not a `GuardError`: nothing was decided. A *string* the script
+could not have written is different — it reads as a full bucket and the
+next allowed call replaces it.
+**Fix:** give the limit a name no other part of the application uses as a
+key prefix, or delete the clashing key if it is left over:
+
+```ts
+const loginLimit = defineRateLimit({
+	name: 'ratelimit:login', // not 'login', which the sessions also use
+	key: (p: { ip: string }) => p.ip,
+	limit: 5,
+	per: 60_000,
+});
 ```
