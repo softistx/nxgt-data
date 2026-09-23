@@ -83,10 +83,41 @@ const loaded = await members.remember('u2', () => ({ id: 'u2' })); // seats: 1 t
 What is stored is what the schema gave back, so every reader sees the
 default, not only the one that wrote.
 
-Where a field's input type is `unknown` — `z.coerce.number()`, or a whole
-`z.preprocess` schema — the compiler accepts anything there: `set` is then
-checked at run time only, by the schema, which refuses a wrong value with a
-`RedisError` before anything is stored.
+Where a field's input type is `unknown` — `z.coerce.number()` — the compiler
+accepts any value for that field, though its key is still required; a whole
+`z.preprocess` schema accepts anything. There `set` is checked at run time
+only, by the schema, which refuses a wrong value with a `RedisError` before
+anything is stored.
+
+```ts
+const countCache = defineCache({
+	name: 'count',
+	key: (id: string) => id,
+	ttl: 60,
+	schema: z.object({ n: z.coerce.number() }),
+});
+const counts = bindCache(redis.client, countCache);
+
+await counts.set('u1', { n: '3' }); // compiles, and stores { n: 3 }
+await counts.set('u1', {});         // does not compile: `n` is still required
+```
+
+A value read back is not always one `set` accepts. Where a transform changes a
+type, pass the input, not the output:
+
+```ts
+const seenCache = defineCache({
+	name: 'seen',
+	key: (id: string) => id,
+	ttl: 60,
+	schema: z.string().transform((s) => new Date(s)),
+});
+const seen = bindCache(redis.client, seenCache);
+
+await seen.set('u1', '2026-09-22T10:00:00Z');       // the input: a string
+const at = await seen.get('u1');                    // the output: a Date
+// await seen.set('u1', at);                        // does not compile
+```
 
 ## The definition
 
@@ -241,10 +272,15 @@ import type { BoundCache, InputOf, ParamsOf, ValueOf } from '@nxgt/redis';
 
 type ProfileParams = ParamsOf<typeof profileCache>;   // { userId: string }
 type Profile = ValueOf<typeof profileCache>;          // { id: string; name: string }
+type ProfileInput = InputOf<typeof profileCache>;     // the same here: no default, no transform
 
-function warm(cache: BoundCache<ProfileParams, Profile>): Promise<void> {
+function warm(
+	cache: BoundCache<ProfileParams, Profile, ProfileInput>,
+): Promise<void> {
 	return cache.set({ userId: 'u1' }, { id: 'u1', name: 'Ada' });
 }
+
+await warm(profiles);
 ```
 
 `ParamsOf` and `ValueOf` are there so a helper of your own can name what a
@@ -252,7 +288,10 @@ definition takes and what it holds without repeating either; `InputOf` is what
 it accepts on a write — for a `.default()`, `ValueOf` with that field
 optional; for a transform, the type before it. A
 bound cache is `BoundCache<P, T, I>` — `I` defaults to `T` — so a helper can
-take one without naming the definition it came from.
+take one without naming the definition it came from. Pass all three: a
+two-argument `BoundCache<P, ValueOf<D>>` does not accept a cache whose
+transform turns a string into a `Date`, since its `set` would then ask for a
+`Date`.
 
 ## Errors
 

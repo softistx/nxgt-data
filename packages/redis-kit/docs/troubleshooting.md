@@ -67,9 +67,9 @@ sibling run on Bun 1.4 or later, and nowhere else.
 ### `npm error ERESOLVE unable to resolve dependency tree`
 
 ```
-npm error Found: @nxgt/redis@0.1.0
+npm error Found: @nxgt/redis@0.2.0
 npm error Could not resolve dependency:
-npm error peer @nxgt/redis@"^0.2.0" from @nxgt/redis-kit@0.1.0
+npm error peer @nxgt/redis@"^0.3.0" from @nxgt/redis-kit@0.2.0
 ```
 
 **When:** `npm install`, before anything is downloaded.
@@ -91,7 +91,7 @@ bun add @nxgt/redis-kit @nxgt/redis zod
 Raise the sibling rather than install past the conflict: `--force` and
 `--legacy-peer-deps` leave two copies in the tree. Under bun the same
 mismatch is only a line of output — `warn: incorrect peer dependency
-"@nxgt/redis@0.1.0"` — and the install carries on; treat it as an error, and
+"@nxgt/redis@0.2.0"` — and the install carries on; treat it as an error, and
 `bun pm ls` shows what was resolved.
 
 ## Types
@@ -393,11 +393,26 @@ prefix, so the schema is named `myapp:prod:user` and not `user` — the same
 string the key is built from. A value being *written* that does not match is
 a bug, so it throws; a *stored* value that no longer matches is treated as a
 miss, forgotten, and read as `undefined`.
-**Fix:** check at the edge, where the shape comes from:
+**Fix:** check at the edge, where the shape comes from, and hand the cache
+the value as it came — the schema's input — since it parses it again:
 
 ```ts
-const user = await kit.cache.users.remember(id, async () => userSchema.parse(await loadUser(id)));
+import type { z } from 'zod';
+
+const user = await kit.cache.users.remember(id, async () => {
+	const raw = await loadUser(id);
+	const checked = userSchema.safeParse(raw);
+	if (!checked.success) throw checked.error; // names the source, not the cache
+	return raw as z.input<typeof userSchema>;  // valid input: the check passed
+});
 ```
+
+The cast is only needed where `loadUser` returns `unknown`; a typed source
+returns `raw` as it is.
+
+Returning `userSchema.parse(raw)` instead compiles only where no transform
+changes a type, and even then runs the schema's transforms twice — once in the
+loader, once in the cache.
 
 ### ``The lock "myapp:import" is held by somebody else, and this call did not wait for it — pass `wait` to keep trying``
 

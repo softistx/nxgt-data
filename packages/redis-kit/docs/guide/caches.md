@@ -27,7 +27,7 @@ kit adds: the binding, the prefix, and what the types hold you to.
 | `keyFor(params)` | `string` | the key it would use, for a caller that needs the string itself |
 | `get(params)` | `Promise<T \| undefined>` | the value, or `undefined` — a miss, an expiry, or a shape the schema no longer matches |
 | `set(params, value, { ttl })` | `Promise<void>` | the value as the schema accepts it — a `.default()` field may be left out — checked, then stored as the schema gives it back, for the definition's `ttl` or the one given here |
-| `remember(params, load, { ttl })` | `Promise<T>` | the value if it is there, otherwise what `load` gives — stored, and given back **as it was stored** |
+| `remember(params, load, { ttl })` | `Promise<T>` | the value if it is there, otherwise what `load` gives — the value as the schema accepts it, its input — stored, and given back **as it was stored** |
 | `delete(params)` | `Promise<boolean>` | `true` when something was there |
 
 `params` is whatever the definition's `key` function takes, so a cache keyed
@@ -76,9 +76,14 @@ where a value is written, and every reader gets it filled, since what is
 stored is what the schema gave back. It is `@nxgt/redis`'s `BoundCache`,
 typed through.
 
-Where the input type is `unknown` — a `z.coerce.number()` field, a
-`z.preprocess` schema — the compiler accepts anything there, and the schema's
-own check when `set` runs is what refuses a wrong value.
+Where a field's input type is `unknown` — `z.coerce.number()` — the compiler
+accepts any value for that field, though its key is still required; a whole
+`z.preprocess` schema accepts anything. There the schema's own check when
+`set` runs is what refuses a wrong value. Where a transform changes a type —
+a string in, a `Date` out — a value read back is not one `set` accepts, and a
+loader returns the input too; `@nxgt/redis`'s
+[troubleshooting](https://github.com/softistx/nxgt-data/blob/develop/packages/redis/docs/troubleshooting.md#types)
+has the compile errors and the fix.
 
 ## Built on first read, and kept
 
