@@ -27,7 +27,8 @@ The classes come from `@nxgt/drizzle`; the repository, `paginate` and
 | Class | `code` | Thrown when |
 | --- | --- | --- |
 | `NotFoundError` | `NOT_FOUND` | `getById`, `update(id)`, `delete(id)`, `restore(id)` or `hardDelete(id)` matched no row |
-| `ConflictError` | `CONFLICT` | a unique constraint refused the write — SQLSTATE `23505` |
+| `OptimisticLockError` | `OPTIMISTIC_LOCK` | `update` was given a `version` the row is no longer at: someone wrote first. It carries `id`, `expectedVersion` and `actualVersion` — see [Optimistic locking](stamps.md#optimistic-locking) |
+| `ConflictError` | `CONFLICT` | a unique constraint refused the write — SQLSTATE `23505` — or `upsert` found the row soft-deleted |
 | `ForeignKeyError` | `FOREIGN_KEY` | `23503`: the parent row is missing, or a child still points at the row being deleted |
 | `CheckViolationError` | `CHECK_VIOLATION` | `23514` |
 | `NotNullViolationError` | `NOT_NULL_VIOLATION` | `23502` |
@@ -241,6 +242,8 @@ const STATUS: Record<DataErrorCode, 400 | 404 | 409 | 422 | 500> = {
 	FOREIGN_KEY: 422,
 	CHECK_VIOLATION: 422,
 	NOT_NULL_VIOLATION: 422,
+	// Re-read and decide again: the row moved since the client read it.
+	OPTIMISTIC_LOCK: 409,
 	// Both are the client's input rather than the query's own doing.
 	INVALID_VALUE: 400,
 	INVALID_CURSOR: 400,

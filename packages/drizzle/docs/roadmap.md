@@ -9,8 +9,13 @@ _Nothing in progress._
 
 ## Next
 
-_Nothing committed._ The dialects under **Later** are what this package
-needs next.
+- **Hooks around the writes** — `beforeCreate`, `afterUpdate` and the rest,
+  typed by the table, as `@nxgt/mongo` runs them around a collection's
+  writes: a field filled before every create, an audit row written in the
+  same transaction after every delete. With them, `upsert` would tell the
+  hooks which half ran, as it does there.
+
+The dialects under **Later** come after.
 
 ## Later
 
@@ -50,6 +55,15 @@ needs next.
 
 ## Shipped
 
+- **`upsert`, optimistic locking and actor stamps, as `@nxgt/mongo` has
+  them** — `upsert(where, values)` inserts or updates in one
+  `INSERT … ON CONFLICT` on the columns a unique constraint covers, and
+  refuses to write over a soft-deleted row; a table with an integer
+  `NOT NULL` `version` locks, so `update(id, { …, version })` writes only
+  while the row is still at the version that was read, and throws
+  `OptimisticLockError` otherwise; `as(actor)` and the `actor` option stamp
+  `createdBy`, `updatedBy` and `deletedBy`. The `version()` and `actors()`
+  column helpers declare the columns — 0.5.0.
 - **A repository call inside a transaction is refused by name** — a repository
   built on the outer `db` and used inside `withTransaction` throws a
   `TypeError` naming the table and pointing at `.with(tx)`, instead of

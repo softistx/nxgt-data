@@ -23,11 +23,11 @@ columns with their types. Nothing is declared twice.
 ## Creating one
 
 ```ts
-function createRepository<TTable extends PgTable, TKey, TSoft>(
+function createRepository<TTable extends PgTable, TKey, TSoft, TLock>(
 	db: PgDatabase,
 	table: TTable,
-	options?: RepositoryOptions<TTable, TKey, TSoft>,
-): Repository<TTable, TKey, TSoft>;
+	options?: RepositoryOptions<TTable, TKey, TSoft, TLock>,
+): Repository<TTable, TKey, TSoft, TLock>;
 ```
 
 `PgDatabase` is any PostgreSQL Drizzle database — `node-postgres`,
@@ -39,6 +39,8 @@ function createRepository<TTable extends PgTable, TKey, TSoft>(
 | `primaryKey` | a column key of the table | the column under `id` | the column `findById`, `getById`, `update(id)`, `delete(id)`, `restore(id)` and `hardDelete(id)` use, and the type of the id |
 | `softDelete` | `boolean` | `true` when the table has a `deletedAt` column | `false` makes `delete` a real `DELETE` and stops reads from filtering |
 | `touchUpdatedAt` | `boolean` | `true` | sets the `updatedAt` column to `now()` on every update the patch does not set it in |
+| `optimisticLock` | `boolean` | `true` when the table has an integer `NOT NULL` `version` column | every update raises `version`, and `update` checks the one a patch gives; `false` makes it an ordinary column — see [guide/stamps.md](stamps.md#optimistic-locking) |
+| `actor` | the type of the actor columns | — | who is writing, stamped into `createdBy`, `updatedBy`, `deletedBy`; `as(actor)` is the same thing later — see [guide/stamps.md](stamps.md#who-is-writing) |
 | `maxPageSize` | `number` | `100` | the largest `pageSize` or `limit` a page may ask for; a larger one is lowered to it |
 
 ```ts
@@ -264,8 +266,9 @@ that.
 | `findMany(options?)` | `Row[]` | |
 | `create(values)` | `Row` | `ConflictError`, `ForeignKeyError`… |
 | `createMany(values)` | `Row[]` | the same |
-| `update(id, patch)` | `Row` | `NotFoundError`, and the above |
-| `updateMany(where, patch)` | `Row[]` | `ArgumentError` without a `where` |
+| `update(id, patch)` | `Row` | `NotFoundError`, `OptimisticLockError` for a `version` the row is no longer at, and the above |
+| `updateMany(where, patch)` | `Row[]` | `ArgumentError` without a `where`, or with a `version` on a table that locks |
+| `upsert(where, values)` | `Row` | `ConflictError` on a soft-deleted row; `ArgumentError` for a `where` that cannot be inserted; see [guide/stamps.md](stamps.md#upsert) |
 | `delete(id)` | `Row` | `NotFoundError` |
 | `deleteMany(where)` | `Row[]` | `ArgumentError` without a `where` |
 | `count(where?, options?)` | `number` | |
@@ -274,6 +277,7 @@ that.
 | `paginateByCursor(options?)` | `CursorPage<Row>` | `InvalidCursorError` |
 | `restore(id)`, `hardDelete(id)`, `hardDeleteMany(where)` | soft delete only | `NotFoundError`; `ArgumentError` for a `hardDeleteMany` without a `where` |
 | `with(db)` | the same repository on another database or transaction | |
+| `as(actor)` | the same repository, stamping the actor columns | `ArgumentError` for no actor; `TypeError` on a table without actor columns |
 | `table`, `db` | what it was created with | |
 
 **Every method that reaches the database also throws a bare `TypeError`**
