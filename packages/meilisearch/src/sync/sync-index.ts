@@ -98,7 +98,7 @@ export async function syncIndex(
 				tasks.pop();
 				existing = await findIndex(client, uid);
 			} else {
-				assertSucceeded(task, uid);
+				assertSucceeded(task, uid, 'sync');
 			}
 		}
 	}
@@ -111,6 +111,7 @@ export async function syncIndex(
 				assertSucceeded(
 					await wait(client.updateIndex(uid, { primaryKey })),
 					uid,
+					'sync',
 				);
 			}
 		} else if (actual !== primaryKey) {
@@ -140,7 +141,11 @@ export async function syncIndex(
 	const changed = Object.keys(update) as (keyof Settings)[];
 
 	if (changed.length > 0 && !dryRun) {
-		assertSucceeded(await wait(client.index(uid).updateSettings(update)), uid);
+		assertSucceeded(
+			await wait(client.index(uid).updateSettings(update)),
+			uid,
+			'sync',
+		);
 	}
 
 	return { uid, created, primaryKeySet, changed, update, tasks, dryRun };

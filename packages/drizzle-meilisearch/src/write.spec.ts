@@ -147,7 +147,12 @@ describe('taking a row out', () => {
 			.remove('00000000-0000-4000-8000-000000000000', { wait: true })
 			.catch((e: unknown) => e)) as SearchSyncError;
 		expect(error.code).toBe('FAILED');
-		expect(error.message).toContain('Index `articles` not found');
+		expect(error.message).toMatch(
+			/^Search sync "[^"]+" failed removing documents: Task \d+ \(delete\) on index "articles" failed: index_not_found$/,
+		);
+		// Meilisearch's sentence is on the index error, not in the message.
+		const cause = error.cause as Error & { cause: Error };
+		expect(cause.cause.message).toContain('Index `articles` not found');
 	});
 });
 

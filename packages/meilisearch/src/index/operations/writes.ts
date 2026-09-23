@@ -33,8 +33,11 @@ function taskOptions(options: WriteOptions = {}) {
 		: { customMetadata: options.customMetadata };
 }
 
+// `call` is the method the consumer wrote, which a failed task's message
+// names: `delete` and `deleteByFilter` both make a `documentDeletion`.
 function settle(
 	ctx: IndexContext,
+	call: string,
 	enqueued: EnqueuedTaskPromise,
 	options?: WriteOptions,
 ) {
@@ -42,13 +45,14 @@ function settle(
 	if (wait === undefined) return enqueued;
 	return enqueued
 		.waitTask(wait)
-		.then((task: Task) => assertSucceeded(task, ctx.uid));
+		.then((task: Task) => assertSucceeded(task, ctx.uid, call));
 }
 
 // The return type is written out: inferred, it names the SDK's internal
 // `SafeOmit`, and the declaration emit of the batch writes fails (TS2883).
 function settleAll(
 	ctx: IndexContext,
+	call: string,
 	enqueued: EnqueuedTaskPromise[],
 	options?: WriteOptions,
 ): EnqueuedTaskPromise[] | Promise<Task[]> {
@@ -56,7 +60,7 @@ function settleAll(
 	if (wait === undefined) return enqueued;
 	return Promise.all(
 		enqueued.map((task) =>
-			task.waitTask(wait).then((done) => assertSucceeded(done, ctx.uid)),
+			task.waitTask(wait).then((done) => assertSucceeded(done, ctx.uid, call)),
 		),
 	);
 }
@@ -68,6 +72,7 @@ export function add(
 ) {
 	return settle(
 		ctx,
+		'add',
 		ctx.raw.addDocuments(records(documents), documentOptions(ctx, options)),
 		options,
 	);
@@ -80,6 +85,7 @@ export function addInBatches(
 ) {
 	return settleAll(
 		ctx,
+		'addInBatches',
 		ctx.raw.addDocumentsInBatches(
 			records(documents),
 			options?.batchSize,
@@ -96,6 +102,7 @@ export function update(
 ) {
 	return settle(
 		ctx,
+		'update',
 		ctx.raw.updateDocuments(records(documents), documentOptions(ctx, options)),
 		options,
 	);
@@ -108,6 +115,7 @@ export function updateInBatches(
 ) {
 	return settleAll(
 		ctx,
+		'updateInBatches',
 		ctx.raw.updateDocumentsInBatches(
 			records(documents),
 			options?.batchSize,
@@ -124,6 +132,7 @@ export function remove(
 ) {
 	return settle(
 		ctx,
+		'delete',
 		Array.isArray(ids)
 			? ctx.raw.deleteDocuments(ids as string[], taskOptions(options))
 			: ctx.raw.deleteDocument(ids as string | number, taskOptions(options)),
@@ -138,11 +147,17 @@ export function deleteByFilter(
 ) {
 	return settle(
 		ctx,
+		'deleteByFilter',
 		ctx.raw.deleteDocuments({ filter }, taskOptions(options)),
 		options,
 	);
 }
 
 export function deleteAll(ctx: IndexContext, options?: WriteOptions) {
-	return settle(ctx, ctx.raw.deleteAllDocuments(taskOptions(options)), options);
+	return settle(
+		ctx,
+		'deleteAll',
+		ctx.raw.deleteAllDocuments(taskOptions(options)),
+		options,
+	);
 }

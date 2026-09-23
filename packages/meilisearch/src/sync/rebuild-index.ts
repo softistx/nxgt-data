@@ -99,7 +99,11 @@ async function deleteIndex(
 	uid: string,
 	wait: WaitOptions | undefined,
 ): Promise<Task> {
-	return assertSucceeded(await client.deleteIndex(uid).waitTask(wait), uid);
+	return assertSucceeded(
+		await client.deleteIndex(uid).waitTask(wait),
+		uid,
+		'rebuild',
+	);
 }
 
 /**
@@ -132,7 +136,7 @@ async function settle(
 		limit: 1,
 	});
 	const [newest] = results;
-	if (newest && newest.uid > since) assertSucceeded(newest, nextUid);
+	if (newest && newest.uid > since) assertSucceeded(newest, nextUid, 'rebuild');
 }
 
 /**
@@ -191,7 +195,7 @@ export async function rebuildIndex<Def extends AnyIndexDefinition>(
 		const enqueued = await client.swapIndexes([swapOf(uid, nextUid, created)]);
 		task = await client.tasks.waitForTask(enqueued.taskUid, wait);
 		stop = 'swapping';
-		assertSucceeded(task, uid);
+		assertSucceeded(task, uid, 'rebuild');
 	} catch (error) {
 		// The cleanup must not hide what stopped the rebuild: a failure to
 		// delete leaves an index the next run deletes first, and says so.

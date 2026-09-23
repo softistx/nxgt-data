@@ -24,7 +24,7 @@ afternoon.
 | [Install](#install) | [ERESOLVE](#npm-error-eresolve-unable-to-resolve-dependency-tree) · [TS2307](#error-ts2307-cannot-find-module-nxgtdrizzle-or-its-corresponding-type-declarations) |
 | [Options](#options) | [transform](#createsearchsync-transform-must-be-a-function) · [toIndexId](#createsearchsync-toindexid-must-be-a-function) · [name](#createsearchsync-name-must-not-be-empty) · [batchSize](#createsearchsync-batchsize-must-be-a-whole-number-above-0-not-0) · [pageSize on reindexAll](#reindexall-on-articlesarticles-pagesize-must-be-a-whole-number-above-0-not--1) |
 | [The transform](#the-transform) | [not a document](#search-sync-articlesarticles-transform-gave-a-string-for-the-row-) · [an id that is not the index's](#search-sync-articlesarticles-transform-gave-id-other-for-the-row-whose-index-id-is-) · [it threw](#search-sync-articlesarticles-failed-indexing-rows-) |
-| [Writing to the index](#writing-to-the-index) | [the index does not exist](#search-sync-articlesarticles-failed-removing-documents-task-0-documentdeletion-on-index-articles-failed-index-articles-not-found) · [nothing to search yet](#a-document-indexed-a-moment-ago-is-not-in-the-search-results-yet) |
+| [Writing to the index](#writing-to-the-index) | [the index does not exist](#search-sync-articlesarticles-failed-removing-documents-task-0-delete-on-index-articles-failed-index_not_found) · [nothing to search yet](#a-document-indexed-a-moment-ago-is-not-in-the-search-results-yet) |
 | [Reindexing](#reindexing) | [small pages](#reindexall-with-a-big-pagesize-still-reads-small-pages) · [a row written during the run](#reindexall-removed-a-row-that-was-just-written) · [a soft-deleted row](#a-soft-deleted-row-is-still-in-the-index) |
 
 ## Install
@@ -298,10 +298,15 @@ no id on it. Pass the row the repository's `delete` gave back, whole.
 
 ## Writing to the index
 
-### ``Search sync "articles:articles" failed removing documents: Task 0 (documentDeletion) on index "articles" failed: Index `articles` not found.``
+### `Search sync "articles:articles" failed removing documents: Task 0 (delete) on index "articles" failed: index_not_found`
 
 **When:** the first write of a sync is a **delete** — `removeRow`, `remove` or
 `removeMany` with `{ wait: true }`, on an index nothing has created yet.
+Meilisearch's own sentence, ``Index `articles` not found.``, is on
+`error.cause.cause.message`, not in the message: `@nxgt/meilisearch` keeps
+the server's text out of it, since a sentence about a filter or an id quotes
+it. Before `@nxgt/meilisearch` 0.4.1 the line ended with
+`Task 0 (documentDeletion) … failed: ` and that sentence.
 
 **Why:** Meilisearch creates an index on a write of documents, but **not** on
 a delete. Measured in this package's specs. Worse without `wait`: the task is

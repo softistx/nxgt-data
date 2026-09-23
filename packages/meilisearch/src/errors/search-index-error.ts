@@ -28,7 +28,9 @@ export interface SearchIndexErrorOptions {
  *
  * - `PRIMARY_KEY_MISMATCH`: `sync` found the index with another primary key.
  * - `TASK_FAILED`: a task this package waited for ended `failed` or
- *   `canceled`; `task` is the task, and `cause` is its `error`.
+ *   `canceled`; `task` is the task, and `cause` is its `error`. The message
+ *   names the call and Meilisearch's error code; the server's own sentence,
+ *   which can quote a filter or a document id, is only on `cause`.
  * - `REBUILD_FAILED`: `rebuild` stopped before the swap, deleted the next
  *   index and left the live one as it was — or sent the swap and could not
  *   wait for it, and deleted nothing; `cause` is what stopped it.
@@ -58,14 +60,26 @@ export class SearchIndexError extends Error {
 }
 
 /**
- * The task, if it succeeded. Otherwise a `SearchIndexError` with the task and
- * Meilisearch's message: the SDK resolves a failed task like a succeeded one.
+ * The task, if it succeeded. Otherwise a `SearchIndexError` with the task: the
+ * SDK resolves a failed task like a succeeded one.
+ *
+ * `call` is the call a consumer wrote — `deleteByFilter`, not the task's
+ * `documentDeletion`, which `delete` shares. The message holds the task's uid,
+ * that call, the index and Meilisearch's error `code`, never its sentence:
+ * the server quotes the filter a caller sent, or the document id it refused,
+ * and a message reports a shape, never a value. The sentence stays on
+ * `cause` and on `task.error`.
  */
-export function assertSucceeded(task: Task, indexUid: string): Task {
+export function assertSucceeded(
+	task: Task,
+	indexUid: string,
+	call: string,
+): Task {
 	if (task.status === 'succeeded') return task;
-	const reason = task.error?.message ?? `it was ${task.status}`;
+	const code = task.error?.code;
 	throw new SearchIndexError(
-		`Task ${task.uid} (${task.type}) on index "${indexUid}" ${task.status}: ${reason}`,
+		`Task ${task.uid} (${call}) on index "${indexUid}" ${task.status}` +
+			(code ? `: ${code}` : ''),
 		{ code: 'TASK_FAILED', indexUid, task, cause: task.error ?? undefined },
 	);
 }

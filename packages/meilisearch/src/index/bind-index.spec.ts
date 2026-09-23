@@ -112,13 +112,45 @@ describe('writes', () => {
 		expect(error).toBeInstanceOf(SearchIndexError);
 		expect(error.code).toBe('TASK_FAILED');
 		expect(error.task.error.code).toBe('invalid_document_filter');
-		expect(error.message).toStartWith(
-			'Task ' +
-				error.task.uid +
-				' (documentDeletion) on index "movies" failed: ',
+		expect(error.message).toBe(
+			`Task ${error.task.uid} (deleteByFilter) on index "movies" failed: invalid_document_filter`,
 		);
-		expect(error.message).toContain('Attribute `rating` is not filterable.');
+		expect(error.cause.message).toContain(
+			'Attribute `rating` is not filterable.',
+		);
 		expect((await index.list()).total).toBe(4);
+	});
+
+	// The server quotes the filter it refused, and the id: a message reports
+	// a shape, never a value, so the sentence stays on `cause`.
+	test('a failed deleteByFilter keeps the filter out of the message', async () => {
+		const index = await filled();
+		const marker = 'msv-marker-4521';
+		const error = await index
+			.deleteByFilter(`rating = "${marker}"`, { wait: true })
+			.catch((e) => e);
+		expect(error).toBeInstanceOf(SearchIndexError);
+		expect(error.message).toBe(
+			`Task ${error.task.uid} (deleteByFilter) on index "movies" failed: invalid_document_filter`,
+		);
+		expect(error.message).not.toContain(marker);
+		expect(error.cause.message).toContain(marker);
+		expect(error.task.error.message).toContain(marker);
+	});
+
+	test('a failed add keeps the refused id out of the message', async () => {
+		const index = bindIndex(t.client, movies);
+		await index.sync();
+		const marker = 'msv marker 4521';
+		const bad = { ...alien, id: marker as unknown as number };
+		const error = await index.add([bad], { wait: true }).catch((e) => e);
+		expect(error).toBeInstanceOf(SearchIndexError);
+		expect(error.message).toBe(
+			`Task ${error.task.uid} (add) on index "movies" failed: invalid_document_id`,
+		);
+		expect(error.message).not.toContain(marker);
+		expect(error.cause.message).toContain(marker);
+		expect(error.task.error.message).toContain(marker);
 	});
 
 	test('deleteByFilter with an empty filter is refused by the server', async () => {

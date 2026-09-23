@@ -16,7 +16,7 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`Argument of type '{ readonly sortableAttributes: readonly ["year"]; … }' is not assignable to parameter of type 'Settings'.`](#argument-of-type--readonly-sortableattributes-readonly-year---is-not-assignable-to-parameter-of-type-settings)
 - **Configuration and sync**
   - [`Index "movies" has the primary key "id", but its definition says "movieId".`](#index-movies-has-the-primary-key-id-but-its-definition-says-movieid)
-  - [`Task 7 (settingsUpdate) on index "movies" failed:`](#task-7-settingsupdate-on-index-movies-failed)
+  - [`Task 7 (add) on index "movies" failed: invalid_document_id`](#task-7-add-on-index-movies-failed-invalid_document_id)
   - [`The provided API key is invalid.`](#the-provided-api-key-is-invalid)
   - [`Rebuild of index "movies" stopped while filling "movies_next":`](#rebuild-of-index-movies-stopped-while-filling-movies_next)
   - [`Rebuild of index "movies" stopped while creating "movies_next":`](#rebuild-of-index-movies-stopped-while-creating-movies_next)
@@ -27,6 +27,7 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`timeout of 5000ms has exceeded on task 12 when waiting for it to be resolved.`](#timeout-of-5000ms-has-exceeded-on-task-12-when-waiting-for-it-to-be-resolved)
   - [``Index `movies` not found.``](#index-movies-not-found)
   - [``Index `movies`: Attribute `year` is not filterable.``](#index-movies-attribute-year-is-not-filterable)
+  - [`Task 7 (deleteByFilter) on index "movies" failed: invalid_document_filter`](#task-7-deletebyfilter-on-index-movies-failed-invalid_document_filter)
   - [`Sending an empty filter is forbidden.`](#sending-an-empty-filter-is-forbidden)
   - [``Index `movies`: Attribute `year` is not sortable.``](#index-movies-attribute-year-is-not-sortable)
   - [``Inside `.queries[1]`: Index `nobody` not found.``](#inside-queries1-index-nobody-not-found)
@@ -119,24 +120,34 @@ await client.deleteIndex('movies');
 await movieIndex.sync();
 ```
 
-### `Task 7 (settingsUpdate) on index "movies" failed:`
+### `Task 7 (add) on index "movies" failed: invalid_document_id`
 
-**When:** `sync()`, or any write called with `wait`. The rest of the line is
-Meilisearch's own reason.
+**When:** `sync()`, `rebuild()`, or any write called with `wait`. In the
+parentheses is the call you made — `add`, `addInBatches`, `update`,
+`updateInBatches`, `delete`, `deleteByFilter`, `deleteAll`, `sync` or
+`rebuild` — and after the colon is Meilisearch's error code. A `canceled`
+task ends the line at `canceled`: it has no error, so no code.
 **Why:** the SDK resolves a failed task like a succeeded one, so this package
 checks every task it waited for and throws a `SearchIndexError` with
-`code: 'TASK_FAILED'`; `task` is the task and `cause` its `error`. A
-`canceled` task raises the same error, with `it was canceled` as the reason.
-**Fix:**
+`code: 'TASK_FAILED'`; `task` is the task and `cause` its `error`.
+Meilisearch's own sentence is on `cause.message`, not in the message: it
+quotes the document id it refused, or the filter it could not apply, and a
+log line should not carry what your documents held. Before 0.4.1 the message
+was `Task 7 (documentAdditionOrUpdate) on index "movies" failed: ` followed
+by that sentence; match on `code` and `task.error.code`, never on the text.
+**Fix:** read the sentence where it is kept, and fix what it names — here, an
+id Meilisearch refuses: only `a-z A-Z 0-9`, `-` and `_`, at most 511 bytes.
 
 ```ts
 import { SearchIndexError } from '@nxgt/meilisearch';
 
 try {
-	await movieIndex.sync();
+	await movieIndex.add(docs, { wait: true });
 } catch (error) {
 	if (error instanceof SearchIndexError && error.code === 'TASK_FAILED') {
-		console.error(error.task?.error); // Meilisearch's code and link
+		error.task?.error?.code;        // 'invalid_document_id'
+		error.task?.type;               // 'documentAdditionOrUpdate'
+		(error.cause as Error).message; // Meilisearch's sentence, with the id
 	}
 	throw error;
 }
@@ -285,7 +296,9 @@ Or give the client a `defaultWaitOptions` so every wait is longer.
 ### ``Index `movies` not found.``
 
 **When:** searching, reading or writing documents before the index exists.
-`cause.code` is `index_not_found`.
+`cause.code` is `index_not_found`. A delete waited for on an index nothing
+created fails as a *task* instead: `Task 7 (delete) on index "movies" failed:
+index_not_found`, with this sentence on its `cause`.
 **Why:** `defineIndex` describes the index and `bindIndex` attaches to it;
 neither touches the server. Only `sync` creates it.
 **Fix:**
@@ -298,10 +311,9 @@ await syncIndexes(client, [movies, books]);
 ### ``Index `movies`: Attribute `year` is not filterable.``
 
 **When:** a search with `filter`, `facets` or `distinct` on an attribute the
-live index has not been told about. From `deleteByFilter` the same sentence
-arrives inside a `SearchIndexError` with `code: 'TASK_FAILED'`, and only with
-`wait`: the request is accepted and the *task* fails, so without `wait`
-nothing is deleted and nothing says so. From a **tenant token** whose rule
+live index has not been told about. From `deleteByFilter` it is the
+[next entry](#task-7-deletebyfilter-on-index-movies-failed-invalid_document_filter).
+From a **tenant token** whose rule
 filters on an attribute the index does not make filterable, every search
 made with the token fails with it — measured in the specs, `cause.code`
 `invalid_search_filter`, status 400 — whatever the search itself asks.
@@ -318,6 +330,26 @@ export const movies = defineIndex<Movie>()({
 	settings: { filterableAttributes: ['genres', 'year'] },
 });
 await movieIndex.sync(); // applies what changed
+```
+
+### `Task 7 (deleteByFilter) on index "movies" failed: invalid_document_filter`
+
+**When:** `deleteByFilter` with `wait`, on an attribute the live index does
+not make filterable. The request is accepted and the *task* fails, so
+without `wait` nothing is deleted and nothing says so.
+**Why:** the same as the entry above. The sentence — ``Index `movies`:
+Attribute `rating` is not filterable. …``, followed by the filter you sent —
+is on `cause.message` and `task.error.message`, never in the message: a
+filter is built from a request, and it can hold anything the request held.
+**Fix:** make the attribute filterable, as above, and `sync`.
+
+```ts
+const error = await movieIndex
+	.deleteByFilter('rating > 8', { wait: true })
+	.catch((e) => e);
+error.code;          // 'TASK_FAILED'
+error.task.type;     // 'documentDeletion', which `delete` makes too
+error.cause.message; // 'Index `movies`: Attribute `rating` is not filterable. …'
 ```
 
 ### `Sending an empty filter is forbidden.`
