@@ -1,5 +1,19 @@
 # @nxgt/meilisearch
 
+## 0.4.0
+
+### Minor Changes
+
+- [#97](https://github.com/softistx/nxgt-data/pull/97) [`c065f43`](https://github.com/softistx/nxgt-data/commit/c065f430bdc41923fb8562cd348a27d396b11703) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Rebuild an index without a gap in the searches: `movieIndex.rebuild(fill)` creates `movies_next` with the definition's primary key and settings, hands `fill` a `TypedIndex` bound to it, waits for every task the fill left there (enqueued ones included), swaps it with the live index in one atomic task and deletes the previous one. The first run, with no live index, renames it in; a `movies_next` left by a crashed run is deleted first; a failure creating the next index, a fill that throws, a task it left that failed, or a swap task that failed deletes the next index — or says it could not — leaves the live one untouched and throws `SearchIndexError` with the new code `REBUILD_FAILED`, the cause on `cause`. Once the swap request is sent, a failure to read its task back (a timeout, a lost response, a key that cannot read it) may hide a swap that happened: `REBUILD_FAILED` then says the outcome is unknown and nothing is deleted. `fill`'s index has the next uid, typed `string`. New exports: `RebuildDefinition`, `RebuildFill`, `RebuildOptions`, `RebuildReport`.
+  
+  Search several indexes in one request: `multiSearch(client, [{ index: movieIndex, q, sort }, { index: peopleIndex, q, filter }])` sends the SDK's `client.multiSearch({ queries })` and resolves to a tuple of results in the same order, each typed by its own index; each query's options are `search`'s for that index, so a sort on another index's attribute, or a misspelt option, does not compile. Federated search is not wrapped. New exports: `multiSearch`, `MultiSearchQuery`, `CheckedQuery`, `MultiSearchResults`.
+  
+  Tenant tokens typed by their indexes: `tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { movies: { filter } }, expiresAt })` signs with the SDK's `generateTenantToken` (from `meilisearch/token`) a token that may search only the bound indexes given; `searchRules` is keyed by their uids, so a rule for another index does not compile. An `expiresAt` already past, in milliseconds, with a fraction of a second or an invalid `Date` throws `SearchIndexError` with the new code `INVALID_EXPIRES_AT` before anything is signed; a `searchRules` key that is not the runtime uid of one of the indexes throws a `TypeError` instead of leaving that index unfiltered. The SDK's `force` is passed through as it is (its type is checked in the type tests; the SDK's own check is not exercised, since Bun passes it). An inherited rule is refused the same way. New exports: `tenantToken`, `TenantTokenOptions`, `TenantTokenRules`, `TokenIndexes`.
+
+### Patch Changes
+
+- [#93](https://github.com/softistx/nxgt-data/pull/93) [`348c1f3`](https://github.com/softistx/nxgt-data/commit/348c1f3672f2a596abecaa1a7d08dcdf04a55696) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Refactor, nothing public moved: `bindIndex` is split into a data-only `index/context.ts` and `index/operations/reads.ts` and `writes.ts`, and is now a thin assembler. No behaviour and no export changed — the declarations are the same and the 45 specs are untouched.
+
 ## 0.3.0
 
 ### Minor Changes
