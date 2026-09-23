@@ -225,11 +225,14 @@ failover to a replica whose clock is behind.
 **Why:** the clock is the server's `TIME`, deliberately: no host's clock can
 refill or empty a bucket. A clock that goes back never refills: each bucket
 keeps the latest time it has seen and carries on from there, so two servers
-whose clocks disagree cannot count one stretch of time twice. While the clock
-is behind that time, nothing refills, and a spent bucket waits for the clock
-to catch up — `retryAfter` includes the wait. The wait is at most one full
-refill (`burst × per ÷ limit`): a clock further behind than that finds the
-bucket full.
+whose clocks disagree by at most one full refill (`burst × per ÷ limit`)
+cannot count one stretch of time twice. While the clock is behind that time,
+nothing refills, and a spent bucket waits for the clock to catch up. Only
+that clock wait is capped, at one full refill; a spent bucket's `retryAfter`
+is the clock wait **plus** the usual wait for the requests it needs. A clock
+further behind than one full refill finds the bucket full instead — so a
+single jump back that far allows one extra burst, and two clocks that far
+apart, alternating, allow a full burst at each switch.
 **Fix:** keep the Redis servers' clocks synchronised (NTP). To release every
 caller at once after a clock mistake, delete the limit's keys — they hold
 nothing else:

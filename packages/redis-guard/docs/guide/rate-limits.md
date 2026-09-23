@@ -64,8 +64,9 @@ TAT it would leave is no more than `burst` intervals ahead of now.
   7 a second is 142857.142… µs — and a float cannot hold a sum of them near
   the present exactly, so the script counts in units of 1/limit of a
   microsecond instead, where one request is exactly `per × 1000` units. Redis
-  holds one string per key, two integers: the server's time in microseconds
-  at the last write, and how far the TAT was beyond it, in those units.
+  holds one string per key, two integers: the latest server time the bucket
+  has seen, in microseconds, and how far the TAT was beyond it, in those
+  units.
   Nothing is rounded, so a burst taken one request at a time allows exactly
   the burst, at any rate — that is a spec, over thirteen awkward rates.
 - **One script, one step.** Reading the state, deciding and writing it are

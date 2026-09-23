@@ -107,7 +107,7 @@ await exports.reset(who);
 
 The algorithm is **GCRA** (the generic cell rate algorithm), counted in
 **exact integers**: one Redis string per key holds two whole numbers — the
-server's time at the last write, and how far the bucket was then from full —
+latest server time the bucket has seen, and how far it was then from full —
 and one Lua script reads it, decides and writes, in a single step. Nothing is
 rounded, so a burst taken one request at a time allows exactly the burst, at
 any rate. A denial writes nothing, a `peek`
@@ -222,12 +222,14 @@ Each is a `@ts-expect-error` case in `test/types/guard.ts`.
   and every process agrees. Two consequences: a result is a delay, which means
   the same on every host, and **a server clock that goes back never
   refills**: a bucket keeps the latest time it has seen and carries on from
-  there, so a failover between two servers whose clocks disagree cannot
-  count the same stretch of time twice. While the clock is behind, nothing
-  refills — a spent bucket waits for the clock to catch up, and `retryAfter`
-  includes that wait. A clock more than a full refill (`burst × per ÷ limit`)
-  behind a bucket finds it full: no bucket could have to wait longer than
-  that.
+  there, so a failover between two servers whose clocks disagree by **at
+  most one full refill** (`burst × per ÷ limit`) cannot count the same
+  stretch of time twice. While the clock is behind, nothing refills — a spent
+  bucket waits for the clock to catch up, and `retryAfter` is that wait plus
+  the usual one. Past one full refill the guarantee stops: a clock that far
+  behind a bucket finds it full, so a single jump back allows one extra
+  burst, and two clocks that far apart, alternating, allow a full burst at
+  each switch. Keep the servers' clocks synchronised.
 - **Every process must use the same definition.** Two deploys with different
   `limit`, `per` or `burst` under the same `name` read the same key with
   different rates. Rename the limit when its rate changes a lot.
