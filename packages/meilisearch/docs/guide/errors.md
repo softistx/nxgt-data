@@ -176,8 +176,9 @@ Three places where this package steps in front of the SDK, and only three:
 
 Besides `SearchIndexError`, the package throws bare `TypeError`s for a call
 it refuses before sending or signing anything, with no code: `rebuild`'s
-`nextUid` equal to the uid, and `tenantToken`'s `searchRules` that is not a
-plain object, names a uid none of its indexes has, misses a rule for one of
+`nextUid` equal to the uid, `tenantToken`'s index uid that is not a valid
+Meilisearch uid (a `*` in it would make it a pattern), and its
+`searchRules` that is not a plain object, names a uid none of its indexes has, misses a rule for one of
 them, holds an empty rule, or holds a rule that is not `null` or a plain
 `{ filter }` — an array, a class instance, a getter, a `toJSON`, another
 key, or a filter inherited, hidden, or not a string or an array of

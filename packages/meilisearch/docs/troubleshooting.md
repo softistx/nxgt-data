@@ -49,8 +49,8 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`tenantToken for "movies": expiresAt is a Date past the year 5138; was it built from milliseconds times 1000?`](#tenanttoken-for-movies-expiresat-is-a-date-past-the-year-5138-was-it-built-from-milliseconds-times-1000)
   - [`tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date`](#tenanttoken-for-movies-expiresat-is-a-number-of-milliseconds-it-takes-seconds-or-a-date)
   - [`tenantToken for "movies_next": searchRules names "movies", which is not the uid of any of its indexes`](#tenanttoken-for-movies_next-searchrules-names-movies-which-is-not-the-uid-of-any-of-its-indexes)
-  - [`tenantToken for "movies": searchRules must be a plain object`](#tenanttoken-for-movies-searchrules-must-be-a-plain-object)
   - [`tenantToken: an index uid is not a valid Meilisearch uid (letters, digits, - and _ only), and a * in it would widen the token to other indexes`](#tenanttoken-an-index-uid-is-not-a-valid-meilisearch-uid-letters-digits---and-_-only-and-a--in-it-would-widen-the-token-to-other-indexes)
+  - [`tenantToken for "movies": searchRules must be a plain object`](#tenanttoken-for-movies-searchrules-must-be-a-plain-object)
   - [`the uid of your key is not a valid UUIDv4`](#the-uid-of-your-key-is-not-a-valid-uuidv4)
   - [`failed to detect a server-side environment; do not generate tokens on the frontend in production!`](#failed-to-detect-a-server-side-environment-do-not-generate-tokens-on-the-frontend-in-production)
   - [``Tenant token expired. Was valid up to `1790139850` and we're now `1790139910`.``](#tenant-token-expired-was-valid-up-to-1790139850-and-were-now-1790139910)
@@ -703,7 +703,7 @@ bound under a uid built from a request: `docs_${tenant}`. A bare
 **Why:** Meilisearch reads a token's rule keys as index **patterns**.
 Measured on v1.53.2: an index bound as `*` with a `null` rule signed a token
 that searched every other index. A rule keyed by a pattern beside valid
-indexes is refused as an unmatched key, below.
+indexes is refused as an unmatched key, above.
 **Fix:** check a uid built from a request before binding it:
 
 ```ts
