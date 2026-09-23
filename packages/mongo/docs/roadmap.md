@@ -39,6 +39,13 @@ _Nothing queued._
   at start-up, or a bucket bound with `autoSync`, is what creates
   `files_id_1_n_1`. A bucket without it warns once per process rather than
   being quietly slow.
+- **An audit journal kept by this package** — who changed what is already
+  within reach: `actors` stamps `createdBy`, `updatedBy` and `deletedBy` from
+  `collection.as(actor)`, and an `after` hook sees each write, its actor and
+  its session, so an application can write its own journal in the same
+  transaction, keeping only what it needs for as long as it needs. A journal
+  built in would add a write to every write, and a retention policy nobody
+  asked for.
 - **A recursive schema as a validator** — MongoDB's `$jsonSchema` has no
   `$ref`, so a schema that refers to itself cannot be expressed;
   `toMongoJsonSchema` throws rather than writing a validator the server would
