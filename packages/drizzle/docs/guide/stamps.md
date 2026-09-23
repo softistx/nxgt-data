@@ -342,6 +342,7 @@ purpose:
 | The upsert target | a unique constraint on the `where`'s columns, which PostgreSQL requires | a unique index, which MongoDB does not require | `ON CONFLICT` needs a target; MongoDB can insert twice without one |
 | An upsert with nothing to write, on a row that is there | writes nothing: no `updatedAt`, no `updatedBy`, no version | stamps `updatedAt`, `updatedBy` and raises the version | here it is what an empty `update` does, which writes nothing either |
 | A lock column with no default, on an upsert's insert | seeded at 0 | seeded at 0 | the same, and a `create` must name it: its types require it |
+| A primary key in an update's patch | refused before anything is sent: an `ArgumentError`, and the addressed key is out of `UpdatePatch`/`ManyPatch` | neither refused nor typed out: `_id` is left in the patch types, and MongoDB answers a changed `_id` itself (`ImmutableField`, 66), which reaches the caller as a plain `DataError` with `serverCode: 66` | PostgreSQL would move the row; MongoDB never changes an `_id`, so the server is the refusal there |
 | Which half ran | not reported | told to the hooks | there are no hooks here yet |
 | Hooks | none | `beforeCreate`, `afterUpdate`… | not built yet — see the [roadmap](../roadmap.md) |
 

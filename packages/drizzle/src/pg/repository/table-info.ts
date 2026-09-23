@@ -51,7 +51,10 @@ export function tableInfo(
 
 	// Before the stamps, as it always was: a missing key is the first thing
 	// a caller hears about.
-	const primaryKey = primaryKeyOf(name, table, columns, options.primaryKey);
+	// Read once: both the key the methods by id use and the keys no update
+	// moves come from it.
+	const composite = getTableConfig(table).primaryKeys[0]?.columns ?? [];
+	const primaryKey = primaryKeyOf(name, composite, columns, options.primaryKey);
 	if (options.softDelete === true && !columns.deletedAt) {
 		throw new TypeError(
 			`createRepository: softDelete needs a "deletedAt" column, and "${name}" has none`,
@@ -61,7 +64,7 @@ export function tableInfo(
 		name,
 		columns,
 		primaryKey,
-		keys: keysOf(table, columns, primaryKey),
+		keys: keysOf(composite, columns, primaryKey),
 		deletedAt: options.softDelete !== false ? at('deletedAt') : undefined,
 		updatedAt: options.touchUpdatedAt !== false ? at('updatedAt') : undefined,
 		version: versionOf(name, at('version'), options.optimisticLock),
@@ -109,15 +112,16 @@ function versionOf(
  * with no declared key falls back on.
  */
 function keysOf(
-	table: PgTable,
+	composite: readonly PgColumn[],
 	columns: Record<string, PgColumn>,
 	addressed: TableInfo['primaryKey'],
 ): string[] {
-	const composite = (getTableConfig(table).primaryKeys[0]?.columns ?? []).map(
-		(column) => column.name,
-	);
+	// By name, not identity: measured on drizzle-orm 1.0.0-rc.4, the columns
+	// `getTableConfig` gives for a `primaryKey({ columns })` are not the table's
+	// own column objects, and `includes(column)` finds none of them.
+	const names = composite.map((column) => column.name);
 	const keys = Object.entries(columns)
-		.filter(([, column]) => column.primary || composite.includes(column.name))
+		.filter(([, column]) => column.primary || names.includes(column.name))
 		.map(([key]) => key);
 	if ('key' in addressed && !keys.includes(addressed.key)) {
 		keys.push(addressed.key);
@@ -127,7 +131,7 @@ function keysOf(
 
 function primaryKeyOf(
 	name: string,
-	table: PgTable,
+	composite: readonly PgColumn[],
 	columns: Record<string, PgColumn>,
 	named: string | undefined,
 ): TableInfo['primaryKey'] {
@@ -140,10 +144,9 @@ function primaryKeyOf(
 		}
 		return { key: named, column };
 	}
-	const composite = getTableConfig(table).primaryKeys[0];
 	const declared = Object.entries(columns).filter(([, c]) => c.primary);
-	if (composite) {
-		const names = composite.columns.map((c) => c.name).join(', ');
+	if (composite.length > 0) {
+		const names = composite.map((c) => c.name).join(', ');
 		return {
 			error:
 				`"${name}" has a composite primary key (${names}): the methods by id ` +

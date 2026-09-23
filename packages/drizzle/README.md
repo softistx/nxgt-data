@@ -723,13 +723,22 @@ function withTransaction<TDb extends PgDatabase, T>(
   raises it. Pass `optimisticLock: false` to keep 0.4's behaviour. And
   `DataErrorCode` gained `'OPTIMISTIC_LOCK'`, so an exhaustive
   `Record<DataErrorCode, …>` needs the key before it compiles.
-- **Upgrading to 0.5.1: an update no longer moves a row's key.**
+- **Upgrading to 0.6.0: an update no longer moves a row's key.**
   `update(id, { id: other })` used to rewrite the primary key; it is now an
   `ArgumentError` (`argument: 'patch'`), and `UpdatePatch`/`ManyPatch` leave
-  the key out, so code that did it stops compiling. A patch built from a
-  request body with an `id` in it is the usual culprit: take it out. Not every
-  key column is caught at compile time: the types leave out only the key the repository addresses rows by (`id`, or the column `primaryKey` names); every other primary-key column, including all of a composite key's when no `primaryKey` is given, and `id` when `primaryKey` names another column, is refused at run time only — the column types do not say
-  which columns a key covers.
+  the key out. More compiles no longer than that call: a patch typed `Partial<$inferInsert>` or `Patch<T>` no longer fits; type it `UpdatePatch<T, L, K>` or drop the key; pass the repository's `TKey` when naming `UpdatePatch` yourself.
+  That covers the usual validated `PATCH` body — `Partial<typeof
+  users.$inferInsert>`, drizzle-zod's `createUpdateSchema` included — and
+  `UpdatePatch<T, L>` left at its default key on a repository given another
+  `primaryKey`.
+
+  ```ts
+  const { id: _, ...patch } = body; // Partial<typeof users.$inferInsert>
+  await users.update(id, patch);
+  ```
+
+  Not every key column is caught at compile time: the types leave out only the key the repository addresses rows by (`id`, or the column `primaryKey` names); every other primary-key column, including all of a composite key's when no `primaryKey` is given, and `id` when `primaryKey` names another column, is refused at run time only — the
+  column types do not say which columns a key covers.
 - **An `ArgumentError` is a 400, not a 500.** Test for it *before* any
   `TypeError` branch in an error handler — it extends `TypeError`, so a
   broader branch placed first swallows it. A repository used on the database

@@ -431,7 +431,7 @@ await users.deleteMany(sql`true`); // every row, said out loud
 **When:** `update` or `updateMany` with a patch that gives a value — SQL
 included — to a column of the primary key: the one column, every column of
 a composite key, or the column `primaryKey` names. `updateMany on …` is the
-same refusal from `updateMany`. Before 0.5.1 the write went through and moved
+same refusal from `updateMany`. Before 0.6.0 the write went through and moved
 the row to the new key; nothing is sent now.
 **Why:** an update changes a row, it does not give it another identity.
 Moved, the row is no longer where the id the caller addressed points, and

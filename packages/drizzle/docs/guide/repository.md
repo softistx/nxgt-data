@@ -275,6 +275,18 @@ await membershipRepository.updateMany({ userId }, { role: 'owner' }); // fine
 await membershipRepository.updateMany({ userId }, { teamId: 2 }); // compiles; ArgumentError
 ```
 
+One mismatch follows from the default: on a table with an ordinary `id`
+column whose primary key is another column, created with no `primaryKey`
+option, the types refuse `id` in `updateMany` while the run time refuses the
+real key and lets `id` through. Pass `primaryKey` and the two agree.
+
+A patch typed `Partial<typeof users.$inferInsert>` or `Patch<typeof users>`
+no longer fits `update`, since either may carry the key: type it
+`UpdatePatch<typeof users, LockOf<typeof users>, 'id'>`, or take the key out
+first. Name the repository's own `TKey` when you write `UpdatePatch` yourself;
+the default is `PrimaryKeyOf<TTable>`, which is not the key a repository given
+another `primaryKey` uses.
+
 An `id: undefined` is dropped, as any undefined value in a patch is. A row
 that really needs another key is a new row: `create` it and `hardDelete` the
 old one (or `delete` it, on a table without soft delete), in one transaction.

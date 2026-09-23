@@ -6,9 +6,12 @@ import { eq, sql } from 'drizzle-orm';
 import type { CursorPage, Page } from '../../src';
 import {
 	createRepository,
+	type LockOf,
+	type Patch,
 	paginate,
 	type Repository,
 	type Row,
+	type UpdatePatch,
 	withTransaction,
 } from '../../src/pg';
 import { createTestDb } from '../db';
@@ -71,6 +74,18 @@ await teamRepo.updateMany({ name: 'a' }, { id: sql`${teams.id} + 1` });
 // An undefined id writes nothing, as any undefined value does.
 await userRepo.update('x', { id: undefined, name: 'Ada' });
 
+// What else stops compiling: a patch typed so that it may carry the key.
+declare const body: Partial<typeof users.$inferInsert>;
+// @ts-expect-error a validated PATCH body may hold an id
+await userRepo.update('x', body);
+const { id: _dropped, ...withoutId } = body;
+await userRepo.update('x', withoutId);
+declare const loose: Patch<typeof users>;
+// @ts-expect-error the package's own Patch may hold an id too
+await userRepo.update('x', loose);
+declare const typed: UpdatePatch<typeof users, LockOf<typeof users>, 'id'>;
+await userRepo.update('x', typed);
+
 // where objects are typed by column.
 await userRepo.findMany({ where: { email: 'a', name: null } });
 // @ts-expect-error email is a string
@@ -105,6 +120,12 @@ await byRole.findById('owner');
 // The key a repository is given is its key: no update moves it either.
 // @ts-expect-error role is this repository's key
 await byRole.update('owner', { role: 'admin' });
+// Naming UpdatePatch without the repository's key keeps `id` out, not `role`.
+declare const byDefault: UpdatePatch<typeof memberships, false>;
+// @ts-expect-error pass the repository's TKey: UpdatePatch<…, false, 'role'>
+await byRole.update('owner', byDefault);
+declare const byItsKey: UpdatePatch<typeof memberships, false, 'role'>;
+await byRole.update('owner', byItsKey);
 // With no primaryKey given, no column of a composite key is refused by the
 // types — the key is `never` — only at run time: the column types do not say
 // which columns the key covers.
