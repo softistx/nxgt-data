@@ -280,7 +280,7 @@ async function follow(): Promise<RunningSearchSync> {
 		} catch (error) {
 			if (!heldElsewhere(error)) throw error;
 			// Until the holder's lease lapses when it is known, 10 s when not;
-			// the margin covers a host clock behind MongoDB's.
+			// the margin covers a host clock ahead of MongoDB's.
 			const until = error.expiresAt?.getTime() ?? Date.now() + 10_000;
 			const wait = Math.max(until - Date.now(), 0) + 250;
 			await new Promise((resolve) => setTimeout(resolve, wait));
@@ -293,7 +293,9 @@ A live holder renews its lease every third of `leaseMs`, so the next try is
 refused again with a later `expiresAt`; a dead one is taken over as soon as
 its lease lapses. `expiresAt` is `undefined` on a `LEASE_LOST`, and on a
 `RUNNING` whose holder let go before its lease could be read; the loop then
-falls back to its fixed pause.
+falls back to its fixed pause. The 250 ms margin covers a host clock ahead of
+MongoDB's; a host further ahead is refused again, and retries every 250 ms
+until the lease lapses.
 
 Close the sync on shutdown (`await running.close()` on `SIGTERM`): that lets go
 of the name at once, where a killed process leaves it held until its lease

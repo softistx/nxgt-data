@@ -247,7 +247,7 @@ async function follow() {
 		} catch (error) {
 			if (!heldElsewhere(error)) throw error;
 			// Until that lease lapses when it is known, 10 s when not; the
-			// margin covers a host clock behind MongoDB's.
+			// margin covers a host clock ahead of MongoDB's.
 			const until = error.expiresAt?.getTime() ?? Date.now() + 10_000;
 			const wait = Math.max(until - Date.now(), 0) + 250;
 			await new Promise((resolve) => setTimeout(resolve, wait));
@@ -257,6 +257,9 @@ async function follow() {
 
 const running = await follow();
 ```
+
+A host whose clock is further ahead of MongoDB's than the 250 ms margin is
+refused again, and retries every 250 ms until the lease lapses.
 
 Two search kits over one collection share the name, because it defaults to
 `<collection>:<index uid>` — and with it the recorded point and the lease. Give

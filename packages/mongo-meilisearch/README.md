@@ -181,7 +181,7 @@ async function follow(): Promise<RunningSearchSync> {
 		} catch (error) {
 			if (!heldElsewhere(error)) throw error;
 			// Until the holder's lease lapses when it is known, 10 s when not;
-			// the margin covers a host clock behind MongoDB's.
+			// the margin covers a host clock ahead of MongoDB's.
 			const until = error.expiresAt?.getTime() ?? Date.now() + 10_000;
 			const wait = Math.max(until - Date.now(), 0) + 250;
 			await new Promise((resolve) => setTimeout(resolve, wait));
@@ -193,6 +193,9 @@ async function follow(): Promise<RunningSearchSync> {
 A holder that is alive renews its lease every third of `leaseMs`, so the next
 `start()` is refused again, with a later `expiresAt`: the loop waits about one
 lease per try. A holder that died is taken over as soon as its lease lapses.
+The 250 ms margin covers a host clock ahead of MongoDB's, which would wake the
+loop before the lease has lapsed on the server; a host further ahead is
+refused again, and retries every 250 ms until the lease lapses.
 A restart inside a crashed follower's `leaseMs` gets `RUNNING` too: run this
 loop rather than exit.
 
@@ -350,7 +353,9 @@ function createSearchSync<C extends AnyCollectionDefinition, I extends AnyIndexD
 (`'HISTORY_LOST' | 'ID_MISMATCH' | 'NOT_A_DOCUMENT' | 'RUNNING' | 'LEASE_LOST' | 'FAILED'`),
 `sync: string`,
 `holder: string | undefined` and `expiresAt: Date | undefined` (set on a
-`RUNNING` the lease refused, `undefined` otherwise),
+`RUNNING` the lease refused; `undefined` on every other error, on a sync
+object's own `RUNNING`, and on a lease-refused `RUNNING` whose holder let go
+before it could be read),
 `cause`. Its constructor takes `(message, options: SearchSyncErrorOptions)`,
 that is `{ code, sync, cause?, holder?, expiresAt? }`; both types are exported.
 

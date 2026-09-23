@@ -97,16 +97,21 @@ export async function acquire(
 	} catch (error) {
 		throw failed(ctx.name, 'taking its lease', error);
 	}
-	const expiresAt =
+	// Each only when the document holds what it should; `expiresAt` only
+	// beside a holder, as the error's own documentation promises.
+	const until =
 		current?.expiresAt instanceof Date ? current.expiresAt : undefined;
+	const theirs =
+		typeof current?.holder === 'string' ? current.holder : undefined;
+	const expiresAt = theirs === undefined ? undefined : until;
 	throw new SearchSyncError(
 		`Search sync "${ctx.name}" is held by ${current?.holder ?? 'another process'} ` +
-			`until ${expiresAt?.toISOString() ?? 'it lets go'}: ` +
+			`until ${until?.toISOString() ?? 'it lets go'}: ` +
 			`wait for it to close, or for its lease to lapse, before you ${doing}.`,
 		{
 			code: 'RUNNING',
 			sync: ctx.name,
-			holder: current?.holder,
+			holder: theirs,
 			expiresAt,
 		},
 	);

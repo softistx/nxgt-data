@@ -151,8 +151,9 @@ the name. The loop is `follow()`, in the README's
 [One process per sync name](../../README.md#one-process-per-sync-name): it
 retries `start()` on `RUNNING`, and on `LEASE_LOST`, which a `start()` whose
 first reindex lost the name rejects with. Each time it waits until the
-error's `expiresAt`, plus a margin for a host clock behind MongoDB's, or a
-fixed pause when there is none — a `LEASE_LOST` has none.
+error's `expiresAt`, plus a margin for a host clock ahead of MongoDB's, or a
+fixed pause when there is none — a `LEASE_LOST` has none. A host further
+ahead is refused again, and retries every 250 ms until the lease lapses.
 
 ```ts
 const running = await follow(); // resolves once this process holds the name
