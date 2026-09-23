@@ -177,7 +177,8 @@ therefore refused unless its uid is a Meilisearch index uid:
 The message names no uid, since one built from a request could hold
 anything. A rule keyed by a pattern beside valid indexes is refused as an
 unmatched key. `defineIndex` does not check the uid today; build a uid from
-a request only after checking it against `/^[A-Za-z0-9_-]{1,400}$/`.
+a request only after checking the whole uid, prefix included, against
+`/^[A-Za-z0-9_-]{1,400}$/`.
 
 ## What was measured
 

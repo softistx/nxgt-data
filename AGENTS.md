@@ -155,7 +155,7 @@ matching key in `exports`.
   `.cache/meilisearch/<version>/meilisearch`, and prints its path; the
   package's `test` script runs it first. `$MEILISEARCH_BIN` names another
   binary, for Intel macOS, which v1.53 no longer ships a community build
-  for. The tenant token's refusals are the exception, with no server at all — `src/token/rules.spec.ts`, `rule-shape.spec.ts` and `expiry.spec.ts`: nothing is sent, and a token is decoded rather than used. `test/server.ts` starts one server per spec file, on a free port,
+  for. The tenant token's refusals are the exception, with no server at all — `src/token/rules.spec.ts`, `rule-shape.spec.ts`, `uid.spec.ts` and `expiry.spec.ts`: nothing is sent, and a token is decoded rather than used. `test/server.ts` starts one server per spec file, on a free port,
   with a temporary `--db-path` and a master key, waits for `/health`, and
   kills it in `afterAll`; `reset` deletes every index between tests. CI
   caches `.cache/meilisearch`, keyed on the hash of the script, so raising
@@ -551,7 +551,7 @@ the file.
 
 ## Known state
 
-`bun run test` is **1280 pass, 0 fail**: drizzle 152, meilisearch 115,
+`bun run test` is **1282 pass, 0 fail**: drizzle 152, meilisearch 117,
 mongo 541, drizzle-meilisearch 42, mongo-meilisearch 58, mongo-kit 101,
 mongo-search-kit 17, redis 46, redis-kit 55, s3 104, hono-api-example 31,
 scripts 18. It runs one process

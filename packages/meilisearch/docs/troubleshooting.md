@@ -707,8 +707,10 @@ indexes is refused as an unmatched key, above.
 **Fix:** check a uid built from a request before binding it:
 
 ```ts
-if (!/^[A-Za-z0-9_-]{1,400}$/.test(tenant)) throw new Error('bad tenant');
-const docs = bindIndex(client, defineIndex<Doc>()({ uid: `docs_${tenant}`, primaryKey: 'id' }));
+const uid = `docs_${tenant}`;
+// The whole uid, not the tenant alone: the prefix counts toward the 400.
+if (!/^[A-Za-z0-9_-]{1,400}$/.test(uid)) throw new Error('bad tenant');
+const docs = bindIndex(client, defineIndex<Doc>()({ uid, primaryKey: 'id' }));
 ```
 
 ### `tenantToken for "movies": searchRules must be a plain object`
