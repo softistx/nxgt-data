@@ -25,9 +25,11 @@ export type S3ErrorCode =
 	| 'WRONG_OPTION';
 
 /**
- * This package's only error, and every one of them is thrown **before**
- * anything is sent. S3's own failures come back as they are, from Bun's
- * client.
+ * This package's error class for refusals, and every one of them is thrown
+ * **before** anything is sent. The package also throws a `TypeError` for a
+ * bucket definition that could never work or a `presignPost` secret that is
+ * not Bun's, and a plain `Error` when the URL Bun signed cannot be read. S3's
+ * own failures come back as they are, from Bun's client.
  */
 export class S3Error extends Error {
 	readonly code: S3ErrorCode;
