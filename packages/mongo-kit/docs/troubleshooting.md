@@ -27,10 +27,10 @@ try {
 
 | Area | Entries |
 | --- | --- |
-| [Install](#install) | [ERESOLVE](#npm-error-eresolve-unable-to-resolve-dependency-tree) · [incorrect peer dependency](#warn-incorrect-peer-dependency-nxgtmongo0140) · [TS2307](#error-ts2307-cannot-find-module-nxgtmongo-or-its-corresponding-type-declarations) |
-| [Types](#types) | [a key the `Db` has](#command-is-a-member-of-the-drivers-db-wire-this-collection-under-another-key) · [options for a key that is not wired](#posts-is-not-wired-by-this-database-there-are-no-options-for-it) · [a bucket under a key the `Db` has](#watch-is-a-member-of-the-drivers-db-wire-this-bucket-under-another-key) · [a bucket under a collection's key](#users-is-also-a-collection-of-this-database-wire-this-bucket-under-another-key) · [a bucket option the kit decides](#autosync-is-the-kits-to-decide-withsession-and-transactions-carry-the-session-and-autosync-is-the-databases) |
-| [Configuration](#configuration) | [no configuration at all](#defineconfig-a-configuration-object-is-required) · [`databases` is not an object of databases by name](#defineconfig-databases-must-be-an-object-of-databases-by-name-as--databases--main----one-database-is-the-configuration-itself-and-names-itself-with-database) · [neither a uri nor a client](#defineconfig-database-main-has-neither-a-uri-nor-a-client) · [both](#defineconfig-database-main-has-both-a-uri-and-a-client-pass-the-one-it-should-use) · [client options](#defineconfig-database-main-has-client-options-beside-a-client-it-did-not-open-pass-them-where-the-client-is-made) · [no definition in it](#defineconfig-database-main-has-a-collections-object-with-no-definition-in-it-pass-the-module-as-in-import--as-collections) · [two keys, one collection](#defineconfig-database-main-wires-users-and-people-to-the-same-collection-users) · [an option the kit decides](#defineconfig-database-main-has-session-in-options-which-the-kit-decides-) · [options for a key it does not wire](#defineconfig-database-main-has-options-for-posts-which-it-does-not-wire) · [no databases](#defineconfig-databases-names-none-give-it-at-least-one-as--databases--main---) · [no bucket in `buckets`](#defineconfig-database-main-has-a-buckets-object-with-no-bucket-definition-in-it-pass-the-module-as-in-import--as-buckets) · [a key both a collection and a bucket](#defineconfig-database-main-wires-users-as-both-a-collection-and-a-bucket-export-one-of-them-under-another-name) · [two keys, one bucket](#defineconfig-database-main-wires-avatars-and-pictures-to-the-same-bucket-avatars) · [a bucket option the kit decides](#defineconfig-database-main-has-session-in-bucketoptions-which-the-kit-decides-) |
-| [Runtime](#runtime) | [a key the `Db` has, at creation](#createkit-database-main-wires-a-collection-under-command-which-is-a-member-of-the-drivers-db-it-would-be-unreachable-export-that-definition-under-another-name) · [a bucket key the `Db` has, at creation](#createkit-database-main-wires-a-bucket-under-watch-which-is-a-member-of-the-drivers-db-it-would-be-unreachable-export-that-definition-under-another-name) · [ECONNREFUSED](#mongoserverselectionerror-connect-econnrefused-12700127017) · [one URI, two option sets](#connectmongo-this-uri-is-already-connected-with-other-options-pass-the-same-options-everywhere-or-close-the-first-connection) · [`kit.db` with several databases](#kitdb-this-kit-has-several-databases-read-the-one-you-mean-as-kitdatabasesmain) · [an unknown database](#this-kit-has-no-database-reporting-it-has-main-analytics) · [closing a derived kit](#close-this-kit-came-from-as-withsession-or-a-transaction-close-the-kit-createkit-returned--the-clients-are-shared) · [`sync()` and privileges](#not-authorized-on-app-to-execute-command--collmod-users--) |
+| [Install](#install) | [ERESOLVE](#npm-error-eresolve-unable-to-resolve-dependency-tree) · [incorrect peer dependency](#warn-incorrect-peer-dependency-nxgtmongo0140) · [TS2307](#error-ts2307-cannot-find-module-nxgtmongo-or-its-corresponding-type-declarations) · [no `@nxgt/mongo/gridfs`](#cannot-find-module-nxgtmongogridfs) |
+| [Types](#types) | [a key the `Db` has](#command-is-a-member-of-the-drivers-db-wire-this-collection-under-another-key) · [options for a key that is not wired](#posts-is-not-wired-by-this-database-there-are-no-options-for-it) · [a bucket under a key the `Db` has](#watch-is-a-member-of-the-drivers-db-wire-this-bucket-under-another-key) · [a bucket under a collection's key](#users-is-also-a-collection-of-this-database-wire-this-bucket-under-another-key) · [bucket options without buckets](#this-database-wires-no-buckets-there-are-no-bucket-options-to-give) · [a bucket option the kit decides](#autosync-is-the-kits-to-decide-withsession-and-transactions-carry-the-session-and-autosync-is-the-databases) |
+| [Configuration](#configuration) | [no configuration at all](#defineconfig-a-configuration-object-is-required) · [`databases` is not an object of databases by name](#defineconfig-databases-must-be-an-object-of-databases-by-name-as--databases--main----one-database-is-the-configuration-itself-and-names-itself-with-database) · [neither a uri nor a client](#defineconfig-database-main-has-neither-a-uri-nor-a-client) · [both](#defineconfig-database-main-has-both-a-uri-and-a-client-pass-the-one-it-should-use) · [client options](#defineconfig-database-main-has-client-options-beside-a-client-it-did-not-open-pass-them-where-the-client-is-made) · [no definition in it](#defineconfig-database-main-has-a-collections-object-with-no-definition-in-it-pass-the-module-as-in-import--as-collections) · [two keys, one collection](#defineconfig-database-main-wires-users-and-people-to-the-same-collection-users) · [an option the kit decides](#defineconfig-database-main-has-session-in-options-which-the-kit-decides-) · [options for a key it does not wire](#defineconfig-database-main-has-options-for-posts-which-it-does-not-wire) · [no databases](#defineconfig-databases-names-none-give-it-at-least-one-as--databases--main---) · [no bucket in `buckets`](#defineconfig-database-main-has-a-buckets-object-with-no-bucket-definition-in-it-pass-the-module-as-in-import--as-buckets) · [a key both a collection and a bucket](#defineconfig-database-main-wires-users-as-both-a-collection-and-a-bucket-export-one-of-them-under-another-name) · [two keys, one bucket](#defineconfig-database-main-wires-avatars-and-pictures-to-the-same-bucket-avatars) · [a bucket option the kit decides](#defineconfig-database-main-has-session-in-bucketoptions-which-the-kit-decides-) · [bucket options without buckets](#defineconfig-database-main-has-bucketoptions-but-no-buckets-pass-the-buckets-they-are-for-or-leave-them-out) |
+| [Runtime](#runtime) | [a key the `Db` has, at creation](#createkit-database-main-wires-a-collection-under-command-which-is-a-member-of-the-drivers-db-it-would-be-unreachable-export-that-definition-under-another-name) · [a bucket key the `Db` has, at creation](#createkit-database-main-wires-a-bucket-under-watch-which-is-a-member-of-the-drivers-db-it-would-be-unreachable-export-that-definition-under-another-name) · [`NxgtGridFSMissingIndex`](#bucket-avatars-has-no-files_id_1_n_1-on-avatarschunks-every-read-scans-the-whole-collection-and-the-cost-grows-with-the-bucket-rather-than-with-the-file-call-syncindexes-at-start-up-or-bind-with-autosync) · [ECONNREFUSED](#mongoserverselectionerror-connect-econnrefused-12700127017) · [one URI, two option sets](#connectmongo-this-uri-is-already-connected-with-other-options-pass-the-same-options-everywhere-or-close-the-first-connection) · [`kit.db` with several databases](#kitdb-this-kit-has-several-databases-read-the-one-you-mean-as-kitdatabasesmain) · [an unknown database](#this-kit-has-no-database-reporting-it-has-main-analytics) · [closing a derived kit](#close-this-kit-came-from-as-withsession-or-a-transaction-close-the-kit-createkit-returned--the-clients-are-shared) · [`sync()` and privileges](#not-authorized-on-app-to-execute-command--collmod-users--) |
 | [Transactions](#transactions) | [more than one client](#transaction-this-kit-holds-more-than-one-client-and-a-transaction-lives-on-one-name-the-database-it-runs-on-as--on-main-) · [already in a session](#transaction-this-kit-is-already-in-a-session-which-this-call-joins-so-on-has-no-client-left-to-choose) · [a session from another client](#clientsession-must-be-from-the-same-mongoclient) · [no replica set](#this-mongodb-deployment-does-not-support-retryable-writes-please-add-retrywritesfalse-to-your-connection-string) |
 | [Scripts](#scripts) | [`Bun is not defined`](#referenceerror-bun-is-not-defined) · [no glob](#discovercollections-a-glob-is-required) · [two files, one collection](#discovercollections-srcmodelsonemodelts-and-srcmodelstwomodelts-both-define-the-collection-twice) · [no definition of that name](#discovercollections-srcmodelsnotests-exports-no-definition-named-definition) |
 
@@ -39,9 +39,9 @@ try {
 ### `npm error ERESOLVE unable to resolve dependency tree`
 
 ```
-npm error Found: @nxgt/mongo@0.14.0
+npm error Found: @nxgt/mongo@0.16.0
 npm error Could not resolve dependency:
-npm error peer @nxgt/mongo@"^0.15.0" from @nxgt/mongo-kit@0.1.4
+npm error peer @nxgt/mongo@"^0.17.0" from @nxgt/mongo-kit@0.4.0
 ```
 
 **When:** `npm install`, before anything is downloaded.
@@ -55,7 +55,7 @@ are peers on the same terms.
 **Fix:**
 
 ```sh
-npm install @nxgt/mongo@^0.15.0 @nxgt/mongo-kit mongodb zod
+npm install @nxgt/mongo@^0.17.0 @nxgt/mongo-kit mongodb zod
 ```
 
 Raise the sibling rather than install past the conflict: `--force` and
@@ -74,10 +74,27 @@ missing at run time, with no error until the call that needs it.
 **Fix:**
 
 ```sh
-bun add @nxgt/mongo@^0.15.0
+bun add @nxgt/mongo@^0.17.0
 ```
 
 Treat that warning as an error. `bun pm ls` shows which version was resolved.
+
+### `Cannot find module '@nxgt/mongo/gridfs'`
+
+**When:** the first import of `@nxgt/mongo-kit`, with a `@nxgt/mongo` older
+than 0.14.0 installed past the peer warning above.
+
+**Why:** since 0.4.0 the kit imports the `./gridfs` subpath of `@nxgt/mongo`
+for its buckets, whether the configuration wires any or not, and that subpath
+arrived in `@nxgt/mongo` 0.14.0. An older copy has no such export, so the kit
+does not load at all. Node words the same failure as a subpath that is not
+defined by `"exports"`.
+
+**Fix:** install the peer the kit asks for.
+
+```sh
+bun add @nxgt/mongo@^0.17.0
+```
 
 ### `error TS2307: Cannot find module '@nxgt/mongo' or its corresponding type declarations.`
 
@@ -175,13 +192,36 @@ export const watchClips = defineBucket({ name: 'watch' });
 export something under the same name.
 
 **Why:** both would be `kit.db.users`. Usually one module of models and one
-of files that grew the same export name, or one module passed as both.
+of files that grew the same export name.
 
 **Fix:** rename one of the two exports.
 
 ```ts
 export const userPhotos = defineBucket({ name: 'users' });
 //           ^ the key on `kit.db`: `kit.db.users` stays the collection
+```
+
+### `this database wires no buckets: there are no bucket options to give`
+
+The whole line is a `TS2322`, on `bucketOptions`:
+
+```
+error TS2322: Type '{ hash: false; }' is not assignable to type
+'{ readonly hash: false; } & "this database wires no buckets: there are no bucket options to give"'.
+```
+
+**When:** compiling a `defineConfig` whose database has `bucketOptions` and
+no `buckets`.
+
+**Why:** the options would apply to nothing — usually `buckets` was left
+out, or moved to another database of a multi-database config while its
+options stayed behind.
+
+**Fix:** pass the buckets beside their options, or drop the options.
+
+```ts
+import * as buckets from './files';
+defineConfig({ uri, collections, buckets, bucketOptions: { hash: false } });
 ```
 
 ### `"autoSync" is the kit's to decide: withSession and transactions carry the session, and autoSync is the database's`
@@ -467,6 +507,21 @@ transaction around them.
 **Fix:** take it out, and set `autoSync` on the database beside
 `collections` if you want it.
 
+### `defineConfig: database "main" has bucketOptions but no buckets: pass the buckets they are for, or leave them out`
+
+**When:** calling `defineConfig`, when the types were bypassed.
+
+**Why:** the same cause as the
+[type error](#this-database-wires-no-buckets-there-are-no-bucket-options-to-give):
+options with no bucket to apply to, which would otherwise do nothing without
+a word — as `optionsFor` under a key nothing is wired under is refused.
+
+**Fix:**
+
+```ts
+defineConfig({ uri, collections, buckets, bucketOptions: { hash: false } });
+```
+
 ## Runtime
 
 ### `createKit: database "main" wires a collection under "command", which is a member of the driver's Db: it would be unreachable. Export that definition under another name.`
@@ -500,6 +555,44 @@ adds. `code: 'COLLISION'`, with the `database` and the `key`.
 
 ```ts
 export const watchClips = defineBucket({ name: 'watch' });
+```
+
+### `Bucket "avatars" has no files_id_1_n_1 on "avatars.chunks": every read scans the whole collection, and the cost grows with the bucket rather than with the file. Call syncIndexes() at start-up, or bind with autoSync.`
+
+Printed as a process warning, not thrown:
+
+```text
+(node:4242) [NxgtGridFSMissingIndex] Warning: Bucket "avatars" has no files_id_1_n_1 on "avatars.chunks": …
+```
+
+**When:** the first read of a file from a bucket whose chunk index is not
+there, once per database and bucket for the life of the process. The read
+itself works.
+
+**Why:** nothing creates a bucket's indexes until something is asked to, and
+`kit.sync()` does not: it syncs collection definitions. Without
+`files_id_1_n_1`, reading one file examines every chunk of the bucket. The
+warning comes from `@nxgt/mongo/gridfs`, which is why it names that package's
+`syncIndexes()`; on the kit the call is `syncBuckets()`.
+
+**Fix:** create the indexes at start-up, beside `sync()`:
+
+```ts
+await kit.sync();
+await kit.syncBuckets();
+```
+
+In tests and development, the database's `autoSync: true` does it before
+each bucket's first call instead — mind its
+[transaction caveat](guide/files.md#autosync-and-the-first-upload-in-a-transaction).
+To act on the warning rather than read it, listen for its code:
+
+```ts
+process.on('warning', (warning) => {
+	if ((warning as { code?: string }).code === 'NxgtGridFSMissingIndex') {
+		log.warn(warning.message);
+	}
+});
 ```
 
 ### `MongoServerSelectionError: connect ECONNREFUSED 127.0.0.1:27017`

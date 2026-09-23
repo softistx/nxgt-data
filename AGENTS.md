@@ -527,9 +527,9 @@ the file.
 
 ## Known state
 
-`bun run test` is **1101 pass, 0 fail**: drizzle 113, meilisearch 45,
-mongo 532, drizzle-meilisearch 42, mongo-meilisearch 55, mongo-kit 96,
-mongo-search-kit 16, redis 46, redis-kit 55, s3 52, hono-api-example 31,
+`bun run test` is **1106 pass, 0 fail**: drizzle 113, meilisearch 45,
+mongo 532, drizzle-meilisearch 42, mongo-meilisearch 55, mongo-kit 100,
+mongo-search-kit 17, redis 46, redis-kit 55, s3 52, hono-api-example 31,
 scripts 18. It runs one process
 per package, then the scripts' specs. Treat any failure as yours.
 

@@ -70,7 +70,7 @@ checked again against the object at `createKit`.
 | `collections` | module object | — | `import * as collections from './models'` |
 | `options` | `KitCollectionOptions<AnyCollectionDefinition>` | `{}` | `@nxgt/mongo`'s collection options, for every collection of this database |
 | `optionsFor` | `{ [key]?: KitCollectionOptions<Def> }` | `{}` | The same, per key, merged **over** `options` |
-| `autoSync` | `boolean` | `false` | Sync each collection before its first operation, and create each bucket's indexes before its first call |
+| `autoSync` | `boolean` | `false` | Sync each collection before its first operation, and create each bucket's indexes before its first call — which, [inside a transaction](#autosync), makes the driver run the body twice |
 | `buckets` | module object | — | `import * as buckets from './files'`: [GridFS buckets](files.md), on the scope beside the collections |
 | `bucketOptions` | `KitBucketOptions` | `{}` | `@nxgt/mongo/gridfs`'s `validate`, `coerce` and `hash`, for every bucket of this database |
 
@@ -106,6 +106,14 @@ Each collection is synced before its first operation, once per database — for
 tests and for local development. In production [`kit.sync()`](sync.md) is a
 deployment step: `collMod` needs the `dbAdmin` role, and an index build runs
 outside any transaction.
+
+It creates each [bucket](files.md)'s indexes before its first call too, and
+there it has a cost: when that first call is an upload inside a transaction,
+the chunks collection appears after the transaction's snapshot, the commit
+fails, and the driver runs the body twice — a stream source is stored empty
+on the second run. Call [`kit.syncBuckets()`](files.md#indexes-syncbuckets)
+at start-up, before any transactional upload, and it runs once. The
+[details are in Files](files.md#autosync-and-the-first-upload-in-a-transaction).
 
 ## Several databases
 
@@ -189,7 +197,8 @@ defineConfig({ collections });
 - `db`, `session`, `actor` or `autoSync` inside `options` or `optionsFor`;
 - a `buckets` object with no bucket definition in it, a bucket key a
   collection of the same database already holds, two keys wiring the same
-  bucket, and `session` or `autoSync` inside `bucketOptions` — see
+  bucket, `session` or `autoSync` inside `bucketOptions`, and
+  `bucketOptions` with no `buckets` at all — see
   [Files](files.md#declaring-the-buckets).
 
 [Troubleshooting](../troubleshooting.md) has each message with its fix.

@@ -137,7 +137,9 @@ never`, a config built at run time, or JavaScript.
 [type error above](#mongo-search-kit-this-kit-wires-no-collection-called-comments).
 It is checked again at run time because a `Db` answers to its own members: a
 key that is one would give something that is not a collection rather than
-`undefined`.
+`undefined`. The same holds for a key the Mongo kit wires a **GridFS bucket**
+under (`@nxgt/mongo-kit` 0.4.0 and later): a bucket sits on the scope beside
+the collections, but there is nothing in it to search.
 
 **Fix:** write the config as a literal argument to `createSearchKit`, so the
 compiler refuses it first — a config assigned to a variable of a wider type

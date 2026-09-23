@@ -3,7 +3,8 @@
 An application's MongoDB in one object: a configuration checked once, the
 clients it needs opened from it, and every collection of
 [`@nxgt/mongo`](https://www.npmjs.com/package/@nxgt/mongo) typed on the
-database it lives in.
+database it lives in — with its GridFS files beside them, in the same
+transactions.
 
 ```ts
 import { createKit, defineConfig } from '@nxgt/mongo-kit';
@@ -220,9 +221,9 @@ and what is wrong throws here, where the application starts.
 | `collections` | — | `import * as collections from './models'`. |
 | `options` | `{}` | `@nxgt/mongo`'s collection options, for every collection. |
 | `optionsFor` | `{}` | The same, per key, merged over `options`. |
-| `autoSync` | `false` | Sync each collection before its first operation, and create each bucket's indexes before its first call. |
+| `autoSync` | `false` | Sync each collection before its first operation, and create each bucket's indexes before its first call. A bucket's first call inside a transaction then makes the driver run the body twice: call `syncBuckets()` at start-up instead. |
 | `buckets` | — | `import * as buckets from './files'`: `@nxgt/mongo/gridfs` buckets, on the scope beside the collections. |
-| `bucketOptions` | `{}` | `validate`, `coerce`, `hash`, for every bucket. Not `session` or `autoSync`. |
+| `bucketOptions` | `{}` | `validate`, `coerce`, `hash`, for every bucket. Not `session` or `autoSync`, and not without `buckets`. |
 
 `db`, `session`, `actor` and `autoSync` are not collection options here: the
 kit decides them, and one of them under `options` does not compile, while one
@@ -311,7 +312,8 @@ Each is a `@ts-expect-error` case in this package's type tests.
   collections stamp none or disagree.
 - A bucket under a key the driver's `Db` has, or one a collection of the
   same database already holds; metadata the bucket's schema does not
-  describe; `session` or `autoSync` in `bucketOptions`.
+  describe; `session` or `autoSync` in `bucketOptions`, and `bucketOptions`
+  on a database with no `buckets`.
 
 ## Traps
 
@@ -355,6 +357,12 @@ Each is a `@ts-expect-error` case in this package's type tests.
   Until one of them has run — or a database's `autoSync` has — every read of
   a file scans the whole chunks collection, and `@nxgt/mongo/gridfs` says so
   once with an `NxgtGridFSMissingIndex` process warning.
+- **With `autoSync`, a bucket's first upload inside a transaction runs the
+  body twice.** The indexes `autoSync` creates outside the session create the
+  chunks collection after the transaction's snapshot, the commit fails
+  (112), and the driver retries. A stream source is spent by then and is
+  stored as an empty file. Call `syncBuckets()` at start-up, before any
+  transactional upload, and the body runs once.
 - **`kit.db` throws `SEVERAL_DATABASES` on a kit with several databases**,
   where its type is already `never`: the message names the databases to read
   instead.

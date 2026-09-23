@@ -59,7 +59,8 @@ What `defineConfig` refuses, each a [`KitError`](errors.md) with
   be `db.<key>`;
 - two keys wired to the same bucket name;
 - a `buckets` object with no bucket definition in it;
-- `session` or `autoSync` in `bucketOptions`.
+- `session` or `autoSync` in `bucketOptions`;
+- `bucketOptions` on a database with no `buckets`.
 
 A bucket key the driver's `Db` answers to — `watch`, `command`,
 `collection`… — is refused by the types where the config is written, and by
@@ -78,16 +79,19 @@ defineConfig({
 ```
 
 `bucketOptions` applies to every bucket of that database. It takes
-`@nxgt/mongo/gridfs`'s `BucketOptions` — `validate`, `coerce`, `hash` — minus
-the two the kit decides:
+`@nxgt/mongo/gridfs`'s `BucketOptions`, minus the two the kit decides:
 
-| Option | Where it comes from |
-| --- | --- |
-| `session` | the kit's: `withSession` and `transaction` carry it |
-| `autoSync` | the database's `autoSync`, beside `collections` |
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `validate` | `'parse' \| 'off'` | `'parse'` | Check the metadata against the bucket's schema on every write. `'off'` sends it as it is — for a migration or a checked backfill |
+| `coerce` | `boolean` | `true` | Read the strings that arrive from outside as the ids and dates the schema says |
+| `hash` | `boolean` | `true` | Hash every upload as it streams and store the SHA-256: what `putOnce` compares and an `ETag` is built from |
+| `session` | — | the kit's | Not an option here: `withSession` and `transaction` carry it |
+| `autoSync` | — | the database's | Not an option here: the database's `autoSync`, beside `collections` |
 
-One of them in `bucketOptions` does not compile, and `defineConfig` refuses
-it at run time as well.
+`session` or `autoSync` in `bucketOptions` does not compile, and
+`defineConfig` refuses it at run time as well. So is `bucketOptions` on a
+database with no `buckets`: there is nothing for it to apply to.
 
 ## The scope
 
@@ -128,14 +132,43 @@ no session. The limits are MongoDB's:
 - a transaction has a **60-second lifetime** by default
   (`transactionLifetimeLimitSeconds`), and every chunk it writes is held
   until it commits, so a large upload does not belong in one;
-- **index creation is refused inside a transaction.** Create the indexes
-  beforehand with `syncBuckets()`, or let `autoSync` create them — it does so
-  outside the session, whichever call comes first;
+- **index creation is refused inside a transaction**, so
+  `tx.db.avatars.syncIndexes()` in the body throws. Create the indexes at
+  start-up with `syncBuckets()` — see below for why `autoSync` is not enough;
 - the body may **run twice**: the driver retries it from the start on a
   transient error. The file the failed attempt wrote went with it, but a
   source that can be read only once — a request body's stream — is spent.
   Read it into bytes before the transaction, or pass a `Bun.file`, which is
   read afresh each time.
+
+Two members of a bucket do not follow the transaction:
+
+- `tx.db.avatars.raw` is the driver's own `GridFSBucket`, which **takes no
+  session**: what it writes is outside the transaction, and stays when the
+  transaction rolls back;
+- `tx.db.avatars.withSession(other)` **replaces** the session: the bucket it
+  gives back runs in `other`, not in the transaction.
+
+### `autoSync` and the first upload in a transaction
+
+With the database's `autoSync: true`, a bucket creates its indexes before its
+first call — outside the session, since mongod would refuse them inside it.
+When that first call is a `put` inside a transaction, those indexes create the
+`<name>.chunks` collection **after the transaction's snapshot**, and the
+commit fails — measured on mongod 8.2.6, `commitTransaction` answers 112,
+"Collection namespace '….chunks' is already in use". The driver then **runs
+the body a second time**, and that one commits.
+
+That second run is harmless for bytes or a `Bun.file`, and the document the
+first run wrote was rolled back with it. It is not harmless for a stream:
+spent on the first run, it is read as empty on the second, and — measured —
+the file is stored with **0 bytes and no error**. That silent empty file is
+`@nxgt/mongo/gridfs`'s to refuse, and is queued there.
+
+So: **call `syncBuckets()` at start-up, before any transactional upload**.
+With the indexes already there, the same transaction runs once. `autoSync`
+is for tests and development, where nothing depends on the body running
+once.
 
 ## Indexes: `syncBuckets()`
 
@@ -166,7 +199,9 @@ as `existing`.
 
 For tests and development, the database's `autoSync: true` creates a
 bucket's indexes before its first call instead, once per database for the
-life of the process.
+life of the process — with the
+[transaction caveat above](#autosync-and-the-first-upload-in-a-transaction):
+a first upload inside a transaction makes the driver run the body twice.
 
 ## Signatures
 
@@ -199,8 +234,9 @@ type BucketSyncReport<C> = {
 };
 ```
 
-`BucketsOf`, `BucketsIn`, `KitBucketOptions`, `NoBucketCollision` and
-`BucketSyncReport` are exported from `@nxgt/mongo-kit`; `BucketDefinition`,
+`BucketsOf`, `BucketsIn`, `KitBucketOptions`, `NoBucketCollision`,
+`NoOwnedBucketOption`, `NoBucketsToOption` and `BucketSyncReport` are
+exported from `@nxgt/mongo-kit`; `BucketDefinition`,
 `BucketOptions`, `TypedBucket` and `BucketIndexReport` are
 `@nxgt/mongo/gridfs`'s.
 

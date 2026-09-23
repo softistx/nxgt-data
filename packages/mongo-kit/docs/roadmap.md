@@ -35,6 +35,15 @@ _Nothing queued._
   `createKit` against the object itself, so `kit.db.command(…)` is always the
   driver's.
 
+- **An actor on a bucket** — `@nxgt/mongo/gridfs` stamps no `*By` field, so
+  `as(actor)` has nothing to write on a file. Who uploaded one belongs in
+  its metadata, typed by the bucket's schema.
+- **`sync()` syncing buckets** — `sync()` applies collection definitions and
+  keeps its report shape; a bucket is not one. `syncBuckets()` is the step
+  beside it.
+- **A `dryRun` for `syncBuckets()`** — a bucket's index creation has none to
+  pass on: it creates what is missing and reports what was there.
+
 ## Shipped
 
 - **Files beside the collections** — `@nxgt/mongo/gridfs` buckets declared
