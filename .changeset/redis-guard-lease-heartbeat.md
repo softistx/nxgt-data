@@ -1,7 +1,0 @@
----
-'@nxgt/redis-guard': minor
----
-
-Idempotency renews its lease, and can wait for a running key. While `work` runs, `run` now renews the key's lease every third of `lease`, with a compare-and-renew on the run's own token, so work of any length runs once and a repeat during it gets `IN_PROGRESS`; `lease` now bounds how long a **crashed** run holds the key, not how long `work` may take. The renewals stop before `run` settles, however it settles, and leave no timer behind. `LEASE_LOST` now means the key was taken from the run before it finished — `forget` during the run, or no renewal reached Redis for a whole lease, which includes synchronous work blocking the event loop that long — and its message says so: `run on "<name>": the key was taken from this run before it finished (forgotten, or its lease of <lease>ms went unrenewed), so a repeat may have run it too; its result was not stored`. `IN_PROGRESS`'s `retryAfter` is when the running call's lease lapses unless renewed, and its message is now `run on "<name>": the same key is still running; retryAfter is when its lease lapses unless renewed`.
-
-New option: `run(params, work, { wait })`, in milliseconds (default 0). A repeat that finds the key running polls it until it is done — and replays the result, `replayed: true` — or free — and runs `work` itself — or `wait` is spent, and rejects with `IN_PROGRESS` as before. `MISMATCH` and `INVALID` end the wait at once. A `wait` that is not a whole number of 0 or more rejects with a `TypeError` before anything is sent.
