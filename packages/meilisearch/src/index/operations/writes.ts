@@ -45,6 +45,8 @@ function settle(
 		.then((task: Task) => assertSucceeded(task, ctx.uid));
 }
 
+// The return type is written out: inferred, it names the SDK's internal
+// `SafeOmit`, and the declaration emit of the batch writes fails (TS2883).
 function settleAll(
 	ctx: IndexContext,
 	enqueued: EnqueuedTaskPromise[],

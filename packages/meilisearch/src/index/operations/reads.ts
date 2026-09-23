@@ -41,10 +41,9 @@ export async function getMany(
 	return results;
 }
 
-/** The query's `Def` only types its `sort`; any definition's is read the same. */
-export async function list(
+export async function list<Def>(
 	ctx: IndexContext,
-	query: ListQuery<any, string> = {},
+	query: ListQuery<Def, string> = {},
 ) {
 	const { fields, sort, ...rest } = query;
 	const page = await ctx.raw.getDocuments<RecordAny>({

@@ -2,15 +2,13 @@ import type { Index, Meilisearch, RecordAny } from 'meilisearch';
 import type { AnyIndexDefinition } from '../definition/define-index';
 
 /**
- * What every method of a typed index works from, resolved once: the
- * definition, its uid and primary key, the client and the SDK's own index.
+ * What every operation of a typed index works from, resolved once: the
+ * definition's uid and primary key, and the SDK's own index.
  *
  * It holds **data only**. The operations are plain functions that take it as
  * their first argument, in `operations/reads.ts` and `operations/writes.ts`.
  */
 export interface IndexContext {
-	readonly definition: AnyIndexDefinition;
-	readonly client: Meilisearch;
 	readonly uid: string;
 	readonly primaryKey: AnyIndexDefinition['primaryKey'];
 	/** The SDK's index, typed loosely: the public type is what callers see. */
@@ -23,8 +21,6 @@ export function createContext(
 ): IndexContext {
 	const { uid, primaryKey } = definition;
 	return {
-		definition,
-		client,
 		uid,
 		primaryKey,
 		raw: client.index<RecordAny>(uid),
