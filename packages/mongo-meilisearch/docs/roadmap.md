@@ -32,6 +32,11 @@ _Nothing queued._
 
 ## Shipped
 
+- **A standby waits exactly for the holder** — a `RUNNING` the lease refused
+  carries `holder` and `expiresAt`, read from the lease document, so a process
+  waiting for the name sleeps until the holder's lease lapses instead of a
+  fixed time; both are `undefined` on a sync object's own refusal, where only
+  its `close()` frees the name — 0.4.0.
 - **A lease on a sync name, renewed while it runs** — `start()` and
   `reindex()` take a lease on the sync's name, kept in the state collection
   and timed by the server, renewed every third of the new `leaseMs` option

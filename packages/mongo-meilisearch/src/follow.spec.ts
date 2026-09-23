@@ -349,6 +349,9 @@ describe('what stops a running sync', () => {
 			'Search sync "articles:articles" is already following changes in ' +
 				'this process: close it before you start it twice.',
 		);
+		// Nothing to wait for: only a close frees a name this process follows.
+		expect(started.holder).toBeUndefined();
+		expect(started.expiresAt).toBeUndefined();
 		const reindexed = await rejection(search.reindex());
 		expect(reindexed.code).toBe('RUNNING');
 		expect(reindexed.message).toEndWith('before you reindex.');

@@ -161,15 +161,16 @@ await running.close(); // flushes, then stops; or `await using running = …`
 `start` takes a **lease** on the sync's name before anything else, the first
 reindex included, and a running sync renews it every third of `leaseMs`
 (30 s). A second process that starts the same name is refused with
-`RUNNING`, naming who holds it and until when. Run it as a standby that
-tries again — on `RUNNING`, and on `LEASE_LOST`, which a `start()` whose
-first reindex lost the name to another process rejects with:
+`RUNNING`, naming who holds it and until when — in the message, and as the
+error's `holder` and `expiresAt`. Run it as a standby that waits for the
+holder and tries again — on `RUNNING`, and on `LEASE_LOST`, which a `start()`
+whose first reindex lost the name to another process rejects with:
 
 ```ts
 import { type RunningSearchSync, SearchSyncError } from '@nxgt/mongo-meilisearch';
 
 // The name is held elsewhere, or was taken over while this start reindexed.
-const heldElsewhere = (error: unknown) =>
+const heldElsewhere = (error: unknown): error is SearchSyncError =>
 	error instanceof SearchSyncError &&
 	(error.code === 'RUNNING' || error.code === 'LEASE_LOST');
 
@@ -179,12 +180,19 @@ async function follow(): Promise<RunningSearchSync> {
 			return await articleSearch.start();
 		} catch (error) {
 			if (!heldElsewhere(error)) throw error;
-			await new Promise((resolve) => setTimeout(resolve, 10_000));
+			// Until the holder's lease lapses when it is known, 10 s when not;
+			// the margin covers a host clock behind MongoDB's.
+			const until = error.expiresAt?.getTime() ?? Date.now() + 10_000;
+			const wait = Math.max(until - Date.now(), 0) + 250;
+			await new Promise((resolve) => setTimeout(resolve, wait));
 		}
 	}
 }
 ```
 
+A holder that is alive renews its lease every third of `leaseMs`, so the next
+`start()` is refused again, with a later `expiresAt`: the loop waits about one
+lease per try. A holder that died is taken over as soon as its lease lapses.
 A restart inside a crashed follower's `leaseMs` gets `RUNNING` too: run this
 loop rather than exit.
 
@@ -258,7 +266,7 @@ This package throws `SearchSyncError`; what caused it is its `cause`.
 | `HISTORY_LOST` | `start` with `onHistoryLost: 'fail'`, and the recorded point is older than the server's history. `cause` is `@nxgt/mongo`'s `DataError`, `serverCode` 286 or 280 |
 | `ID_MISMATCH` | the transform gave a document whose primary key is not its index id |
 | `NOT_A_DOCUMENT` | the transform gave back something that is neither a document nor `null` — a string, a number, an array. The message says its shape, never its value |
-| `RUNNING` | the name is taken. On this sync object: `reindex()` or a second `start()` while it is already following. Through the lease: `start()` or `reindex()` while another process holds the name — or another `createSearchSync` with the same name in this process, whose holder then starts with this process's own `host:pid`. The message names the holder and when its lease ends |
+| `RUNNING` | the name is taken. On this sync object: `reindex()` or a second `start()` while it is already following. Through the lease: `start()` or `reindex()` while another process holds the name — or another `createSearchSync` with the same name in this process, whose holder then starts with this process's own `host:pid`. The message names the holder and when its lease ends, and so do `holder` and `expiresAt` — read from the lease document, `expiresAt` on MongoDB's clock. Both are `undefined` on the sync object's own refusal, which only its `close()` ends, and when the holder let go before it could be read |
 | `LEASE_LOST` | the name's lease is no longer this sync's: it was not renewed within `leaseMs` and another process took it over, or it was removed. `closed` rejects with it, and nothing more is sent; `reindex()` and `start()` reject with it while reindexing, having recorded nothing, and removed nothing unless the lease went while the removal itself ran |
 | `FAILED` | anything else: the transform threw, MongoDB or Meilisearch refused. The message says what the sync was doing |
 
@@ -341,8 +349,10 @@ function createSearchSync<C extends AnyCollectionDefinition, I extends AnyIndexD
 `class SearchSyncError extends Error`: `code: SearchSyncErrorCode`
 (`'HISTORY_LOST' | 'ID_MISMATCH' | 'NOT_A_DOCUMENT' | 'RUNNING' | 'LEASE_LOST' | 'FAILED'`),
 `sync: string`,
+`holder: string | undefined` and `expiresAt: Date | undefined` (set on a
+`RUNNING` the lease refused, `undefined` otherwise),
 `cause`. Its constructor takes `(message, options: SearchSyncErrorOptions)`,
-that is `{ code, sync, cause? }`; both types are exported.
+that is `{ code, sync, cause?, holder?, expiresAt? }`; both types are exported.
 
 ## What does not compile
 
@@ -358,6 +368,8 @@ Each is a `@ts-expect-error` case in this package's type tests.
 - A driver `Collection` for `collection`, or the SDK's `Index` for `index`.
 - No `transform`, an option this package does not have, or an
   `onHistoryLost` other than `'reindex'` or `'fail'`.
+- A `SearchSyncError`'s `expiresAt` read as a `Date` without checking it is
+  there, or assigned; an `expiresAt` given to its constructor as a string.
 
 ## Traps
 

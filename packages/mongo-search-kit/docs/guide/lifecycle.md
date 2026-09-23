@@ -158,10 +158,17 @@ try {
 		(error.code === 'RUNNING' || error.code === 'LEASE_LOST');
 	if (held) {
 		// Another process follows these collections, or took one over while
-		// this start reindexed: wait, and try again.
+		// this start reindexed: wait, and try again. On RUNNING,
+		// `error.expiresAt` says until when that name's lease runs.
 	} else throw error;
 }
 ```
+
+A `RUNNING` the lease refused carries its `holder` and its `expiresAt`, a
+`Date` on MongoDB's clock, so a standby can wait exactly until that lease
+lapses; the loop is in the [troubleshooting entry](../troubleshooting.md#search-sync-articlesarticles-is-held-by--until--wait-for-it-to-close-or-for-its-lease-to-lapse-before-you-start-it).
+Both are `undefined` on a `LEASE_LOST`, and on the refusal of a kit that is
+already running in this process.
 
 A lease lasts each entry's `leaseMs` (30 s) unrenewed, so a process that
 died holds its names that long at most. `start()` itself rejects with

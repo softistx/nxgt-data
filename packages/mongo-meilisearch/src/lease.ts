@@ -75,8 +75,10 @@ async function take(ctx: SyncContext, holder: string): Promise<boolean> {
 
 /**
  * Takes the lease, or throws `RUNNING` naming who holds it and until when —
- * the same code a second `start` in this process gets, since it means the
- * same thing: this name is being followed.
+ * in the message and as `holder` and `expiresAt`, so a standby can wait for
+ * that moment rather than a fixed time. The same code a second `start` in
+ * this process gets, since it means the same thing: this name is being
+ * followed.
  */
 export async function acquire(
 	ctx: SyncContext,
@@ -95,15 +97,18 @@ export async function acquire(
 	} catch (error) {
 		throw failed(ctx.name, 'taking its lease', error);
 	}
-	const until =
-		current?.expiresAt instanceof Date
-			? current.expiresAt.toISOString()
-			: 'it lets go';
+	const expiresAt =
+		current?.expiresAt instanceof Date ? current.expiresAt : undefined;
 	throw new SearchSyncError(
 		`Search sync "${ctx.name}" is held by ${current?.holder ?? 'another process'} ` +
-			`until ${until}: ` +
+			`until ${expiresAt?.toISOString() ?? 'it lets go'}: ` +
 			`wait for it to close, or for its lease to lapse, before you ${doing}.`,
-		{ code: 'RUNNING', sync: ctx.name },
+		{
+			code: 'RUNNING',
+			sync: ctx.name,
+			holder: current?.holder,
+			expiresAt,
+		},
 	);
 }
 

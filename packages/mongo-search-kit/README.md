@@ -161,7 +161,9 @@ refusal it goes with.
 - **A kit cannot be started twice, nor reindexed while running** — in this
   process or in another. `@nxgt/mongo-meilisearch` throws `RUNNING` for a sync
   of the same object that is already following, or whose name another
-  process holds the lease on, and the kit passes that through.
+  process holds the lease on, and the kit passes that through — with the
+  lease's `holder` and `expiresAt` on it in the second case, so a standby
+  waits until that lease lapses.
 - **A sync that loses its lease rejects `failed` with `LEASE_LOST`.** A
   process stalled for longer than an entry's `leaseMs` (30 s) may find another
   has taken that name over; the sync stops rather than run beside it.

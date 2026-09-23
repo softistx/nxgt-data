@@ -40,11 +40,55 @@ describe('the lease on a sync name', () => {
 		);
 	});
 
+	test("its RUNNING carries the lease document's holder and expiresAt", async () => {
+		await start();
+		const error = await rejection(sync().start());
+		const lease = await leaseOf();
+		expect(error.holder).toBe(lease?.holder as string);
+		expect(error.expiresAt).toEqual(lease?.expiresAt as Date);
+		// The same two the message prints.
+		expect(error.message).toContain(
+			`held by ${error.holder} until ${error.expiresAt?.toISOString()}:`,
+		);
+	});
+
+	test('a standby that waits until expiresAt takes over a dead holder, with no fixed sleep', async () => {
+		// A holder that died: its lease is not renewed, and lapses at `lapse`.
+		const lapse = new Date(Date.now() + 300);
+		await leases().insertOne({
+			_id: { lease: 'articles:articles' },
+			holder: 'gone:1:000000000000000000000000',
+			expiresAt: lapse,
+		});
+		const standby = sync({ leaseMs: 300 });
+		let attempts = 0;
+		for (;;) {
+			attempts += 1;
+			const outcome = await standby.start().then(
+				(running) => track(running),
+				(error: unknown) => {
+					if (!(error instanceof SearchSyncError)) throw error;
+					return error;
+				},
+			);
+			if (!(outcome instanceof SearchSyncError)) break;
+			expect(outcome.code).toBe('RUNNING');
+			expect(outcome.holder).toBe('gone:1:000000000000000000000000');
+			expect(outcome.expiresAt).toEqual(lapse);
+			// Exactly until the lease lapses, and not a moment longer.
+			await Bun.sleep(outcome.expiresAt as Date);
+			if (attempts > 1) throw new Error('refused again after expiresAt');
+		}
+		expect(attempts).toBe(2);
+		expect((await leaseOf())?.holder).not.toStartWith('gone:');
+	});
+
 	test('nor reindex it, which would remove what the follower just sent', async () => {
 		await start();
 		const error = await rejection(sync().reindex());
 		expect(error.code).toBe('RUNNING');
 		expect(error.message).toEndWith('before you reindex.');
+		expect(error.holder).toBe((await leaseOf())?.holder as string);
 	});
 
 	test('the name is free as soon as the first one closes', async () => {
