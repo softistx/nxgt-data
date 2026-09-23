@@ -376,12 +376,13 @@ export const kit = await createKit(config);   // top level: a bad URI stops the 
 **When:** the `error` of a `{ ok: false }` that `kit.ping()` reported, never
 a throw.
 
-**Why:** the database did not answer within `timeoutMS`. For a database the
-kit opened from a `uri`, the driver usually answers first, with its own
-`MongoNetworkError` or `MongoServerSelectionError`; this deadline is what is
-left when it does not — typically a `client` the configuration handed over
-that was never connected, whose first connect waits
-`serverSelectionTimeoutMS` (measured on mongodb 7.6.0).
+**Why:** a database the configuration handed a `client` did not answer within
+`timeoutMS`. Only such a database reports this: the kit races a timer of its
+own for it, because a client that was never connected makes its connect on
+the first command, and that connect waits `serverSelectionTimeoutMS`, not
+`timeoutMS` (measured on mongodb 7.6.0). A database the kit opened from a
+`uri` is always connected, and reports the driver's own error instead —
+`MongoOperationTimeoutError` for a server that is too slow.
 
 **Fix:** answer 503 and look at the server. If the database is a `client` you
 handed over, connect it before `createKit`:

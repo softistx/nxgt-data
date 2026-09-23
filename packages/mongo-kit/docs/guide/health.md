@@ -34,7 +34,7 @@ app.get('/health', async (c) => {
 | Result | Means |
 | --- | --- |
 | `{ ok: true, latencyMs }` | the server answered `ping`, in that many milliseconds |
-| `{ ok: false, error }` | it did not, within `timeoutMS`; `error` is what failed — the driver's error, or `Error('ping: no answer in 1000ms')` for the deadline |
+| `{ ok: false, error }` | it did not, within `timeoutMS`; `error` is the driver's — `MongoOperationTimeoutError` for a server too slow, `MongoNetworkError` or `MongoServerSelectionError` for one that is gone — or, for a `client` the configuration handed over, `Error('ping: no answer in 1000ms')` when the deadline passed first |
 
 The keys are the database names the configuration gave, `default` when it
 named none, and the types know them: `health.main` on a kit with no `main`
@@ -60,7 +60,9 @@ the kit opened from a `uri`. One difference is worth knowing, measured on
 mongodb 7.6.0: a client that was **never connected** makes its connect on the
 first command, and that connect waits `serverSelectionTimeoutMS` (30 s by
 default), not the command's `timeoutMS`. `ping` keeps its deadline anyway —
-it races a timer of its own — but a failed first connect **closes the
+for a handed-over client it races a timer of its own, which is where the bare
+`ping: no answer in …` error comes from; a database the kit opened is always
+connected, and reports the driver's own error — but a failed first connect **closes the
 client for good**: every later command throws `MongoTopologyClosedError` at
 once, and so does every later `ping`. Connect a client before handing it to
 the configuration:

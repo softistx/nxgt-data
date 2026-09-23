@@ -3,16 +3,17 @@ import type { Db } from 'mongodb';
 import type { KitContext } from './context';
 
 /**
- * `ping` on one database, answering within `timeoutMS` either way. A copy of
- * `@nxgt/mongo`'s own (`connection/connect.ts`), which lives on the
- * `MongoConnection` alone: a database the configuration handed a `client`
- * has none, and a health route should read the same answer for both.
+ * `ping` on a database the configuration handed a `client`, which has no
+ * `MongoConnection` and so no `ping` of its own. A copy of `@nxgt/mongo`'s
+ * (`connection/connect.ts`), plus a timer.
  *
- * What the copy adds is the timer. Measured on mongodb 7.6.0, `timeoutMS`
+ * The timer is for this case alone. Measured on mongodb 7.6.0, `timeoutMS`
  * does not bound the connect a client that was never connected makes on its
- * first command: that waits `serverSelectionTimeoutMS` (30 s by default), and
- * `connectMongo`'s clients are always connected, which is why the original
- * needs no timer and a client the configuration handed over does.
+ * first command: that waits `serverSelectionTimeoutMS` (30 s by default).
+ * `connectMongo`'s clients are always connected, so a database the kit
+ * opened keeps the original, and the driver's own `MongoOperationTimeoutError`
+ * — a timer started with the same deadline would always fire first and hide
+ * it, which is what the first version of this did.
  */
 async function pingDb(db: Db, timeoutMS = 2_000): Promise<PingResult> {
 	const started = performance.now();
@@ -41,7 +42,12 @@ export async function pingKit(
 	const entries = await Promise.all(
 		ctx.databases.map(
 			async (database) =>
-				[database.name, await pingDb(database.db, options?.timeoutMS)] as const,
+				[
+					database.name,
+					database.connection
+						? await database.connection.ping(options)
+						: await pingDb(database.db, options?.timeoutMS),
+				] as const,
 		),
 	);
 	return Object.fromEntries(entries);

@@ -38,7 +38,31 @@ describe('ping', () => {
 		expect(report.default.ok).toBe(true);
 	});
 
-	test('reports a database that does not answer, within timeoutMS, without throwing', async () => {
+	test('a database the kit opened reports the driver’s own timeout', async () => {
+		const kit = track(
+			await createKit(defineConfig({ uri: server.uri, collections })),
+		);
+		await server.failNext(['ping'], {
+			blockConnection: true,
+			blockTimeMS: 1_500,
+		});
+		try {
+			const started = performance.now();
+			const report = await kit.ping({ timeoutMS: 300 });
+			const took = performance.now() - started;
+			expect(report.default.ok).toBe(false);
+			if (!report.default.ok) {
+				expect((report.default.error as Error).name).toBe(
+					'MongoOperationTimeoutError',
+				);
+			}
+			expect(took).toBeLessThan(1_200);
+		} finally {
+			await server.clearFailures();
+		}
+	});
+
+	test('a client handed over unconnected is answered for within timeoutMS, without throwing', async () => {
 		// A client the config hands over is never connected by the kit, so a
 		// port nothing listens on reaches `ping` itself.
 		const client = new MongoClient('mongodb://127.0.0.1:1/nowhere', {
