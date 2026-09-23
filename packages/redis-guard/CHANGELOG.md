@@ -1,5 +1,13 @@
 # @nxgt/redis-guard
 
+## 0.2.0
+
+### Minor Changes
+
+- [#116](https://github.com/softistx/nxgt-data/pull/116) [`8848879`](https://github.com/softistx/nxgt-data/commit/88488793cdbb1cfc48cdd2fd9e1230dfbfe57efa) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Idempotency: `defineIdempotency({ name, key, ttl, lease, schema })` describes an operation and `bindIdempotency(client, definition)` binds it, with `run(params, work, { fingerprint })` and `forget(params)`. The first call with a key runs `work`, checks its result against the zod schema, and keeps it for `ttl` **seconds**; a repeat gets `{ value, replayed: true }` without calling `work`. A repeat while the first still runs rejects with `IN_PROGRESS` and a `retryAfter` in milliseconds; a different fingerprint — a SHA-256 of the string or bytes you pass, the raw body usually — rejects with `MISMATCH`; a result the schema refuses, or a stored one it no longer reads, rejects with `INVALID`, and a stored one is **not** treated as a miss. An error thrown by `work` is never stored: the key is released and the error passes through as the same object. A failure that must replay is returned as a union member of the schema. The running call holds a lease of `lease` **milliseconds** (default 10 000), which this version does not renew: work that outlasts it can run twice, and the late run rejects with `LEASE_LOST` and stores nothing. Each step is one Lua script over one hash, timed by the Redis server.
+  
+  **Breaking for installs: `zod` is now a required peer**, `>=4.6.5 <5`. Every consumer must install it — `bun add zod` — even one that only uses rate limits, which parse nothing.
+
 ## 0.1.0
 
 ### Minor Changes
