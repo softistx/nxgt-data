@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/drizzle-meilisearch",
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"description": "Keeps a Meilisearch index in step with a PostgreSQL table: a typed transform, a full reindex, and one call per write — no change feed, and none pretended",
 	"license": "MIT",
 	"type": "module",

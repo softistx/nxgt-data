@@ -1,5 +1,17 @@
 # @nxgt/drizzle
 
+## 0.6.0
+
+### Minor Changes
+
+- [#104](https://github.com/softistx/nxgt-data/pull/104) [`ceeb8fa`](https://github.com/softistx/nxgt-data/commit/ceeb8fa1b6a5310fc059619fd627625041caa3ac) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `update` and `updateMany` no longer move a row's primary key. A patch that gives a value — SQL included — to a column of the primary key (the one column, every column of a composite key, or the column the `primaryKey` option names) is refused before anything is sent, with an `ArgumentError` (`argument: 'patch'`, `key` the column): `update on "users": "id" is a primary-key column, which an update never moves. Leave it out; a row that needs another key is a new row`. The message names the call, the table and the column, never the value. `UpdatePatch` and `ManyPatch` take a third parameter, `TKey`, defaulting to `PrimaryKeyOf<TTable>`, and leave that key out, so `update(id, { id: other })` no longer compiles. Only that one: the types leave out `TKey`: the column `primaryKey` names, else `id` when the table has one; every other primary-key column is refused at run time only, since Drizzle 1.0's PostgreSQL column types do not say which columns a key covers. An `id: undefined` is still dropped like any undefined value.
+  
+  **What stops compiling** is wider than moving an id: a patch typed `Partial<$inferInsert>` or `Patch<T>` no longer fits; type it `UpdatePatch<T, L, K>` or drop the key; pass the repository's `TKey` when naming `UpdatePatch` yourself. That covers the usual validated `PATCH` body, `repo.update(id, body)` with `body: Partial<typeof users.$inferInsert>` (drizzle-zod's `createUpdateSchema` included), a patch typed with this package's own `Patch<T>`, and `UpdatePatch<T, L>` left at its default key on a repository given another `primaryKey`.
+  
+  `upsert`'s update half, which already kept the addressed key, now keeps every column of a composite primary key too.
+  
+  **Why a minor.** Moving a row's key through `update` was never documented and contradicted what `upsert` already did, so the run-time refusal alone would be a fix. But code that compiled on 0.5.0 stops compiling, and a patch would reach every `^0.5.0` consumer on their next install; on 0.x a minor is how this repository ships a "what stops compiling" change, as `@nxgt/redis` 0.3.0 and `@nxgt/redis-kit` 0.2.0 did. `@nxgt/drizzle-meilisearch` gets its patch republish with the new peer range automatically. For code that did rely on moving a key: create the row under its new key and delete the old one, in one transaction.
+
 ## 0.5.0
 
 ### Minor Changes
