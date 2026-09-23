@@ -82,6 +82,27 @@ export function signingKey(
 }
 
 /**
+ * The query as it was sent, each value decoded once — or `undefined` when a
+ * value is not a valid escape. Not `URLSearchParams`, which reads a `+` as a
+ * space: Bun leaves the access key id unencoded, so a key with a `+` in it
+ * would come back as another key, and a `%` in it as a malformed escape.
+ */
+export function rawQueryOf(
+	pairs: readonly string[],
+): Map<string, string> | undefined {
+	const query = new Map<string, string>();
+	for (const pair of pairs) {
+		const at = pair.indexOf('=');
+		try {
+			query.set(pair.slice(0, at), decodeURIComponent(pair.slice(at + 1)));
+		} catch {
+			return undefined;
+		}
+	}
+	return query;
+}
+
+/**
  * The signature a SigV4 presigned URL should carry, recomputed with this
  * secret: the one way to tell whether it is the secret the URL was signed
  * with, since the URL never carries the secret itself.
@@ -113,12 +134,8 @@ export function presignedSignature(
 		'host',
 		'UNSIGNED-PAYLOAD',
 	].join('\n');
-	const query = new Map(
-		pairs.map((pair) => {
-			const at = pair.indexOf('=');
-			return [pair.slice(0, at), decodeURIComponent(pair.slice(at + 1))];
-		}),
-	);
+	// A malformed escape signs as no scope at all, which matches nothing.
+	const query = rawQueryOf(pairs) ?? new Map<string, string>();
 	const scope = (query.get('X-Amz-Credential') ?? '').split('/').slice(-4);
 	const toSign = [
 		ALGORITHM,

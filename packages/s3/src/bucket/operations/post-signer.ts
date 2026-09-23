@@ -1,5 +1,5 @@
 import { type BucketContext, callOf, secretOf } from '../context';
-import { type PostSigner, presignedSignature } from './post-policy';
+import { type PostSigner, presignedSignature, rawQueryOf } from './post-policy';
 
 /**
  * Where Bun would send this bucket's requests, and as whom.
@@ -17,22 +17,8 @@ export const PROBE = 'nxgt-probe';
 /** `accessKeyId/20260923/us-east-1/s3/aws4_request`, as its five parts. */
 const SCOPE_PARTS = 5;
 
-/**
- * The query as Bun wrote it, each value decoded once. Not `URLSearchParams`,
- * which reads a `+` as a space: Bun leaves the access key id unencoded, so a
- * key with a `+` in it would come back as another key.
- */
-function queryOf(url: URL): Map<string, string> {
-	return new Map(
-		url.search
-			.slice(1)
-			.split('&')
-			.map((pair) => {
-				const at = pair.indexOf('=');
-				return [pair.slice(0, at), decodeURIComponent(pair.slice(at + 1))];
-			}),
-	);
-}
+/** The query of a URL Bun signed, or `undefined` when it cannot be read. */
+const queryOf = (url: URL) => rawQueryOf(url.search.slice(1).split('&'));
 
 /**
  * The secret this bucket signs with — **the one Bun signs with**, or a
@@ -57,7 +43,7 @@ function checkedSecret<P>(context: BucketContext<P>, probe: URL): string {
 				'this package’s. Pass `secretAccessKey` to bindBucket',
 		);
 	}
-	const signed = queryOf(probe).get('X-Amz-Signature');
+	const signed = queryOf(probe)?.get('X-Amz-Signature');
 	if (presignedSignature(probe, 'PUT', secret) !== signed) {
 		throw new TypeError(
 			`${call}: the secret access key this package would sign with is not ` +
@@ -77,10 +63,11 @@ export function signerOf<P>(context: BucketContext<P>): PostSigner {
 		context.client.presign(PROBE, { method: 'PUT', expiresIn: 1 }),
 	);
 	const query = queryOf(probe);
-	const scope = (query.get('X-Amz-Credential') ?? '').split('/');
-	if (scope.length < SCOPE_PARTS || !probe.pathname.endsWith(PROBE)) {
-		// Only a Bun that signs differently from 1.4.2 reaches this: better a
-		// refusal than a form posted to the wrong place or signed as nobody.
+	const scope = (query?.get('X-Amz-Credential') ?? '').split('/');
+	if (!query || scope.length < SCOPE_PARTS || !probe.pathname.endsWith(PROBE)) {
+		// Only a Bun that signs differently from 1.4.2 reaches this — or an
+		// access key id with a `%` Bun left unescaped: better a refusal than a
+		// form posted to the wrong place or signed as nobody.
 		throw new Error(
 			`${callOf(context, 'presignPost')}: the URL Bun signed has no ` +
 				'credential scope, or not the key at the end of its path, so there ' +

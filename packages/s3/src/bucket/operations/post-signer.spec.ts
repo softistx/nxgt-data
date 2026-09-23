@@ -83,6 +83,27 @@ describe('where a presigned POST goes, read off the URL Bun signs', () => {
 			);
 		}
 	});
+
+	test('refuses a `%` Bun left unescaped in the access key id, not a URIError', () => {
+		const url =
+			`http://127.0.0.1:9000/avatars/${PROBE}?X-Amz-Credential=` +
+			'AK%zz/20260101/auto/s3/aws4_request&X-Amz-Signature=00';
+		const client = { presign: () => url } as unknown as S3Client;
+		const context = bucketContext(client, avatars, MARKER);
+		let thrown: unknown;
+		try {
+			signerOf(context);
+		} catch (error) {
+			thrown = error;
+		}
+		expect(thrown).not.toBeInstanceOf(URIError);
+		expect((thrown as Error).message).toStartWith(
+			'presignPost on "avatars": the URL Bun signed has no credential scope',
+		);
+		expect(presignedSignature(new URL(url), 'PUT', MARKER)).toMatch(
+			/^[0-9a-f]{64}$/,
+		);
+	});
 });
 
 describe('the secret a presigned POST signs with', () => {
