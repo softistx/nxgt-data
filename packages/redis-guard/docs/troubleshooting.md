@@ -232,7 +232,9 @@ that clock wait is capped, at one full refill; a spent bucket's `retryAfter`
 is the clock wait **plus** the usual wait for the requests it needs. A clock
 further behind than one full refill finds the bucket full instead — so a
 single jump back that far allows one extra burst, and two clocks that far
-apart, alternating, allow a full burst at each switch.
+apart, alternating, allow a full burst at each switch. A `peek` from a
+clock that far behind writes nothing, so it is not a promise: once the
+clock is back within a full refill, the stored state counts again.
 **Fix:** keep the Redis servers' clocks synchronised (NTP). To release every
 caller at once after a clock mistake, delete the limit's keys — they hold
 nothing else:

@@ -239,7 +239,7 @@ matching key in `exports`.
   `scripts/redis.spec.ts` covers its `$REDIS_BIN` branch. `$REDIS_BIN` names a `redis-server` to
   use instead. CI caches `.cache/redis`, keyed on **all three** copies of
   `test/server.ts` — `@nxgt/redis`'s, `@nxgt/redis-kit`'s and
-  `@nxgt/redis-guard`'s — and the script. `test/fixtures.ts` calls `closeRedis()` before stopping the server,
+  `@nxgt/redis-guard`'s — and the script. `@nxgt/redis`'s `test/fixtures.ts` calls `closeRedis()` before stopping the server,
   because `connectRedis` shares a client per URI and a connection a test left
   open would outlive it.
 

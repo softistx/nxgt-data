@@ -84,9 +84,11 @@ TAT it would leave is no more than `burst` intervals ahead of now.
   burst, and alternating clocks allow a burst at each switch.
 - **Only its own state is trusted.** A stored value is used only if the
   script could have written it — two whole numbers in range, the bucket no
-  fuller than its burst, its time no more than a full refill ahead. Anything
-  else, from another program or a hand edit, reads as a full bucket, and the
-  next allowed call replaces it with a key that expires.
+  fuller than its burst, its time no more than a full refill ahead. Any
+  other string, from another program or a hand edit, reads as a full bucket,
+  and the next allowed call replaces it with a key that expires. A key of
+  another type (a hash, a list) is not read at all: the call fails with
+  Redis's own `WRONGTYPE` error.
 - **A denial writes nothing.** Neither does `peek`. A caller hammering a spent
   limit does not push its own wait further out.
 - **Nothing left behind.** The key expires when the bucket would be full
