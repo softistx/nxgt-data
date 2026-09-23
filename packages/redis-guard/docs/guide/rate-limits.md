@@ -76,8 +76,12 @@ TAT it would leave is no more than `burst` intervals ahead of now.
 - **The server's clock.** `now` is the Redis server's `TIME`, read inside the
   script. No host's clock is ever sent, so a host whose clock is a day wrong
   counts exactly like the others — also a spec. A server clock that goes
-  back never refills: the bucket keeps the latest time it has seen, so two
-  servers a second apart, alternating, allow exactly one burst — a spec too.
+  back, by at most one full refill (`burst × per ÷ limit`), never refills:
+  the bucket keeps the latest time it has seen, so two servers a second
+  apart, alternating, allow exactly one burst — a spec too, whose full
+  refill is longer than that second. Further back, the stored time fails
+  the check below and the bucket reads as full: one jump allows one extra
+  burst, and alternating clocks allow a burst at each switch.
 - **Only its own state is trusted.** A stored value is used only if the
   script could have written it — two whole numbers in range, the bucket no
   fuller than its burst, its time no more than a full refill ahead. Anything
