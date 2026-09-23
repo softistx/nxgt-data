@@ -107,7 +107,9 @@ error TS2322: Type 'TypedIndex<IndexDefinition<…>>' is not assignable to type
 ```
 
 **When:** compiling the `createSearchKit` call. The refusal lands on that
-entry's `index`, which is why the message reads as a type.
+entry's `index`, which is why the message reads as a type. A key the kit
+wires as a GridFS **bucket** is refused the same way: a bucket is not a
+collection, and has nothing to follow.
 
 **Why:** a config key is the name a collection is **exported** under — the same
 key `kit.db.<key>` answers to. `comments` is not one of them: either the model

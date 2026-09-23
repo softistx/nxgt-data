@@ -34,7 +34,6 @@ _Nothing queued._
   refused by the types where the configuration is written, and again by
   `createKit` against the object itself, so `kit.db.command(…)` is always the
   driver's.
-
 - **An actor on a bucket** — `@nxgt/mongo/gridfs` stamps no `*By` field, so
   `as(actor)` has nothing to write on a file. Who uploaded one belongs in
   its metadata, typed by the bucket's schema.

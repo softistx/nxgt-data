@@ -198,8 +198,8 @@ creation has no `dryRun`. A second run creates nothing and reports all four
 as `existing`.
 
 For tests and development, the database's `autoSync: true` creates a
-bucket's indexes before its first call instead, once per database for the
-life of the process — with the
+bucket's indexes before its first call instead, once per bucket and
+database for the life of the process — with the
 [transaction caveat above](#autosync-and-the-first-upload-in-a-transaction):
 a first upload inside a transaction makes the driver run the body twice.
 

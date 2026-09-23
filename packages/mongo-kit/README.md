@@ -32,8 +32,10 @@ at each call site, no client to pass around, no session to thread by hand.
 bun add @nxgt/mongo-kit @nxgt/mongo mongodb zod
 ```
 
-- `@nxgt/mongo`: required peer. The collections, their options and their
-  behaviour are its; this package wires them.
+- `@nxgt/mongo` `^0.17.0`: required peer. The collections, the buckets, their
+  options and their behaviour are its; this package wires them. The kit
+  imports its `./gridfs` subpath, so a copy older than 0.14 fails at the first
+  import with `Cannot find module '@nxgt/mongo/gridfs'`.
 - `mongodb` `>=7.0.0 <8`: required peer, as `@nxgt/mongo` needs it. `zod` is
   `@nxgt/mongo`'s.
 - `typescript` 6: required peer, the version every `@nxgt` package pins.
