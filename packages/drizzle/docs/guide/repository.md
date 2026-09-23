@@ -266,8 +266,9 @@ await userRepository.update(ada.id, patch);
 ```
 
 The types say it first, so the call above does not compile — but only for
-one column: the types leave out only the key the repository addresses rows by (`id`, or the column `primaryKey` names); every other primary-key column, including all of a composite key's when no `primaryKey` is given, and `id` when `primaryKey` names another column, is refused at run time only. Drizzle 1.0's column types do not say which columns a key
-covers.
+one column. The types leave out `TKey`: the column `primaryKey` names, else
+`id` when the table has one; every other primary-key column is refused at run
+time only. Drizzle 1.0's column types do not say which columns a key covers.
 
 ```ts
 const membershipRepository = createRepository(db, memberships); // (userId, teamId)

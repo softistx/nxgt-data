@@ -438,8 +438,10 @@ Moved, the row is no longer where the id the caller addressed points, and
 whatever holds that id — a URL, a foreign key, a search index, a cache —
 points at nothing. `upsert` already kept the key on its update half. An
 `ArgumentError`, `argument: 'patch'`, `key: 'id'`; the message names the
-column, never the value. The types refuse it too, partly: the types leave out only the key the repository addresses rows by (`id`, or the column `primaryKey` names); every other primary-key column, including all of a composite key's when no `primaryKey` is given, and `id` when `primaryKey` names another column, is refused at run time only. The
-column types do not say which columns a key covers.
+column, never the value. The types refuse it too, partly: they leave out
+`TKey`, the column `primaryKey` names, else `id` when the table has one; every
+other primary-key column is refused at run time only. The column types do not
+say which columns a key covers.
 An `id: undefined` is dropped like any undefined value, so a patch whose id
 was set to `undefined` still works.
 **Fix:** leave the key out. A body parsed into a patch should not carry it,

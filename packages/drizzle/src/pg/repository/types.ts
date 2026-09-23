@@ -84,12 +84,10 @@ export type ActorOf<TTable extends PgTable> = [
  * another key — and, on a repository that locks, `version` is the version the
  * row must still be at — a whole number, never SQL — and not a value to write.
  *
- * `TKey` is the key the repository addresses rows by: `PrimaryKeyOf<TTable>`
- * by default (`id`, or `never` on a table without one), or the `primaryKey`
- * it was given. Every other primary-key column — all of a composite key's when
- * no `primaryKey` is given, and `id` when `primaryKey` names another column —
- * is refused at run time only: Drizzle 1.0's PostgreSQL column types do not
- * say which columns a key covers.
+ * The types leave out `TKey`: the column `primaryKey` names, else `id` when
+ * the table has one (`PrimaryKeyOf<TTable>`, `never` without one); every other
+ * primary-key column is refused at run time only. Drizzle 1.0's PostgreSQL
+ * column types do not say which columns a key covers.
  */
 export type UpdatePatch<
 	TTable extends PgTable,
