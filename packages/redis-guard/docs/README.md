@@ -9,9 +9,9 @@ idempotent result.
 | Page | Read it when |
 | --- | --- |
 | [Rate limits](guide/rate-limits.md) | you want to hold a caller to so many requests per window — logins per address, exports per user — with the algorithm, choosing `burst`, costs, and an HTTP recipe for any framework |
-| [Idempotency](guide/idempotency.md) | an operation must happen once per client key however often it is retried — an order, a charge — with the fingerprint, `ttl` and `lease`, changing the schema, the storage, and an HTTP recipe for the `Idempotency-Key` header in any framework |
+| [Idempotency](guide/idempotency.md) | an operation must happen once per client key however often it is retried — an order, a charge — with the fingerprint, the lease and its heartbeat, waiting for a running key with `wait`, `ttl` and `lease`, changing the schema, the storage, and an HTTP recipe for the `Idempotency-Key` header in any framework |
 | [Troubleshooting](troubleshooting.md) | a call threw, a limit allows more or less than you expected, or the same request ran twice |
-| [Roadmap](roadmap.md) | you want to know what is coming — a lease heartbeat and `wait` next — and what has been ruled out |
+| [Roadmap](roadmap.md) | you want to know what is coming, what has shipped in which version, and what has been ruled out |
 
 The [README](../README.md) is the short version: install, an example for
 each primitive, the API, the errors and the traps.

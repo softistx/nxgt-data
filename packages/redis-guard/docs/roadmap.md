@@ -5,19 +5,11 @@ an item shipped in is the only number on this page.
 
 ## Now
 
-_Nothing: idempotency shipped; its lease heartbeat and `wait` are next._
+_Nothing: the lease heartbeat and `wait` shipped._
 
 ## Next
 
-- **A heartbeat for the lease** — while `work` runs, `run` renews its lease,
-  so work longer than `lease` is no longer at risk of running twice; `lease`
-  then only bounds how long a **crashed** run holds the key. `LEASE_LOST`
-  remains for a run that could not renew — a connection lost for longer than
-  the lease.
-- **`wait`** — an option for `run` to wait for a running key's result,
-  up to a deadline, instead of rejecting at once with `IN_PROGRESS`: a
-  repeat then gets the replay, or `work` if the first run failed and gave the
-  key back.
+_Nothing planned yet: see Later._
 
 ## Later
 
@@ -61,6 +53,15 @@ _Nothing: idempotency shipped; its lease heartbeat and `wait` are next._
   by a zod schema; a repeat gets that result back without running it again. A
   different fingerprint is refused (`MISMATCH`), a repeat during the first run
   is refused (`IN_PROGRESS`, with `retryAfter`), and an error thrown by `work`
-  is never stored. The running call holds a lease, not yet renewed, so a
-  process that dies mid-work frees the key when the lease runs out rather
-  than never. `zod` became a required peer — 0.2.0.
+  is never stored. The running call holds a lease, so a process that dies
+  mid-work frees the key when the lease runs out rather than never. `zod`
+  became a required peer — 0.2.0.
+- **A heartbeat for the lease** — while `work` runs, `run` renews its lease
+  every third of it, comparing its own token, so work of any length runs
+  once and `lease` only bounds how long a **crashed** run holds the key.
+  `LEASE_LOST` now means the key was taken from the run — `forget`, or no
+  renewal reached Redis for a whole lease — 0.3.0.
+- **`wait`** — an option for `run` to wait for a running key, up to a
+  deadline in milliseconds, instead of rejecting at once with `IN_PROGRESS`:
+  a repeat gets the replay, or runs `work` itself if the first run gave the
+  key back — 0.3.0.
