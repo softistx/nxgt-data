@@ -92,6 +92,7 @@ transform changed its type. Where input and output overlap, as with
 annotation still compiles, and only a read-back value passed to `set` fails,
 as `Argument of type 'string | null' is not assignable to parameter of type
 'string'.`
+
 **Fix:** pass the input, and name it with `InputOf` where you annotate:
 
 ```ts
