@@ -80,7 +80,36 @@ array, and is refused at run time with the rest: a blank string (`''`,
 tenantToken for "movies", "people": searchRules has an empty rule for "people"; give it { filter: … }, or null to search it with no filter
 ```
 
-A rule with other keys beside a real filter is signed as it is.
+An empty rule is a bare `TypeError`, not a coded error: a tenant filter is
+built by your server from the caller's identity, not taken from a request,
+so an empty one is wiring to fix, not input to answer with a 400.
+
+Each rule is read **once**, into a plain copy; the checks run on that copy,
+and that copy is what is signed. The SDK signs `JSON.stringify` of the rules
+it is given, so a check that read the caller's object could pass on
+something that serialises to no filter — measured on v1.53.2, a getter, a
+`toJSON` returning `null`, an inherited or non-enumerable `filter`, and a
+`NaN` filter each signed an unfiltered token. A rule is therefore `null`, or
+a plain object — prototype `Object.prototype` or `null` — whose one key is
+an own, enumerable data property `filter` holding a string, or an array of
+strings and arrays of strings. Anything else is a `TypeError` naming the
+index and the shape, never the value:
+
+| Rule | Message, after `tenantToken for "movies": searchRules has a rule for "movies" ` |
+| --- | --- |
+| a class instance, or one that inherits its `filter` | `that is not a plain object` |
+| an array, `['']` | `that is an array` |
+| a string or a number | `that is a string`, `that is a number` |
+| a getter on `searchRules` | `that is a getter` |
+| a `toJSON` on the rule, or on its filter | `that has a toJSON`, `whose filter has a toJSON` |
+| a key beside `filter` | `that has a key other than filter` |
+| a `filter` that is a getter, or not enumerable | `whose filter is a getter`, `whose filter is not enumerable` |
+| a `filter` that is `NaN`, a function, a symbol | `whose filter is a number`, `… a function`, `… a symbol` |
+| an array holding something else, or nested too deep | `whose filter holds a number`, `whose filter holds an array` |
+
+Each ends `; give it { filter: … }, or null to search it with no filter`.
+The SDK's `TokenIndexRules` has no key but `filter` in meilisearch-js 0.62.0,
+so any other key is refused rather than copied.
 
 The types check the keys against the uids the definitions **declare**; the
 function checks them again against the uids the indexes **have**, and a key
@@ -97,9 +126,13 @@ way, since an inherited rule is not read:
 `tenantToken for "movies": searchRules must be a plain object`. An object
 with a `null` prototype is plain, and accepted.
 
-A missing or unmatched uid is the one case the types cannot see: `rebuild`
-hands `fill` an index whose uid is `movies_next`, typed `string` — any key
-compiles for it, and none is required. Key its rule by its runtime uid:
+What the types cannot see is refused at run time only: a missing or
+unmatched rule for an index whose uid is not one literal, an empty filter
+(`''`, `[]`, which the SDK's `Filter` type allows), and the shapes in the
+table above that TypeScript cannot tell apart — a class whose `filter` is a
+getter fits `{ filter: string }`. `rebuild` hands `fill` an index whose uid
+is `movies_next`, typed `string` — any key compiles for it, and none is
+required. Key its rule by its runtime uid:
 
 ```ts
 await movieIndex.rebuild(async (next) => {
@@ -113,7 +146,14 @@ await movieIndex.rebuild(async (next) => {
 ```
 
 Beside an index with a literal uid, that one's rule is still required by
-the types.
+the types. An index typed as a union of uids — `cond ? movieIndex :
+peopleIndex` — is treated the same way: the types cannot require both keys
+for one index, so it is keyed by its `uid`, and checked at run time:
+
+```ts
+const index = user.isStaff ? movieIndex : peopleIndex;
+await tenantToken({ apiKey, apiKeyUid, indexes: [index], searchRules: { [index.uid]: { filter } }, expiresAt });
+```
 
 ## What was measured
 

@@ -93,6 +93,62 @@ await tenantToken({
 	searchRules: { movies: { filter: '' } },
 	expiresAt,
 });
+// A class whose filter is a getter fits the type — a getter is a property to
+// TypeScript — and is refused at run time, where the rule must be plain.
+class GetterRule {
+	get filter() {
+		return 'genres = scifi';
+	}
+}
+await tenantToken({
+	apiKey,
+	apiKeyUid,
+	indexes: [movieIndex],
+	searchRules: { movies: new GetterRule() },
+	expiresAt,
+});
+
+// An index whose uid is a union of literals is one index with either uid:
+// the types cannot require both, so it is keyed as a dynamic uid is.
+declare const cond: boolean;
+const either = cond ? movieIndex : peopleIndex;
+await tenantToken({
+	apiKey,
+	apiKeyUid,
+	indexes: [either],
+	searchRules: { [either.uid]: { filter: 'country = UK' } },
+	expiresAt,
+});
+await tenantToken({
+	apiKey,
+	apiKeyUid,
+	indexes: [either],
+	searchRules: cond ? { movies: null } : { people: null },
+	expiresAt,
+});
+await tenantToken({
+	apiKey,
+	apiKeyUid,
+	indexes: [either],
+	// @ts-expect-error a rule is an object with a filter, or null
+	searchRules: { [either.uid]: {} },
+	expiresAt,
+});
+await tenantToken({
+	apiKey,
+	apiKeyUid,
+	indexes: [either, movieIndex],
+	// @ts-expect-error beside it, a literal uid's rule is still required
+	searchRules: { people: null },
+	expiresAt,
+});
+await tenantToken({
+	apiKey,
+	apiKeyUid,
+	indexes: [either, movieIndex],
+	searchRules: { movies: { filter: 'genres = scifi' }, [either.uid]: null },
+	expiresAt,
+});
 // @ts-expect-error searchRules is required
 await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], expiresAt });
 // @ts-expect-error expiresAt is required: without it a token lasts as long as its key

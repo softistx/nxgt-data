@@ -1,32 +1,47 @@
-import type {
-	TenantTokenGeneratorOptions,
-	TokenIndexRules,
-	TokenSearchRules,
-} from 'meilisearch';
+import type { TenantTokenGeneratorOptions, TokenIndexRules } from 'meilisearch';
 import { generateTenantToken } from 'meilisearch/token';
 import { SearchIndexError } from '../errors/search-index-error';
 import type { TypedIndex } from '../index/bind-index';
+import { copyRules } from './rules';
+
+/** Every uid an index's definition may have: a union when the index is. */
+type UidsOf<Index> = Index extends {
+	definition: { uid: infer Uid extends string };
+}
+	? Uid
+	: never;
+
+/** Whether `T` is a union of more than one member. */
+type IsUnion<T, All = T> = T extends unknown
+	? [All] extends [T]
+		? false
+		: true
+	: never;
 
 /**
- * The uid a bound index's definition declares, when it is a literal. A uid
- * typed `string`, such as a rebuild's next index, gives `never`.
+ * Whether the types cannot tell which one uid an index has: typed `string`
+ * (a rebuild's next index), or a union of literals (`cond ? a : b`).
  */
-type LiteralUidOf<Index> = Index extends {
-	definition: { uid: infer Uid extends string };
-}
-	? string extends Uid
-		? never
-		: Uid
-	: never;
-
-/** Whether one of the indexes has a uid typed only as `string`. */
-type HasDynamicUid<Index> = Index extends {
-	definition: { uid: infer Uid extends string };
-}
-	? string extends Uid
+type IsLoose<Index> =
+	string extends UidsOf<Index>
 		? true
-		: never
-	: never;
+		: true extends IsUnion<UidsOf<Index>>
+			? true
+			: false;
+
+/** The uids the types can require a rule for: one literal per index. */
+type FixedUids<Indexes extends TokenIndexes> = {
+	[K in keyof Indexes]: IsLoose<Indexes[K]> extends true
+		? never
+		: UidsOf<Indexes[K]>;
+}[number];
+
+/** Whether one of the indexes has a uid the types cannot pin down. */
+type HasLooseUid<Indexes extends TokenIndexes> = true extends {
+	[K in keyof Indexes]: IsLoose<Indexes[K]>;
+}[number]
+	? true
+	: false;
 
 /** At least one bound index: a token for none can search nothing. */
 export type TokenIndexes = readonly [TypedIndex<any>, ...TypedIndex<any>[]];
@@ -46,15 +61,16 @@ export type TenantTokenRule =
 
 /**
  * The rules of a token: one per index, keyed by its uid, and nothing else. A
- * rule left out does not compile for an index whose uid is a literal; for
- * one whose uid is only a `string` — a rebuild's next index — any key
- * compiles, and a missing or unmatched rule is refused at run time.
+ * rule left out does not compile for an index whose uid is one literal. For
+ * one whose uid is only a `string` — a rebuild's next index — or a union of
+ * literals — `cond ? movieIndex : peopleIndex` — any key compiles, and a
+ * missing or unmatched rule is refused at run time.
  */
 export type TenantTokenRules<Indexes extends TokenIndexes> = {
-	readonly [Uid in LiteralUidOf<Indexes[number]>]: TenantTokenRule;
-} & ([HasDynamicUid<Indexes[number]>] extends [never]
-	? unknown
-	: { readonly [uid: string]: TenantTokenRule });
+	readonly [Uid in FixedUids<Indexes>]: TenantTokenRule;
+} & (HasLooseUid<Indexes> extends true
+	? { readonly [uid: string]: TenantTokenRule }
+	: unknown);
 
 export interface TenantTokenOptions<Indexes extends TokenIndexes> {
 	/** The key that signs the token. It must hold `search` on these indexes. */
@@ -111,16 +127,6 @@ function expiryProblem(expiresAt: Date | number, now: number) {
 const quoted = (uids: readonly string[]) =>
 	uids.map((uid) => `"${uid}"`).join(', ');
 
-/**
- * Whether a filter filters nothing: absent, `null`, a blank string, or an
- * array whose every entry is one of those — `[]`, `['']`, `[[]]`.
- */
-function isEmpty(filter: unknown): boolean {
-	if (filter === undefined || filter === null) return true;
-	if (typeof filter === 'string') return filter.trim() === '';
-	return Array.isArray(filter) && filter.every(isEmpty);
-}
-
 /** Refuses an `expiresAt` that is missing, or cannot be signed. */
 function checkExpiry(expiresAt: unknown, uids: readonly string[]) {
 	const problem =
@@ -133,61 +139,6 @@ function checkExpiry(expiresAt: unknown, uids: readonly string[]) {
 			{ code: 'INVALID_EXPIRES_AT', indexUid: uids.join(',') },
 		);
 	}
-}
-
-/**
- * The rules to sign, one per uid, or a `TypeError`: a rule that would be
- * dropped, or an index given none, would leave that index unfiltered.
- */
-function checkedRules(given: unknown, uids: readonly string[]) {
-	const call = `tenantToken for ${quoted(uids)}`;
-	// A rule inherited from a prototype is not an own key: it would be
-	// dropped, and its index searched with no filter.
-	const prototype =
-		given === undefined || given === null
-			? Object.prototype
-			: Object.getPrototypeOf(given);
-	if (prototype !== Object.prototype && prototype !== null) {
-		throw new TypeError(`${call}: searchRules must be a plain object`);
-	}
-	const rules = (given ?? {}) as Record<string, TenantTokenRule | undefined>;
-	// A rule under a uid no index has would otherwise be dropped: the types
-	// cannot see a uid that differs at run time, such as a rebuild's next
-	// index.
-	const unmatched = Object.keys(rules).filter((uid) => !uids.includes(uid));
-	if (unmatched.length > 0) {
-		throw new TypeError(
-			`${call}: searchRules names ${quoted(unmatched)}, ` +
-				'which is not the uid of any of its indexes',
-		);
-	}
-	// An index given no rule, or `undefined`, is refused rather than searched
-	// with no filter: that takes an explicit `null`.
-	const missing = uids.filter(
-		(uid) => !Object.hasOwn(rules, uid) || rules[uid] === undefined,
-	);
-	if (missing.length > 0) {
-		throw new TypeError(
-			`${call}: searchRules has no rule for ${quoted([...new Set(missing)])}; ` +
-				'give each index { filter: … }, or null to search it with no filter',
-		);
-	}
-	// A rule object with no filter, or one that filters nothing, would sign
-	// the same unfiltered token as a missing one: "no filter" is only `null`.
-	const empty = uids.filter((uid) => {
-		const rule = rules[uid];
-		return typeof rule === 'object' && rule !== null && isEmpty(rule.filter);
-	});
-	if (empty.length > 0) {
-		throw new TypeError(
-			`${call}: searchRules has an empty rule for ${quoted([...new Set(empty)])}; ` +
-				'give it { filter: … }, or null to search it with no filter',
-		);
-	}
-	const signed: TokenSearchRules = Object.fromEntries(
-		uids.map((uid) => [uid, rules[uid] ?? null]),
-	);
-	return signed;
 }
 
 /**
@@ -206,18 +157,25 @@ function checkedRules(given: unknown, uids: readonly string[]) {
  * ```
  *
  * It fails closed. An `expiresAt` that is missing, past, or not a time
- * Meilisearch reads throws a `SearchIndexError` (`INVALID_EXPIRES_AT`); an
- * index with no rule in `searchRules`, a rule under a uid none of `indexes`
- * has, or a `searchRules` that is not a plain object throws a `TypeError`.
- * Both are thrown before anything is signed.
+ * Meilisearch reads throws a `SearchIndexError` (`INVALID_EXPIRES_AT`). A
+ * `TypeError` is thrown for a `searchRules` that is not a plain object, a
+ * rule under a uid none of `indexes` has, an index with no rule, a rule that
+ * is not `null` or a plain `{ filter }` — an array, a class instance, a
+ * getter, a `toJSON`, another key, a filter that is inherited, hidden or not
+ * a string or an array of strings — and an empty rule, whose filter is
+ * absent, blank or only blanks. Each rule is read once, into a plain copy,
+ * and that copy is what is checked and signed. Both are thrown before
+ * anything is signed.
  */
 export async function tenantToken<const Indexes extends TokenIndexes>(
 	options: TenantTokenOptions<Indexes>,
 ): Promise<string> {
 	const { apiKey, apiKeyUid, indexes, expiresAt, algorithm, force } = options;
-	const uids = indexes.map((index) => index.uid);
+	// An index given twice is one uid: the messages name it once.
+	const uids = [...new Set(indexes.map((index) => index.uid))];
 	checkExpiry(expiresAt, uids);
-	const searchRules = checkedRules(options.searchRules, uids);
+	const call = `tenantToken for ${quoted(uids)}`;
+	const searchRules = copyRules(options.searchRules, uids, call);
 	return generateTenantToken({
 		apiKey,
 		apiKeyUid,

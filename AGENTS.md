@@ -55,7 +55,7 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   SDK may break its types in a minor. Raise both together, after reading its
   `indexes.d.ts` and `types/types.d.ts`, where `Settings` and `SearchParams`
   live, and `token.d.ts`: `tenantToken` imports `generateTenantToken` from
-  the SDK's `meilisearch/token` subpath, which the peer range must keep.
+  the SDK's `meilisearch/token` subpath, which the peer range must keep. `src/token/rules.ts` copies a rule's keys by name — `filter` only, the one key of `TokenIndexRules` in 0.62.0 — so a new key there is refused until it is added.
   The SDK's errors reach the caller as they are — except inside a
   `REBUILD_FAILED`, which carries the one that stopped a rebuild as its
   `cause`; the package's only error of its own is `SearchIndexError`.
@@ -551,7 +551,7 @@ the file.
 
 ## Known state
 
-`bun run test` is **1260 pass, 0 fail**: drizzle 152, meilisearch 95,
+`bun run test` is **1269 pass, 0 fail**: drizzle 152, meilisearch 104,
 mongo 541, drizzle-meilisearch 42, mongo-meilisearch 58, mongo-kit 101,
 mongo-search-kit 17, redis 46, redis-kit 55, s3 104, hono-api-example 31,
 scripts 18. It runs one process

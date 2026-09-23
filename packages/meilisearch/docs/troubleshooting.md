@@ -2,10 +2,10 @@
 
 This package throws one error class of its own, `SearchIndexError`, with a
 `code` of `PRIMARY_KEY_MISMATCH`, `TASK_FAILED`, `REBUILD_FAILED` or
-`INVALID_EXPIRES_AT`, and five bare `TypeError`s for a call it refuses before
+`INVALID_EXPIRES_AT`, and bare `TypeError`s for a call it refuses before
 sending or signing anything: `rebuild`'s `nextUid`, and `tenantToken`'s
-missing rule, empty rule, unmatched rule, and `searchRules` that is not a
-plain object. Everything else comes from the
+missing rule, empty rule, unmatched rule, `searchRules` that is not a plain
+object, and rule that is not `null` or a plain `{ filter }`. Everything else comes from the
 official SDK as it is: `MeilisearchApiError` (whose `cause.code` is
 Meilisearch's own error code) and `MeilisearchTaskTimeOutError`. The headings
 below are what each one prints; the Meilisearch messages were measured on
@@ -38,7 +38,14 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`tenantToken for "movies": expiresAt is missing; it takes a Date, or whole seconds since the epoch`](#tenanttoken-for-movies-expiresat-is-missing-it-takes-a-date-or-whole-seconds-since-the-epoch)
   - [`tenantToken for "movies", "people": searchRules has no rule for "people"; give each index { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-people-searchrules-has-no-rule-for-people-give-each-index--filter---or-null-to-search-it-with-no-filter)
   - [`tenantToken for "movies", "people": searchRules has an empty rule for "people"; give it { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-people-searchrules-has-an-empty-rule-for-people-give-it--filter---or-null-to-search-it-with-no-filter)
+  - [`tenantToken for "movies": searchRules has a rule for "movies" that is not a plain object; give it { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-searchrules-has-a-rule-for-movies-that-is-not-a-plain-object-give-it--filter---or-null-to-search-it-with-no-filter)
+  - [`tenantToken for "movies": searchRules has a rule for "movies" whose filter is a getter; give it { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-searchrules-has-a-rule-for-movies-whose-filter-is-a-getter-give-it--filter---or-null-to-search-it-with-no-filter)
+  - [`tenantToken for "movies": searchRules has a rule for "movies" that has a toJSON; give it { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-searchrules-has-a-rule-for-movies-that-has-a-tojson-give-it--filter---or-null-to-search-it-with-no-filter)
+  - [`tenantToken for "movies": searchRules has a rule for "movies" whose filter is a number; give it { filter: … }, or null to search it with no filter`](#tenanttoken-for-movies-searchrules-has-a-rule-for-movies-whose-filter-is-a-number-give-it--filter---or-null-to-search-it-with-no-filter)
   - [`tenantToken for "movies": expiresAt is in the past`](#tenanttoken-for-movies-expiresat-is-in-the-past)
+  - [`tenantToken for "movies": expiresAt is not a whole number of seconds`](#tenanttoken-for-movies-expiresat-is-not-a-whole-number-of-seconds)
+  - [`tenantToken for "movies": expiresAt is an invalid Date`](#tenanttoken-for-movies-expiresat-is-an-invalid-date)
+  - [`tenantToken for "movies": expiresAt is neither a Date nor a finite number`](#tenanttoken-for-movies-expiresat-is-neither-a-date-nor-a-finite-number)
   - [`tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date`](#tenanttoken-for-movies-expiresat-is-a-number-of-milliseconds-it-takes-seconds-or-a-date)
   - [`tenantToken for "movies_next": searchRules names "movies", which is not the uid of any of its indexes`](#tenanttoken-for-movies_next-searchrules-names-movies-which-is-not-the-uid-of-any-of-its-indexes)
   - [`tenantToken for "movies": searchRules must be a plain object`](#tenanttoken-for-movies-searchrules-must-be-a-plain-object)
@@ -511,21 +518,118 @@ if (!filter) throw new Error('no tenant'); // do not sign a token that reads eve
 await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex, peopleIndex], searchRules: { movies: { filter }, people: null }, expiresAt });
 ```
 
+### `tenantToken for "movies": searchRules has a rule for "movies" that is not a plain object; give it { filter: … }, or null to search it with no filter`
+
+**When:** `tenantToken` with a rule that is not `null` or a plain object: a
+class instance, or `Object.create({ filter })`, whose `filter` is inherited.
+Siblings end the same line differently: `that is an array` (`['']`, whose
+`filter` would have been `Array.prototype.filter`), `that is a string`,
+`that is a number`. A bare `TypeError`, before anything is signed. A class
+whose `filter` is a getter compiles — TypeScript cannot tell a getter from
+a property — and only this check sees it.
+**Why:** each rule is read once into a plain copy, and that copy is signed.
+The SDK signs `JSON.stringify` of its rules, which leaves out an inherited
+`filter`: measured on v1.53.2, that signed an unfiltered token.
+**Fix:** a plain object literal, or `null`:
+
+```ts
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { movies: { filter: rule.filter } }, expiresAt });
+```
+
+### `tenantToken for "movies": searchRules has a rule for "movies" whose filter is a getter; give it { filter: … }, or null to search it with no filter`
+
+**When:** a rule whose `filter` is a getter. Siblings: `whose filter is not
+enumerable` (`Object.defineProperty` without `enumerable: true`),
+`that is a getter` (a getter on `searchRules` itself), and `that is not
+enumerable`. A bare `TypeError`, before anything is signed; the getter is
+never called.
+**Why:** a getter can answer one value to the check and another when the
+SDK serialises the rule — measured on v1.53.2, one that changed between
+reads signed an unfiltered token — and a non-enumerable `filter` is left out
+of the JSON the SDK signs.
+**Fix:** compute the filter first, and pass it as a value:
+
+```ts
+const filter = `tenant = ${JSON.stringify(user.tenant)}`;
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], searchRules: { movies: { filter } }, expiresAt });
+```
+
+### `tenantToken for "movies": searchRules has a rule for "movies" that has a toJSON; give it { filter: … }, or null to search it with no filter`
+
+**When:** a rule with a `toJSON` method. Siblings: `whose filter has a
+toJSON` (an array filter carrying one), and `that has a key other than
+filter` — the SDK's rule, in meilisearch-js 0.62.0, has no other key. A
+bare `TypeError`, before anything is signed.
+**Why:** the SDK signs `JSON.stringify` of the rule, and a `toJSON` decides
+what that is: measured on v1.53.2, one returning `null` signed an unfiltered
+token.
+**Fix:** pass `{ filter }` alone.
+
+### `tenantToken for "movies": searchRules has a rule for "movies" whose filter is a number; give it { filter: … }, or null to search it with no filter`
+
+**When:** a `filter` that is not a string or an array of strings: `NaN` or
+`Infinity` (`whose filter is a number`), a function, a symbol, or an array
+holding one of those (`whose filter holds a number`) or nested past the
+SDK's two levels (`whose filter holds an array`). A bare `TypeError`,
+before anything is signed.
+**Why:** `JSON.stringify` writes `NaN` as `null` and leaves a function or a
+symbol out: measured on v1.53.2, a `NaN` filter signed an unfiltered token.
+**Fix:** build the filter as a string — `JSON.stringify` any value inside
+it:
+
+```ts
+searchRules: { movies: { filter: `year > ${Number(minYear)}` } },
+```
+
 ### `tenantToken for "movies": expiresAt is in the past`
 
-Three siblings end the same line differently: `is not a whole number of
-seconds`, `is an invalid Date`, and `is neither a Date nor a finite number`
-(`NaN`, `Infinity`, or a value that is neither, from a request).
-
-**When:** `tenantToken({ …, expiresAt })` with a time already past, a number
-of seconds with a fraction, or a `Date` built from something unparseable.
-It is a `SearchIndexError` with `code: 'INVALID_EXPIRES_AT'`, thrown before
-anything is signed; `indexUid` holds the token's uids joined by `,`.
-**Why:** a past token would be refused by the server on its first search,
-and — measured on v1.53.2 — a fractional `exp` makes every search with the
-token fail: *Could not decode tenant token, JSON error: invalid type:
-floating point …, expected i64*. The message never repeats the value.
+**When:** `tenantToken({ …, expiresAt })` with a `Date` or a number of
+seconds already past. It is a `SearchIndexError` with
+`code: 'INVALID_EXPIRES_AT'`, thrown before anything is signed; `indexUid`
+holds the token's uids joined by `,`.
+**Why:** a past token would be refused by the server on its first search.
+The message never repeats the value.
 **Fix:** a `Date` in the future, or whole seconds:
+
+```ts
+expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+// or
+expiresAt: Math.floor(Date.now() / 1000) + 3600,
+```
+
+### `tenantToken for "movies": expiresAt is not a whole number of seconds`
+
+**When:** `expiresAt` is a number with a fraction — `Date.now() / 1000 + 60`
+without `Math.floor`. `INVALID_EXPIRES_AT`, before anything is signed.
+**Why:** measured on v1.53.2, a fractional `exp` makes every search with the
+token fail: *Could not decode tenant token, JSON error: invalid type:
+floating point …, expected i64*.
+**Fix:**
+
+```ts
+expiresAt: Math.floor(Date.now() / 1000) + 3600,
+```
+
+### `tenantToken for "movies": expiresAt is an invalid Date`
+
+**When:** `expiresAt` is a `Date` whose time is `NaN` — `new Date(value)`
+from something unparseable, such as a field a request sent.
+`INVALID_EXPIRES_AT`, before anything is signed.
+**Why:** an invalid `Date` has no time to sign.
+**Fix:** check the value where it is parsed, or build the `Date` yourself:
+
+```ts
+const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+```
+
+### `tenantToken for "movies": expiresAt is neither a Date nor a finite number`
+
+**When:** `expiresAt` is `NaN`, `Infinity`, or neither a `Date` nor a number
+— a string from a request, say. `INVALID_EXPIRES_AT`, before anything is
+signed.
+**Why:** the token's `exp` is a whole number of seconds, and nothing else is
+read by the server.
+**Fix:** a `Date`, or whole seconds:
 
 ```ts
 expiresAt: new Date(Date.now() + 60 * 60 * 1000),
