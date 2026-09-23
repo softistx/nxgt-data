@@ -438,9 +438,8 @@ Moved, the row is no longer where the id the caller addressed points, and
 whatever holds that id — a URL, a foreign key, a search index, a cache —
 points at nothing. `upsert` already kept the key on its update half. An
 `ArgumentError`, `argument: 'patch'`, `key: 'id'`; the message names the
-column, never the value. The types refuse it too: `UpdatePatch` and
-`ManyPatch` have no key column — except the other columns of a composite
-key, which the column types cannot name, and which only the run time refuses.
+column, never the value. The types refuse it too, partly: the types leave out only the key the repository addresses rows by (`id`, or the column `primaryKey` names); every other primary-key column, including all of a composite key's when no `primaryKey` is given, and `id` when `primaryKey` names another column, is refused at run time only. The
+column types do not say which columns a key covers.
 An `id: undefined` is dropped like any undefined value, so a patch whose id
 was set to `undefined` still works.
 **Fix:** leave the key out. A body parsed into a patch should not carry it,
@@ -454,9 +453,12 @@ await users.update(id, patch);
 await withTransaction(db, async (tx) => {
 	const old = await users.with(tx).getById(id);
 	await users.with(tx).create({ ...old, id: newId });
-	await users.with(tx).hardDelete(id);
+	await users.with(tx).hardDelete(id); // or delete(id), on a table without soft delete
 });
 ```
+
+`hardDelete` the old row, or `delete` it on a table without soft delete,
+where `hardDelete` does not exist.
 
 ### `where: expected a Drizzle condition or an object`
 

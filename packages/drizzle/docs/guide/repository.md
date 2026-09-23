@@ -265,11 +265,9 @@ const { id: _, ...patch } = body; // a body that carries the id: take it out
 await userRepository.update(ada.id, patch);
 ```
 
-The types say it first: `UpdatePatch` and `ManyPatch` leave out the key the
-repository addresses rows by, `id` or the one `primaryKey` names, so the call
-above does not compile. The **other** columns of a composite key compile and
-are refused at run time: Drizzle 1.0's column types do not say which columns
-a key covers.
+The types say it first, so the call above does not compile — but only for
+one column: the types leave out only the key the repository addresses rows by (`id`, or the column `primaryKey` names); every other primary-key column, including all of a composite key's when no `primaryKey` is given, and `id` when `primaryKey` names another column, is refused at run time only. Drizzle 1.0's column types do not say which columns a key
+covers.
 
 ```ts
 const membershipRepository = createRepository(db, memberships); // (userId, teamId)
@@ -279,7 +277,7 @@ await membershipRepository.updateMany({ userId }, { teamId: 2 }); // compiles; A
 
 An `id: undefined` is dropped, as any undefined value in a patch is. A row
 that really needs another key is a new row: `create` it and `hardDelete` the
-old one, in one transaction.
+old one (or `delete` it, on a table without soft delete), in one transaction.
 
 ## Soft delete
 

@@ -105,8 +105,9 @@ await byRole.findById('owner');
 // The key a repository is given is its key: no update moves it either.
 // @ts-expect-error role is this repository's key
 await byRole.update('owner', { role: 'admin' });
-// The other columns of a composite key are refused at run time only: the
-// column types do not say which columns the key covers.
+// With no primaryKey given, no column of a composite key is refused by the
+// types — the key is `never` — only at run time: the column types do not say
+// which columns the key covers.
 await members.updateMany({ role: 'owner' }, { teamId: 2 });
 // @ts-expect-error no such column
 createRepository(db, memberships, { primaryKey: 'nope' });

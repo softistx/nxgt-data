@@ -167,8 +167,8 @@ and `primaryKey` can name any unique column.
 
 `update` and `updateMany` refuse a patch that names a column of the primary
 key — every one of a composite key's, and the one `primaryKey` names — with an
-`ArgumentError`; the types leave the key out of the patch. `upsert` keeps the
-key of a row that is there.
+`ArgumentError`. The types leave out only the key the repository addresses rows by (`id`, or the column `primaryKey` names); every other primary-key column, including all of a composite key's when no `primaryKey` is given, and `id` when `primaryKey` names another column, is refused at run time only. `upsert` keeps the key of a
+row that is there.
 
 ### Soft delete
 
@@ -622,7 +622,7 @@ The types it uses:
 - `type Where<TTable> = SQL | WhereObject<TTable> | undefined`; `type WhereObject<TTable> = { [K in keyof Row]?: Row[K] }`.
 - `type OrderBy<TTable> = SQL | SQL.Aliased | PgColumn | ReadonlyArray<SQL | SQL.Aliased | PgColumn> | { [K in keyof Row]?: 'asc' | 'desc' }`; `type OrderDirection = 'asc' | 'desc'`.
 - `interface RepositoryOptions<TTable, TKey, TSoft, TLock> { primaryKey?: TKey; softDelete?: TSoft; touchUpdatedAt?: boolean; optimisticLock?: TLock; actor?: ActorOf<TTable>; maxPageSize?: number }`.
-- `type UpdatePatch<TTable, TLock, TKey>`: `Patch` without the key `TKey` (`id` by default), with `version?: number` — the expected version — where it locks. `type ManyPatch<TTable, TLock, TKey>`: `Patch` without `TKey`, and with no `version` where it locks.
+- `type UpdatePatch<TTable, TLock, TKey>`: `Patch` without the key `TKey` (default `PrimaryKeyOf<TTable>`: `id` when the table has one, else `never`), with `version?: number` — the expected version — where it locks. `type ManyPatch<TTable, TLock, TKey>`: `Patch` without `TKey`, and with no `version` where it locks.
 - `type UpsertWhere<TTable, TLock> = { [K in keyof Row]?: NonNullable<Row[K]> }`, without `version` where it locks, and `type UpsertWhereOf<TTable, TLock, W>`, the `where` `upsert` takes: `W` with no other key, and at least one; `type UpsertValues<TTable, TWhereKey, TLock>`: `Insert` without the where's keys, and without `version` where it locks.
 - `type ActorOf<TTable>`: the type of `createdBy`, else `updatedBy`, else `deletedBy`, not null; `never` without any. `type LockOf<TTable>`: whether the table has an integer `NOT NULL` `version`.
 - `interface ReadOptions { withDeleted?: boolean }`, and `FindFirstOptions`, `FindManyOptions`, `PaginateOptions`, `CursorPaginateOptions` as in the table.
@@ -727,9 +727,9 @@ function withTransaction<TDb extends PgDatabase, T>(
   `update(id, { id: other })` used to rewrite the primary key; it is now an
   `ArgumentError` (`argument: 'patch'`), and `UpdatePatch`/`ManyPatch` leave
   the key out, so code that did it stops compiling. A patch built from a
-  request body with an `id` in it is the usual culprit: take it out. The other
-  columns of a composite key are refused at run time only — the column types
-  do not say which columns a key covers.
+  request body with an `id` in it is the usual culprit: take it out. Not every
+  key column is caught at compile time: the types leave out only the key the repository addresses rows by (`id`, or the column `primaryKey` names); every other primary-key column, including all of a composite key's when no `primaryKey` is given, and `id` when `primaryKey` names another column, is refused at run time only — the column types do not say
+  which columns a key covers.
 - **An `ArgumentError` is a 400, not a 500.** Test for it *before* any
   `TypeError` branch in an error handler — it extends `TypeError`, so a
   broader branch placed first swallows it. A repository used on the database
