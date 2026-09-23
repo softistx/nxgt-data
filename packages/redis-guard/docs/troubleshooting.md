@@ -13,7 +13,7 @@ something a running application can handle. The headings below say
 written by hand, says `bindRateLimit` instead.
 
 - **Install and import**
-  - [`Cannot find package 'bun'`](#cannot-find-package-bun)
+  - [`ReferenceError: Bun is not defined`](#referenceerror-bun-is-not-defined)
   - [`Cannot find module 'bun' or its corresponding type declarations.`](#cannot-find-module-bun-or-its-corresponding-type-declarations)
 - **Configuration**
   - [`defineRateLimit: a rate limit needs a name, for its keys`](#defineratelimit-a-rate-limit-needs-a-name-for-its-keys)
@@ -32,11 +32,15 @@ written by hand, says `bindRateLimit` instead.
 
 ## Install and import
 
-### `Cannot find package 'bun'`
+### `ReferenceError: Bun is not defined`
 
-**When:** importing `@nxgt/redis-guard` under Node.
-**Why:** it takes Bun's own `RedisClient`, which is why there is no driver to
-install and why this package does not run on Node.
+**When:** importing `@nxgt/redis-guard` under Node — at load, before any call.
+Measured on Node 22.
+**Why:** every import of `bun` in this package is a type, so nothing asks
+Node for the `bun` module; the first thing to fail is the `Bun` global, which
+the script runner uses at load to compute the script's SHA-1 with
+`Bun.CryptoHasher`. The package takes Bun's own `RedisClient`, which is why
+there is no driver to install and why it does not run on Node.
 **Fix:** run it with Bun 1.4 or later.
 
 ```sh

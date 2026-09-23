@@ -19,12 +19,15 @@ const loginLimit = defineRateLimit({
 const redis = new RedisClient(process.env.REDIS_URL);
 const login = bindRateLimit(redis, loginLimit);
 
-const result = await login.consume({ ip });
-if (!result.allowed) {
-	return new Response('Too many attempts', {
-		status: 429,
-		headers: { 'Retry-After': String(Math.ceil(result.retryAfter / 1000)) },
-	});
+async function handleLogin(ip: string): Promise<Response> {
+	const result = await login.consume({ ip });
+	if (!result.allowed) {
+		return new Response('Too many attempts', {
+			status: 429,
+			headers: { 'Retry-After': String(Math.ceil(result.retryAfter / 1000)) },
+		});
+	}
+	return new Response('Welcome');
 }
 ```
 
@@ -34,7 +37,8 @@ if (!result.allowed) {
 ## Install
 
 ```sh
-bun add @nxgt/redis-guard typescript @types/bun
+bun add @nxgt/redis-guard
+bun add -d @types/bun typescript
 ```
 
 - **Bun 1.4 or later, and Bun only.** It takes Bun's `RedisClient`, which is
@@ -53,7 +57,10 @@ bun add @nxgt/redis-guard typescript @types/bun
 ## Rate limits
 
 ```ts
+import { RedisClient } from 'bun';
 import { bindRateLimit, defineRateLimit, GuardError } from '@nxgt/redis-guard';
+
+const redis = new RedisClient(process.env.REDIS_URL);
 
 export const exportLimit = defineRateLimit({
 	name: 'export',
@@ -64,30 +71,38 @@ export const exportLimit = defineRateLimit({
 });
 
 const exports = bindRateLimit(redis, exportLimit);
+const who = { org: 'acme', user: 'u1' };
 
 // Counts the call if it is allowed, and says how much is left.
-const result = await exports.consume({ org, user });
+const result = await exports.consume(who);
 // { allowed: true, limit: 20, remaining: 19, resetAfter: 6000, retryAfter: 0 }
 
 // A big export counts for more than one request.
-await exports.consume({ org, user }, 5);
+await exports.consume(who, 5);
 
 // Throws instead of returning a denial.
-try {
-	await exports.enforce({ org, user });
-} catch (error) {
-	if (error instanceof GuardError && error.code === 'RATE_LIMITED') {
-		return tooManyRequests(error.retryAfter);
+async function startExport(): Promise<Response> {
+	try {
+		await exports.enforce(who);
+	} catch (error) {
+		if (error instanceof GuardError && error.code === 'RATE_LIMITED') {
+			const seconds = Math.ceil((error.retryAfter ?? 0) / 1000);
+			return new Response('Too many exports', {
+				status: 429,
+				headers: { 'Retry-After': String(seconds) },
+			});
+		}
+		throw error;
 	}
-	throw error;
+	return new Response('Export started', { status: 202 });
 }
 
 // What consume would answer, counting nothing — for a form that shows
 // "3 attempts left" before anyone submits it.
-const left = await exports.peek({ org, user }, 0);
+const left = await exports.peek(who, 0);
 
 // A support action: the next request starts from a full bucket.
-await exports.reset({ org, user });
+await exports.reset(who);
 ```
 
 The algorithm is **GCRA** (the generic cell rate algorithm): one Redis string

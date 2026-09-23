@@ -154,17 +154,22 @@ const wasSet = await login.reset(params);      // refills the bucket
   successful login, when failed attempts are what you limit.
 
 ```ts
-// Limit failed logins only.
+// Limit failed logins only. `redis` and `loginLimit` are from the first
+// block; `checkPassword` is your own.
 const failures = bindRateLimit(redis, loginLimit);
 
-const before = await failures.peek({ ip }, 1);
-if (!before.allowed) return tooManyRequests(before.retryAfter);
-if (await checkPassword(user, password)) {
-	await failures.reset({ ip });
-	return signIn(user);
+async function signIn(ip: string, user: string, password: string) {
+	const before = await failures.peek({ ip }, 1);
+	if (!before.allowed) {
+		return { ok: false as const, retryAfter: before.retryAfter };
+	}
+	if (await checkPassword(user, password)) {
+		await failures.reset({ ip });
+		return { ok: true as const };
+	}
+	await failures.consume({ ip });
+	return { ok: false as const, retryAfter: 0 };
 }
-await failures.consume({ ip });
-return wrongPassword();
 ```
 
 ## HTTP: headers for any framework
@@ -196,11 +201,14 @@ export function rateLimitHeaders(result: LimitResult): Headers {
 - Both are delays already, so no clock is involved: the client counts from
   when it read the response.
 
+The snippets below are not standalone: they use `login` from the first block
+on this page and `rateLimitHeaders` from the block just above.
+`handleLogin(request)` stands for your own handler, and `app` for your Hono
+app.
+
 With `Bun.serve`:
 
 ```ts
-const login = bindRateLimit(redis, loginLimit);
-
 Bun.serve({
 	routes: {
 		'/login': {
@@ -237,9 +245,11 @@ export const limitLogins = createMiddleware(async (c, next) => {
 Trust `x-forwarded-for` only behind a proxy you run: a client can send any
 value, and each value is a fresh bucket.
 
-With `enforce`, in an error handler:
+With `enforce`, in a Hono app's error handler:
 
 ```ts
+import { GuardError } from '@nxgt/redis-guard';
+
 app.onError((error, c) => {
 	if (error instanceof GuardError && error.code === 'RATE_LIMITED') {
 		c.header('Retry-After', String(Math.ceil((error.retryAfter ?? 0) / 1000)));
