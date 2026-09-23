@@ -105,9 +105,12 @@ const left = await exports.peek(who, 0);
 await exports.reset(who);
 ```
 
-The algorithm is **GCRA** (the generic cell rate algorithm): one Redis string
-per key holds the time the bucket will be full again, and one Lua script reads
-it, decides and writes, in a single step. A denial writes nothing, a `peek`
+The algorithm is **GCRA** (the generic cell rate algorithm), counted in
+**exact integers**: one Redis string per key holds two whole numbers — the
+server's time at the last write, and how far the bucket was then from full —
+and one Lua script reads it, decides and writes, in a single step. Nothing is
+rounded, so a burst taken one request at a time allows exactly the burst, at
+any rate. A denial writes nothing, a `peek`
 writes nothing, and the key expires when the bucket is full again, so an idle
 limit leaves nothing in Redis.
 
@@ -174,9 +177,9 @@ came from a request.
 **`TypeError`s come earlier, at definition time**, and normally at import:
 `defineRateLimit` (and `bindRateLimit`, for a definition written by hand)
 refuses an empty `name`, a `key` that is not a function, a `limit`, `per` or
-`burst` that is not a whole number of at least 1, a rate faster than 500
-requests a millisecond, and a rate that would take more than ten years to
-refill from empty. Redis's own failures come back as
+`burst` that is not a whole number of at least 1, a `burst × per` above
+9,007,199,254,740 (the most the script counts exactly), and a rate that would
+take more than ten years to refill from empty. Redis's own failures come back as
 they are, from Bun's client. Every message is in
 [troubleshooting](docs/troubleshooting.md).
 
@@ -207,16 +210,20 @@ Each is a `@ts-expect-error` case in `test/types/guard.ts`.
   60 ms is a legitimate window. A rate that would take more than ten years to
   refill is refused, which catches a `per` written in microseconds, but not
   one written in seconds.
-- **No faster than 500 a millisecond.** The script counts in microseconds and
-  needs at least 2 between requests, so `per × 1000 ÷ limit` under 2 is
-  refused at definition. `limit: 60_000, per: 1` — the two swapped — is the
-  usual way to hit it.
+- **`burst × per` is at most 9,007,199,254,740.** The script counts a full
+  bucket as `burst × per × 1000` whole units, and a Lua number holds whole
+  numbers exactly only up to `Number.MAX_SAFE_INTEGER`. Any rate is fine —
+  there is no bound on requests per millisecond — but a burst of a million
+  over a `per` of a year is refused at definition.
 - **Bun only.** It takes Bun's `RedisClient`, and runs on Node never.
 - **The clock is the Redis server's.** `now` is read with `TIME` inside the
   script, so a host with a wrong clock cannot refill a bucket or empty one,
   and every process agrees. Two consequences: a result is a delay, which means
-  the same on every host, and **changing the server's own clock** moves every
-  bucket — back a day, and every limited caller waits a day longer.
+  the same on every host, and **changing the server's own clock** matters: a
+  bucket remembers the server's time at its last write and refills nothing
+  while the clock is behind it. Back a day, and a caller whose bucket was
+  spent waits a day longer; one with room left carries on, from the new
+  time.
 - **Every process must use the same definition.** Two deploys with different
   `limit`, `per` or `burst` under the same `name` read the same key with
   different rates. Rename the limit when its rate changes a lot.

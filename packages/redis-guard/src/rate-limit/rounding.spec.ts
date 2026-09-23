@@ -4,9 +4,10 @@ import { bindRateLimit } from './bind-rate-limit';
 import { defineRateLimit } from './define-rate-limit';
 
 // Rates whose interval — per × 1000 ÷ limit microseconds — is not whole, and
-// whose tolerance — burst × interval — is not whole either. Rounding the TAT
-// to the microsecond once made a full burst on an empty bucket unreachable
-// for exactly these: refused with remaining = burst, forever.
+// whose tolerance — burst × interval — is not whole either. While the TAT was
+// a float of microseconds, rounding it to the microsecond made a full burst
+// on an empty bucket unreachable for exactly these: refused with remaining =
+// burst, forever. In ticks of 1/limit µs every one of them is whole.
 
 const servers = useRedis();
 
@@ -93,36 +94,23 @@ describe('a fractional interval', () => {
 	});
 });
 
-describe('the stored TAT', () => {
-	test('is written exactly, and Lua reads back the double it wrote', async () => {
+describe('the stored state', () => {
+	test('is two integers, and drains by exactly limit ticks a microsecond', async () => {
+		// 7 a second, burst 5: one request is per × 1000 = 1_000_000 ticks of
+		// 1/7 µs — a whole number, where it is 142857.142… µs.
 		const rate = limitOf(7, 1000, 5);
 		const client = servers.redis.client;
-		for (let i = 0; i < 4; i += 1) {
-			await rate.consume('t');
-			const stored = await client.get('r7-1000-5:t');
-			if (stored === null) throw new Error('nothing stored');
-			// At most two decimals, a multiple of a quarter, and the same text
-			// once parsed and printed again — in JavaScript and in Lua.
-			expect(stored).toMatch(/^\d+\.\d{2}$/);
-			expect(Number.isInteger(Number(stored) * 4)).toBe(true);
-			expect(Number(stored).toFixed(2)).toBe(stored);
-			const again = await client.eval(
-				"return string.format('%.2f', tonumber(ARGV[1]))",
-				0,
-				stored,
-			);
-			expect(again).toBe(stored);
-		}
-	});
-
-	test('two decimals hold every double between 2^50 and 2^53 µs', () => {
-		// 2^50 µs is 2005 and 2^53 µs is 2255: every TAT this package writes.
-		// The step there is 0.25, 0.5 or 1, so no double needs a third place.
-		for (const base of [2 ** 50, 1.79e15, 2 ** 51, 2 ** 52]) {
-			for (let k = 0; k < 2000; k += 1) {
-				const x = base + k * (2000 / 7) + k / 3;
-				expect(Number(x.toFixed(2))).toBe(x);
-			}
-		}
+		await rate.consume('t');
+		const first = await client.get('r7-1000-5:t');
+		expect(first).toMatch(/^\d+ 1000000$/);
+		await Bun.sleep(5);
+		await rate.consume('t');
+		const second = await client.get('r7-1000-5:t');
+		expect(second).toMatch(/^\d+ \d+$/);
+		const [base1, ahead1] = (first ?? '').split(' ').map(Number);
+		const [base2, ahead2] = (second ?? '').split(' ').map(Number);
+		if (base1 === undefined || base2 === undefined) throw new Error('no base');
+		// What was left after the elapsed microseconds, plus one request.
+		expect(ahead2).toBe((ahead1 ?? 0) - (base2 - base1) * 7 + 1_000_000);
 	});
 });

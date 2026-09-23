@@ -1,24 +1,29 @@
 import type { RateLimitDefinition } from './types';
 
 /**
- * The longest a full bucket may take to refill from empty: ten years, in
- * milliseconds. The script keeps the bucket as a time in **microseconds**, in
- * a Lua double, which is exact up to 2^53 — about 285 years past the epoch.
- * Now plus ten years stays far inside that; a bound nobody would choose on
- * purpose keeps a typo (`per: 60e9`) from ever reaching the arithmetic.
+ * The most `burst × per` may be: the script counts in ticks of 1/limit µs, a
+ * full bucket is `burst × per × 1000` of them, and a Lua number holds every
+ * integer up to 2^53 − 1 exactly — `Number.MAX_SAFE_INTEGER`. The script
+ * orders its arithmetic so that nothing it must hold exactly is larger than
+ * that tolerance: the decision compares `cost × per × 1000` with what is
+ * free, each at most the tolerance, rather than adding them. So the
+ * tolerance itself is the bound, not twice it. A product that could be
+ * larger — `elapsed × limit` — is only ever compared with a smaller exact
+ * integer, which its rounding cannot reverse.
  */
-const MAX_REFILL = 10 * 365 * 24 * 60 * 60 * 1000;
+const MAX_BURST_PER = Math.floor(Number.MAX_SAFE_INTEGER / 1000);
 
 /**
- * The shortest interval between requests, in microseconds: `per × 1000 ÷
- * limit` must be at least this. Near now (about 1.79e15 µs) a double resolves
- * only to 0.25 µs, so the TAT a request leaves would move by less than the
- * stored value can show, and a key's `PX` could round to 0, which Redis
- * refuses. At 2 µs, eight steps of a double, an interval is always visible
- * and `newTat - now` is always at least 2 µs, so the `PX` is at least 1 ms.
- * That is 500 requests a millisecond.
+ * The longest a full bucket may take to refill from empty: ten years, in
+ * milliseconds. Not for exactness — `MAX_BURST_PER` is that — but because
+ * nobody means it: a bound nobody would choose on purpose catches `per`
+ * written in microseconds (`per: 60e9`) before it limits anyone for decades.
+ *
+ * There is no bound on the rate itself. An earlier version refused more
+ * than 500 requests a millisecond, because it kept time in a float of
+ * microseconds that could not resolve less; in ticks every rate is exact.
  */
-const MIN_INTERVAL = 2;
+const MAX_REFILL = 10 * 365 * 24 * 60 * 60 * 1000;
 
 const isCount = (n: unknown): n is number =>
 	typeof n === 'number' && Number.isSafeInteger(n) && n >= 1;
@@ -55,10 +60,10 @@ export function checkRateLimit<P>(
 			`${call}: "${name}" has a burst of ${burst}; it is a whole number of requests, and must be at least 1`,
 		);
 	}
-	if ((per * 1000) / limit < MIN_INTERVAL) {
+	if ((burst ?? limit) * per > MAX_BURST_PER) {
 		throw new TypeError(
-			`${call}: "${name}" has a limit of ${limit} per ${per}ms, more than 500 per millisecond; ` +
-				'the script counts in microseconds, and needs at least 2 between requests',
+			`${call}: "${name}" has a burst of ${burst ?? limit} and a per of ${per}ms; ` +
+				`burst × per must be at most ${MAX_BURST_PER} for the script to count exactly`,
 		);
 	}
 	if (((burst ?? limit) * per) / limit > MAX_REFILL) {

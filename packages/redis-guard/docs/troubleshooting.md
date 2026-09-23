@@ -21,7 +21,7 @@ written by hand, says `bindRateLimit` instead.
   - [`defineRateLimit: "login" has a limit of 0; it is a whole number of requests, and must be at least 1`](#defineratelimit-login-has-a-limit-of-0-it-is-a-whole-number-of-requests-and-must-be-at-least-1)
   - [`defineRateLimit: "login" has a per of 0.5; it is a whole number of milliseconds, and must be at least 1`](#defineratelimit-login-has-a-per-of-05-it-is-a-whole-number-of-milliseconds-and-must-be-at-least-1)
   - [`defineRateLimit: "login" has a burst of 0; it is a whole number of requests, and must be at least 1`](#defineratelimit-login-has-a-burst-of-0-it-is-a-whole-number-of-requests-and-must-be-at-least-1)
-  - [`defineRateLimit: "login" has a limit of 1000 per 1ms, more than 500 per millisecond; the script counts in microseconds, and needs at least 2 between requests`](#defineratelimit-login-has-a-limit-of-1000-per-1ms-more-than-500-per-millisecond-the-script-counts-in-microseconds-and-needs-at-least-2-between-requests)
+  - [`defineRateLimit: "archive" has a burst of 1000000 and a per of 31536000000ms; burst × per must be at most 9007199254740 for the script to count exactly`](#defineratelimit-archive-has-a-burst-of-1000000-and-a-per-of-31536000000ms-burst--per-must-be-at-most-9007199254740-for-the-script-to-count-exactly)
   - [`defineRateLimit: "login" would take longer than ten years to refill from empty (burst × per ÷ limit); check that per is in milliseconds`](#defineratelimit-login-would-take-longer-than-ten-years-to-refill-from-empty-burst--per--limit-check-that-per-is-in-milliseconds)
 - **Runtime**
   - [`enforce on "login": the limit of 5 per 60000ms is spent; retryAfter says when to try again`](#enforce-on-login-the-limit-of-5-per-60000ms-is-spent-retryafter-says-when-to-try-again)
@@ -112,21 +112,21 @@ at least 1.
 **Fix:** leave it out for the default, which is `limit`, or give a whole
 number.
 
-### `defineRateLimit: "login" has a limit of 1000 per 1ms, more than 500 per millisecond; the script counts in microseconds, and needs at least 2 between requests`
+### `defineRateLimit: "archive" has a burst of 1000000 and a per of 31536000000ms; burst × per must be at most 9007199254740 for the script to count exactly`
 
-**When:** at import, when `per × 1000 ÷ limit` — the microseconds between two
-requests at the rate — is under 2: more than 500 requests a millisecond.
-**Why:** the script keeps time in microseconds, in a Lua double, which near
-the present resolves only to a quarter of one. With less than a couple of
-microseconds between requests, what one request adds to the bucket is lost
-in that resolution, and the count stops being a count. Nobody limits
-anything to that rate on purpose; it is usually `per` written in a larger
-unit than milliseconds, or `limit` and `per` swapped.
-**Fix:**
+**When:** at import, when `burst × per` is above 9,007,199,254,740 — here a
+burst of a million over a year. `burst` defaults to `limit`, so a very large
+`limit` with no `burst` hits it too; the message quotes the burst it used.
+**Why:** the script counts in exact integers, in units of 1/limit of a
+microsecond: a full bucket is `burst × per × 1000` of them. A Lua number
+holds whole numbers exactly only up to `Number.MAX_SAFE_INTEGER`, and past
+that the count would drift. The rate itself is never the problem — any
+number of requests per millisecond counts exactly.
+**Fix:** a smaller burst, or a shorter `per` at the same rate:
 
 ```ts
-// Not `limit: 60_000, per: 1`:
-defineRateLimit({ name: 'login', key, limit: 1, per: 60_000 });
+// A thousand a day, any thousand at once — not a million a year:
+defineRateLimit({ name: 'archive', key, limit: 1_000, per: 86_400_000 });
 ```
 
 ### `defineRateLimit: "login" would take longer than ten years to refill from empty (burst × per ÷ limit); check that per is in milliseconds`
@@ -134,8 +134,8 @@ defineRateLimit({ name: 'login', key, limit: 1, per: 60_000 });
 **When:** at import, when `burst × per ÷ limit` — how long an empty bucket
 takes to fill — is more than ten years of milliseconds.
 **Why:** nobody means that; it is almost always `per` written in a smaller
-unit than milliseconds. The script also keeps the bucket as a time in
-microseconds, exact only up to a bound this keeps it well inside.
+unit than milliseconds. It is a plausibility check, not an exactness one:
+the bound above is that.
 **Fix:**
 
 ```ts
@@ -223,8 +223,10 @@ per: 60_000,   // a minute
 **When:** after the Redis server's clock was moved back — by hand, or by a
 failover to a replica whose clock is behind.
 **Why:** the clock is the server's `TIME`, deliberately: no host's clock can
-refill or empty a bucket. Each bucket is a time on that clock, so when the
-clock goes back, every bucket's time is that much further away.
+refill or empty a bucket. Each bucket remembers the server's time at its
+last write, and refills nothing while the clock is behind it. A bucket that
+was spent stays spent until the clock passes that time again; one with room
+left is written at its next allowed call, and counts from the new time.
 **Fix:** keep the Redis servers' clocks synchronised (NTP). To release every
 caller at once after a clock mistake, delete the limit's keys — they hold
 nothing else:

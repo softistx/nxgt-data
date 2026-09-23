@@ -55,14 +55,22 @@ The algorithm is GCRA, the generic cell rate algorithm. Think of a bucket
 that holds `burst` requests and refills one request every
 `per ÷ limit` milliseconds — the **interval**.
 
-Redis holds one string per key: the **theoretical arrival time** (TAT), the
-moment the bucket would be full again. Each allowed request pushes it one
-interval further (`cost` intervals, for a cost above 1). A request is allowed
-while the TAT it would leave is no more than `burst` intervals ahead of now.
+The bucket's state is the **theoretical arrival time** (TAT), the moment the
+bucket would be full again. Each allowed request pushes it one interval
+further (`cost` intervals, for a cost above 1). A request is allowed while the
+TAT it would leave is no more than `burst` intervals ahead of now.
 
-- **One script, one step.** Reading the TAT, deciding and writing it are one
-  Lua script over one key, so two processes cannot both read the same TAT and
-  both be allowed. Fifty concurrent calls from two connections against a
+- **Exact integers.** An interval is rarely a whole number of microseconds —
+  7 a second is 142857.142… µs — and a float cannot hold a sum of them near
+  the present exactly, so the script counts in units of 1/limit of a
+  microsecond instead, where one request is exactly `per × 1000` units. Redis
+  holds one string per key, two integers: the server's time in microseconds
+  at the last write, and how far the TAT was beyond it, in those units.
+  Nothing is rounded, so a burst taken one request at a time allows exactly
+  the burst, at any rate — that is a spec, over thirteen awkward rates.
+- **One script, one step.** Reading the state, deciding and writing it are
+  one Lua script over one key, so two processes cannot both read the same
+  state and both be allowed. Fifty concurrent calls from two connections against a
   burst of five allow exactly five — that is a spec.
 - **The server's clock.** `now` is the Redis server's `TIME`, read inside the
   script. No host's clock is ever sent, so a host whose clock is a day wrong

@@ -63,25 +63,35 @@ describe('defineRateLimit', () => {
 		).not.toThrow();
 	});
 
-	test('refuses more than 500 requests a millisecond, and takes exactly 500', () => {
-		// 2 µs between requests is the shortest interval the script can count.
+	test('refuses a burst × per the script cannot count exactly, and takes the most it can', () => {
+		// A full bucket is burst × per × 1000 ticks, which must stay at or
+		// below Number.MAX_SAFE_INTEGER: burst × per at most 9007199254740.
+		const most = 9_007_199_254_740;
 		expect(() =>
-			defineRateLimit({ ...base, limit: 500, per: 1 }),
+			defineRateLimit({ ...base, limit: 1_000, per: most, burst: 1 }),
 		).not.toThrow();
-		expect(() =>
-			defineRateLimit({ ...base, limit: 1_000_000, per: 2_000 }),
-		).not.toThrow();
+		for (const [limit, per, burst] of [
+			[1_000, most + 1, 1],
+			[1_000, most, 2],
+			[Number.MAX_SAFE_INTEGER, 1, undefined],
+		] as const) {
+			expect(() =>
+				defineRateLimit({ ...base, limit, per, ...(burst && { burst }) }),
+			).toThrow(
+				`defineRateLimit: "login" has a burst of ${burst ?? limit} and a per of ${per}ms; ` +
+					`burst × per must be at most ${most} for the script to count exactly`,
+			);
+		}
+	});
+
+	test('takes any rate: there is no longer a bound on requests per millisecond', () => {
+		// Refused while the script kept time in a float of microseconds.
 		for (const [limit, per] of [
 			[501, 1],
-			[1_000_001, 2_000],
-			[10_000_000, 1_000],
 			[8_000, 1],
-			[Number.MAX_SAFE_INTEGER, 1],
+			[10_000_000, 1_000],
 		] as const) {
-			expect(() => defineRateLimit({ ...base, limit, per })).toThrow(
-				`defineRateLimit: "login" has a limit of ${limit} per ${per}ms, more than 500 per millisecond; ` +
-					'the script counts in microseconds, and needs at least 2 between requests',
-			);
+			expect(() => defineRateLimit({ ...base, limit, per })).not.toThrow();
 		}
 	});
 
