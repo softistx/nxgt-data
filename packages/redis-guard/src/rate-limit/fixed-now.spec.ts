@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { consumeAt as consumeWith, useRedis } from '../../test/fixtures';
-import type { Rate } from './gcra';
+import { useRedis } from '../../test/fixtures';
+import { defineScript, runScript } from '../scripts/run-script';
+import { GCRA_AT_ARGV, type Rate, toResult } from './gcra';
 
 // The script as it runs, with `now` given rather than read: at one instant
 // nothing refills, so a burst taken one request at a time must allow exactly
@@ -12,13 +13,34 @@ import type { Rate } from './gcra';
 const servers = useRedis();
 const NOW = 1_790_000_000_123_457; // µs, near the present
 
-const consumeAt = (
+// The key's PX runs on Redis's real clock, not on the fixed `now`: at
+// 10_000_000 per second it is about a millisecond, so a loaded runner's gap
+// between two calls expired the key and refilled the bucket mid-burst
+// (remaining 4 where 1 was right, on CI). The script is wrapped to PERSIST in
+// the same call — atomic, and no extra round trip, which a separate PERSIST
+// cost enough to time the test out under load — keeping what it wrote and
+// taking real time out of an instant that is not real.
+const AT_ONE_INSTANT = defineScript(
+	`local reply = (function()\n${GCRA_AT_ARGV.source}\nend)()\n` +
+		"redis.call('PERSIST', KEYS[1])\nreturn reply",
+);
+
+const consumeAt = async (
 	key: string,
 	rate: Rate,
 	cost: number,
 	now: number,
 	write = true,
-) => consumeWith(servers.redis.client, key, rate, cost, now, write);
+) =>
+	toResult(
+		await runScript(
+			servers.redis.client,
+			AT_ONE_INSTANT,
+			[key],
+			[rate.per, rate.limit, rate.burst, cost, write ? 1 : 0, now],
+		),
+		rate,
+	);
 
 const rates: Rate[] = [
 	{ limit: 21, per: 10_000, burst: 100 },
