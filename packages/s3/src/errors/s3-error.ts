@@ -1,6 +1,14 @@
-/** What went wrong. Each one is documented in the README's Traps. */
+/**
+ * What went wrong. Each one is in the README's Errors table, and each
+ * message it carries has an entry in `docs/troubleshooting.md`, headed by its
+ * text.
+ */
 export type S3ErrorCode =
-	/** The body's content type is not one this bucket accepts. */
+	/**
+	 * The content type is not one this bucket accepts, or none was named where
+	 * the bucket names some — on `put` and on `presignPost`, which also
+	 * refuses a `{ startsWith }` prefix on a bucket that names its types.
+	 */
 	| 'WRONG_TYPE'
 	/** The body is bigger than this bucket's `maxSize`. */
 	| 'TOO_LARGE'
@@ -8,7 +16,11 @@ export type S3ErrorCode =
 	| 'UNMEASURABLE'
 	/**
 	 * An option's own value is not one the service accepts: `acl` or
-	 * `storageClass` on a write, `acl` or `expiresIn` on a presigned URL.
+	 * `storageClass` on a write; `acl` or `expiresIn` on `presignGet`,
+	 * `presignPut` and `presignPost`; and on `presignPost`, a `maxSize` or
+	 * `minSize` that is not a whole number of bytes, a `maxSize` above the
+	 * bucket's own or missing on a bucket without one, a `minSize` above the
+	 * `maxSize`, or a `type` that is neither a string nor `{ startsWith }`.
 	 */
 	| 'WRONG_OPTION';
 

@@ -39,6 +39,15 @@ _Nothing queued._
 
 ## Shipped
 
+- **Uploads the service holds to a size and a type** — `presignPost` signs an
+  S3 POST policy, the form a browser posts straight to the bucket: the key
+  fixed, the size held to a `content-length-range` that defaults to the
+  bucket's `maxSize`, and the content type fixed or held to a prefix. The
+  **service** refuses an upload that breaks it, which a presigned PUT cannot
+  do. With it, every refusal reports a value by its **shape** — `another
+  string`, `a number above that`, `the type given` — and never quotes it, since
+  it can come off a request body; and every refusal names the call and the
+  bucket it was on, such as `put on "avatars"` — 0.4.0.
 - **An option's own value is refused before anything is sent or signed** —
   `code: 'WRONG_OPTION'` for an `acl` or a `storageClass` a write names, for
   an `acl` on a presigned URL, and for an `expiresIn` outside the seven days

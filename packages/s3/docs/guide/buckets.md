@@ -66,6 +66,7 @@ interface BoundBucket<P> {
 	}): Promise<ObjectPage>;
 	presignGet(params: P, options?: PresignOptions): string;
 	presignPut(params: P, options?: PresignOptions): string;
+	presignPost(params: P, options?: PresignPostOptions): PresignedPost;
 }
 ```
 
@@ -75,8 +76,8 @@ interface BoundBucket<P> {
 | --- | --- | --- | --- |
 | `bucket` | `string` | required | the bucket's name on the service |
 | `key` | `(params: P) => string` | required | the object's key, from whatever identifies it |
-| `contentType` | `string \| readonly string[]` | anything goes | the content types this bucket accepts; a write of anything else is refused **before it is sent** |
-| `maxSize` | `number` | anything goes | the biggest body, in **bytes**, refused before it is sent |
+| `contentType` | `string \| readonly string[]` | anything goes | the content types this bucket accepts; a write of anything else is refused **before it is sent**. A single type is also `presignPost`'s default `type` |
+| `maxSize` | `number` | anything goes | the biggest body, in **bytes**, refused before it is sent. Also `presignPost`'s default `maxSize`, and its ceiling |
 
 The key is a **function**, not a template, so nothing is spelled by hand at a
 call site and a renamed parameter is a compile error. `P` is whatever that

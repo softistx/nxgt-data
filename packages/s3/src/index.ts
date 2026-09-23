@@ -1,4 +1,9 @@
-export type { BoundBucket, PresignOptions } from './bucket/bind-bucket';
+export type {
+	BoundBucket,
+	PresignedPost,
+	PresignOptions,
+	PresignPostOptions,
+} from './bucket/bind-bucket';
 export { bindBucket } from './bucket/bind-bucket';
 export { defineBucket } from './bucket/define-bucket';
 export type {
