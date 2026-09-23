@@ -15,6 +15,7 @@ import {
 	findMany,
 	getById,
 } from './operations/reads';
+import { upsert } from './operations/upsert';
 import {
 	create,
 	createMany,
@@ -70,7 +71,8 @@ export function createRepository<
 
 /**
  * The methods, bound to a context. Each one lives in a subject file —
- * `operations/reads.ts`, `operations/writes.ts`, `operations/paginate.ts`;
+ * `operations/reads.ts`, `operations/writes.ts`, `operations/upsert.ts`,
+ * `operations/paginate.ts`;
  * this is only the surface they are reached by.
  */
 function build(ctx: RepositoryContext) {
@@ -91,6 +93,7 @@ function build(ctx: RepositoryContext) {
 		update: (id: unknown, patch: AnyRow) => update(ctx, id, patch),
 		updateMany: (where: unknown, patch: AnyRow) =>
 			updateMany(ctx, where, patch),
+		upsert: (where: unknown, values: unknown) => upsert(ctx, where, values),
 
 		delete: (id: unknown) => deleteOne(ctx, id),
 		deleteMany: (where: unknown) => deleteMany(ctx, where),

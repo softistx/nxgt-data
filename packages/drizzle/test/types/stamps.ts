@@ -1,4 +1,4 @@
-// Type tests for the optimistic lock and the actor stamps, checked by
+// Type tests for the optimistic lock, the actor stamps and upsert, checked by
 // `tsc --noEmit` and never run. Each `@ts-expect-error` is a call that must
 // not compile: if it compiles, tsc reports the unused directive.
 
@@ -8,6 +8,7 @@ import {
 	createRepository,
 	type LockOf,
 	type Repository,
+	type Row,
 } from '../../src/pg';
 import { createTestDb } from '../db';
 import { posts, teams, tickets, users } from '../schema';
@@ -20,6 +21,7 @@ function assertType<T extends true>(_: T): void {}
 
 const { db } = await createTestDb();
 const ticketRepo = createRepository(db, tickets);
+const userRepo = createRepository(db, users);
 const teamRepo = createRepository(db, teams);
 
 // A table locks by default when it has an integer NOT NULL `version`.
@@ -55,6 +57,26 @@ teamRepo.as('someone');
 createRepository(db, tickets, { actor: 'b1c7…' });
 // @ts-expect-error users has no actor column either
 createRepository(db, users, { actor: 'b1c7…' });
+
+// upsert: the where names the key, the values the rest.
+const upserted = await ticketRepo.upsert({ slug: 'a' }, { title: 'A' });
+assertType<Equal<typeof upserted, Row<typeof tickets>>>(true);
+await userRepo.upsert({ email: 'a@example.com' }, {});
+await userRepo.upsert({ email: 'a@example.com' }, { name: sql`'x'` });
+// @ts-expect-error title is required: the insert half needs it
+await ticketRepo.upsert({ slug: 'a' }, {});
+// @ts-expect-error the where names the key; the values do not repeat it
+await ticketRepo.upsert({ slug: 'a' }, { slug: 'b', title: 'A' });
+// @ts-expect-error a key in the where is a value, never null
+await userRepo.upsert({ name: null }, { email: 'a@example.com' });
+// @ts-expect-error a key in the where is a value, never SQL
+await userRepo.upsert({ email: sql`'a'` }, {});
+// @ts-expect-error no such column
+await userRepo.upsert({ emial: 'a@example.com' }, {});
+// @ts-expect-error the repository keeps the version
+await ticketRepo.upsert({ slug: 'a' }, { title: 'A', version: 1 });
+// @ts-expect-error email is a string
+await userRepo.upsert({ email: 1 }, {});
 
 // A table without the lock takes `version`-free patches as before.
 await createRepository(db, posts).update(1, { title: 'b' });

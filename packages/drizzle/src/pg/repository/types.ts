@@ -97,6 +97,28 @@ export type ManyPatch<
 	: Patch<TTable>;
 
 /**
+ * What identifies the row an `upsert` writes: its values under columns a
+ * unique constraint covers. Plain values — no SQL, no `null`, which never
+ * conflicts — since they are inserted as well as matched.
+ */
+export type UpsertWhere<TTable extends PgTable> = {
+	[K in keyof Row<TTable>]?: NonNullable<Row<TTable>[K]>;
+};
+
+/**
+ * What an `upsert` writes, either way: the insert values without the keys the
+ * `where` already gives, so a required column is required here only when the
+ * `where` does not name it. On a repository that locks, no `version`.
+ */
+export type UpsertValues<
+	TTable extends PgTable,
+	TWhereKey extends PropertyKey,
+	TLock extends boolean,
+> = TLock extends true
+	? Omit<Insert<TTable>, TWhereKey | 'version'> & { version?: never }
+	: Omit<Insert<TTable>, TWhereKey>;
+
+/**
  * Rows whose columns equal these values: `{ email: 'ada@example.com' }`.
  * `null` matches `IS NULL`. Several keys are joined with `AND`.
  */
@@ -254,6 +276,16 @@ export interface BaseRepository<
 		where: Where<TTable>,
 		patch: ManyPatch<TTable, TLock>,
 	): Promise<Row<TTable>[]>;
+	/**
+	 * Inserts the row the `where` identifies, or updates the live one that is
+	 * already there, in one statement: `INSERT … ON CONFLICT (<the where's
+	 * columns>) DO UPDATE`. A unique constraint must cover exactly those
+	 * columns. Throws `ConflictError` when the row there is soft-deleted.
+	 */
+	upsert<const W extends UpsertWhere<TTable>>(
+		where: W & { [K in Exclude<keyof W, keyof Row<TTable>>]: never },
+		values: UpsertValues<TTable, keyof W, TLock>,
+	): Promise<Row<TTable>>;
 	/**
 	 * Deletes the row with this id and returns it: a soft delete on a table
 	 * with soft delete. Throws `NotFoundError`.

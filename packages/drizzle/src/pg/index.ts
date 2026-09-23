@@ -37,6 +37,8 @@ export type {
 	Row,
 	SoftDeleteMethods,
 	UpdatePatch,
+	UpsertValues,
+	UpsertWhere,
 	Where,
 	WhereObject,
 } from './repository/types';
