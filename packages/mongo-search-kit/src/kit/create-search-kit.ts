@@ -1,3 +1,4 @@
+import type { SyncReport, TypedIndex } from '@nxgt/meilisearch';
 import type { AnyCollectionDefinition, TypedCollection } from '@nxgt/mongo';
 import type { MongoKit } from '@nxgt/mongo-kit';
 import {
@@ -61,8 +62,10 @@ export function createSearchKit<C, const I extends IndexMap<I>>(
 	const keys = Object.keys(config) as (keyof I & string)[];
 
 	const syncs = {} as Record<keyof I & string, SearchSync>;
+	const indexes = {} as Record<keyof I & string, TypedIndex<never>>;
 	for (const key of keys) {
 		const entry = config[key] as unknown as Record<string, unknown>;
+		indexes[key] = entry.index as TypedIndex<never>;
 		syncs[key] = createSearchSync({
 			...entry,
 			collection: collectionAt(scope, key),
@@ -76,6 +79,12 @@ export function createSearchKit<C, const I extends IndexMap<I>>(
 			const state = {} as Record<keyof I & string, SearchSyncState | undefined>;
 			for (const key of keys) state[key] = await syncs[key].state();
 			return state as ByKey<I, SearchSyncState | undefined>;
+		},
+
+		async syncIndexes(options) {
+			const reports = {} as Record<keyof I & string, SyncReport>;
+			for (const key of keys) reports[key] = await indexes[key].sync(options);
+			return reports as ByKey<I, SyncReport>;
 		},
 
 		async reindexAll() {

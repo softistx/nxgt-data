@@ -1,7 +1,7 @@
 {
 	"name": "@nxgt/mongo-search-kit",
 	"version": "0.1.7",
-	"description": "A search kit over @nxgt/mongo-kit: one config naming an index and a transform per collection, and one start, close and reindex for all of them",
+	"description": "A search kit over @nxgt/mongo-kit: one config naming an index and a transform per collection, and one syncIndexes, reindexAll, start and close for all of them",
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",

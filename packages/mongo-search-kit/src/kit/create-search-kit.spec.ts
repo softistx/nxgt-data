@@ -65,6 +65,49 @@ describe('a search kit', () => {
 		expect(search.syncs.authors.name).toBe('authors:authors');
 	});
 
+	test('syncs every index, reports each under its key, and a second run sends nothing', async () => {
+		const search = createSearchKit(servers.kit, both());
+
+		const dry = await search.syncIndexes({ dryRun: true });
+		expect(Object.keys(dry)).toEqual(['articles', 'authors']);
+		expect(dry.articles).toMatchObject({ uid: 'articles', created: true });
+		expect(
+			(await servers.meili.client.getIndexes()).results.map((it) => it.uid),
+		).toEqual([]);
+
+		const first = await search.syncIndexes();
+		expect(first.articles).toMatchObject({ created: true, dryRun: false });
+		expect(first.authors.changed).toContain('searchableAttributes');
+		expect(
+			(await servers.meili.client.index('authors').getSettings())
+				.searchableAttributes,
+		).toEqual(['name']);
+
+		const second = await search.syncIndexes();
+		expect(second.articles).toMatchObject({ created: false, changed: [] });
+		expect(second.authors).toMatchObject({ created: false, changed: [] });
+	});
+
+	test('syncIndexes stops at the first index that throws', async () => {
+		// `articles` exists under another primary key, which no sync can fix.
+		await servers.meili.client
+			.createIndex('articles', { primaryKey: 'slug' })
+			.waitTask();
+		const held = createSearchKit(servers.kit, both())
+			.syncIndexes()
+			.then(
+				() => {
+					throw new Error('syncIndexes resolved');
+				},
+				(error: unknown) => error,
+			);
+		const error = (await held) as { code?: string };
+		expect(error.code).toBe('PRIMARY_KEY_MISMATCH');
+		expect(
+			(await servers.meili.client.getIndexes()).results.map((it) => it.uid),
+		).toEqual(['articles']);
+	});
+
 	test('reindexes every collection, and reports each under its key', async () => {
 		await servers.kit.db.articles.create({ title: 'one' });
 		await servers.kit.db.articles.create({ title: 'two', draft: true });

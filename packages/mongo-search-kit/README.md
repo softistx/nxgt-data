@@ -2,7 +2,7 @@
 
 A search kit over [`@nxgt/mongo-kit`](https://www.npmjs.com/package/@nxgt/mongo-kit):
 one config naming an index and a transform per collection, and one
-`reindexAll`, `start` and `close` for all of them.
+`syncIndexes`, `reindexAll`, `start` and `close` for all of them.
 
 ```ts
 import { bindIndex } from '@nxgt/meilisearch';
@@ -39,7 +39,7 @@ The key is the name a collection is **exported** under, the same one
 `kit.db.articles` answers to. A key the kit wires no collection for does not
 compile, and is refused by name at runtime too.
 
-`createSearchKit` sends nothing: `reindexAll` and `start` do.
+`createSearchKit` sends nothing: `syncIndexes`, `reindexAll` and `start` do.
 
 > **0.x, on `@nxgt/mongo-kit` and `@nxgt/mongo-meilisearch`.** The API is
 > still settling.
@@ -72,10 +72,6 @@ bun add @nxgt/mongo-search-kit @nxgt/mongo-kit @nxgt/mongo-meilisearch @nxgt/mon
 - **It does not own the Mongo kit.** Closing the search kit stops the syncs
   and nothing else: the clients, the databases and the collections are the
   Mongo kit's, and `kit.close()` is still the caller's to make.
-- **It does not sync the indexes' settings today.** Apply them with
-  `@nxgt/meilisearch`'s `syncIndex` / `syncIndexes`, as a deployment step
-  beside `kit.sync()`. A `syncIndexes()` on the kit itself is being worked
-  on: [the roadmap](docs/roadmap.md) says where it stands.
 
 ## API
 
@@ -101,6 +97,7 @@ required otherwise), and optionally `name`, `stateCollection`, `batchSize`,
 | --- | --- |
 | `syncs: { [K in keyof I]: SearchSync }` | each sync as `@nxgt/mongo-meilisearch` built it, so anything this kit does not wrap is still reachable |
 | `state()` | where each sync stands, under its key; `undefined` for one that never reindexed |
+| `syncIndexes(options?)` | every index created and its settings applied where they differ — `@nxgt/meilisearch`'s `SyncReport` per key, `dryRun` and `wait` passed through. One after another; the first that throws stops the rest |
 | `reindexAll()` | a `ReindexReport` per key. One after another, and the first that throws stops the rest |
 | `start()` | every sync, resolving once they are all hearing changes |
 

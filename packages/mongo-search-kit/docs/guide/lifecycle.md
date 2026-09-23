@@ -1,6 +1,6 @@
 # The kit's lifecycle
 
-One `reindexAll`, one `start`, one `close` for every sync the
+One `syncIndexes`, one `reindexAll`, one `start`, one `close` for every sync the
 [config](wiring.md) named — and one promise to watch while they run.
 
 ```ts
@@ -26,6 +26,7 @@ const search = createSearchKit(kit, {
 	},
 });
 
+await search.syncIndexes();             // create every index, apply its settings
 await search.reindexAll();              // fill every index
 const running = await search.start();   // follow every collection
 void running.failed.catch(() => process.exit(1)); // await it or catch it
@@ -59,6 +60,36 @@ await search.state();
 await search.reindexAll();
 (await search.state()).articles?.reindexedAt; // a Date
 ```
+
+## `syncIndexes(options?)`
+
+Every index the config names brought in line with its definition — created
+with its primary key when it is missing, and only the settings that differ
+updated — one after another, each report under its key. It is
+`@nxgt/meilisearch`'s `syncIndex` per entry, so the options and the report
+are that package's:
+
+```ts
+const reports = await search.syncIndexes();
+// { articles: { uid: 'articles', created: true, changed: [ 'searchableAttributes' ], … },
+//   authors:  { uid: 'authors', created: false, changed: [], … } }
+
+await search.syncIndexes({ dryRun: true });        // what it would send, sends nothing
+await search.syncIndexes({ wait: { timeout: 120_000 } }); // the SDK's WaitOptions, per task
+```
+
+Run it twice and the second run sends nothing. The first index that throws
+stops the rest, and the indexes after it are not looked at: a
+`SearchIndexError` from `@nxgt/meilisearch` — `PRIMARY_KEY_MISMATCH` or
+`TASK_FAILED` — or the SDK's own error for a Meilisearch that refused or is
+not there. `dryRun` shows every **settings** difference at once, but not past
+a primary-key mismatch: that one throws in a dry run too, since no setting
+could make the index right.
+
+It is a **deployment step**, like the Mongo kit's `sync()`, and it comes
+first: `reindexAll` and `start` write documents, and an index a document write
+creates gets the primary key but none of the definition's settings until a
+sync runs — its filters and sorts are refused until then.
 
 ## `reindexAll()`
 
@@ -187,7 +218,10 @@ A deployment step is the same two objects, without `start`:
 
 ```ts
 await using kit = await createKit(config);
-const reports = await createSearchKit(kit, searchConfig(meili)).reindexAll();
+await kit.sync();                                   // the collections
+const search = createSearchKit(kit, searchConfig(meili));
+await search.syncIndexes();                         // the indexes
+const reports = await search.reindexAll();
 for (const [key, report] of Object.entries(reports)) {
 	console.log(`${key}: ${report.indexed} indexed, ${report.removed} removed`);
 }
@@ -199,6 +233,7 @@ for (const [key, report] of Object.entries(reports)) {
 interface SearchKit<S> {
 	readonly syncs: ByKey<S, SearchSync>;
 	state(): Promise<ByKey<S, SearchSyncState | undefined>>;
+	syncIndexes(options?: SyncOptions): Promise<ByKey<S, SyncReport>>; // @nxgt/meilisearch's
 	reindexAll(): Promise<ByKey<S, ReindexReport>>;
 	start(): Promise<RunningSearchKit<S>>;
 }

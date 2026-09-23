@@ -117,3 +117,16 @@ createSearchKit(kit, {
 	// @ts-expect-error `command` is the driver's, not a collection
 	command: { index: articles, transform: toArticleHit },
 });
+
+// `syncIndexes` reports under the config's keys, and takes the index's options.
+const search = createSearchKit(kit, {
+	articles: { index: articles, transform: toArticleHit },
+});
+void search.syncIndexes({ dryRun: true }).then((reports) => {
+	const uid: string = reports.articles.uid;
+	void uid;
+	// @ts-expect-error `authors` is not a key of this config
+	void reports.authors;
+});
+// @ts-expect-error the option is `dryRun`
+void search.syncIndexes({ dryrun: true });
