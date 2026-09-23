@@ -520,7 +520,7 @@ the file.
 
 ## Known state
 
-`bun run test` is **1052 pass, 0 fail**: drizzle 113, meilisearch 42,
+`bun run test` is **1055 pass, 0 fail**: drizzle 113, meilisearch 45,
 mongo 532, drizzle-meilisearch 38, mongo-meilisearch 40, mongo-kit 72,
 mongo-search-kit 14, redis 45, redis-kit 55, s3 52, hono-api-example 31,
 scripts 18. It runs one process
