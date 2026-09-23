@@ -5,8 +5,10 @@ export type GuardErrorCode =
 	/** A cost that is not a whole number within the definition's burst. */
 	| 'COST'
 	/**
-	 * `run` found the same key still running elsewhere. `retryAfter` says
-	 * when its lease ends — by then it has finished, or it has lapsed.
+	 * `run` found the same key still running elsewhere — at once, or when its
+	 * `wait` ran out. `retryAfter` is when that run's lease lapses unless
+	 * renewed: a live run renews it, so this bounds a crashed run's hold on
+	 * the key, not how long the work will take.
 	 */
 	| 'IN_PROGRESS'
 	/** `run` found the key first used with a different fingerprint. */
@@ -18,8 +20,9 @@ export type GuardErrorCode =
 	 */
 	| 'INVALID'
 	/**
-	 * `work` finished after its lease lapsed, so a repeat may have run it
-	 * too. Its result was not stored.
+	 * The key was taken from a run before it finished — `forget`, or its
+	 * lease lapsed because no renewal reached Redis for a whole lease — so a
+	 * repeat may have run `work` too. Its result was not stored.
 	 */
 	| 'LEASE_LOST';
 
@@ -37,7 +40,8 @@ export class GuardError extends Error {
 	readonly definition: string;
 	/**
 	 * For `RATE_LIMITED`: milliseconds until the same call would be allowed;
-	 * for `IN_PROGRESS`: milliseconds until the running call's lease ends.
+	 * for `IN_PROGRESS`: milliseconds until the running call's lease lapses
+	 * unless renewed — which a live call does, every third of its lease.
 	 * Measured on the Redis server's clock. A delay, never a date — the
 	 * caller's clock and the server's need not agree.
 	 */

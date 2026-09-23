@@ -6,7 +6,7 @@ import { defineScript, runScript } from '../scripts/run-script';
  * three fields:
  *
  * - running: `state` = `running`, `token` (32 hex, this run's), `fp`;
- *   `PEXPIRE lease`;
+ *   `PEXPIRE lease`, renewed by `RENEW` every third of it while `work` runs;
  * - done:    `state` = `done`, `fp`, `value` (JSON); `EXPIRE ttl`.
  *
  * `fp` is a SHA-256 in lowercase hex, or `''` for a run with no fingerprint.
@@ -72,6 +72,21 @@ return 1
 `);
 
 /**
+ * Pushes a running record's end back by `lease`, if this run still holds it:
+ * a compare-and-renew on the token, so a run that lost its key cannot keep
+ * another run's marker alive, nor a finished result's `ttl` be cut to a
+ * lease. Returns 1, or 0 when the key is gone, done, or another run's.
+ *
+ * ARGV: token, lease (ms).
+ */
+export const RENEW = defineScript(`
+local f = redis.call('HMGET', KEYS[1], 'state', 'token')
+if f[1] ~= 'running' or f[2] ~= ARGV[1] then return 0 end
+redis.call('PEXPIRE', KEYS[1], ARGV[2])
+return 1
+`);
+
+/**
  * Gives the key back, if this run still holds it: a compare-and-delete, so
  * a run whose lease lapsed cannot free the key another run has since taken.
  *
@@ -125,6 +140,16 @@ export async function complete(
 	ttl: number,
 ): Promise<boolean> {
 	return (await runScript(client, COMPLETE, [key], [token, json, ttl])) === 1;
+}
+
+/** Runs `RENEW`: `true` when this run's lease was pushed back. */
+export async function renew(
+	client: RedisClient,
+	key: string,
+	token: string,
+	lease: number,
+): Promise<boolean> {
+	return (await runScript(client, RENEW, [key], [token, lease])) === 1;
 }
 
 /** Runs `RELEASE`: `true` when this run's marker was deleted. */
