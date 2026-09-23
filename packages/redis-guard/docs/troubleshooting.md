@@ -19,6 +19,7 @@ call instead.
 - **Install and import**
   - [`ReferenceError: Bun is not defined`](#referenceerror-bun-is-not-defined)
   - [`Cannot find module 'bun' or its corresponding type declarations.`](#cannot-find-module-bun-or-its-corresponding-type-declarations)
+  - [`Cannot find module 'zod' or its corresponding type declarations.`](#cannot-find-module-zod-or-its-corresponding-type-declarations)
 - **Configuration**
   - [`defineRateLimit: a rate limit needs a name, for its keys`](#defineratelimit-a-rate-limit-needs-a-name-for-its-keys)
   - [`defineRateLimit: "login" has no key function; it builds the rest of the key from the params`](#defineratelimit-login-has-no-key-function-it-builds-the-rest-of-the-key-from-the-params)
@@ -53,6 +54,8 @@ call instead.
   - [`run on "orders.create": wait is a whole number of milliseconds, 0 or more`](#run-on-orderscreate-wait-is-a-whole-number-of-milliseconds-0-or-more)
   - [The same request ran twice](#the-same-request-ran-twice)
   - [`WRONGTYPE Operation against a key holding the wrong kind of value`](#wrongtype-operation-against-a-key-holding-the-wrong-kind-of-value) — a key that is not a hash; the entry is under rate limits
+- **Runtime: Redis itself**
+  - [`Connection closed`](#connection-closed)
 
 ## Install and import
 
@@ -80,6 +83,28 @@ project needs Bun's types. They are not a dependency of this package.
 
 ```sh
 bun add -d @types/bun
+```
+
+### `Cannot find module 'zod' or its corresponding type declarations.`
+
+**When:** typechecking, reported in this package's own declarations
+(`dist/idempotency/types.d.ts` and its neighbours), in a project where `zod`
+is not installed — peers turned off (`peer = false` under `[install]` in
+`bunfig.toml`), or an installer that leaves peers out. Bun installs a missing
+peer by itself otherwise. Running the code does not fail: nothing in it
+loads `zod`.
+**Why:** `zod` is a required peer since 0.2.0, for the **types** only: every
+import of it in this package is `import type`, so nothing loads it at run
+time — `run` calls the `safeParseAsync` of the schema you pass. The shipped
+declarations name `z.ZodType`, `z.input` and `z.output`, so only `tsc` looks
+for the module. With `skipLibCheck: true` it does not report it at all: the
+zod types become `any`, a `schema` of any value compiles, and `run`'s
+`value` is typed `any`.
+**Fix:** install it beside the package, so your schemas and its
+declarations resolve the same copy:
+
+```sh
+bun add zod
 ```
 
 ## Configuration
@@ -490,21 +515,45 @@ renewal checks the key still holds this run's token. Once one finds the key
 gone or another run's, nothing can give it back, and storing this result
 could overwrite the other run's — so it is refused. `work` itself is not
 interrupted.
-**Fix:** treat it as "check for a duplicate". Move long synchronous work off
-the event loop — a `Worker`, or `await` between chunks — and keep `lease`
-above the longest Redis may be unreachable:
+**Fix:** treat it as "check for a duplicate". Then stop the event loop from
+being held for a whole lease: the lease bounds how long a crashed run holds
+the key, not how long `work` may take, so the fix is in `work`, not a longer
+lease. Yield between chunks of synchronous work, or move it to a `Worker`:
 
 ```ts
-defineIdempotency({ ...createOrder, lease: 30_000 });
+const { value } = await orders.run(who, async () => {
+	const lines: string[] = [];
+	for (const [i, row] of rows.entries()) {
+		lines.push(render(row)); // synchronous
+		if (i % 1_000 === 999) await Bun.sleep(0); // the renewal timer can fire
+	}
+	return { orderId: await store(lines.join('\n')) };
+});
 ```
+
+Raise `lease` only above the longest Redis may be unreachable, which the
+renewals cannot cover; a longer lease also keeps a crashed run's key for
+longer.
 
 ### `run: a fingerprint is a string or an ArrayBufferView, such as the raw body`
 
 **When:** `fingerprint` was given something else — a number, a plain object —
 past the types. A bare `TypeError`; the promise rejects before anything is
 sent.
+**Why:** the fingerprint is hashed with SHA-256 over exactly the bytes it
+stands for — a string's UTF-8, or the bytes an `ArrayBufferView` covers.
+Anything else has no one set of bytes: `String(42)` or a re-serialised object
+could differ between two identical requests, or agree between two different
+ones, and a key reused for another request would then replay the wrong
+result. It is a `TypeError` rather than a `GuardError` because the value's
+type is the code's mistake, not the client's.
 **Fix:** pass the body as text or bytes; to fingerprint an object, pass the
-text it was parsed from.
+text it was parsed from:
+
+```ts
+const body = await request.text();
+await orders.run(who, () => placeOrder(JSON.parse(body)), { fingerprint: body });
+```
 
 ### `run on "orders.create": wait is a whole number of milliseconds, 0 or more`
 
@@ -529,6 +578,14 @@ await orders.run(who, work, { wait: 2_000 });
   with `LEASE_LOST`;
 - the first **threw**, which gives the key back, so the second ran again (by
   design: an error is not a result);
+- **Redis failed between `work` and storing its result** — the connection
+  dropped, or the server refused the write. The first `run` rejected with
+  Redis's own error (see [`Connection closed`](#connection-closed)), after
+  `work` had done what it does. Nothing renews the key any more and nothing
+  gives it back, so it **may** stay running until its lease lapses: a repeat
+  before then gets `IN_PROGRESS`, and one after it runs `work` again. If
+  only the reply was lost, the store **may** have happened, and a repeat
+  replays the result instead;
 - the second came after `ttl` seconds;
 - the two keys were not the same: `key(params)` differs, or the two
   definitions have different `name`s.
@@ -536,4 +593,73 @@ await orders.run(who, work, { wait: 2_000 });
 **Fix:** synchronous work off the event loop, and a `lease` above the
 longest outage; a failure that must replay returned as a union
 member rather than thrown; a longer `ttl`. `keyFor(params)` shows the key a
-call would use.
+call would use. A Redis error from `run` means the work **may** have
+happened: make `work` itself safe to repeat where it can — an upsert on an id
+you derive from the key, or a provider's own idempotency key:
+
+```ts
+await orders.run(who, async () => {
+	// The provider refuses a second charge with the same key, whoever sends it.
+	const charge = await provider.charge(amount, { idempotencyKey: orders.keyFor(who) });
+	return { orderId: charge.id };
+});
+```
+
+## Runtime: Redis itself
+
+### `Connection closed`
+
+**When:** any call, while Redis cannot be reached — `consume`, `enforce`,
+`peek` and `reset` on a limit, `run` and `forget` on an idempotent operation.
+It is Bun's own Redis error, not a `GuardError`. The message depends on the
+client's reconnect options; the `code` does not. Measured on Bun 1.4.2, every
+one carries `code: 'ERR_REDIS_CONNECTION_CLOSED'`:
+
+| Client | First call | Every call after |
+| --- | --- | --- |
+| Bun's defaults (reconnects) | `Max reconnection attempts reached`, after about 31 s of retrying | `Connection has failed`, at once |
+| `autoReconnect: false` | `Connection has failed`, at once | `Connection has failed`, at once |
+
+Either way, a call already sent when the connection drops rejects with
+`Connection closed`, at once; so does a first call on an `autoReconnect: false`
+client that never connected.
+
+A server's refusal — `WRONGTYPE` and the like — comes back the same way,
+unwrapped, with another `code` (`ERR_REDIS_SERVER_ERROR`).
+**Why:** this package opens no connection of its own, retries nothing and
+has no fallback: every step is one script, or a `DEL`, on your `RedisClient`,
+and an error from it passes through as it is, not wrapped. Where it happens
+in `run` decides what it means:
+
+| Redis failed | `run` | `work` |
+| --- | --- | --- |
+| taking the key, or polling it during `wait` | rejects with Redis's error. If only the reply was lost, the key **may** be held: repeats get `IN_PROGRESS` for up to a `lease` | not called |
+| renewing the lease while `work` runs | nothing: tried again at the next beat | runs on; the lease is lost only if no renewal gets through for a whole `lease` |
+| storing the result | rejects with Redis's error. The key **may** stay running until its lease lapses — or, if only the reply was lost, the result **may** be stored, and a repeat replays it | **has run** — see [The same request ran twice](#the-same-request-ran-twice) |
+| giving the key back after `work` threw | rejects with `work`'s own error; the key lapses with its lease | threw |
+
+On a limit, a failed check may or may not have counted: the script is one
+atomic step, but its reply can be lost after it ran.
+**Fix:** answer it where the request is answered — a 503 rather than a 500,
+since the request itself was fine — and decide per route whether a limit
+that cannot be checked lets the caller through:
+
+```ts
+/** A 503 when Redis cannot be reached; undefined for anything else. */
+export function redisUnavailable(error: unknown): Response | undefined {
+	const code = (error as { code?: unknown } | null)?.code;
+	if (typeof code === 'string' && code === 'ERR_REDIS_CONNECTION_CLOSED') {
+		return new Response('Try again shortly', { status: 503, headers: { 'Retry-After': '5' } });
+	}
+	return undefined;
+}
+```
+
+It reads `code`, not `name`: Bun does not export its error class, so there is
+no `instanceof`, and `name` is `'RedisError'` for a server's refusal too — and
+for other libraries' errors, `@nxgt/redis`'s among them — so a check on it
+would answer a `WRONGTYPE` from a misconfigured name with 503 instead of the
+500 it is.
+
+The [roadmap](roadmap.md#not-planned) says why there is no in-memory
+fallback.

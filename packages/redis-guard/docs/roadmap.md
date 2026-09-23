@@ -36,6 +36,17 @@ _Nothing planned yet: see Later._
 - **Storing thrown errors** — an error from `work` gives the key back, so the
   next call runs again. A failure that must replay is a result: a union member
   of the schema, which the types check and a replay parses like any other.
+- **Interrupting `work` when its lease is lost** — an `AbortSignal` handed to
+  `work`, say. `work` is your function, and `run` only ever calls it and
+  awaits it: JavaScript has no way to stop it, so a signal would be a request
+  that `work` may ignore, and it could not undo what `work` had already done.
+  It would not fire in the case that matters most either: a lease is lost
+  when synchronous work holds the event loop for a whole lease, and the
+  renewal that would notice is a timer on that same blocked loop. So a lost
+  lease is reported where it can be acted on — `run` refuses to store the
+  result and rejects with `LEASE_LOST` once `work` returns — and a caller that
+  wants to stop early can keep its own `AbortController` and deadline inside
+  `work`.
 - **Treating an unreadable stored result as a miss** — as a cache would. A
   stored result stands for work that already happened; running it again
   would do it twice. It is `INVALID`, and `forget` is the deliberate way to

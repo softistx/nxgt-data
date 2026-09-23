@@ -34,13 +34,27 @@ copy you can export and share between modules. It throws a bare `TypeError`
 for a definition that could never work, so a mistake stops the process at
 import rather than at the first request.
 
-| Field | |
-| --- | --- |
-| `name` | the key's prefix. Two operations must not share one — nor a rate limit or a cache |
-| `key(params)` | the rest of the key. A function, so a renamed parameter is a compile error |
-| `ttl` | how long a finished result is replayed, **in seconds** |
-| `lease` | how long a run holds the key unless renewed, **in milliseconds**. Default `10_000`. Renewed while `work` runs — see [The lease](#the-lease) |
-| `schema` | a zod schema for the result |
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `name` | `string` | required | the key's prefix. Two operations must not share one — nor a rate limit or a cache. Not empty |
+| `key` | `(params: P) => string` | required | the rest of the key. A function, so a renamed parameter is a compile error |
+| `ttl` | `number` | required | how long a finished result is replayed, **in seconds**. A whole number, at least 1 |
+| `lease` | `number` | `10_000` | how long a run holds the key unless renewed, **in milliseconds**. A whole number, at least 1. Renewed while `work` runs — see [The lease](#the-lease) |
+| `schema` | `z.ZodType` | required | the result: checked on the way in and on every replay |
+
+```ts
+interface IdempotencyDefinition<P, S extends z.ZodType> {
+	readonly name: string;
+	readonly key: (params: P) => string;
+	readonly ttl: number;
+	readonly lease?: number;
+	readonly schema: S;
+}
+
+function defineIdempotency<P, S extends z.ZodType>(
+	definition: IdempotencyDefinition<P, S>,
+): IdempotencyDefinition<P, S>;
+```
 
 A stored key is `` `<name>:<key(params)>` `` — the same shape as a rate
 limit's and an `@nxgt/redis` cache's:
@@ -53,6 +67,46 @@ orders.keyFor({ user: 'u1', key: 'k-123' });   // 'orders.create:u1/k-123'
 only to the client that made it up. Key on the user, the tenant or the API
 key as well, or two clients that happen to pick the same key would share one
 result.
+
+## Binding it
+
+`bindIdempotency(client, definition)` takes any Bun `RedisClient` — one you
+made, or the `client` of an `@nxgt/redis` connection — and checks the
+definition again, so one written by hand is refused the same way, with
+`bindIdempotency` in the message.
+
+```ts
+function bindIdempotency<P, S extends z.ZodType>(
+	client: RedisClient,
+	definition: IdempotencyDefinition<P, S>,
+): BoundIdempotency<P, z.output<S>, z.input<S>>;
+
+interface BoundIdempotency<P, T, I = T> {
+	keyFor(params: P): string;
+	run(params: P, work: () => Promise<I> | I, options?: RunOptions): Promise<Idempotent<T>>;
+	forget(params: P): Promise<boolean>;
+}
+
+interface Idempotent<T> {
+	readonly value: T;          // as the schema gives it back
+	readonly replayed: boolean; // true when an earlier run stored it
+}
+```
+
+`forget(params)` deletes the key whether it is done or still running, and
+resolves `true` when something was there — the deliberate way to let a key
+run again.
+
+`run`'s third argument:
+
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `fingerprint` | `string \| ArrayBufferView` | none | what the request said — the raw body, usually. Only its SHA-256 is stored; a repeat with another is `MISMATCH`. See [The fingerprint](#the-fingerprint) |
+| `wait` | `number` | `0` | how long to wait for a run of the same key that is still going, **in milliseconds**, before `IN_PROGRESS`. A whole number, 0 or more. See [Waiting for a running key](#waiting-for-a-running-key) |
+
+Either one that is not of its type rejects with a bare `TypeError` before
+anything is sent — and so does a `wait` that is a number but not a whole one
+of 0 or more: negative, fractional, `NaN` or `Infinity`.
 
 ## What `run` does
 
@@ -77,6 +131,13 @@ When `work` has run:
 - **It threw** — nothing is stored, the key is given back, and the error
   passes through **as the same object**, so an `instanceof` in your handler
   still works. The next call with that key runs `work` again.
+- **Redis failed while storing the result** — the error is Redis's, as Bun's
+  client gave it, and the work **has** happened. The key **may** stay
+  running until its lease lapses, since nothing renews it any more: a repeat
+  before then gets `IN_PROGRESS`, and one after it runs `work` again. If
+  only the reply was lost, the result **may** have been stored, and a repeat
+  replays it. See
+  [troubleshooting](../troubleshooting.md#the-same-request-ran-twice).
 
 ### The value is what the schema gives back
 
@@ -230,6 +291,10 @@ request itself has.
 The units differ on purpose: `ttl` is Redis's `EXPIRE` and `@nxgt/redis`'s
 `defineCache`; `lease` is every other duration in this package, and
 `retryAfter` with it. `lease: 86_400` is under a minute and a half.
+
+Coming from 0.2.0, where the lease was not renewed and had to cover the
+whole work: [Upgrading](../upgrading.md#020--030) says how to shorten it,
+including during a rolling deploy.
 
 ## Changing the schema
 
