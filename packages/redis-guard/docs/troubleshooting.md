@@ -618,7 +618,11 @@ one carries `code: 'ERR_REDIS_CONNECTION_CLOSED'`:
 | Client | First call | Every call after |
 | --- | --- | --- |
 | Bun's defaults (reconnects) | `Max reconnection attempts reached`, after about 31 s of retrying | `Connection has failed`, at once |
-| `autoReconnect: false` | `Connection closed`, at once | `Connection has failed`, at once |
+| `autoReconnect: false` | `Connection has failed`, at once | `Connection has failed`, at once |
+
+Either way, a call already sent when the connection drops rejects with
+`Connection closed`, at once; so does a first call on an `autoReconnect: false`
+client that never connected.
 
 A server's refusal — `WRONGTYPE` and the like — comes back the same way,
 unwrapped, with another `code` (`ERR_REDIS_SERVER_ERROR`).

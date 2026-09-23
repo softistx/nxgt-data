@@ -62,7 +62,7 @@ bun add -d @types/bun typescript
 - It depends on no other `@nxgt` package. Any `RedisClient` will do — your
   own, or the `client` of an `@nxgt/redis` connection.
 - Tested against Redis 7.4. It needs `EVALSHA`, `EVAL` and `TIME` in a
-  script, which every Redis since 5 allows.
+  script.
 
 ## Rate limits
 
@@ -377,7 +377,7 @@ Idempotency:
 - **Scope the key**: an `Idempotency-Key` is unique only to its client.
   `` key: (p) => `${p.user}/${p.key}` `` —
   [describing an operation](docs/guide/idempotency.md#describing-an-operation).
-- **A Redis error after `work` means the work happened**, and the key stays
+- **A Redis error after `work` means the work happened**, and the key may stay
   running until its lease lapses, then runs again. Make `work` safe to repeat
   where it can be — [the same request ran twice](docs/troubleshooting.md#the-same-request-ran-twice).
 - **`wait` holds the request open** while it polls. Keep it under your HTTP
