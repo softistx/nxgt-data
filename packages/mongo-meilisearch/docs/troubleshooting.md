@@ -6,7 +6,8 @@ name is written as it comes out by default — `<collection>:<index uid>`, here
 `articles:articles`.
 
 Everything this package throws is a `SearchSyncError` carrying a `code`
-(`HISTORY_LOST`, `ID_MISMATCH`, `NOT_A_DOCUMENT`, `RUNNING`, `FAILED`), the
+(`HISTORY_LOST`, `ID_MISMATCH`, `NOT_A_DOCUMENT`, `RUNNING`, `LEASE_LOST`,
+`FAILED`), the
 sync's `name`, and the original error as `cause` — except the options, which
 are refused with a `TypeError` before anything is opened.
 
@@ -14,10 +15,10 @@ are refused with a `TypeError` before anything is opened.
 | --- | --- |
 | [Install](#install) | [ERESOLVE](#npm-error-eresolve-unable-to-resolve-dependency-tree) · [incorrect peer dependency](#warn-incorrect-peer-dependency-nxgtmongo0140) · [TS2307](#error-ts2307-cannot-find-module-nxgtmongo-or-its-corresponding-type-declarations) |
 | [Options](#options) | [transform](#createsearchsync-transform-must-be-a-function) · [batchSize](#createsearchsync-batchsize-must-be-a-whole-number-above-0-not-0) · [flushIntervalMs](#createsearchsync-flushintervalms-must-be-a-whole-number-of-milliseconds-not--1) · [name](#createsearchsync-name-must-not-be-empty) |
-| [Starting](#starting) | [no replica set](#search-sync-articlesarticles-failed-starting-the-changestream-stage-is-only-supported-on-replica-sets) · [privileges](#search-sync-articlesarticles-failed-reindexing-not-authorized-on-app-to-execute-command--aggregate-articles-pipeline---changestream-----) · [history lost](#search-sync-articlesarticles-was-last-at-a-point-the-servers-change-history-no-longer-reaches-reindex-it-or-start-it-with-onhistorylost-reindex) · [already running](#search-sync-articlesarticles-is-already-following-changes-in-this-process-close-it-before-you-start-it-twice) |
+| [Starting](#starting) | [no replica set](#search-sync-articlesarticles-failed-starting-the-changestream-stage-is-only-supported-on-replica-sets) · [privileges](#search-sync-articlesarticles-failed-reindexing-not-authorized-on-app-to-execute-command--aggregate-articles-pipeline---changestream-----) · [history lost](#search-sync-articlesarticles-was-last-at-a-point-the-servers-change-history-no-longer-reaches-reindex-it-or-start-it-with-onhistorylost-reindex) · [already running](#search-sync-articlesarticles-is-already-following-changes-in-this-process-close-it-before-you-start-it-twice) · [held by another process](#search-sync-articlesarticles-is-held-by--until--wait-for-it-to-close-or-for-its-lease-to-lapse-before-you-start-it) · [the lease cannot be taken](#search-sync-articlesarticles-failed-taking-its-lease-) |
 | [The transform](#the-transform) | [an id that is not the index's](#search-sync-articlesarticles-transform-gave-id-other-for-the-document--whose-index-id-is-) · [not a document](#search-sync-articlesarticles-transform-gave-a-string-for-the-document-) · [it threw](#search-sync-articlesarticles-failed-following-changes-boom) |
 | [Sending](#sending) | [an id Meilisearch refuses](#search-sync-articlesarticles-failed-sending-changes-task-3-documentadditionorupdate-on-index-articles-failed-document-identifier--is-invalid) |
-| [Stopping](#stopping) | [a dropped collection](#the-sync-stops-and-closed-resolves-with-invalidated) |
+| [Stopping](#stopping) | [lease lost](#search-sync-articlesarticles-lost-its-lease-it-was-not-renewed-within-30000-ms-and-another-process-may-have-taken-the-name-over-it-stopped-rather-than-follow-beside-it) · [a dropped collection](#the-sync-stops-and-closed-resolves-with-invalidated) |
 
 ## Install
 
@@ -111,11 +112,11 @@ createSearchSync({
 
 ### `createSearchSync: batchSize must be a whole number above 0, not 0`
 
-The same refusal covers `positionIntervalMs` and `pageSize`.
+The same refusal covers `positionIntervalMs`, `pageSize` and `leaseMs`.
 
 **When:** calling `createSearchSync`.
 
-**Why:** those three count documents or milliseconds, and `0`, a fraction,
+**Why:** those four count documents or milliseconds, and `0`, a fraction,
 `NaN` and a negative number have no meaning for any of them. A value read from
 the environment is a string until it is parsed, and `Number('')` is `0`.
 
@@ -178,8 +179,8 @@ mongod --replSet rs0 --dbpath ./data   # then, once: rs.initiate()
 
 ### `Search sync "articles:articles" failed reindexing: not authorized on app to execute command { aggregate: "articles", pipeline: [ { $changeStream: {} } ], … }`
 
-The same shape appears for the state collection:
-`… not authorized on app to execute command { update: "nxgt_search_sync", … }`.
+For the state collection, the refusal comes first, from the lease:
+[`… failed taking its lease: …`](#search-sync-articlesarticles-failed-taking-its-lease-).
 
 **When:** `reindex()` or `start()`, against a server with authentication.
 
@@ -226,8 +227,10 @@ already following.
 
 **Why:** a reindex removes what the index holds and the collection no longer
 gives it — including the documents the running follower has just indexed, which
-it will never send again. The refusal covers one process only: there is **no
-lock**, so two processes following one name is yours to prevent.
+it will never send again. This check is the sync object's own and comes first;
+another process, or a second `createSearchSync` with the same name, is refused
+by the lease on the name instead, with
+[`… is held by …`](#search-sync-articlesarticles-is-held-by--until--wait-for-it-to-close-or-for-its-lease-to-lapse-before-you-start-it).
 
 **Fix:**
 
@@ -236,6 +239,67 @@ const running = await articleSearch.start();
 // …
 await running.close();              // then reindex, or start again
 await articleSearch.reindex();
+```
+
+### `Search sync "articles:articles" is held by … until …: wait for it to close, or for its lease to lapse, before you start it.`
+
+Code `RUNNING`. The holder is written `<host>:<pid>:<24 hex digits>`, and the
+date is ISO, in UTC. A `reindex()` ends `… before you reindex.`
+
+**When:** `start()` or `reindex()`, while another process — or another sync
+object in this one — follows or reindexes the same name. Also after a process
+that held it died without closing: its lease still runs until `leaseMs`
+(default `30000`) after its last renewal.
+
+**Why:** a running sync, and a reindex, hold a lease on the sync's name — one
+document in the state collection, renewed every third of `leaseMs`. Two
+followers on one name would each send and record beside the other, and a
+reindex would remove what the follower had just sent. Expiry is decided on the
+MongoDB server's clock, so hosts whose clocks disagree still agree on it.
+
+**Fix:** run one follower per name. A second replica can stand by, retrying
+`start()` until the name is free:
+
+```ts
+import { SearchSyncError } from '@nxgt/mongo-meilisearch';
+
+async function follow() {
+	for (;;) {
+		try {
+			return await articleSearch.start();
+		} catch (error) {
+			if (!(error instanceof SearchSyncError) || error.code !== 'RUNNING') throw error;
+			await new Promise((resolve) => setTimeout(resolve, 10_000));
+		}
+	}
+}
+```
+
+Close the sync on shutdown (`await running.close()` on `SIGTERM`): that lets go
+of the name at once, where a killed process leaves it held until its lease
+lapses. To see who holds it, read `{ _id: { lease: 'articles:articles' } }` in
+the state collection (`nxgt_search_sync` by default). Do not delete a live
+holder's lease by hand: its next renewal finds it gone and it stops with
+[`LEASE_LOST`](#search-sync-articlesarticles-lost-its-lease-it-was-not-renewed-within-30000-ms-and-another-process-may-have-taken-the-name-over-it-stopped-rather-than-follow-beside-it).
+
+### `Search sync "articles:articles" failed taking its lease: …`
+
+Code `FAILED`; the `cause` is the driver's error, and its message follows the
+colon — for example
+`not authorized on app to execute command { findAndModify: "nxgt_search_sync", … }`.
+
+**When:** `start()` or `reindex()`, before anything else is read or sent.
+
+**Why:** the lease lives in the state collection, beside the resume point, and
+taking it is one atomic upsert. The MongoDB user needs `find`, `insert` and
+`update` on that collection to take it, and `delete` to let go of it — or the
+server is not reachable at all.
+
+**Fix:** grant those four on the state collection, and name it if it lives
+elsewhere:
+
+```ts
+createSearchSync({ collection, index, transform, stateCollection: 'search_state' });
 ```
 
 ## The transform
@@ -361,6 +425,41 @@ A failed batch is not skipped: fix the transform and reindex, or the same
 change stops the sync again.
 
 ## Stopping
+
+### `Search sync "articles:articles" lost its lease: it was not renewed within 30000 ms, and another process may have taken the name over. It stopped rather than follow beside it.`
+
+Code `LEASE_LOST`; the number is the sync's `leaseMs`. `closed` rejects with
+it, and nothing more is sent or recorded.
+
+**When:** while following, when a renewal finds the lease is no longer this
+process's: the process could not renew for a whole `leaseMs` — an event loop
+blocked by synchronous work, a long GC pause, MongoDB unreachable for longer
+than that — and another process took the name in between. A lease deleted by
+hand ends the same way.
+
+**Why:** once the lease has lapsed, another follower may be running on the
+same name. Carrying on would send and record beside it, so the sync stops, and
+leaves the new holder's lease alone.
+
+**Fix:** give `leaseMs` room above the longest pause you expect, and start
+again when it happens — `start()` waits its turn with `RUNNING` while the new
+holder runs:
+
+```ts
+import { createSearchSync, SearchSyncError } from '@nxgt/mongo-meilisearch';
+
+createSearchSync({ collection, index, transform, leaseMs: 120_000 });
+
+running.closed.catch((error) => {
+	if (error instanceof SearchSyncError && error.code === 'LEASE_LOST') return follow();
+	log.error(error);
+});
+```
+
+`follow()` is the standby loop from
+[`… is held by …`](#search-sync-articlesarticles-is-held-by--until--wait-for-it-to-close-or-for-its-lease-to-lapse-before-you-start-it).
+A larger `leaseMs` also means a process that dies holds the name that much
+longer.
 
 ### The sync stops and `closed` resolves with `'invalidated'`
 

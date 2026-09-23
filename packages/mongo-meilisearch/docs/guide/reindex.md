@@ -87,8 +87,27 @@ await articleSearch.reindex();
 const fresh = await articleSearch.start();
 ```
 
-The check is per object and per process: the package has no lock across
-processes, and [does not pretend to](boundaries.md).
+## Not beside a follower in another process
+
+`reindex()` takes the sync name's [lease](following-changes.md#one-process-per-name-the-lease)
+for as long as it runs, renews it every third of `leaseMs`, and lets go when
+it is done. While another process follows the name, or reindexes it, it is
+refused before it reads anything:
+
+```ts
+await articleSearch.reindex();
+// SearchSyncError: Search sync "articles:articles" is held by
+// worker-1:4127:66f0c2e5a1b2c3d4e5f60718 until 2026-09-22T09:14:07.512Z: wait
+// for it to close, or for its lease to lapse, before you reindex.
+```
+
+The code is `RUNNING` again. Close the follower wherever it runs — its
+`close()` lets go of the name before it resolves — then reindex. While the
+reindex runs, a `start()` elsewhere is refused the same way.
+
+A reindex whose lease another process took over while it ran — it was not
+renewed within `leaseMs` — finishes, then rejects with `LEASE_LOST` instead of
+returning its report.
 
 ## Errors
 

@@ -90,6 +90,7 @@ takes **except `collection`**, which the kit already holds:
 | `batchSize` | `number` | `500` | Changes, or documents, sent at once |
 | `flushIntervalMs` | `number` | `1000` | How long a change waits for others |
 | `positionIntervalMs` | `number` | `60000` | How often a quiet sync records where its stream is |
+| `leaseMs` | `number` | `30000` | How long the lease on this sync's name lasts unrenewed; a running sync renews it every third of that |
 | `pageSize` | `number` | `100` | Documents a reindex reads per page |
 | `onHistoryLost` | `'reindex' \| 'fail'` | `'reindex'` | What `start` does when a resume point is older than the server's history |
 

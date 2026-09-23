@@ -66,9 +66,11 @@ bun add @nxgt/mongo-search-kit @nxgt/mongo-kit @nxgt/mongo-meilisearch @nxgt/mon
 - **One database.** A kit that holds several gives `never` for its keys, as
   `kit.db` itself does, and `createSearchKit` throws naming them. Build one
   search kit per database, from a kit that wires that database alone.
-- **One process per sync name.** There is no lock today, and how followers of
-  one name coordinate is `@nxgt/mongo-meilisearch`'s boundary, not this
-  package's to move.
+- **Its own coordination between processes.** Each entry's sync takes the
+  lease on its name when it starts, as `@nxgt/mongo-meilisearch` does: a
+  second process starting the same kit is refused with `RUNNING` for the
+  first sync whose name is held, and starts nothing. How long a lease lasts is
+  each entry's `leaseMs`.
 - **It does not own the Mongo kit.** Closing the search kit stops the syncs
   and nothing else: the clients, the databases and the collections are the
   Mongo kit's, and `kit.close()` is still the caller's to make.
@@ -89,7 +91,8 @@ everything [`createSearchSync`](https://www.npmjs.com/package/@nxgt/mongo-meilis
 takes **except `collection`**, which the kit already holds: `index`,
 `transform`, `toIndexId` (optional while the index's ids are strings,
 required otherwise), and optionally `name`, `stateCollection`, `batchSize`,
-`flushIntervalMs`, `positionIntervalMs`, `pageSize` and `onHistoryLost`.
+`flushIntervalMs`, `positionIntervalMs`, `leaseMs`, `pageSize` and
+`onHistoryLost`.
 
 `SearchKit<I>`:
 
@@ -155,9 +158,13 @@ refusal it goes with.
 - **A failed `start()` leaves nothing running.** The syncs already started
   are closed before the error comes back, so a caller that catches it owns
   no sync.
-- **A kit cannot be started twice, nor reindexed while running.**
-  `@nxgt/mongo-meilisearch` throws `RUNNING` for a sync of the same object
-  that is already following, and the kit passes that through.
+- **A kit cannot be started twice, nor reindexed while running** — in this
+  process or in another. `@nxgt/mongo-meilisearch` throws `RUNNING` for a sync
+  of the same object that is already following, or whose name another
+  process holds the lease on, and the kit passes that through.
+- **A sync that loses its lease rejects `failed` with `LEASE_LOST`.** A
+  process stalled for longer than an entry's `leaseMs` (30 s) may find another
+  has taken that name over; the sync stops rather than follow beside it.
 - **`flush()` stops at the first sync that fails, like `reindexAll()`.** A
   sync that has already fallen over rejects `flush` at once, and the syncs
   after it in the config are then neither sent nor recorded — on restart

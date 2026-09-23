@@ -1,6 +1,7 @@
 import type { AnyIndexDefinition, TypedIndex } from '@nxgt/meilisearch';
 import type { AnyCollectionDefinition, TypedCollection } from '@nxgt/mongo';
 import type { Collection } from 'mongodb';
+import type { LeaseDocument } from './lease';
 import type { SearchSyncOptions, SearchSyncState } from './types';
 
 /** Loosely typed: this layer works on any documents; the public types are what callers see. */
@@ -16,6 +17,10 @@ export interface SyncContext {
 	readonly index: TypedIndex<AnyIndexDefinition>;
 	readonly primaryKey: string;
 	readonly state: Collection<SearchSyncState>;
+	/** The same collection, for the lease documents it also holds. */
+	readonly leases: Collection<LeaseDocument>;
+	/** How long a lease lasts unrenewed, in ms. */
+	readonly leaseMs: number;
 	readonly batchSize: number;
 	readonly flushIntervalMs: number;
 	readonly positionIntervalMs: number;
@@ -60,14 +65,15 @@ export function createContext(
 			`createSearchSync: flushIntervalMs must be a whole number of milliseconds, not ${String(options.flushIntervalMs)}`,
 		);
 	}
+	const stateCollection = options.stateCollection ?? DEFAULT_STATE_COLLECTION;
 	return {
 		name,
 		collection,
 		index,
 		primaryKey: index.definition.primaryKey as string,
-		state: collection.db.collection<SearchSyncState>(
-			options.stateCollection ?? DEFAULT_STATE_COLLECTION,
-		),
+		state: collection.db.collection<SearchSyncState>(stateCollection),
+		leases: collection.db.collection<LeaseDocument>(stateCollection),
+		leaseMs: positive('leaseMs', options.leaseMs, 30_000),
 		batchSize: positive('batchSize', options.batchSize, 500),
 		positionIntervalMs: positive(
 			'positionIntervalMs',

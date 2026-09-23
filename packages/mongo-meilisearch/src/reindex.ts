@@ -4,6 +4,7 @@ import { deleteIds, sendDocuments } from './batch';
 import type { Doc, SyncContext } from './context';
 import { entryOf, keyOf } from './documents';
 import { failed } from './errors';
+import { withLease } from './lease';
 import { checkIdle } from './running';
 import { saveState } from './state';
 import type { ReindexReport } from './types';
@@ -81,8 +82,18 @@ async function removeUnwanted(
 	return unwanted.length;
 }
 
+/**
+ * A reindex, holding the sync's lease for as long as it runs: a follower in
+ * another process would otherwise have what it just indexed removed, and
+ * never send it again.
+ */
 export async function reindex(ctx: SyncContext): Promise<ReindexReport> {
 	checkIdle(ctx, 'reindex');
+	return withLease(ctx, 'reindex', () => reindexHeld(ctx));
+}
+
+/** A reindex by a caller that already holds the lease: `start`. */
+export async function reindexHeld(ctx: SyncContext): Promise<ReindexReport> {
 	try {
 		// Taken first: a change made while the documents are read is followed
 		// again from here, so it cannot fall between the two.

@@ -6,8 +6,16 @@ export type SearchSyncErrorCode =
 	| 'ID_MISMATCH'
 	/** The transform gave something that is neither a document nor `null`. */
 	| 'NOT_A_DOCUMENT'
-	/** This sync is already following changes in this process. */
+	/**
+	 * This sync's name is taken: it is following changes in this process, or
+	 * another process holds its lease.
+	 */
 	| 'RUNNING'
+	/**
+	 * A running sync's lease was not renewed in time and is no longer its
+	 * own: it stopped rather than follow beside whoever took the name over.
+	 */
+	| 'LEASE_LOST'
 	/** Anything else: the cause says what. */
 	| 'FAILED';
 

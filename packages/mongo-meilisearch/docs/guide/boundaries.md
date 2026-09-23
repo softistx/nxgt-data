@@ -17,27 +17,33 @@ const articleSearch = createSearchSync({
 	transform: (article) => ({ id: String(article._id), title: article.title }),
 });
 
-// One follower, in one process: everything below is what that costs.
+// One follower per name: everything below is what that costs.
 const running = await articleSearch.start();
 ```
 
-## Several processes sharing one sync — not yet
+## One follower per sync name
 
-There is **no lock today**: run one follower per sync name. Two processes
-under one name do the same writes twice, and both are wrong the moment one of
-them reindexes: a `reindex()` in one while the other follows removes
-documents the follower has already indexed and will never send again.
+Several processes may **start** one sync; only one **follows** it at a time.
+`start()` takes a lease on the name, and the others are refused with
+`RUNNING` until it lets go or its lease lapses. What the lease is, and how to
+run a standby, is in
+[Following changes](following-changes.md#one-process-per-name-the-lease).
 
-Inside **one** process the package does refuse it: a second `start()`, or a
-`reindex()`, throws `SearchSyncError` with the code `RUNNING`.
+What it does not give:
+
+- **Shared work.** A second process does not take half the changes; it
+  waits. To spread the load, run one sync per collection, each under its own
+  `name`, in as many processes as you like.
+- **Fencing.** A process stalled for longer than `leaseMs` does not know it
+  lost the name until its next renewal, up to `leaseMs / 3` later, and may
+  send a batch beside the process that took over. Both send whole documents,
+  which are safe to apply twice, and each records only what it applied, so
+  the index and the resume point stay right. Keep `leaseMs` well above the
+  longest pause a process may take.
 
 Give two syncs different `name`s when they are meant to be independent — the
 default, `'<collection>:<index uid>'`, is shared by any two syncs over the
-same pair.
-
-A lease on a sync name, renewed while a follower runs, is being worked on;
-[the roadmap](../roadmap.md) says where it stands. Until it ships, one writer
-per name is the rule.
+same pair, and so is its lease.
 
 ## Partial updates
 
@@ -120,9 +126,9 @@ also writes to, lose documents at the first reindex. The sync owns its index.
   Meilisearch client, and closes neither.
 - **The permissions.** The MongoDB user needs `find` and `changeStream` on
   the collection and `find`, `insert`, `update` and `delete` on
-  `stateCollection`; the Meilisearch key needs `documents.add`,
-  `documents.get`, `documents.delete` and `tasks.get`, plus `indexes.create`
-  unless the index already exists.
+  `stateCollection`, where the resume point and the lease both live; the
+  Meilisearch key needs `documents.add`, `documents.get`, `documents.delete`
+  and `tasks.get`, plus `indexes.create` unless the index already exists.
 
 ## Next
 

@@ -557,6 +557,10 @@ per package, then the scripts' specs. Treat any failure as yours.
   - `$documents` on a **collection's** `aggregate` (it needs
     `{ aggregate: 1 }`), so the insert is `db.aggregate([{ $documents }, { $merge,
     whenMatched: 'fail' }])`, which answers 11000 when the lock exists.
+  - `@nxgt/mongo-meilisearch`'s lease on a sync name gets round the first
+    one differently: its upsert filters on `_id` alone and puts the decision
+    in a **pipeline update** (`$cond` on `$expiresAt <= $$NOW`), which the
+    server accepts; two racing inserts answer 11000 to the loser.
 
 - **Meilisearch answers `succeeded` to a settings update whatever it holds**:
   measured on v1.53.2 with an unknown ranking rule, an empty dictionary entry
