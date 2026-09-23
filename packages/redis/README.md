@@ -225,6 +225,12 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
 
 ## Traps
 
+- **A write is typed by what the schema accepts.** `set` and a `remember`
+  loader take `z.input`, so a `.default()` field may be left out; where the
+  input is `unknown` — `z.coerce`, `z.preprocess` — anything compiles and the
+  schema refuses a wrong value at run time. A value read back (`z.output`) is
+  not always a valid input: a transform's output passed to `set` does not
+  compile.
 - **`ttl` is seconds for a cache and milliseconds for a lock.** A cache's is
   Redis's `EX`; a lock's is its `PX`, because a lock's deadline is usually
   well under a second's resolution.

@@ -55,7 +55,7 @@ a key spelled by hand in a script drifts the first time the prefix changes.
 The [configuration page](configuration.md#the-prefix) has the whole layout,
 locks included.
 
-## A value is written as the schema *outputs* it
+## A value is written as the schema *accepts* it
 
 ```ts
 const userSchema = z.object({
@@ -65,15 +65,20 @@ const userSchema = z.object({
 });
 
 await kit.cache.users.set('ada', { id: 'ada', email: 'ada@example.com' });
-// Argument of type '{ id: string; email: string; }' is not assignable to
-// parameter of type '{ id: string; email: string; seats: number; }'.
+const ada = await kit.cache.users.get('ada');
+// { id: 'ada', email: 'ada@example.com', seats: 1 }
 ```
 
-`set` and `remember` take the value the schema **produces**, not the one it
-accepts, so a field with a `.default()` has to be passed anyway — `seats: 1`
-above — and a loader has to return it. That is `@nxgt/redis`'s signature, not
-this package's; it is written down in [the roadmap](../roadmap.md) under
-*Later*, where it belongs to the sibling.
+`set` and a `remember` loader take the value as the schema **accepts** it —
+its `z.input` — and `get` and `remember` give it back as the schema
+**produces** it — its `z.output`. A field with a `.default()` may be left out
+where a value is written, and every reader gets it filled, since what is
+stored is what the schema gave back. It is `@nxgt/redis`'s `BoundCache`,
+typed through.
+
+Where the input type is `unknown` — a `z.coerce.number()` field, a
+`z.preprocess` schema — the compiler accepts anything there, and the schema's
+own check when `set` runs is what refuses a wrong value.
 
 ## Built on first read, and kept
 
@@ -145,7 +150,8 @@ kit.instances.pubsub.cache.users;                 // that instance wires no cach
 type CacheScope<Ca> = {
 	readonly [K in keyof CachesOf<Ca>]: BoundCache<
 		ParamsOf<CachesOf<Ca>[K]>,
-		ValueOf<CachesOf<Ca>[K]>
+		ValueOf<CachesOf<Ca>[K]>,
+		InputOf<CachesOf<Ca>[K]>
 	>;
 };
 
@@ -157,7 +163,8 @@ type CachesOf<C> = {
 
 `CachesOf` is the key remapping that drops everything in the module that is
 not a definition, which is why `import * as caches` can be passed as it is.
-`BoundCache`, `ParamsOf` and `ValueOf` are `@nxgt/redis`'s.
+`BoundCache`, `ParamsOf`, `ValueOf` — what a read gives — and `InputOf` —
+what a write takes — are `@nxgt/redis`'s.
 
 Next: [channels](channels.md) for the events beside these values, or
 [locks and health](locks-and-health.md) for the work a cache miss sometimes

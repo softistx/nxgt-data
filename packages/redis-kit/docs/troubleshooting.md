@@ -40,7 +40,7 @@ try {
 | Area | Entries |
 | --- | --- |
 | [Install and import](#install-and-import) | [TS2307](#error-ts2307-cannot-find-module-bun-or-its-corresponding-type-declarations) · [ERESOLVE](#npm-error-eresolve-unable-to-resolve-dependency-tree) |
-| [Types](#types) | [a field with a `.default()`](#property-seats-is-missing-in-type--id-string-email-string--but-required-in-type--id-string-email-string-seats-number-) · [`kit.cache` with several instances](#property-users-does-not-exist-on-type-never) · [a cache on a channel-only instance](#property-users-does-not-exist-on-type-cachescoperecordnever-never) |
+| [Types](#types) | [`kit.cache` with several instances](#property-users-does-not-exist-on-type-never) · [a cache on a channel-only instance](#property-users-does-not-exist-on-type-cachescoperecordnever-never) |
 | [Configuration](#configuration) | [neither uri nor client](#defineconfig-instance-default-has-neither-uri-nor-client-give-it-one) · [both](#defineconfig-instance-default-has-both-uri-and-client-pass-the-uri-to-connect-to-or-the-client-you-already-opened) · [clientOptions beside a client](#defineconfig-instance-default-has-clientoptions-beside-a-client-the-client-was-opened-with-its-own-pass-a-uri-or-drop-the-options) · [an empty prefix](#defineconfig-instance-default-has-an-empty-prefix-leave-it-out-or-give-it-a-name) · [nothing wired](#defineconfig-instance-default-wires-no-cache-and-no-channel-pass-the-module-that-exports-them-or-drop-the-instance) · [one definition, two keys](#defineconfig-instance-default-wires-the-cache-named-user-twice-under-users-and-people-they-would-share-every-key-in-redis-export-one-of-them-or-give-it-a-name-of-its-own) · [no instances](#defineconfig-instances-is-empty-give-it-one-or-write-the-single-instance-as-the-configuration-itself) |
 | [Connecting](#connecting) | [a config built by hand](#connectkit-instance-main-has-neither-uri-nor-client-give-it-one) · [a connect that hangs](#connectkit-hangs-for-about-half-a-minute-on-a-uri-nothing-listens-on) · [one URI, two option sets](#connectredis-this-uri-is-already-connected-with-other-options-pass-the-same-options-everywhere-or-close-the-first-connection) |
 | [Runtime](#runtime) | [`kit.cache` with several instances](#kitcache-this-kit-holds-2-redis-instances-and-this-call-lives-on-one-name-it-as--on-cache-) · [an instance the kit does not have](#kitlock-this-kit-has-no-instance-named-events-it-wires-cache-pubsub) · [a value the schema refuses](#this-value-does-not-match-the-schema-myappproduser-stores) · [a lock somebody else holds](#the-lock-myappimport-is-held-by-somebody-else-and-this-call-did-not-wait-for-it--pass-wait-to-keep-trying) · [a wait that ran out](#the-lock-myappimport-is-held-by-somebody-else-and-5000ms-was-not-long-enough-to-wait-for-it) · [a message a subscriber cannot read](#a-message-on-myappprodusercreated-does-not-match-its-schema) · [a lock that expired](#the-lock-myappimport-expired-before-its-work-finished-it-ran-longer-than-the-30000ms-ttl-so-it-may-have-run-beside-another-holder) · [a key that is not where you look](#a-key-a-channel-or-a-lock-is-not-where-you-expect-it-in-redis-cli) |
@@ -95,44 +95,6 @@ mismatch is only a line of output — `warn: incorrect peer dependency
 `bun pm ls` shows what was resolved.
 
 ## Types
-
-### `Property 'seats' is missing in type '{ id: string; email: string; }' but required in type '{ id: string; email: string; seats: number; }'`
-
-The whole line is a `TS2345`:
-
-```
-error TS2345: Argument of type '{ id: string; email: string; }' is not assignable to parameter of type '{ id: string; email: string; seats: number; }'.
-  Property 'seats' is missing in type '{ id: string; email: string; }' but required in type '{ id: string; email: string; seats: number; }'.
-```
-
-**When:** compiling a `set`, or a `remember` loader, for a cache whose schema
-gives a field a `.default()`:
-
-```ts
-export const userSchema = z.object({
-	id: z.string(),
-	email: z.string(),
-	seats: z.number().default(1),       // optional in, always there out
-});
-```
-
-**Why:** a bound cache is typed by the schema's **output**, and
-`.default()` is exactly the case where the input and the output differ:
-`seats` is optional on the way in and always present on the way out, so
-`set(params, value)` asks for it. At run time the schema would fill it in —
-`set` parses what it is given — but the parameter type is the output type, so
-the compiler asks for it anyway. It belongs to `@nxgt/redis`'s `BoundCache`,
-not to the wiring; [the roadmap](roadmap.md) records it.
-
-**Fix:** pass the defaulted field, or drop the default and make it required:
-
-```ts
-await kit.cache.users.set('ada', { id: 'ada', email: 'ada@example.com', seats: 1 });
-```
-
-The same holds for `remember`: its loader returns the value as the schema
-outputs it, and what a later `get` gives back is what `set` stored, not what
-the loader handed over.
 
 ### `Property 'users' does not exist on type 'never'.`
 

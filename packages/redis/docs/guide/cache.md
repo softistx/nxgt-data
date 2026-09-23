@@ -83,6 +83,11 @@ const loaded = await members.remember('u2', () => ({ id: 'u2' })); // seats: 1 t
 What is stored is what the schema gave back, so every reader sees the
 default, not only the one that wrote.
 
+Where a field's input type is `unknown` — `z.coerce.number()`, or a whole
+`z.preprocess` schema — the compiler accepts anything there: `set` is then
+checked at run time only, by the schema, which refuses a wrong value with a
+`RedisError` before anything is stored.
+
 ## The definition
 
 | Option | Type | Default | Effect |
@@ -244,7 +249,8 @@ function warm(cache: BoundCache<ProfileParams, Profile>): Promise<void> {
 
 `ParamsOf` and `ValueOf` are there so a helper of your own can name what a
 definition takes and what it holds without repeating either; `InputOf` is what
-it accepts on a write, which is `ValueOf` with the defaulted fields optional. A
+it accepts on a write — for a `.default()`, `ValueOf` with that field
+optional; for a transform, the type before it. A
 bound cache is `BoundCache<P, T, I>` — `I` defaults to `T` — so a helper can
 take one without naming the definition it came from.
 

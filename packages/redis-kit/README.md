@@ -289,9 +289,10 @@ Each is a `@ts-expect-error` case in this package's type tests.
 - **`defineConfig` connects to nothing**, so a wrong URI is `connectKit`'s
   error, not its. An instance that fails to open closes the ones already open
   before the error leaves.
-- **A value is written as the schema *outputs* it**, so a field with a
-  `.default()` must still be given to `set` and returned by `remember`'s
-  loader — see [the roadmap](docs/roadmap.md).
+- **A value is written as the schema *accepts* it**, so a field with a
+  `.default()` may be left out of `set` and of `remember`'s loader, and a
+  `z.coerce` or `z.preprocess` field accepts `unknown`: there, `set` is
+  checked at run time only, by the schema.
 - **A subscription costs a connection.** Close it, or let `kit.close()` do it;
   one that outlives the kit is a socket nobody gives back.
 - **`kit.cache` throws on a kit with several instances**, where its type is
