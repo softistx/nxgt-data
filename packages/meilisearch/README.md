@@ -273,6 +273,25 @@ page.totalPages; // number
 For anything else (`searchForFacetValues`, `searchSimilarDocuments`, stats,
 a single setting), `movieIndex.raw` is the SDK's own `Index`.
 
+### Several indexes in one request
+
+```ts
+import { multiSearch } from '@nxgt/meilisearch';
+
+const [films, persons] = await multiSearch(client, [
+	{ index: movieIndex, q: 'alien', sort: ['year:desc'], facets: ['genres'] },
+	{ index: peopleIndex, q: 'scott', filter: 'country = UK', sort: ['born:desc'] },
+]);
+// films.hits: Hit<Movie>[]; persons.hits: Hit<Person>[]
+```
+
+One request, the SDK's `client.multiSearch({ queries })`, and a tuple of
+results in the same order, each typed by its own index: the options of each
+query are `search`'s for that index, so a sort on another index's attribute
+does not compile. One query Meilisearch refuses fails the whole request, with
+the SDK's error naming it (``Inside `.queries[1]`: …``). Federated search is
+not wrapped: call `client.multiSearch({ federation, queries })`.
+
 ## Errors
 
 The SDK's errors reach you as they are: a request Meilisearch refuses throws
@@ -378,6 +397,19 @@ The types it uses:
 - `interface ListQuery<Def, Fields>`, `interface DocumentPage<T> { results: T[]; total: number; offset: number; limit: number }`.
 - `type FieldOf<Def>`, `type Selected<Doc, Fields>`, `interface FieldsOptions<Fields>`.
 
+### `multiSearch(client, queries)`
+
+```ts
+function multiSearch<const Queries extends readonly { index: TypedIndex<any> }[]>(
+	client: Meilisearch,
+	queries: Queries & { readonly [K in keyof Queries]: CheckedQuery<Queries[K]> },
+): Promise<MultiSearchResults<Queries>>;
+```
+
+- `type MultiSearchQuery<Def> = SearchOptions<Def> & { index: TypedIndex<Def>; q?: string | null }`: one query.
+- `type CheckedQuery<Q>`: the query as its own index allows it, with any other key refused.
+- `type MultiSearchResults<Queries>`: a tuple, `SearchResult<Def, Query> & { indexUid: string }` per query.
+
 ### `SearchIndexError`
 
 - `class SearchIndexError extends Error`: `code: SearchIndexErrorCode`, `indexUid: string`, `task: Task | undefined`, `expectedPrimaryKey: string | undefined`, `actualPrimaryKey: string | undefined`, `cause`.
@@ -408,6 +440,9 @@ The types it uses:
   do not narrow the hits.** A hit is typed as the whole document, even when
   Meilisearch returns part of it. `get`, `getMany` and `list` do narrow to
   their `fields`.
+- **`multiSearch` sends every query on the `client` it is given**, not on
+  the client each index was bound with; and one refused query fails them
+  all — there is no partial result.
 - **`getMany` returns documents in Meilisearch's order**, not in the order
   of the ids.
 - **An embedder's `apiKey` is not compared.** Meilisearch reads it back
@@ -440,7 +475,7 @@ The types it uses:
 - [docs/guide/sync.md](docs/guide/sync.md) — `syncIndex`, the report, dry runs, and how the settings are compared.
 - [docs/guide/rebuild.md](docs/guide/rebuild.md) — `rebuild`: filling an index beside the live one and swapping it in, and what was measured.
 - [docs/guide/documents.md](docs/guide/documents.md) — `bindIndex`, writes, waiting for a task, reads by id, `list`.
-- [docs/guide/search.md](docs/guide/search.md) — filters, sorts, facets, highlighting and the two paginations.
+- [docs/guide/search.md](docs/guide/search.md) — filters, sorts, facets, highlighting, the two paginations, and `multiSearch` over several indexes.
 - [docs/guide/errors.md](docs/guide/errors.md) — `SearchIndexError`, the SDK's errors, one handler for the app.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — an error message, and its fix.
 - [docs/roadmap.md](docs/roadmap.md) — what is next, and what is not planned.

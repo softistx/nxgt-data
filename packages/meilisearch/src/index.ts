@@ -45,6 +45,12 @@ export type {
 	WriteResult,
 } from './index/types';
 export type {
+	CheckedQuery,
+	MultiSearchQuery,
+	MultiSearchResults,
+} from './search/multi-search';
+export { multiSearch } from './search/multi-search';
+export type {
 	RebuildFill,
 	RebuildOptions,
 	RebuildReport,

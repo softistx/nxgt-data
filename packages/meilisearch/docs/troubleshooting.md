@@ -23,6 +23,7 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [``Index `movies` not found.``](#index-movies-not-found)
   - [``Index `movies`: Attribute `year` is not filterable.``](#index-movies-attribute-year-is-not-filterable)
   - [``Index `movies`: Attribute `year` is not sortable.``](#index-movies-attribute-year-is-not-sortable)
+  - [``Inside `.queries[1]`: Index `nobody` not found.``](#inside-queries1-index-nobody-not-found)
   - [A search right after a write finds nothing](#a-search-right-after-a-write-finds-nothing)
 
 ## Install and types
@@ -288,6 +289,30 @@ settings: { sortableAttributes: ['year', 'rating'] }
 Then `sync()` again: a setting the definition leaves out is never compared
 nor reset, so removing it from the definition does not remove it from the
 server.
+
+### ``Inside `.queries[1]`: Index `nobody` not found.``
+
+The same lead, ``Inside `.queries[N]`: ``, comes before any refusal of one
+query in a `multiSearch` — ``Index `movies`: Attribute `name` is not
+sortable.`` included.
+
+**When:** `multiSearch(client, queries)`, when one query names an index that
+does not exist, or an attribute the live index does not allow. `N` is its
+position, from 0; `cause.code` is Meilisearch's own (`index_not_found`,
+`invalid_search_sort`…).
+**Why:** Meilisearch answers a multi-search as one request: one refused
+query fails them all, and no result comes back for the others. The types
+check each query against its **definition**; the server checks it against
+the settings it holds, which differ until `sync` has run.
+**Fix:** sync every index a multi-search reads, where the app starts:
+
+```ts
+await syncIndexes(client, [movies, people]);
+const [films, persons] = await multiSearch(client, [
+	{ index: movieIndex, q },
+	{ index: peopleIndex, q },
+]);
+```
 
 ### A search right after a write finds nothing
 
