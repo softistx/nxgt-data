@@ -92,3 +92,17 @@ await tenantToken({
 });
 // @ts-expect-error the key is required
 await tenantToken({ apiKeyUid, indexes: [movieIndex] });
+
+// A rebuild's next index has a uid that is only a string: its rules cannot
+// be checked by the types, and a wrong key is refused at run time instead.
+await bindIndex(client, movies).rebuild(async (next) => {
+	await tenantToken({
+		apiKey,
+		apiKeyUid,
+		indexes: [next],
+		searchRules: { movies_next: { filter: 'genres = scifi' } },
+	});
+});
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], force: true });
+// @ts-expect-error force is a boolean
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], force: 'yes' });

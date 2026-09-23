@@ -264,6 +264,9 @@ diffSettings({ stopWords: undefined }, {});
 
 // rebuild hands `fill` an index typed by the same definition.
 const rebuilt = await index.rebuild(async (next) => {
+	// The next index's uid is not the live one's, so it is only a string.
+	assertType<Equal<typeof next.definition.uid, string>>(true);
+	assertType<Equal<(typeof index.definition)['uid'], 'movies'>>(true);
 	await next.add([movie], { wait: true });
 	// @ts-expect-error a document with attributes missing
 	await next.add([{ id: 1, title: 'Alien' }]);

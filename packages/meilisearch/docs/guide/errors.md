@@ -144,13 +144,16 @@ try {
 }
 ```
 
-Two places where this package steps in front of the SDK, and only two:
+Three places where this package steps in front of the SDK, and only three:
 
 - `get` turns `document_not_found` into `undefined`. A missing index is
   still thrown — an empty result and a missing index are not the same
   answer.
 - `sync` treats `index_not_found` while reading as "create it", and an
   `index_already_exists` from a racing creation as "use theirs".
+- `rebuild` wraps whatever stopped it before its swap — the SDK's error
+  included — in a `REBUILD_FAILED`, as `cause`, because it cleaned up after
+  it. A failure after the swap is not wrapped.
 
 ## One handler for the app
 
@@ -161,7 +164,16 @@ import { MeilisearchApiError, MeilisearchRequestError } from 'meilisearch';
 
 export const app = new Hono().onError((error, c) => {
 	if (error instanceof SearchIndexError) {
-		console.error({ code: error.code, uid: error.indexUid, task: error.task?.uid });
+		// An expiresAt from the request: the caller's input.
+		if (error.code === 'INVALID_EXPIRES_AT') return c.json({ error: 'expiresAt' }, 400);
+		// A rebuild carries what stopped it — often the SDK's error — as cause.
+		const cause = error.code === 'REBUILD_FAILED' ? error.cause : undefined;
+		console.error({
+			code: error.code,
+			uid: error.indexUid,
+			task: error.task?.uid,
+			cause: cause instanceof MeilisearchApiError ? cause.cause?.code : cause,
+		});
 		return c.json({ error: 'Search is not available' }, 503);
 	}
 	if (error instanceof MeilisearchRequestError) {

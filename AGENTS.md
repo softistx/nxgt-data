@@ -55,8 +55,10 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   SDK may break its types in a minor. Raise both together, after reading its
   `indexes.d.ts` and `types/types.d.ts`, where `Settings` and `SearchParams`
   live, and `token.d.ts`: `tenantToken` imports `generateTenantToken` from
-  the SDK's `meilisearch/token` subpath, which the peer range must keep. The SDK's errors reach the caller as they are; the package's only
-  error of its own is `SearchIndexError`.
+  the SDK's `meilisearch/token` subpath, which the peer range must keep.
+  The SDK's errors reach the caller as they are — except inside a
+  `REBUILD_FAILED`, which carries the one that stopped a rebuild as its
+  `cause`; the package's only error of its own is `SearchIndexError`.
 - **`@nxgt/mongo/migrations` and `@nxgt/mongo/gridfs` are subpaths** of
   `@nxgt/mongo`, not packages: both reuse its coercion, its `withTransaction`
   and its errors, and version with it. `src/migrations/` and `src/gridfs/`
@@ -532,7 +534,7 @@ the file.
 
 ## Known state
 
-`bun run test` is **1186 pass, 0 fail**: drizzle 113, meilisearch 73,
+`bun run test` is **1192 pass, 0 fail**: drizzle 113, meilisearch 79,
 mongo 532, drizzle-meilisearch 42, mongo-meilisearch 55, mongo-kit 100,
 mongo-search-kit 17, redis 46, redis-kit 55, s3 104, hono-api-example 31,
 scripts 18. It runs one process

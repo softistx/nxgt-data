@@ -11,6 +11,7 @@ import { type Movie, movies, sampleMovies } from '../../test/movies';
 import { startMeilisearch, type TestServer } from '../../test/server';
 import { SearchIndexError } from '../errors/search-index-error';
 import { bindIndex } from '../index/bind-index';
+import { tenantToken } from '../token/tenant-token';
 
 let t: TestServer;
 
@@ -205,9 +206,9 @@ describe('rebuild', () => {
 			'documents.add',
 		];
 		/** A client on a new key; the key itself is never printed. */
-		const clientWith = async (indexes: string[]) => {
+		const clientWith = async (indexes: string[], without: string[] = []) => {
 			const { key } = await t.client.createKey({
-				actions,
+				actions: actions.filter((action) => !without.includes(action)),
 				indexes,
 				expiresAt: null,
 			});
@@ -224,36 +225,101 @@ describe('rebuild', () => {
 			expect(await uids()).toEqual(['movies']);
 		});
 
-		test('a key on named indexes cannot wait for the swap, which still happens', async () => {
+		test.each([[['movies', 'movies_next']], [['movies*']]])(
+			'a key on %p cannot wait for the swap, which still happens',
+			async (indexes) => {
+				await live();
+				const client = await clientWith(indexes);
+				const error = await bindIndex(client, movies)
+					.rebuild(async (next) => {
+						await next.add(remade);
+					})
+					.catch((e) => e);
+				expect(error).toBeInstanceOf(SearchIndexError);
+				expect(error.code).toBe('REBUILD_FAILED');
+				expect(error.message).toBe(
+					'Rebuild of index "movies" sent the swap with "movies_next" and could not wait for it: ' +
+						'whether "movies" was swapped is unknown, and "movies_next" was left for the next rebuild to delete. ' +
+						'The cause is on `cause`.',
+				);
+				// The swap task has no index, and a key on named indexes cannot read it.
+				expect(error.cause).toBeInstanceOf(MeilisearchApiError);
+				expect(error.cause.cause.code).toBe('task_not_found');
+				expect(error.cause.message).toMatch(/^Task `\d+` not found\.$/);
+				// The wait failed at its first poll, so the swap may still be running:
+				// the master key can read it. It happened: the new documents are live,
+				// and the old ones are left over.
+				const tasks = await t.client.tasks.getTasks({ types: ['indexSwap'] });
+				const swap = tasks.results[0];
+				if (!swap) throw new Error('no swap task');
+				expect((await t.client.tasks.waitForTask(swap.uid)).status).toBe(
+					'succeeded',
+				);
+				expect(await titles()).toEqual(remade.map((m) => m.title));
+				expect(await uids()).toEqual(['movies', 'movies_next']);
+			},
+		);
+
+		test('a key that may not change settings stops while creating, and leaves nothing behind', async () => {
 			await live();
-			const client = await clientWith(['movies', 'movies_next']);
+			const before = await titles();
+			const client = await clientWith(['*'], ['settings.update']);
 			const error = await bindIndex(client, movies)
-				.rebuild(async (next) => {
-					await next.add(remade);
+				.rebuild(async () => {
+					throw new Error('fill must not run');
 				})
 				.catch((e) => e);
 			expect(error).toBeInstanceOf(SearchIndexError);
 			expect(error.code).toBe('REBUILD_FAILED');
 			expect(error.message).toBe(
-				'Rebuild of index "movies" sent the swap with "movies_next" and could not wait for it: ' +
-					'whether "movies" was swapped is unknown, and "movies_next" was left for the next rebuild to delete. ' +
-					'The cause is on `cause`.',
+				'Rebuild of index "movies" stopped while creating "movies_next": ' +
+					'"movies_next" was deleted, and "movies" is as it was. The cause is on `cause`.',
 			);
-			// The swap task has no index, and a key on named indexes cannot read it.
 			expect(error.cause).toBeInstanceOf(MeilisearchApiError);
-			expect(error.cause.cause.code).toBe('task_not_found');
-			// The wait failed at its first poll, so the swap may still be running:
-			// the master key can read it. It happened: the new documents are live,
-			// and the old ones are left over.
-			const tasks = await t.client.tasks.getTasks({ types: ['indexSwap'] });
-			const swap = tasks.results[0];
-			if (!swap) throw new Error('no swap task');
-			expect((await t.client.tasks.waitForTask(swap.uid)).status).toBe(
-				'succeeded',
-			);
+			expect(error.cause.cause.code).toBe('invalid_api_key');
+			expect(error.cause.message).toBe('The provided API key is invalid.');
+			expect(await uids()).toEqual(['movies']);
+			expect(await titles()).toEqual(before);
+		});
+
+		test('a key that may not delete indexes swaps, then throws the SDK’s error unwrapped', async () => {
+			await live();
+			const client = await clientWith(['*'], ['indexes.delete']);
+			const error = await bindIndex(client, movies)
+				.rebuild(async (next) => {
+					await next.add(remade);
+				})
+				.catch((e) => e);
+			expect(error).toBeInstanceOf(MeilisearchApiError);
+			expect(error.cause.code).toBe('invalid_api_key');
+			// The swap happened: the new documents are live, the old ones left over.
 			expect(await titles()).toEqual(remade.map((m) => m.title));
 			expect(await uids()).toEqual(['movies', 'movies_next']);
 		});
+	});
+
+	test('fill’s index has the next uid, and a token rule under the live uid is refused', async () => {
+		const index = await live();
+		const key = await t.client.createKey({
+			actions: ['search'],
+			indexes: ['movies', 'movies_next'],
+			expiresAt: null,
+		});
+		let refused: unknown;
+		await index.rebuild(async (next) => {
+			expect(next.definition.uid).toBe('movies_next');
+			refused = await tenantToken({
+				apiKey: key.key,
+				apiKeyUid: key.uid,
+				indexes: [next],
+				searchRules: { movies: { filter: 'genres = scifi' } },
+			}).catch((e) => e);
+			await next.add(remade);
+		});
+		expect(refused).toBeInstanceOf(TypeError);
+		expect((refused as Error).message).toBe(
+			'tenantToken for "movies_next": searchRules names "movies", which is not the uid of any of its indexes',
+		);
 	});
 
 	test('a nextUid equal to the uid is refused before anything is sent', async () => {

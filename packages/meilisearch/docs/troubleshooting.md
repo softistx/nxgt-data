@@ -18,18 +18,22 @@ v1.53.2 with meilisearch-js 0.62.0.
   - [`The provided API key is invalid.`](#the-provided-api-key-is-invalid)
   - [`Rebuild of index "movies" stopped while filling "movies_next":`](#rebuild-of-index-movies-stopped-while-filling-movies_next)
   - [`Rebuild of index "movies" sent the swap with "movies_next" and could not wait for it:`](#rebuild-of-index-movies-sent-the-swap-with-movies_next-and-could-not-wait-for-it)
+  - [`rebuild on "movies": nextUid must differ from the index's own uid`](#rebuild-on-movies-nextuid-must-differ-from-the-indexs-own-uid)
   - [`The Authorization header is missing. It must use the bearer authorization method.`](#the-authorization-header-is-missing-it-must-use-the-bearer-authorization-method)
 - **Runtime**
   - [`timeout of 5000ms has exceeded on task 12 when waiting for it to be resolved.`](#timeout-of-5000ms-has-exceeded-on-task-12-when-waiting-for-it-to-be-resolved)
   - [``Index `movies` not found.``](#index-movies-not-found)
   - [``Index `movies`: Attribute `year` is not filterable.``](#index-movies-attribute-year-is-not-filterable)
+  - [`Sending an empty filter is forbidden.`](#sending-an-empty-filter-is-forbidden)
   - [``Index `movies`: Attribute `year` is not sortable.``](#index-movies-attribute-year-is-not-sortable)
   - [``Inside `.queries[1]`: Index `nobody` not found.``](#inside-queries1-index-nobody-not-found)
   - [A search right after a write finds nothing](#a-search-right-after-a-write-finds-nothing)
 - **Tenant tokens**
   - [`tenantToken for "movies": expiresAt is in the past`](#tenanttoken-for-movies-expiresat-is-in-the-past)
   - [`tenantToken for "movies": expiresAt is a number of milliseconds; it takes seconds, or a Date`](#tenanttoken-for-movies-expiresat-is-a-number-of-milliseconds-it-takes-seconds-or-a-date)
+  - [`tenantToken for "movies_next": searchRules names "movies", which is not the uid of any of its indexes`](#tenanttoken-for-movies_next-searchrules-names-movies-which-is-not-the-uid-of-any-of-its-indexes)
   - [`the uid of your key is not a valid UUIDv4`](#the-uid-of-your-key-is-not-a-valid-uuidv4)
+  - [`failed to detect a server-side environment; do not generate tokens on the frontend in production!`](#failed-to-detect-a-server-side-environment-do-not-generate-tokens-on-the-frontend-in-production)
   - [``Tenant token expired. Was valid up to `1790139850` and we're now `1790139910`.``](#tenant-token-expired-was-valid-up-to-1790139850-and-were-now-1790139910)
   - [``The provided tenant token cannot acces the index `people`, allowed indexes are ["movies"].``](#the-provided-tenant-token-cannot-acces-the-index-people-allowed-indexes-are-movies)
   - [``The API key used to generate this tenant token cannot acces the index `people`.``](#the-api-key-used-to-generate-this-tenant-token-cannot-acces-the-index-people)
@@ -138,9 +142,12 @@ try {
 
 **When:** `sync()` or `syncIndexes()` at start-up, with a key that can search
 but not administrate. `cause.code` is `invalid_api_key` and the response is a
-403.
+403. Also a search with a **tenant token** whose signing key has since been
+deleted — in the specs — or has expired — measured by hand — on v1.53.2,
+whatever the token's own `expiresAt`.
 **Why:** sync creates indexes and changes settings; a search key may do
-neither.
+neither. A tenant token is checked against the key that signed it, on every
+search: no key, no token.
 **Fix:**
 
 ```ts
@@ -150,11 +157,17 @@ const admin = new Meilisearch({ host, apiKey: process.env.MEILI_ADMIN_KEY });
 await syncIndexes(admin, [movies, books]);
 ```
 
+For a tenant token, sign a new one with a live key; rotating a key revokes
+every token it signed.
+
 ### `Rebuild of index "movies" stopped while filling "movies_next":`
 
 The line goes on: *"movies_next" was deleted, and "movies" is as it was.
-The cause is on `cause`.* The word after *while* is `swapping` when the swap
-task itself failed.
+The cause is on `cause`.* The word after *while* is `creating` when creating
+the next index or applying its settings failed — measured with a key
+lacking `settings.update`, whose `cause` is the SDK's
+`The provided API key is invalid.` — and `swapping` when the swap task
+itself came back `failed`.
 
 **When:** `rebuild(fill)`, when `fill` threw, or when a write it left on the
 next index — waited for or only enqueued — ended `failed`.
@@ -195,6 +208,19 @@ const key = await admin.createKey({
 	expiresAt: null,
 });
 await bindIndex(new Meilisearch({ host, apiKey: key.key }), movies).rebuild(fill, { wait: { timeout: 120_000 } });
+```
+
+### `rebuild on "movies": nextUid must differ from the index's own uid`
+
+**When:** `rebuild(fill, { nextUid: 'movies' })` — the live uid given as the
+next one. A bare `TypeError`, thrown before anything is sent.
+**Why:** the next index is filled beside the live one and swapped with it;
+under the same uid, the rebuild would fill the live index in place, which
+is the half-empty search it exists to avoid.
+**Fix:** leave `nextUid` out (`movies_next`), or name another uid:
+
+```ts
+await movieIndex.rebuild(fill, { nextUid: 'movies_building' });
 ```
 
 ### `The Authorization header is missing. It must use the bearer authorization method.`
@@ -247,7 +273,10 @@ await syncIndexes(client, [movies, books]);
 live index has not been told about. From `deleteByFilter` the same sentence
 arrives inside a `SearchIndexError` with `code: 'TASK_FAILED'`, and only with
 `wait`: the request is accepted and the *task* fails, so without `wait`
-nothing is deleted and nothing says so.
+nothing is deleted and nothing says so. From a **tenant token** whose rule
+filters on an attribute the index does not make filterable, every search
+made with the token fails with it — measured in the specs, `cause.code`
+`invalid_search_filter`, status 400 — whatever the search itself asks.
 **Why:** the types check the attribute against the **definition**, and the
 server checks it against the settings it actually holds. They differ until
 `sync` has run — or when `filterableAttributes` names a wildcard pattern such
@@ -343,8 +372,9 @@ resolving quietly.
 
 ### `tenantToken for "movies": expiresAt is in the past`
 
-Two siblings end the same line differently: `is not a whole number of
-seconds`, and `is an invalid Date`.
+Three siblings end the same line differently: `is not a whole number of
+seconds`, `is an invalid Date`, and `is neither a Date nor a finite number`
+(`NaN`, `Infinity`, or a value that is neither, from a request).
 
 **When:** `tenantToken({ …, expiresAt })` with a time already past, a number
 of seconds with a fraction, or a `Date` built from something unparseable.
@@ -375,6 +405,24 @@ years — it is refused here because nothing else would refuse it.
 expiresAt: new Date(Date.now() + 3_600_000),
 ```
 
+### `tenantToken for "movies_next": searchRules names "movies", which is not the uid of any of its indexes`
+
+**When:** `tenantToken` with a `searchRules` key that is not the uid one of
+its `indexes` **has** at run time. A bare `TypeError`, thrown before
+anything is signed. The typical case is inside a rebuild's `fill`: its index
+is `movies_next`, and a rule written for `movies` does not apply to it —
+the types cannot tell, since that index's uid is typed `string`.
+**Why:** Meilisearch reads a token's rules by uid. A rule under another uid
+would be dropped, and its index searched **with no filter** — so it is
+refused instead.
+**Fix:** key the rule by the index's own uid:
+
+```ts
+await movieIndex.rebuild(async (next) => {
+	await tenantToken({ apiKey, apiKeyUid, indexes: [next], searchRules: { [next.uid]: { filter } } });
+});
+```
+
 ### `the uid of your key is not a valid UUIDv4`
 
 **When:** `tenantToken` with an `apiKeyUid` that is not the key's `uid` —
@@ -387,6 +435,25 @@ the server looks the key up by it.
 ```ts
 const searchKey = await admin.getKey(process.env.MEILI_SEARCH_KEY_UID!);
 await tenantToken({ apiKey: searchKey.key, apiKeyUid: searchKey.uid, indexes: [movieIndex] });
+```
+
+### `failed to detect a server-side environment; do not generate tokens on the frontend in production!`
+
+The SDK's `Error` goes on: *use the `force` option to disable environment
+detection, consult the documentation (Use at your own risk!)*. Read from the
+SDK's source (meilisearch-js 0.62.0), not measured: the specs run on Bun,
+which it recognises.
+
+**When:** `tenantToken` in a browser, or on a server runtime whose
+`navigator.userAgent` does not start with `Node`, `Deno`, `Bun` or
+`Cloudflare-Workers` and that has no `process.versions.node`.
+**Why:** signing needs the key, and a key in a browser is a key for anyone
+who opens the page.
+**Fix:** sign on the server and send the token. On a server the SDK does
+not recognise, `force: true` skips the check:
+
+```ts
+await tenantToken({ apiKey, apiKeyUid, indexes: [movieIndex], expiresAt, force: true });
 ```
 
 ### ``Tenant token expired. Was valid up to `1790139850` and we're now `1790139910`.``

@@ -139,6 +139,25 @@ describe('tenantToken', () => {
 		);
 	});
 
+	test('a rule on an attribute that is not filterable fails every search with the token', async () => {
+		const token = await tenantToken({
+			apiKey: key.key,
+			apiKeyUid: key.uid,
+			indexes: [movieIndex()],
+			searchRules: { movies: { filter: 'rating > 8' } },
+		});
+		const error = await as(token)
+			.index('movies')
+			.search('')
+			.catch((e) => e);
+		expect(error).toBeInstanceOf(MeilisearchApiError);
+		expect(error.cause.code).toBe('invalid_search_filter');
+		expect(error.response.status).toBe(400);
+		expect(error.message).toStartWith(
+			'Index `movies`: Attribute `rating` is not filterable.',
+		);
+	});
+
 	test('a deleted key takes its tokens with it', async () => {
 		const token = await tenantToken({
 			apiKey: key.key,
@@ -197,6 +216,23 @@ describe('tenantToken', () => {
 				'tenantToken for "movies", "people": expiresAt is neither a Date nor a finite number',
 			);
 		});
+	});
+
+	test('a rule under a uid that is none of the indexes’ is refused, not dropped', async () => {
+		const error = await tenantToken({
+			apiKey: key.key,
+			// Not a UUID: had it been signed, the SDK would have thrown first.
+			apiKeyUid: 'not-a-uuid',
+			indexes: [movieIndex()],
+			searchRules: {
+				movies: { filter: 'genres = scifi' },
+				films: { filter: 'genres = scifi' },
+			} as never,
+		}).catch((e) => e);
+		expect(error).toBeInstanceOf(TypeError);
+		expect(error.message).toBe(
+			'tenantToken for "movies": searchRules names "films", which is not the uid of any of its indexes',
+		);
 	});
 
 	test('a key uid that is not a UUID is the SDK’s own refusal', async () => {

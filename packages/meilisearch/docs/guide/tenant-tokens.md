@@ -17,13 +17,13 @@ const token = await tenantToken({
 	apiKey: searchKey.key,
 	apiKeyUid: searchKey.uid,
 	indexes: [movieIndex],
-	searchRules: { movies: { filter: `studio = ${JSON.stringify(user.studio)}` } },
+	searchRules: { movies: { filter: `genres = ${JSON.stringify(user.genre)}` } },
 	expiresAt: new Date(Date.now() + 60 * 60 * 1000),
 });
 
 // in the browser: a client made from the token, and nothing else
 const scoped = new Meilisearch({ host, apiKey: token });
-await scoped.index('movies').search('alien'); // only that studio's movies
+await scoped.index('movies').search('alien'); // only that genre's movies
 ```
 
 `tenantToken` wraps the SDK's `generateTenantToken`, from
@@ -32,14 +32,15 @@ the token when a client made from it searches.
 
 ## The options
 
-| Option | Type | |
-| --- | --- | --- |
-| `apiKey` | `string` | the key that signs. It needs the `search` action on every index the token names |
-| `apiKeyUid` | `string` | that key's `uid`, a UUID v4 |
-| `indexes` | bound indexes, at least one | the indexes the token may search; every other one is refused |
-| `searchRules` | `{ [uid]?: { filter? } \| null }` | keyed by the uids of `indexes`, and nothing else |
-| `expiresAt` | `Date \| number` | a `Date`, or whole **seconds** since the epoch. Optional |
-| `algorithm` | `'HS256' \| 'HS384' \| 'HS512'` | the SDK's; `HS256` by default |
+| Option | Type | Default | |
+| --- | --- | --- | --- |
+| `apiKey` | `string` | required | the key that signs. It needs the `search` action on every index the token names |
+| `apiKeyUid` | `string` | required | that key's `uid`, a UUID v4 |
+| `indexes` | bound indexes, at least one | required | the indexes the token may search; every other one is refused |
+| `searchRules` | `{ [uid]?: { filter? } \| null }` | `{}`: no filter on any index | keyed by the uids of `indexes`, and nothing else |
+| `expiresAt` | `Date \| number` | none: the token lives as long as its key | a `Date`, or whole **seconds** since the epoch |
+| `algorithm` | `'HS256' \| 'HS384' \| 'HS512'` | `'HS256'` | the SDK's |
+| `force` | `boolean` | `false` | the SDK's: skip its check that it runs on a server |
 
 `searchRules` is typed by `indexes`: its keys are the uids their definitions
 declare, so a rule for an index the token was not given, or a misspelt uid,
@@ -48,6 +49,18 @@ a search.
 
 An index in `indexes` with no rule, or with `null`, is searched with no
 filter. An index **not** in `indexes` cannot be searched at all.
+
+The types check the keys against the uids the definitions **declare**; the
+function checks them again against the uids the indexes **have**, and a key
+that is none of them throws a `TypeError` rather than leave its index
+unfiltered:
+
+```
+tenantToken for "movies_next": searchRules names "movies", which is not the uid of any of its indexes
+```
+
+That is the one case the types cannot see: `rebuild` hands `fill` an index
+whose uid is `movies_next`, typed `string` — any key compiles for it.
 
 ## What was measured
 
@@ -109,18 +122,25 @@ try {
 
 ## Traps
 
+- **No `expiresAt` and no rule make a permanent, unfiltered credential.**
+  Without `expiresAt` a token lives as long as its key; an index given no
+  rule is searched with no filter. A token like that, handed to a browser,
+  reads every document of the index for as long as the key exists. Give
+  every browser token both.
 - **Sign with a search key, never the master key.** The signing key lives
   on your server as long as tokens are issued: make it one that can only
   search, on only the indexes the tokens name.
 - **The filter is a string you build.** A value from a request goes in
   through `JSON.stringify`, as a quoted string, or it can change the filter:
-  `studio = ${JSON.stringify(studio)}`.
+  `genres = ${JSON.stringify(genre)}`.
 - **The rule's attributes must be filterable on the live index.** Otherwise
-  every search with the token fails with ``Attribute `studio` is not
+  every search with the token fails with ``Attribute `country` is not
   filterable.`` — `sync` first.
 - **A token lives no longer than its key**, whatever `expiresAt` says: deleting
   or rotating the key revokes every token it signed, and a key's own
   `expiresAt` ends them too.
 - **`generateTenantToken` refuses to run in a browser**: it checks that it
-  is on a server (Node, Bun, Deno, Cloudflare Workers) and throws otherwise.
-  Sign on the server, and send the token.
+  is on a server (Node, Bun, Deno, Cloudflare Workers) and throws
+  otherwise — read from the SDK's source, not measured, since the specs run
+  on Bun. Sign on the server and send the token; `force: true` skips the
+  check, for a server the SDK does not recognise.

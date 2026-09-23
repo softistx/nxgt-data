@@ -28,8 +28,9 @@ _Nothing queued._
   `facets` a search may use, which is where a wrong attribute name actually
   costs something.
 - **A tasks or errors layer** — tasks and errors come back as the SDK's own.
-  The only error this package adds is `SearchIndexError`, for a request
-  Meilisearch refuses.
+  The only error this package adds is `SearchIndexError`, and the one place
+  it wraps the SDK's is a rebuild that stopped, whose `REBUILD_FAILED`
+  carries it as `cause`.
 - **Syncing documents from a database** — writing documents stays the
   caller's, with `add` and `update` where the data changes. For MongoDB,
   `@nxgt/mongo-meilisearch` keeps an index in step with a collection.

@@ -51,6 +51,7 @@ export type {
 } from './search/multi-search';
 export { multiSearch } from './search/multi-search';
 export type {
+	RebuildDefinition,
 	RebuildFill,
 	RebuildOptions,
 	RebuildReport,

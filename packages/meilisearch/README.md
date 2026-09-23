@@ -180,9 +180,17 @@ definition's primary key and settings (through `syncIndex`), hands it to
 task and deletes the previous one. With no live index yet, the first run
 renames `movies_next` instead.
 
-If `fill` throws, or a task it left fails, `movies_next` is deleted, the live
-index is untouched, and a `SearchIndexError` (`REBUILD_FAILED`) carries the
-cause. Options: `nextUid`, and `wait` for each task.
+If creating `movies_next` fails, or `fill` throws, or a task it left fails,
+or the swap task itself fails, `movies_next` is deleted, the live index is
+untouched, and a `SearchIndexError` (`REBUILD_FAILED`) carries the cause.
+Once the swap request is **sent**, a failure to read its task back — a
+timeout, a lost response, a key that cannot read it — may hide a swap that
+happened: `REBUILD_FAILED` then says the outcome is unknown, and nothing is
+deleted; the next rebuild deletes the leftover. Options: `nextUid`, and
+`wait` for each task.
+
+`fill` is handed an index whose definition's `uid` is `movies_next`, typed
+`string` rather than `'movies'`.
 
 ## Documents
 
@@ -302,10 +310,10 @@ const token = await tenantToken({
 	apiKey: searchKey.key,
 	apiKeyUid: searchKey.uid,
 	indexes: [movieIndex],
-	searchRules: { movies: { filter: `studio = ${JSON.stringify(user.studio)}` } },
+	searchRules: { movies: { filter: `genres = ${JSON.stringify(user.genre)}` } },
 	expiresAt: new Date(Date.now() + 60 * 60 * 1000),
 });
-// in the browser: new Meilisearch({ host, apiKey: token }) searches only that studio's movies
+// in the browser: new Meilisearch({ host, apiKey: token }) searches only that genre's movies
 ```
 
 `tenantToken` signs a token with the SDK's `generateTenantToken` (from
@@ -323,7 +331,8 @@ throws a `SearchIndexError` (`INVALID_EXPIRES_AT`) before anything is signed.
 
 The SDK's errors reach you as they are: a request Meilisearch refuses throws
 its `MeilisearchApiError`, with `cause.code`, a timeout its
-`MeilisearchTaskTimeOutError`.
+`MeilisearchTaskTimeOutError`. The one exception is `rebuild`: what stops it
+before its swap reaches you as the `cause` of a `REBUILD_FAILED`.
 
 This package throws one error of its own, `SearchIndexError`:
 
@@ -351,7 +360,8 @@ try {
 
 - **A typed filter builder.** `filter` is the SDK's string or array.
 - **A tasks or errors layer.** Tasks and errors are the SDK's; the only error
-  added is `SearchIndexError`.
+  added is `SearchIndexError`, and only `REBUILD_FAILED` wraps one of the
+  SDK's, as its `cause`.
 - **Syncing documents from a database**, with `@nxgt/drizzle` or anything
   else. Write the documents with `add` or `update` where your data changes.
 
@@ -400,7 +410,7 @@ is `IdOf<Def>`:
 | `uid`, `definition`, `client` | what it was bound with |
 | `raw: Index<Doc>` | the SDK's index |
 | `sync(options?: SyncOptions): Promise<SyncReport>` | `syncIndex` for this definition |
-| `rebuild(fill: (next: TypedIndex<Def>) => Promise<void>, options?: RebuildOptions): Promise<RebuildReport>` | fills `<uid>_next` and swaps it in; see [Rebuild](#rebuild) |
+| `rebuild(fill: (next: TypedIndex<RebuildDefinition<Def>>) => Promise<void>, options?: RebuildOptions): Promise<RebuildReport>` | fills `<uid>_next` and swaps it in; see [Rebuild](#rebuild) |
 | `add(documents: readonly Doc[], options?: WriteOptions): WriteResult` | adds or replaces |
 | `update(documents: readonly DocumentPatch<Def>[], options?: WriteOptions): WriteResult` | merges; each needs its id |
 | `addInBatches(documents, options?: BatchWriteOptions): BatchWriteResult` | `batchSize`, 1000 by default |
@@ -415,7 +425,7 @@ is `IdOf<Def>`:
 
 The types it uses:
 
-- `interface RebuildOptions { nextUid?: string; wait?: WaitOptions }`; `interface RebuildReport { uid: string; nextUid: string; leftoverDeleted: boolean; created: boolean; sync: SyncReport; tasks: Task[] }`; `type RebuildFill<Def> = (next: TypedIndex<Def>) => Promise<void>`.
+- `interface RebuildOptions { nextUid?: string; wait?: WaitOptions }`; `interface RebuildReport { uid: string; nextUid: string; leftoverDeleted: boolean; created: boolean; sync: SyncReport; tasks: Task[] }`; `type RebuildFill<Def> = (next: TypedIndex<RebuildDefinition<Def>>) => Promise<void>`; `type RebuildDefinition<Def> = Omit<Def, 'uid'> & { readonly uid: string }`.
 - `interface WriteOptions { wait?: boolean | WaitOptions; customMetadata?: string }`; `interface BatchWriteOptions extends WriteOptions { batchSize?: number }`.
 - `type WriteResult<Options>`: `Promise<Task>` when `Options` has `wait`, else `EnqueuedTaskPromise`. `type BatchWriteResult<Options>`: the same, one per batch.
 - `type DocumentPatch<Def> = Partial<Doc> & Pick<Doc, PrimaryKeyNameOf<Def>>`.
@@ -444,7 +454,7 @@ function multiSearch<const Queries extends readonly { index: TypedIndex<any> }[]
 function tenantToken<const Indexes extends TokenIndexes>(options: TenantTokenOptions<Indexes>): Promise<string>;
 ```
 
-- `interface TenantTokenOptions<Indexes> { apiKey: string; apiKeyUid: string; indexes: Indexes; searchRules?: TenantTokenRules<Indexes>; expiresAt?: Date | number; algorithm?: 'HS256' | 'HS384' | 'HS512' }`.
+- `interface TenantTokenOptions<Indexes> { apiKey: string; apiKeyUid: string; indexes: Indexes; searchRules?: TenantTokenRules<Indexes>; expiresAt?: Date | number; algorithm?: 'HS256' | 'HS384' | 'HS512'; force?: boolean }`. A `searchRules` key that is not the runtime uid of one of `indexes` throws a `TypeError`.
 - `type TokenIndexes = readonly [TypedIndex<any>, ...TypedIndex<any>[]]`: at least one bound index.
 - `type TenantTokenRules<Indexes>`: `{ [uid]?: { filter?: Filter } | null }`, keyed by the uids of `Indexes`.
 
@@ -495,12 +505,19 @@ function tenantToken<const Indexes extends TokenIndexes>(options: TenantTokenOpt
   default after the swap. And a write sent to the live index during `fill`
   is gone after it: the swap replaces the whole index.
 - **`rebuild` needs a key on every index** (`indexes: ['*']`), with
-  `indexes.swap` and `indexes.delete` besides `sync`'s actions. Measured: a
-  key on `['movies', 'movies_next']` sends the swap, which happens, but
-  cannot read its task, and the rebuild throws `REBUILD_FAILED` saying the
-  outcome is unknown.
+  `indexes.swap`, `indexes.delete` and `documents.add` besides `sync`'s
+  actions. Measured, in the specs: a key on `['movies', 'movies_next']` or
+  `['movies*']` sends the swap, which happens, but cannot read its task, and
+  the rebuild throws `REBUILD_FAILED` saying the outcome is unknown.
 - **Two rebuilds of one index at once collide**: the second deletes the
   first one's `movies_next` as a leftover. Run it from one job.
+- **A tenant token with no `expiresAt` and no rule is a permanent,
+  unfiltered credential.** Without `expiresAt` it lives as long as its key;
+  an index given no rule is searched with no filter. Handed to a browser,
+  that is every document of the index, for as long as the key exists.
+- **`tenantToken` refuses to run in a browser** — the SDK's
+  `failed to detect a server-side environment` — unless `force: true`.
+  Sign on the server.
 - **A tenant token's filter is a string you build.** Put a value from a
   request in through `JSON.stringify`, or it can change the filter; and
   sign with a search-only key, never the master key. A token lives no longer

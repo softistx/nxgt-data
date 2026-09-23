@@ -42,6 +42,11 @@ export interface TenantTokenOptions<Indexes extends TokenIndexes> {
 	expiresAt?: Date | number;
 	/** The SDK's: `HS256` by default. */
 	algorithm?: TenantTokenGeneratorOptions['algorithm'];
+	/**
+	 * The SDK's: skip its check that it runs on a server (Node, Bun, Deno,
+	 * Cloudflare Workers), which otherwise throws. `false` by default.
+	 */
+	force?: boolean;
 }
 
 // A time in seconds past this is a time in milliseconds: 10^11 seconds is
@@ -68,6 +73,9 @@ function expiryProblem(expiresAt: Date | number, now: number) {
 	return expiresAt * 1000 <= now ? 'is in the past' : undefined;
 }
 
+const quoted = (uids: readonly string[]) =>
+	uids.map((uid) => `"${uid}"`).join(', ');
+
 /**
  * Signs a tenant token that may search only the indexes given, each with
  * its own rule, with the SDK's `generateTenantToken`. Nothing is sent: the
@@ -84,19 +92,20 @@ function expiryProblem(expiresAt: Date | number, now: number) {
  * ```
  *
  * An `expiresAt` that is past, or not a time Meilisearch reads, throws a
- * `SearchIndexError` (`INVALID_EXPIRES_AT`) before anything is signed.
+ * `SearchIndexError` (`INVALID_EXPIRES_AT`) before anything is signed; a
+ * `searchRules` key that is not the uid of one of `indexes` throws a
+ * `TypeError`, rather than leave that index unfiltered.
  */
 export async function tenantToken<const Indexes extends TokenIndexes>(
 	options: TenantTokenOptions<Indexes>,
 ): Promise<string> {
-	const { apiKey, apiKeyUid, indexes, expiresAt, algorithm } = options;
+	const { apiKey, apiKeyUid, indexes, expiresAt, algorithm, force } = options;
 	const uids = indexes.map((index) => index.uid);
 	if (expiresAt !== undefined) {
 		const problem = expiryProblem(expiresAt, Date.now());
 		if (problem) {
-			const on = uids.map((uid) => `"${uid}"`).join(', ');
 			throw new SearchIndexError(
-				`tenantToken for ${on}: expiresAt ${problem}`,
+				`tenantToken for ${quoted(uids)}: expiresAt ${problem}`,
 				{ code: 'INVALID_EXPIRES_AT', indexUid: uids.join(',') },
 			);
 		}
@@ -105,8 +114,21 @@ export async function tenantToken<const Indexes extends TokenIndexes>(
 		string,
 		TokenIndexRules | null | undefined
 	>;
+	// A rule under a uid no index has would otherwise be dropped, and its
+	// index searched with no filter: the types cannot see a uid that differs
+	// at run time, such as a rebuild's next index.
+	const unmatched = Object.keys(rules).filter((uid) => !uids.includes(uid));
+	if (unmatched.length > 0) {
+		throw new TypeError(
+			`tenantToken for ${quoted(uids)}: searchRules names ${quoted(unmatched)}, ` +
+				'which is not the uid of any of its indexes',
+		);
+	}
 	const searchRules: TokenSearchRules = Object.fromEntries(
-		uids.map((uid) => [uid, rules[uid] ?? null]),
+		uids.map((uid) => [
+			uid,
+			Object.hasOwn(rules, uid) ? (rules[uid] ?? null) : null,
+		]),
 	);
 	return generateTenantToken({
 		apiKey,
@@ -114,5 +136,6 @@ export async function tenantToken<const Indexes extends TokenIndexes>(
 		searchRules,
 		...(expiresAt === undefined ? {} : { expiresAt }),
 		...(algorithm === undefined ? {} : { algorithm }),
+		...(force === undefined ? {} : { force }),
 	});
 }

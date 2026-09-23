@@ -28,9 +28,11 @@ const report = await movieIndex.rebuild(async (next) => {
 2. **Creates the next index** with the definition's primary key and
    settings, through the same [`syncIndex`](sync.md) as `sync()`. The
    report is `sync`.
-3. **Hands `fill` a typed index bound to the next uid.** The same
-   `TypedIndex<Def>` as the live one: its writes take the same documents,
-   its searches the same sorts.
+3. **Hands `fill` a typed index bound to the next uid.** Its writes take
+   the same documents as the live one's, its searches the same sorts; only
+   its definition's `uid` differs — `'movies_next'`, typed `string` rather
+   than `'movies'` (`RebuildDefinition<Def>`), so nothing keyed by the live
+   uid, such as a tenant token's rule, can be applied to it by mistake.
 4. **Waits for every task `fill` left on the next index**, including those
    it only enqueued, without `wait`. A task among them that failed stops the
    rebuild: without this check, a write that failed would be swapped in.
@@ -42,10 +44,14 @@ const report = await movieIndex.rebuild(async (next) => {
 
 ## When it fails
 
-Anything that goes wrong before the swap — `fill` throws, a task it left
-failed, the swap task fails — deletes the next index, leaves the live one as
-it was, and throws a `SearchIndexError` with `code: 'REBUILD_FAILED'`.
-`cause` is what stopped it, and `task` the failed task when there was one:
+Anything that goes wrong before the swap request is sent — creating the
+next index or applying its settings, `fill` throwing, a task it left
+failing — and a swap task that comes back `failed`, deletes the next index,
+leaves the live one as it was, and throws a `SearchIndexError` with
+`code: 'REBUILD_FAILED'`. The message says where:
+`Rebuild of index "movies" stopped while creating|filling|swapping "movies_next": …`.
+`cause` is what stopped it — the SDK's own error included — and `task` the
+failed task when there was one:
 
 ```ts
 import { SearchIndexError } from '@nxgt/meilisearch';
@@ -65,9 +71,10 @@ try {
 
 The searches never noticed: they were on the live index the whole time.
 
-One failure is different. When the swap was **sent** and waiting for it
-failed — a timeout, or a key that cannot read the task — the swap may have
-happened, so nothing is deleted:
+One failure is different. From the moment the swap request is **sent**
+until its task is read back, a failure — a lost response, a timeout, a key
+that cannot read the task — may hide a swap that was queued and happened,
+so nothing is deleted:
 
 ```
 Rebuild of index "movies" sent the swap with "movies_next" and could not wait for it: whether "movies" was swapped is unknown, and "movies_next" was left for the next rebuild to delete. The cause is on `cause`.
@@ -149,13 +156,15 @@ await bindIndex(client, movies).rebuild(async (next) => {
   writes.
 - **An index with embedders embeds every document again**, which costs time
   and, with a remote embedder, requests.
-- **The key needs more than `sync`'s actions, on every index.** Measured:
+- **The key needs more than `sync`'s actions, on every index.** Measured, and kept as specs:
   `indexes.create`, `indexes.get`, `indexes.update`, `indexes.swap`,
   `indexes.delete`, `settings.get`, `settings.update`, `tasks.get` and
   `documents.add` rebuild with `indexes: ['*']`. With `indexes: ['movies',
   'movies_next']` — or `['movies*']` — the swap is sent **and happens**, but
   its task has no index, the key cannot read it, and the wait fails
   `task_not_found`: `rebuild` then throws `REBUILD_FAILED` saying the
-  outcome is unknown, and deletes nothing. Without `indexes.delete` the swap
-  happens and deleting the previous index throws the SDK's
-  `MeilisearchApiError`.
+  outcome is unknown, and deletes nothing; its `cause` is the SDK's
+  ``Task `21` not found.``. Without `settings.update` the rebuild stops
+  while creating, and `movies_next` is deleted. Without `indexes.delete`
+  the swap happens and deleting the previous index throws the SDK's
+  `MeilisearchApiError`, unwrapped.

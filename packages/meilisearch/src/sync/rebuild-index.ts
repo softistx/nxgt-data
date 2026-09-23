@@ -1,4 +1,4 @@
-import type { Meilisearch, Task, WaitOptions } from 'meilisearch';
+import type { IndexSwap, Meilisearch, Task, WaitOptions } from 'meilisearch';
 import type { AnyIndexDefinition } from '../definition/define-index';
 import {
 	assertSucceeded,
@@ -31,16 +31,27 @@ export interface RebuildReport {
 	tasks: Task[];
 }
 
+/**
+ * The definition of the next index: the live one's, under another uid. The
+ * uid is widened to `string` — typed as the live uid, it would let a caller
+ * key a tenant token's rule by a uid the index does not have.
+ */
+export type RebuildDefinition<Def extends AnyIndexDefinition> = Omit<
+	Def,
+	'uid'
+> & { readonly uid: string };
+
 /** What fills the next index, handed the typed index bound to it. */
 export type RebuildFill<Def extends AnyIndexDefinition> = (
-	next: TypedIndex<Def>,
+	next: TypedIndex<RebuildDefinition<Def>>,
 ) => Promise<void>;
 
 /**
- * Where a rebuild stopped. `unknown` is the one case where the swap was sent
- * and could not be waited for: it may have happened, so nothing is deleted.
+ * Where a rebuild stopped. `unknown` is from the moment the swap request is
+ * sent until its task is read back: a lost response or a failed wait may
+ * hide a swap that happened, so nothing is deleted.
  */
-type Stop = 'filling' | 'swapping' | 'unknown';
+type Stop = 'creating' | 'filling' | 'swapping' | 'unknown';
 
 function stopped(uid: string, nextUid: string, stop: Stop, cause: unknown) {
 	const message =
@@ -99,19 +110,15 @@ async function settle(
 }
 
 /**
- * Sends the swap: with the live index when it exists, which is atomic on the
+ * The swap: with the live index when it exists, which is atomic on the
  * server, and as a rename when it does not — measured on v1.53.2, a swap with
  * a missing index fails `index_not_found`, whatever `rename` says, unless
  * `rename` is set and the existing index comes first.
  */
-async function sendSwap(client: Meilisearch, uid: string, nextUid: string) {
-	const created = (await findIndex(client, uid)) === undefined;
-	const enqueued = await client.swapIndexes([
-		created
-			? { indexes: [nextUid, uid], rename: true }
-			: { indexes: [uid, nextUid], rename: false },
-	]);
-	return { created, taskUid: enqueued.taskUid };
+function swapOf(uid: string, nextUid: string, created: boolean): IndexSwap {
+	return created
+		? { indexes: [nextUid, uid], rename: true }
+		: { indexes: [uid, nextUid], rename: false };
 }
 
 /**
@@ -122,7 +129,9 @@ async function sendSwap(client: Meilisearch, uid: string, nextUid: string) {
 export async function rebuildIndex<Def extends AnyIndexDefinition>(
 	client: Meilisearch,
 	definition: Def,
-	open: (definition: Def) => TypedIndex<Def>,
+	open: (
+		definition: RebuildDefinition<Def>,
+	) => TypedIndex<RebuildDefinition<Def>>,
 	fill: RebuildFill<Def>,
 	options: RebuildOptions = {},
 ): Promise<RebuildReport> {
@@ -140,20 +149,21 @@ export async function rebuildIndex<Def extends AnyIndexDefinition>(
 
 	// The next index is the definition under another uid: the same primary
 	// key and settings, applied by the same sync.
-	const nextDefinition = { ...definition, uid: nextUid } as Def;
-	const sync = await syncIndex(client, nextDefinition, { wait });
-	const since = sync.tasks[0]?.uid ?? 0;
-
-	let stop: Stop = 'filling';
-	let swap: { created: boolean; taskUid: number };
+	const nextDefinition = { ...definition, uid: nextUid };
+	let stop: Stop = 'creating';
+	let sync: SyncReport;
+	let created: boolean;
 	let task: Task;
 	try {
+		sync = await syncIndex(client, nextDefinition, { wait });
+		stop = 'filling';
 		await fill(open(nextDefinition));
-		await settle(client, nextUid, since, wait);
+		await settle(client, nextUid, sync.tasks[0]?.uid ?? 0, wait);
 		stop = 'swapping';
-		swap = await sendSwap(client, uid, nextUid);
+		created = (await findIndex(client, uid)) === undefined;
 		stop = 'unknown';
-		task = await client.tasks.waitForTask(swap.taskUid, wait);
+		const enqueued = await client.swapIndexes([swapOf(uid, nextUid, created)]);
+		task = await client.tasks.waitForTask(enqueued.taskUid, wait);
 		stop = 'swapping';
 		assertSucceeded(task, uid);
 	} catch (error) {
@@ -170,13 +180,6 @@ export async function rebuildIndex<Def extends AnyIndexDefinition>(
 
 	const tasks = [task];
 	// After a swap, the next uid holds the previous documents.
-	if (!swap.created) tasks.push(await deleteIndex(client, nextUid, wait));
-	return {
-		uid,
-		nextUid,
-		leftoverDeleted,
-		created: swap.created,
-		sync,
-		tasks,
-	};
+	if (!created) tasks.push(await deleteIndex(client, nextUid, wait));
+	return { uid, nextUid, leftoverDeleted, created, sync, tasks };
 }
