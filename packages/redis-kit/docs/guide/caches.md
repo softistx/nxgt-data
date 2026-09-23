@@ -26,8 +26,8 @@ kit adds: the binding, the prefix, and what the types hold you to.
 | --- | --- | --- |
 | `keyFor(params)` | `string` | the key it would use, for a caller that needs the string itself |
 | `get(params)` | `Promise<T \| undefined>` | the value, or `undefined` — a miss, an expiry, or a shape the schema no longer matches |
-| `set(params, value, { ttl })` | `Promise<void>` | checked against the schema first, then stored for the definition's `ttl` or the one given here |
-| `remember(params, load, { ttl })` | `Promise<T>` | the value if it is there, otherwise what `load` gives — stored, and given back **as it was stored** |
+| `set(params, value, { ttl })` | `Promise<void>` | the value as the schema accepts it — a `.default()` field may be left out — checked, then stored as the schema gives it back, for the definition's `ttl` or the one given here |
+| `remember(params, load, { ttl })` | `Promise<T>` | the value if it is there, otherwise what `load` gives — the value as the schema accepts it, its input — stored, and given back **as it was stored** |
 | `delete(params)` | `Promise<boolean>` | `true` when something was there |
 
 `params` is whatever the definition's `key` function takes, so a cache keyed
@@ -55,7 +55,7 @@ a key spelled by hand in a script drifts the first time the prefix changes.
 The [configuration page](configuration.md#the-prefix) has the whole layout,
 locks included.
 
-## A value is written as the schema *outputs* it
+## A value is written as the schema *accepts* it
 
 ```ts
 const userSchema = z.object({
@@ -65,15 +65,25 @@ const userSchema = z.object({
 });
 
 await kit.cache.users.set('ada', { id: 'ada', email: 'ada@example.com' });
-// Argument of type '{ id: string; email: string; }' is not assignable to
-// parameter of type '{ id: string; email: string; seats: number; }'.
+const ada = await kit.cache.users.get('ada');
+// { id: 'ada', email: 'ada@example.com', seats: 1 }
 ```
 
-`set` and `remember` take the value the schema **produces**, not the one it
-accepts, so a field with a `.default()` has to be passed anyway — `seats: 1`
-above — and a loader has to return it. That is `@nxgt/redis`'s signature, not
-this package's; it is written down in [the roadmap](../roadmap.md) under
-*Later*, where it belongs to the sibling.
+`set` and a `remember` loader take the value as the schema **accepts** it —
+its `z.input` — and `get` and `remember` give it back as the schema
+**produces** it — its `z.output`. A field with a `.default()` may be left out
+where a value is written, and every reader gets it filled, since what is
+stored is what the schema gave back. It is `@nxgt/redis`'s `BoundCache`,
+typed through.
+
+Where a field's input type is `unknown` — `z.coerce.number()` — the compiler
+accepts any value for that field, though its key is still required; a whole
+`z.preprocess` schema accepts anything. There the schema's own check when
+`set` runs is what refuses a wrong value. Where a transform changes a type —
+a string in, a `Date` out — a value read back is not one `set` accepts, and a
+loader returns the input too; `@nxgt/redis`'s
+[troubleshooting](https://github.com/softistx/nxgt-data/blob/develop/packages/redis/docs/troubleshooting.md#types)
+has the compile errors and the fix.
 
 ## Built on first read, and kept
 
@@ -145,7 +155,8 @@ kit.instances.pubsub.cache.users;                 // that instance wires no cach
 type CacheScope<Ca> = {
 	readonly [K in keyof CachesOf<Ca>]: BoundCache<
 		ParamsOf<CachesOf<Ca>[K]>,
-		ValueOf<CachesOf<Ca>[K]>
+		ValueOf<CachesOf<Ca>[K]>,
+		InputOf<CachesOf<Ca>[K]>
 	>;
 };
 
@@ -157,7 +168,8 @@ type CachesOf<C> = {
 
 `CachesOf` is the key remapping that drops everything in the module that is
 not a definition, which is why `import * as caches` can be passed as it is.
-`BoundCache`, `ParamsOf` and `ValueOf` are `@nxgt/redis`'s.
+`BoundCache`, `ParamsOf`, `ValueOf` — what a read gives — and `InputOf` —
+what a write takes — are `@nxgt/redis`'s.
 
 Next: [channels](channels.md) for the events beside these values, or
 [locks and health](locks-and-health.md) for the work a cache miss sometimes

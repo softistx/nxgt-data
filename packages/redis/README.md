@@ -51,8 +51,8 @@ bun add @nxgt/redis zod typescript @types/bun
 
 ## What it does not do
 
-- **No `multi`/`exec`.** Bun's client has none, and 0.1.0 needs none: the lock
-  is `SET NX PX`, one command, and its release is one script.
+- **No `multi`/`exec`.** Bun's client has none, and nothing here needs one:
+  the lock is `SET NX PX`, one command, and its release is one script.
 - **It does not retry for you.** Bun's client reconnects; a command that fails
   fails, and the error is Redis's own.
 - **It is not a queue.** Pub/sub is fire-and-forget — see Traps.
@@ -108,20 +108,21 @@ nothing. The key is a **function**, so nothing is spelled by hand at a call
 site and a renamed parameter is a compile error. A stored key is
 `` `<name>:<key(params)>` ``. `ttl` is **seconds**, Redis's own unit for `EX`.
 
-| `BoundCache<P, T>` | |
+| `BoundCache<P, T, I>` | |
 | --- | --- |
 | `keyFor(params)` | the key it would use, for a caller that needs the string |
 | `get(params)` | the value, or `undefined` — a miss, an expiry, or a stale shape |
-| `set(params, value, { ttl })` | checked against the schema first, then stored |
-| `remember(params, load, { ttl })` | the value if it is there, otherwise what `load` gives, stored — and given back **as it was stored** |
+| `set(params, value, { ttl })` | the value as the schema **accepts** it — a `.default()` field may be left out — checked, then stored as the schema gives it back |
+| `remember(params, load, { ttl })` | the value if it is there, otherwise what `load` gives (as the schema accepts it), stored — and given back **as it was stored**, defaults filled |
 | `delete(params)` | `true` when something was there |
 
 | Type | |
 | --- | --- |
 | `CacheDefinition<P, S>` | what `defineCache` takes and gives back |
-| `BoundCache<P, T>` | what `bindCache` gives back |
+| `BoundCache<P, T, I>` | what `bindCache` gives back: `T` read, `I` written (`I` defaults to `T`) |
 | `ParamsOf<D>` | the params a definition's `key` takes, for a caller writing its own helper |
-| `ValueOf<D>` | what a definition's schema gives back |
+| `ValueOf<D>` | what a definition's schema gives back — what a read returns |
+| `InputOf<D>` | what a definition's schema accepts — what `set` and a loader take |
 
 ### Locks
 
@@ -224,6 +225,15 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
 
 ## Traps
 
+- **A write is typed by what the schema accepts.** `set` and a `remember`
+  loader take `z.input`, so a `.default()` field may be left out. Where a
+  field's input type is `unknown` — `z.coerce.number()` — the compiler accepts
+  any value there, though the key is still required; a whole `z.preprocess`
+  schema accepts anything. There the schema refuses a wrong value at run time.
+  A value read back (`z.output`) is not always a valid input: where a
+  transform changes a type, its output passed to `set`, or returned by a
+  loader, does not compile — see
+  [troubleshooting](docs/troubleshooting.md#types).
 - **`ttl` is seconds for a cache and milliseconds for a lock.** A cache's is
   Redis's `EX`; a lock's is its `PX`, because a lock's deadline is usually
   well under a second's resolution.

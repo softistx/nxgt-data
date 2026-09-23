@@ -3,21 +3,31 @@ import type { z } from 'zod';
 import { RedisError } from '../errors/redis-error';
 import type { CacheDefinition } from './types';
 
-/** A cache bound to a client: the definition, with somewhere to put it. */
-export interface BoundCache<P, T> {
+/**
+ * A cache bound to a client: the definition, with somewhere to put it.
+ *
+ * `T` is what the schema gives back — what `get` and `remember` return. `I`
+ * is what it accepts — what `set` and a loader hand in — so a field with a
+ * `.default()` may be left out where a value is written, and the default is
+ * what gets stored.
+ */
+export interface BoundCache<P, T, I = T> {
 	/** The key this would use, for a caller that needs the string itself. */
 	keyFor(params: P): string;
 	/** The value, or `undefined` — a miss, an expiry, or a stale shape. */
 	get(params: P): Promise<T | undefined>;
-	/** Stores it for the definition's `ttl`, or the one given here. */
-	set(params: P, value: T, options?: { ttl?: number }): Promise<void>;
+	/**
+	 * Stores it for the definition's `ttl`, or the one given here: the value
+	 * as the schema **accepts** it, stored as the schema gives it back.
+	 */
+	set(params: P, value: I, options?: { ttl?: number }): Promise<void>;
 	/**
 	 * The value if it is there, otherwise what `load` gives — stored, and
 	 * given back **as it was stored**, so a miss and a hit agree.
 	 */
 	remember(
 		params: P,
-		load: () => Promise<T> | T,
+		load: () => Promise<I> | I,
 		options?: { ttl?: number },
 	): Promise<T>;
 	/** Forgets it. `true` when something was there. */
@@ -39,8 +49,9 @@ export interface BoundCache<P, T> {
 export function bindCache<P, S extends z.ZodType>(
 	client: RedisClient,
 	definition: CacheDefinition<P, S>,
-): BoundCache<P, z.output<S>> {
+): BoundCache<P, z.output<S>, z.input<S>> {
 	type T = z.output<S>;
+	type I = z.input<S>;
 	const keyFor = (params: P) => `${definition.name}:${definition.key(params)}`;
 
 	const checked = (key: string, value: unknown): T => {
@@ -58,7 +69,7 @@ export function bindCache<P, S extends z.ZodType>(
 	};
 
 	/** Stores it, and gives back exactly what a later `get` will give back. */
-	const set = async (params: P, value: T, options?: { ttl?: number }) => {
+	const set = async (params: P, value: I, options?: { ttl?: number }) => {
 		const key = keyFor(params);
 		const ttl = options?.ttl ?? definition.ttl;
 		const stored = checked(key, value);

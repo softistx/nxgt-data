@@ -3,9 +3,11 @@
 import { RedisClient } from 'bun';
 import { z } from 'zod';
 import {
+	type BoundCache,
 	bindCache,
 	defineCache,
 	defineChannel,
+	type InputOf,
 	type ParamsOf,
 	publish,
 	subscribe,
@@ -41,6 +43,58 @@ users.set('u1', { email: 'a@b.c', seats: 1 });
 
 // @ts-expect-error a loader gives the cache's own shape
 users.remember('u1', () => ({ id: 'u1' }));
+
+// A field with a `.default()` may be left out where a value is written…
+users.set('u1', { id: 'u1', email: 'a@b.c' });
+const filled = users.remember('u1', () => ({ id: 'u1', email: 'a@b.c' }));
+// …and is always there where one is read.
+const seatsRead: Promise<number> = filled.then((user) => user.seats);
+void seatsRead;
+const inputSeats: InputOf<typeof userCache>['seats'] = undefined;
+void inputSeats;
+// @ts-expect-error what is read always has `seats`
+const outputSeats: ValueOf<typeof userCache>['seats'] = undefined;
+void outputSeats;
+
+// A transform that changes a type: a value is written as the string the
+// schema accepts, and read back as the Date it gives.
+const stampCache = defineCache({
+	name: 'stamp',
+	key: (id: string) => id,
+	schema: z.string().transform((s) => new Date(s)),
+	ttl: 60,
+});
+const stamps = bindCache(client, stampCache);
+stamps.set('s1', '2026-09-22T00:00:00Z');
+const stampRead: Promise<Date | undefined> = stamps.get('s1');
+void stampRead;
+// @ts-expect-error what `get` gave is the output: `set` takes the input
+stamps.set('s1', new Date());
+// @ts-expect-error a loader returns what the schema accepts, not what it gives
+stamps.remember('s1', async () => stampCache.schema.parse('2026-09-22'));
+// @ts-expect-error a two-argument annotation drops the input: name it with InputOf
+const oldStyle: BoundCache<string, ValueOf<typeof stampCache>> = stamps;
+void oldStyle;
+const named: BoundCache<
+	string,
+	ValueOf<typeof stampCache>,
+	InputOf<typeof stampCache>
+> = stamps;
+void named;
+
+// Where input and output overlap, the old annotation still compiles: method
+// parameters are bivariant. Only the read value passed to `set` is refused.
+const blankCache = defineCache({
+	name: 'blank',
+	key: (id: string) => id,
+	schema: z.string().transform((s) => (s === '' ? null : s)),
+	ttl: 60,
+});
+const blanks = bindCache(client, blankCache);
+const loose: BoundCache<string, ValueOf<typeof blankCache>> = blanks;
+void loose;
+// @ts-expect-error `null` is what it gives, not what it accepts
+blanks.set('b1', null);
 
 // The loader may be synchronous or not; both give the schema's shape.
 const remembered: Promise<typeof ada> = users.remember('u1', async () => ada);

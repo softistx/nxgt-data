@@ -1,7 +1,12 @@
 export type { BoundCache } from './cache/bind-cache';
 export { bindCache } from './cache/bind-cache';
 export { defineCache } from './cache/define-cache';
-export type { CacheDefinition, ParamsOf, ValueOf } from './cache/types';
+export type {
+	CacheDefinition,
+	InputOf,
+	ParamsOf,
+	ValueOf,
+} from './cache/types';
 export type { ChannelDefinition } from './channel/define-channel';
 export { defineChannel } from './channel/define-channel';
 export type { SubscribeOptions, Subscription } from './channel/pubsub';

@@ -5,7 +5,7 @@ item shipped in is the only number on this page.
 
 ## Now
 
-_Nothing in progress._ The first release is what is in flight.
+_Nothing in progress._
 
 ## Next
 
@@ -18,13 +18,7 @@ _Nothing in progress._ The first release is what is in flight.
 
 ## Later
 
-- **A cache value written as the schema *accepts* it** — `set` and
-  `remember` take `z.output`, so a field with a `.default()` has to be passed
-  anyway: a schema with `seats: z.number().default(1)` refuses
-  `set('ada', { id, email })`. Taking `z.input` would let the defaults apply
-  where a value is written, which is where they were meant to. It belongs to
-  [`@nxgt/redis`](https://www.npmjs.com/package/@nxgt/redis), whose
-  `BoundCache` that signature is, not to this package.
+_Nothing queued._
 
 ## Not planned
 
@@ -56,6 +50,12 @@ _Nothing in progress._ The first release is what is in flight.
 
 ## Shipped
 
+- **A cache value written as the schema *accepts* it** — `kit.cache.<key>.set`
+  and a `remember` loader take the schema's input, so
+  `set('ada', { id, email })` compiles where `seats` has a `.default()`, and
+  the default is what every reader gets; it is
+  [`@nxgt/redis`](https://www.npmjs.com/package/@nxgt/redis) 0.3.0's
+  `BoundCache`, typed through — 0.2.0.
 - **First release** — `defineConfig` checking a configuration of one or
   several Redis instances and freezing it without connecting to anything, and
   `connectKit` opening the clients and giving back a kit whose `cache` and

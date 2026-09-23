@@ -30,7 +30,7 @@ definition is exported by, with the deployment's prefix already in front of
 everything it writes. Nothing else has to be passed around: no client, no
 `bindCache` at a call site, no prefix spelled by hand.
 
-> **0.x, on `@nxgt/redis` 0.2.** The API is still settling.
+> **0.x, on `@nxgt/redis` 0.3.** The API is still settling.
 
 ## Install
 
@@ -38,7 +38,7 @@ everything it writes. Nothing else has to be passed around: no client, no
 bun add @nxgt/redis-kit @nxgt/redis zod
 ```
 
-- `@nxgt/redis` `^0.2.0`: required peer. The caches, the channels and the lock
+- `@nxgt/redis` `^0.3.0`: required peer. The caches, the channels and the lock
   are its; this package is where an application says which it has and where
   they live.
 - `zod` `>=4.6.5 <5`: required peer, `@nxgt/redis`'s own — every value and
@@ -168,8 +168,9 @@ const taken = await kit.cache.seats.get({ org: 'acme', user: id });   // keyed b
 ```
 
 Every member is `@nxgt/redis`'s `BoundCache`: `keyFor`, `get`, `set`,
-`remember`, `delete`, with the params its `key` function takes and the value
-its schema describes. A stored value that no longer matches the schema is a
+`remember`, `delete`, with the params its `key` function takes. A read —
+`get`, `remember` — gives the schema's output; a write — `set`, `remember`'s
+loader — takes its input, so a `.default()` field may be left out. A stored value that no longer matches the schema is a
 miss, not an error. The bound cache is built the first time its key is read
 and kept, so an application wires everything it has and pays for what a
 request touches.
@@ -289,9 +290,12 @@ Each is a `@ts-expect-error` case in this package's type tests.
 - **`defineConfig` connects to nothing**, so a wrong URI is `connectKit`'s
   error, not its. An instance that fails to open closes the ones already open
   before the error leaves.
-- **A value is written as the schema *outputs* it**, so a field with a
-  `.default()` must still be given to `set` and returned by `remember`'s
-  loader — see [the roadmap](docs/roadmap.md).
+- **A value is written as the schema *accepts* it**, so a field with a
+  `.default()` may be left out of `set` and of `remember`'s loader. A
+  `z.coerce.number()` field accepts any value, though its key is still
+  required, and a whole `z.preprocess` schema accepts anything: there, `set`
+  is checked at run time only, by the schema. Where a transform changes a
+  type, a value read back does not compile as a write.
 - **A subscription costs a connection.** Close it, or let `kit.close()` do it;
   one that outlives the kit is a socket nobody gives back.
 - **`kit.cache` throws on a kit with several instances**, where its type is

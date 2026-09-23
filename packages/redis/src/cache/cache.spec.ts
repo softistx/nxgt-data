@@ -125,11 +125,22 @@ describe('a bound cache', () => {
 
 	test('the schema’s defaults are applied on the way in', async () => {
 		const cache = users();
-		await cache.set('u1', { id: 'u1', email: 'a@b.c' } as typeof ada);
+		// No cast: `set` takes what the schema accepts, where `seats` is optional.
+		await cache.set('u1', { id: 'u1', email: 'a@b.c' });
 		expect(await cache.get('u1')).toEqual({
 			id: 'u1',
 			email: 'a@b.c',
 			seats: 1,
 		});
+	});
+
+	test('a loader may leave a defaulted field out, and remember gives it back filled', async () => {
+		const cache = users();
+		const missed = await cache.remember('u1', () => ({
+			id: 'u1',
+			email: 'a@b.c',
+		}));
+		expect(missed).toEqual({ id: 'u1', email: 'a@b.c', seats: 1 });
+		expect(await cache.get('u1')).toEqual(missed);
 	});
 });

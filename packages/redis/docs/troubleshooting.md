@@ -15,6 +15,8 @@ application can handle.
 - **Install and import**
   - [`Cannot find package 'bun'`](#cannot-find-package-bun)
   - [`Cannot find module 'bun' or its corresponding type declarations.`](#cannot-find-module-bun-or-its-corresponding-type-declarations)
+- **Types**
+  - [`Argument of type 'Date' is not assignable to parameter of type 'string'.`](#argument-of-type-date-is-not-assignable-to-parameter-of-type-string)
 - **Configuration**
   - [`defineCache: a cache needs a name, for its keys`](#definecache-a-cache-needs-a-name-for-its-keys)
   - [`defineChannel: a channel needs a name`](#definechannel-a-channel-needs-a-name)
@@ -62,6 +64,48 @@ bun add -d @types/bun
 `zod` `>=4.6.5 <5` is a required peer for the same kind of reason: a cache
 and a channel are described by your schema, so it has to be the copy this
 package parses with.
+
+## Types
+
+### `Argument of type 'Date' is not assignable to parameter of type 'string'.`
+
+**When:** typechecking, after upgrading to 0.3.0, on a cache whose schema
+transforms one type into another — here `z.string().transform((s) => new
+Date(s))`. It is `TS2345` on `set`, and it comes in two other forms:
+
+```
+// a `remember` loader that returns the output — TS2322
+Type 'Promise<Date>' is not assignable to type 'string | Promise<string>'.
+  Type 'Promise<Date>' is not assignable to type 'Promise<string>'.
+    Type 'Date' is not assignable to type 'string'.
+
+// a two-argument `BoundCache<P, ValueOf<D>>` annotation — TS2322
+Type 'BoundCache<string, Date, string>' is not assignable to type 'BoundCache<string, Date, Date>'.
+  Type 'string' is not assignable to type 'Date'.
+```
+
+**Why:** since 0.3.0 `set` and a loader take what the schema **accepts** —
+`z.input`, the string — while `get` and `remember` return what it gives back,
+`z.output`, the `Date`. A value read back is not a valid input when the
+transform changed its type. Where input and output overlap, as with
+`z.string().transform((s) => (s === '' ? null : s))`, the two-argument
+annotation still compiles, and only a read-back value passed to `set` fails,
+as `Argument of type 'string | null' is not assignable to parameter of type
+'string'.`
+**Fix:** pass the input, and name it with `InputOf` where you annotate:
+
+```ts
+import type { BoundCache, InputOf, ParamsOf, ValueOf } from '@nxgt/redis';
+
+await seen.set('u1', raw);                            // the string, not the Date
+await seen.remember('u1', () => loadRaw('u1'));       // the loader returns the input too
+
+type Seen = BoundCache<
+	ParamsOf<typeof seenCache>,
+	ValueOf<typeof seenCache>,
+	InputOf<typeof seenCache>
+>;
+```
 
 ## Configuration
 
@@ -252,11 +296,26 @@ expensive work has already been paid for. The schema's issues follow the
 colon.
 **Why:** a `RedisError` with `code: 'INVALID'`. A value being **written**
 that does not match is a bug, not a leftover, so it throws.
-**Fix:**
+**Fix:** check at the source, and hand the cache the value as it came —
+the input — since the cache parses it again on the way in:
 
 ```ts
-const user = await users.remember(id, async () => schema.parse(await loadUser(id)));
+import type { z } from 'zod';
+
+const user = await users.remember(id, async () => {
+	const raw = await loadUser(id);
+	const checked = userSchema.safeParse(raw);
+	if (!checked.success) throw checked.error; // names the source, not the cache
+	return raw as z.input<typeof userSchema>;  // valid input: the check passed
+});
 ```
+
+The cast is only needed where `loadUser` returns `unknown`; a typed source
+returns `raw` as it is.
+
+Returning `userSchema.parse(raw)` instead compiles only where no transform
+changes a type, and even then runs the schema's transforms twice — once in the
+loader, once in the cache.
 
 A stored value that no longer matches — an older deploy's shape — is the
 opposite case: it is treated as a **miss**, deleted, and read as `undefined`.
