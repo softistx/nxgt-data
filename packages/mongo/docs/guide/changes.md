@@ -164,7 +164,7 @@ process.on('SIGTERM', async () => {
 const reason = await subscription.closed;   // 'closed' | 'invalidated' | 'failed'
 ```
 
-## Without pre-images
+## Without pre- and post-images
 
 Three behaviours follow from a collection that keeps none, and each of them
 surprises someone:

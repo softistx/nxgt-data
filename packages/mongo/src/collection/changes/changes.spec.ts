@@ -69,6 +69,32 @@ describe('what a subscription hears', () => {
 		]);
 	});
 
+	test('without post-images, an update read after a hard delete has no document', async () => {
+		const collection = getCollection(t.db, posts);
+		const one = track(collection.onChange(() => {}));
+		await one.ready;
+		const post = await collection.create({ title: 'a', rank: 1 });
+		await until(() => one.resumeToken !== undefined, 'the create');
+		const token = one.resumeToken;
+		await one.close();
+
+		// Both made before anything reads the update, which is what a busy
+		// server does to a subscription that is only a little behind.
+		await collection.update(post._id, { title: 'b' });
+		await collection.delete(post._id);
+		const heard: unknown[] = [];
+		track(
+			collection.onChange((c) => void heard.push([c.type, c.document, c.id]), {
+				startAfter: token,
+			}),
+		);
+		await until(() => heard.length === 2, 'the update and the delete');
+		expect(heard).toEqual([
+			['update', undefined, post._id],
+			['delete', undefined, post._id],
+		]);
+	});
+
 	test('a document read from a change has its id, like any read', async () => {
 		const collection = getCollection(t.db, posts);
 		let seen: string | undefined;
@@ -221,32 +247,6 @@ describe('soft deletes', () => {
 		} as never);
 		await until(() => heard.length === 5, 'five changes');
 		expect(heard).toEqual(['create', 'delete', 'delete', 'delete', 'update']);
-	});
-
-	test('without pre-images, an update read after a delete has no document', async () => {
-		const collection = getCollection(t.db, posts);
-		const one = track(collection.onChange(() => {}));
-		await one.ready;
-		const post = await collection.create({ title: 'a', rank: 1 });
-		await until(() => one.resumeToken !== undefined, 'the create');
-		const token = one.resumeToken;
-		await one.close();
-
-		// Both made before anything reads the update, which is what a busy
-		// server does to a subscription that is only a little behind.
-		await collection.update(post._id, { title: 'b' });
-		await collection.delete(post._id);
-		const heard: unknown[] = [];
-		track(
-			collection.onChange((c) => void heard.push([c.type, c.document, c.id]), {
-				startAfter: token,
-			}),
-		);
-		await until(() => heard.length === 2, 'the update and the delete');
-		expect(heard).toEqual([
-			['update', undefined, post._id],
-			['delete', undefined, post._id],
-		]);
 	});
 
 	test('without the soft delete option, the stamp is an ordinary update', async () => {

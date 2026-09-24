@@ -1221,28 +1221,49 @@ describe('two callers storing the same bytes at once', () => {
 		// plain `put` takes no part in the election. Taking the id over on
 		// that stale answer stores the same bytes a second time.
 		const client = await MongoClient.connect(t.uri, { monitorCommands: true });
-		const { promise: waiting, resolve } = Promise.withResolvers<void>();
-		client.on('commandStarted', (event: CommandStartedEvent) => {
-			// Only the wait for the winner reads `files` by `_id`.
-			const filter = event.command.filter as { _id?: unknown } | undefined;
-			if (event.commandName === 'find' && _id.equals(filter?._id as never)) {
-				resolve();
-			}
-		});
-		const taking = getFiles(client.db(t.db.databaseName), uploads).putOnce(
-			mine,
-		);
-		// Only once it waits. A `put` that lands before `putOnce`'s own check
-		// is found by that check, and nothing is asked again — measured, the
-		// usual order when both simply start. One that lands between that
-		// check and the claim, with the stray chunk gone, lets the claim
-		// through: `stored: true`, once on a loaded CI runner.
-		await waiting;
-		const put = await files.put(mine);
-		await t.db.collection('uploads.chunks').deleteOne({ files_id: _id, n: 0 });
-		const { file, stored } = await taking.finally(() => client.close());
-		expect(stored).toBe(false);
-		expect(file._id).toEqual(put._id);
+		try {
+			const { promise: waiting, resolve } = Promise.withResolvers<void>();
+			client.on('commandStarted', (event: CommandStartedEvent) => {
+				// Only the wait for the winner reads `files` by `_id`.
+				const filter = event.command.filter as { _id?: unknown } | undefined;
+				if (
+					event.command.find === 'uploads.files' &&
+					filter?._id instanceof ObjectId &&
+					_id.equals(filter._id)
+				) {
+					resolve();
+				}
+			});
+			// Held where it is made: it may settle before anything awaits it.
+			const outcome = getFiles(client.db(t.db.databaseName), uploads)
+				.putOnce(mine)
+				.then(
+					(result) => ({ result }),
+					(error: unknown) => ({ error }),
+				);
+			// Only once it waits. A `put` that lands before `putOnce`'s own
+			// check is found by that check, and nothing is asked again —
+			// measured, the usual order when both simply start. One that lands
+			// between that check and the claim, with the stray chunk gone, lets
+			// the claim through: `stored: true`, once on a loaded CI runner.
+			await Promise.race([
+				waiting,
+				outcome.then(() => {
+					throw new Error('putOnce settled before it waited for the winner');
+				}),
+			]);
+			const put = await files.put(mine);
+			await t.db
+				.collection('uploads.chunks')
+				.deleteOne({ files_id: _id, n: 0 });
+			const settled = await outcome;
+			if ('error' in settled) throw settled.error;
+			const { file, stored } = settled.result;
+			expect(stored).toBe(false);
+			expect(file._id).toEqual(put._id);
+		} finally {
+			await client.close();
+		}
 		expect(
 			await t.db
 				.collection('uploads.files')
