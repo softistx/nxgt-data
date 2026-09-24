@@ -68,7 +68,7 @@ await posts.upsert({ title: 'a', _id: chosen }, { rank: 1 });
 
 An upsert keyed on a business field that also picks the id of its insert has
 no exact equivalent. Choose `_id` from the key itself, so the filter names
-one thing (`upsert({ _id: slugId('a') }, { title: 'a', rank: 1 })`), or read
+one thing (`upsert({ _id: idFor('a') }, { title: 'a', rank: 1 })`, where `idFor` derives an id of the collection's `_id` type from the key), or read
 first and then `create` or `update`. A filter that names `_id` also changes
 how the matched half fills a missing field: see the
 [first trap](#two-traps-worth-knowing-before-you-use-it).

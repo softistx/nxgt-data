@@ -447,7 +447,7 @@ upsert on "posts": "_id" is immutable, and an upsert never writes it. Name it in
 matched on the title alone, it now inserts a second document — or fails with
 `ConflictError` on a unique index over `title`. An upsert keyed on a
 business field that also picks the id of its insert has no exact equivalent:
-choose `_id` from the key itself (`upsert({ _id: slugId(title) }, …)`), or
+choose `_id` from the key itself (`upsert({ _id: idFor(title) }, …)`, with `idFor` deriving an id of the collection's `_id` type), or
 read first and `create` or `update`. The filter's `_id` also changes how
 the matched half fills holes; see the [Traps](#traps).
 

@@ -174,7 +174,10 @@ carries its own `_id` unchanged:
 
 ```ts
 const doc = await posts.raw.findOne({ _id: id });   // a raw or driver read
-await posts.update(id, { ...doc, title: 'b' });      // 0.17: no change to _id; 0.18: TypeError
+if (!doc) return;
+await posts.update(id, { ...doc, title: 'b' });
+// 0.17: no change to _id. 0.18: a compile error, and a TypeError at run
+// time for a caller the types do not reach (JavaScript, a cast)
 
 const { _id, ...rest } = doc;                        // take it out first
 await posts.update(id, { ...rest, title: 'b' });
