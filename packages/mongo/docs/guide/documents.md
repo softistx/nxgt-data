@@ -126,7 +126,16 @@ update on "users": "_id" is immutable, and an update never writes it. Leave it o
 ```
 
 It is a bare `TypeError`, like every refused argument here, and it names the
-call and the collection, never the value. The types refuse the same patches:
+call and the collection, never the value. `updateMany` throws the same
+message with `updateMany on` in front; `upsert` has its own, in
+[Upsert](upsert.md#what-it-throws).
+
+The types refuse the same patches, with one gap: a **top-level `_id:
+undefined`** compiles — `update(id, { _id: undefined, name })`, or the idiom
+`update(id, { ...body, _id: undefined })` — because `_id?: never` accepts
+`undefined` unless your tsconfig turns on `exactOptionalPropertyTypes`. It is
+refused at run time only. Inside an operator, `$set: { _id: undefined }`
+does not compile.
 
 ```ts
 const { _id, ...patch } = body;           // a body that carries its own id
@@ -136,10 +145,16 @@ await collection.update(ada._id, patch);
 await collection.update(ada._id, { _id: other });
 // @ts-expect-error …nor through an operator
 await collection.update(ada._id, { $set: { _id: other } });
+
+// compiles, and throws at run time
+await collection.update(ada._id, { ...body, _id: undefined });
 ```
 
-An upsert's values are written on both halves, so the `_id` an insert gets
-goes in its **filter**, which seeds the inserted document:
+An upsert's values are written on both halves, so they never carry `_id`.
+Its **filter** may, and seeds the inserted document with it — but a filter
+is also what the upsert **matches**, so naming `_id` there changes which
+document it finds. See
+[Upsert](upsert.md#the-filter-is-written-not-only-matched):
 
 ```ts
 await posts.upsert({ _id: chosen }, { title: 'a', rank: 1 });
@@ -153,6 +168,23 @@ Before 0.18.0 the patch reached the server, which answered a changed `_id`
 with `ImmutableField` (66) — a plain `DataError` with `serverCode: 66`, whose
 message, on an upsert, quoted the new value — and let the same `_id` through
 as no change. Both are refused now.
+
+What newly breaks is a whole document spread back into an update, which
+carries its own `_id` unchanged:
+
+```ts
+const doc = await posts.raw.findOne({ _id: id });   // a raw or driver read
+await posts.update(id, { ...doc, title: 'b' });      // 0.17: no change to _id; 0.18: TypeError
+
+const { _id, ...rest } = doc;                        // take it out first
+await posts.update(id, { ...rest, title: 'b' });
+```
+
+The same goes for a client body with `id` taken off but `_id` left on, and
+for a collection whose schema declares its own `id`, where a read carries no
+computed one. On a collection that keeps stamps, the stamps in such a
+document were refused already. A spread of this package's own `getById`
+result on any other collection already threw in 0.17, on `id`.
 
 The driver's own methods are not this package's: `updateOne`,
 `findOneAndUpdate`, `replaceOne`, `bulkWrite` and `raw` send what they are

@@ -165,6 +165,19 @@ await people.updateMany({ name: null }, { _id: id });
 await people.updateMany({ name: null }, { $set: { _id: id } });
 // @ts-expect-error an upsert's values are written on both halves
 await board.upsert({ title: 'a' }, { _id: id, rank: 1 });
+// The one gap, pinned: a top-level `_id: undefined` COMPILES, because
+// `_id?: never` accepts `undefined` without `exactOptionalPropertyTypes`
+// (which this repository leaves off, as most consumers do). The run time
+// refuses it — `id.spec.ts`, "as undefined" and the upsert spec. If this
+// ever stops compiling, the docs that name the gap are out of date.
+await people.update(id, { _id: undefined, name: 'Ada' });
+await people.updateMany({ name: null }, { _id: undefined, name: 'x' });
+await board.upsert({ title: 'a' }, { _id: undefined, rank: 1 });
+declare const body: { name: string };
+await people.update(id, { ...body, _id: undefined });
+// Inside an operator it does not compile.
+// @ts-expect-error `$set: { _id: undefined }` is refused by the types
+await people.update(id, { $set: { name: 'Ada', _id: undefined } });
 // The filter is where an upsert names the `_id` an insert gets.
 await board.upsert({ _id: id }, { title: 'a', rank: 1 });
 // A document that was read is written back without its `_id`.
