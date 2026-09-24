@@ -307,6 +307,25 @@ describe('database errors', () => {
 		).toBe(true);
 		expect(await collection.count()).toBe(0);
 	});
+
+	test('serverCodeName is there from update, not from updateMany: the server sends none on a write error', async () => {
+		const { users: collection } = await collections();
+		const ada = await collection.create({ email: 'ada@example.com' });
+		const raw = getCollection(t.db, users, { validate: 'off' });
+
+		const one = await raw
+			.update(ada._id, { email: 'not-an-email' })
+			.catch((e) => e);
+		expect(one).toBeInstanceOf(ValidationError);
+		expect(one.serverCodeName).toBe('DocumentValidationFailure');
+
+		const many = await raw
+			.updateMany({ _id: ada._id }, { email: 'not-an-email' })
+			.catch((e) => e);
+		expect(many).toBeInstanceOf(ValidationError);
+		expect(many.serverCode).toBe(121);
+		expect(many.serverCodeName).toBeUndefined();
+	});
 });
 
 describe('with and as', () => {

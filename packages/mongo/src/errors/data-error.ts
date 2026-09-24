@@ -34,7 +34,7 @@ export interface DataErrorOptions {
 	id?: unknown;
 	/** MongoDB's numeric error code: 11000, 121, 26… */
 	serverCode?: number | undefined;
-	/** MongoDB's `codeName`, which write errors do not carry. */
+	/** MongoDB's `codeName`, which only `find` and `findAndModify` answers carry. */
 	serverCodeName?: string | undefined;
 	/** The index a conflict names, when the server names one. */
 	index?: string | undefined;
