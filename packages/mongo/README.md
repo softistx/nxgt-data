@@ -799,7 +799,7 @@ application never reads a numeric code:
 | `MigrationError` | `MIGRATION` | a migration failed, or the list does not match the records — from `@nxgt/mongo/migrations` |
 | `MigrationLockedError` | `MIGRATION_LOCKED` | another run holds the migration lock, or this one lost it — from `@nxgt/mongo/migrations` |
 | `ConnectionError` | `CONNECTION` | `closeMongo()` closed every client while this `connectMongo` was still connecting. It carries no URI: a connection string holds the password |
-| `DataError` | `DATABASE` | any other server error, with its `serverCode` — and the one answer MongoDB should never give: an `upsert` answered with no document, which says so and asks for a report |
+| `DataError` | `DATABASE` | any other server error, with its `serverCode` (match on that: `serverCodeName` is `undefined` on a write error, see [the errors guide](docs/guide/errors.md#what-they-carry)) — and the one answer MongoDB should never give: an `upsert` answered with no document, which says so and asks for a report |
 
 `ConflictError` carries `index`, `keys` and, when the server gives them,
 `values`. `ValidationError` carries `issues`, MongoDB's `errInfo` flattened

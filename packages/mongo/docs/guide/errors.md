@@ -69,7 +69,7 @@ class DataError extends Error {
 	readonly id: unknown;
 	/** MongoDB's numeric code: 11000, 121, 26… */
 	readonly serverCode: number | undefined;
-	/** MongoDB's name for it, when the server sends one — see below. */
+	/** MongoDB's name for it; a write error carries none — see below. */
 	readonly serverCodeName: string | undefined;
 	/** The index a conflict names. */
 	readonly index: string | undefined;
@@ -93,16 +93,22 @@ interface ValidationIssue {
 }
 ```
 
-Match on `serverCode`, not `serverCodeName`. MongoDB names the code only
-when it answers a `find` or a `findAndModify`: the reads, `update`, `upsert`
-and `delete`. The `insert`, `update` and `delete` commands answer with the code
-alone, even for a filter the server refuses — so `create`, `createMany`,
-`updateMany`, `deleteMany`, `hardDeleteMany` and the `raw.*` writes give
-`serverCodeName: undefined`. The same refusal is `{ serverCode: 121,
-serverCodeName: 'DocumentValidationFailure' }` from `update` and
-`{ serverCode: 121, serverCodeName: undefined }` from `updateMany`. This
-package does not fill the name in from a table of its own, because a table
-that lagged a server release would answer `undefined` for a new code anyway.
+Match on `serverCode`, not `serverCodeName`. What decides whether the name is
+there is how the server refuses, not which method was called. When it refuses
+the whole command — `Unauthorized` (13), `NamespaceNotFound` (26),
+`WriteConflict` (112) in a transaction, a node that is not the primary — the
+answer carries a `codeName`, from any method. When the server's `insert`,
+`update` or `delete` command refuses one document, the refusal is a write
+error, and a write error carries the code alone. That is where duplicate keys
+(11000), validator refusals (121) and a filter the server cannot read come
+from, through `create`, `createMany`, `updateMany`, `deleteMany` and
+`hardDeleteMany`. The `findAndModify` behind `update`, `upsert`, `delete`,
+`hardDelete` and `restore` answers even a refused document as a command, with
+its name. So the same refusal is `{ serverCode: 121, serverCodeName:
+'DocumentValidationFailure' }` from `update` and `{ serverCode: 121,
+serverCodeName: undefined }` from `updateMany`. This package does not fill the
+name in from a table of its own, because a table that lagged a server release
+would answer `undefined` for a new code anyway.
 
 `ValidationError.issues` is MongoDB's `errInfo`, flattened — the server says
 which field and which rule, and this is where to read it:
