@@ -307,6 +307,33 @@ describe('database errors', () => {
 		).toBe(true);
 		expect(await collection.count()).toBe(0);
 	});
+
+	test('serverCodeName: a write error carries none, a refused command does', async () => {
+		const { users: collection } = await collections();
+		const ada = await collection.create({ email: 'ada@example.com' });
+		const raw = getCollection(t.db, users, { validate: 'off' });
+
+		const one = await raw
+			.update(ada._id, { email: 'not-an-email' })
+			.catch((e) => e);
+		expect(one).toBeInstanceOf(ValidationError);
+		expect(one.serverCodeName).toBe('DocumentValidationFailure');
+
+		const many = await raw
+			.updateMany({ _id: ada._id }, { email: 'not-an-email' })
+			.catch((e) => e);
+		expect(many).toBeInstanceOf(ValidationError);
+		expect(many.serverCode).toBe(121);
+		expect(many.serverCodeName).toBeUndefined();
+
+		// A command refused as a whole is named, whichever method sent it.
+		await t.failNext(['update'], { errorCode: 112 });
+		const whole = await raw
+			.updateMany({ _id: ada._id }, { name: 'Ada' })
+			.catch((e) => e);
+		expect(whole.serverCode).toBe(112);
+		expect(whole.serverCodeName).toBe('WriteConflict');
+	});
 });
 
 describe('with and as', () => {

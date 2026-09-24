@@ -34,7 +34,10 @@ export interface DataErrorOptions {
 	id?: unknown;
 	/** MongoDB's numeric error code: 11000, 121, 26… */
 	serverCode?: number | undefined;
-	/** MongoDB's `codeName`, which write errors do not carry. */
+	/**
+	 * MongoDB's `codeName`. A write error (`writeErrors`) carries none, so
+	 * match on `serverCode`.
+	 */
 	serverCodeName?: string | undefined;
 	/** The index a conflict names, when the server names one. */
 	index?: string | undefined;
@@ -60,7 +63,12 @@ export class DataError extends Error {
 	readonly code: DataErrorCode = 'DATABASE';
 	readonly collection: string | undefined;
 	readonly id: unknown;
+	/** MongoDB's numeric error code: 11000, 121, 26… */
 	readonly serverCode: number | undefined;
+	/**
+	 * MongoDB's `codeName`. A write error (`writeErrors`) carries none, so
+	 * match on `serverCode`.
+	 */
 	readonly serverCodeName: string | undefined;
 	readonly index: string | undefined;
 	readonly keys: string[];
