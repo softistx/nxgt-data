@@ -330,6 +330,36 @@ also what fills its defaults. `update` checks each field of a patch — the
 driver's own `UpdateFilter` is intersected with `Document` and accepts any key
 whatsoever, including a typo.
 
+### `_id` never changes
+
+MongoDB never changes an `_id`, so `update`, `updateMany` and `upsert` never
+write one. A patch naming `_id` — as a field, through any operator (`$set`,
+`$unset`, `$rename` either way…), under a path, even as `undefined` — is a
+`TypeError` before anything is sent or any hook runs, naming the call and the
+collection, never the value:
+
+```ts
+const { _id, ...patch } = body;
+await users.update(id, patch);
+
+await users.update(id, { _id: other });
+// TypeError: update on "users": "_id" is immutable, and an update never writes it. Leave it out; a document that needs another _id is a new document
+```
+
+`updateMany` throws the same message with `updateMany on` in front, and
+`upsert` its own — see [Upsert](#upsert).
+
+**The types refuse it too, with one gap.** `{ _id: other }`, and `_id` in
+every operator, `$set: { _id: undefined }` included, do not compile. A
+top-level `_id: undefined` — `update(id, { _id: undefined, name })`, or the
+idiom `update(id, { ...body, _id: undefined })` — **does** compile, because
+`_id?: never` accepts `undefined` unless the consumer turns on
+`exactOptionalPropertyTypes`; it is refused at run time only.
+
+The driver's own `updateOne`, `findOneAndUpdate`, `replaceOne`, `bulkWrite`
+and `raw` are not this package's calls: they check nothing, and the server
+refuses a changed `_id` there with code 66, as it always did.
+
 ## Ids
 
 Every document a repository gives back carries `id`: its `_id` as a string. It
@@ -403,8 +433,23 @@ fills `_id` with something that is not an `ObjectId`: the server generates
 one before the pipeline runs, so an upsert cannot apply that default and asks
 for the id rather than landing a document `create` would not have landed.
 
-In the **values**, `_id` compiles — as it does in a patch — and the server
-refuses it on the update half as an immutable field. Put it in the filter.
+In the **values**, `_id` is refused — a `TypeError` before anything is sent,
+and a compile error unless it is given as `undefined` — as it is in a patch:
+the values are written on both halves, and an update never changes an `_id`:
+
+```
+upsert on "posts": "_id" is immutable, and an upsert never writes it. Name it in the filter, which is what an inserted document is seeded from
+```
+
+**Naming `_id` in the filter makes it part of the match.**
+`upsert({ title: 'a', _id: chosen }, …)` matches a document with that title
+**and** that id, so where 0.17's `upsert({ title: 'a' }, { _id: chosen, … })`
+matched on the title alone, it now inserts a second document — or fails with
+`ConflictError` on a unique index over `title`. An upsert keyed on a
+business field that also picks the id of its insert has no exact equivalent:
+choose `_id` from the key itself (`upsert({ _id: idFor(title) }, …)`, with `idFor` deriving an id of the collection's `_id` type), or
+read first and `create` or `update`. The filter's `_id` also changes how
+the matched half fills holes; see the [Traps](#traps).
 
 Naming `_id` in the filter has one cost, in the Traps: it is what tells an
 insert from an update, so an upsert that names it fills a matched document's
@@ -1237,7 +1282,8 @@ you pass a client.
 ## What does not compile
 
 The schema types more than the documents. These are compile errors, each one
-kept as a test in `test/types/strictness.ts`:
+kept as a test in `test/types/` — `strictness.ts`, and the files named
+after the block:
 
 ```ts
 await collection.findMany({ sort: { nope: 1 } });        // no such field
@@ -1254,6 +1300,9 @@ await collection.create({ email, createdAt: '2024' });   // a timestamp is a Dat
 await collection.update(id, { createdAt: new Date() });  // fixed once created
 await collection.update(id, { $inc: { version: 1 } });   // not through an operator either
 await collection.update(id, { deletedAt: null });        // `delete` and `restore`
+await collection.update(id, { _id: other });             // an _id never changes
+await collection.update(id, { $set: { _id: other } });   // through any operator
+await collection.upsert({ email }, { _id: other });      // not in the values
 await collection.upsert({ email }, { nope: 1 });         // no such field to write
 await collection.upsert({ email }, { version: 1 });      // the collection keeps it
 await collection.upsert({ email }, { createdAt: date }); // a create's to give, not this
@@ -1274,7 +1323,8 @@ defineMigration({ id: 'x', up: () => {} });              // up is awaited
 ```
 
 The aggregation cases are in `test/types/aggregation.ts`, the stamp cases in
-`test/types/stamp-writes.ts`, the migration cases in `test/types/migrations.ts`.
+`test/types/stamp-writes.ts` (the `_id` ones included), the migration cases
+in `test/types/migrations.ts`.
 
 A migration is refused structurally: an object shaped like one that did not go
 through `defineMigration` compiles, and skips its id check.
@@ -1288,6 +1338,16 @@ operator, and getting it subtly wrong is worse than being honest about it.
 - **A document that was read is not a create.** It carries its version, its
   `deletedAt` and its actors, which a create refuses. Take the stamps out
   first, or copy it with `raw`.
+- **A body carrying its own `_id` is not a patch.** `update`, `updateMany` and
+  `upsert` refuse any `_id` in what they write, even the document's own and
+  even `undefined` (since 0.18.0). What newly breaks is a whole document
+  spread back into an update: `update(id, { ...doc, title })` where `doc`
+  came from a `raw` or driver read, from a client body with `id` taken off,
+  or from a collection whose schema declares its own `id`. On a collection
+  that keeps no stamps — where nothing else in the document is refused — it
+  used to go through as no change to `_id`; it throws now. (A spread of this package's
+  own `getById` result already threw in 0.17, on `id`.) Take `_id` out
+  first: `const { _id, ...patch } = doc`.
 - **A version in an update is a condition, not a value.** `{ version: 3 }`
   never sets the version to 3: it makes the update fail unless the document is
   at 3, and the update then leaves it at 4.

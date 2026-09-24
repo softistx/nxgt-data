@@ -5,6 +5,7 @@ import {
 	expectedVersionOf,
 	fillStamps,
 	refuseFixed,
+	refuseId,
 	refuseKeptOnCreate,
 } from './stamp-writes';
 
@@ -121,6 +122,9 @@ export function toUpdate(
 			`${method}: expected the document's fields or MongoDB's operators, not ${String(given)}`,
 		);
 	}
+	// On the patch as given, before `withoutUndefined` drops `_id: undefined`,
+	// and after any hook: what a `beforeUpdate` returned is checked here too.
+	refuseId(ctx, method, given);
 	const patch = withoutUndefined(given);
 	const expectedVersion = expectedVersionOf(ctx, method, patch);
 	const written = refuseFixed(ctx, method, patch);

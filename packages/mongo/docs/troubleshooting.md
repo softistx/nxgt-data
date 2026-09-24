@@ -34,6 +34,8 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`Document failed validation in "users": email bsonType`](#document-failed-validation-in-users-email-bsontype)
   - [`Document 6721… of "users" is at version 4, not 3: it changed since it was read`](#document-6721-of-users-is-at-version-4-not-3-it-changed-since-it-was-read)
   - [`create: "version" is kept by "users" itself and cannot be written.`](#create-version-is-kept-by-users-itself-and-cannot-be-written)
+  - [`update on "users": "_id" is immutable, and an update never writes it. Leave it out; a document that needs another _id is a new document`](#update-on-users-_id-is-immutable-and-an-update-never-writes-it-leave-it-out-a-document-that-needs-another-_id-is-a-new-document)
+  - [`upsert on "users": "_id" is immutable, and an upsert never writes it. Name it in the filter, which is what an inserted document is seeded from`](#upsert-on-users-_id-is-immutable-and-an-upsert-never-writes-it-name-it-in-the-filter-which-is-what-an-inserted-document-is-seeded-from)
   - [`update: "users" has no field "emial" in its schema`](#update-users-has-no-field-emial-in-its-schema)
   - [`deleteMany needs a filter. Pass { _id: { $exists: true } } to target every document of "users".`](#deletemany-needs-a-filter-pass--_id--exists-true---to-target-every-document-of-users)
   - [`upsert: "users" cannot upsert on "rank": it is matched rather than given a value`](#upsert-users-cannot-upsert-on-rank-it-is-matched-rather-than-given-a-value)
@@ -398,6 +400,81 @@ await users.create(values);
 // or, when it really must be written by hand:
 await users.raw.insertOne(document);
 ```
+
+### `update on "users": "_id" is immutable, and an update never writes it. Leave it out; a document that needs another _id is a new document`
+
+**When:** `update` or `updateMany` with a patch that names `_id` — as a
+field, through any operator (`$set`, `$setOnInsert`, `$unset`, `$rename`
+onto it or away from it, `$currentDate`, `$min`…), under a path such as
+`_id.x`, or as `undefined`. `updateMany` throws the same message with only
+the call's name changed:
+
+```
+updateMany on "users": "_id" is immutable, and an update never writes it. Leave it out; a document that needs another _id is a new document
+```
+
+An `_id` in `upsert`'s values has
+[its own message](#upsert-on-users-_id-is-immutable-and-an-upsert-never-writes-it-name-it-in-the-filter-which-is-what-an-inserted-document-is-seeded-from).
+It is checked on the caller's patch before any hook runs, and again on what
+a `before` hook returns. Nothing is sent. The types refuse the same patches
+except a top-level `_id: undefined` — `{ ...body, _id: undefined }` — which
+compiles unless `exactOptionalPropertyTypes` is on; this is the run-time
+half, for that, for a body that came from JSON, and for a cast.
+**Why:** MongoDB never changes an `_id`. Before 0.18.0 the patch reached the
+server: a new `_id` came back as a plain `DataError` with `serverCode: 66`
+(`ImmutableField`) — on an upsert, in a message that quoted the value — and
+the same `_id` went through as no change, sent for nothing. A bare
+`TypeError`, like every refused argument here; the message names the call
+and the collection, never the value.
+**Fix:** leave it out. A body that carries the document's own id should not
+be handed to a write as it is:
+
+```ts
+const { _id, id, ...patch } = body;
+await users.update(userId, patch);
+
+// another id: a new document, in one transaction
+await withTransaction(client, async (session) => {
+	const tx = users.withSession(session);
+	const { _id: _, id: __, ...rest } = await tx.getById(oldId, { withDeleted: true });
+	await tx.raw.insertOne({ ...rest, _id: newId }, { session });
+	await tx.hardDelete(oldId);
+});
+```
+
+`raw.insertOne` because `create` refuses the stamps a read document carries;
+the copy keeps them. The driver's own `updateOne` and `raw` are not checked
+here: a changed `_id` sent through them is refused by the server, as before.
+
+### `upsert on "users": "_id" is immutable, and an upsert never writes it. Name it in the filter, which is what an inserted document is seeded from`
+
+**When:** `upsert` with `_id` in its **values** — any value, the document's
+own, or `undefined`. Before 0.18.0 it chose the id of an insert, and failed
+with `ImmutableField` (66) on a match whose stored `_id` differed. Nothing is
+sent, and no `beforeUpsert` hook runs. A top-level `_id: undefined` compiles
+unless `exactOptionalPropertyTypes` is on; any other `_id` in the values is a
+compile error too.
+**Why:** an upsert's values are written on both halves, and the update half
+can never change an `_id`.
+**Fix:** take `_id` out of the values. If the insert must get a chosen id,
+the filter can name it — but the filter is also the **match**, so
+`upsert({ email, _id: chosen }, …)` no longer finds a document by its email
+alone: it inserts a second one, or hits `ConflictError` on a unique index.
+There is no exact equivalent of the 0.17 call. Derive `_id` from the key, or
+read first:
+
+```ts
+// the key decides the id, so the filter names one thing
+await users.upsert({ _id: idFor(email) }, { email, name });
+
+// or read, then write
+const found = await users.findFirst({ email });
+if (found) await users.update(found._id, { name });
+else await users.create({ _id: chosen, email, name });
+```
+
+A filter that names `_id` also fills a matched document's missing fields
+differently: see [Upsert](guide/upsert.md#two-traps-worth-knowing-before-you-use-it).
 
 ### `update: "users" has no field "emial" in its schema`
 

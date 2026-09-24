@@ -53,6 +53,14 @@ _Nothing queued._
 
 ## Shipped
 
+- **No update writes `_id`** — `update`, `updateMany` and `upsert` refuse a
+  patch that names `_id`, as a field or through any operator, even as
+  `undefined`, with a `TypeError` naming the call and the collection before
+  anything is sent or any hook runs, and their types leave it out, all but a
+  top-level `_id: undefined`; an upsert's filter may name the `_id` an insert
+  gets, and then matches on it too. It used to reach the
+  server and come back as a plain `DataError` (`ImmutableField`). The
+  driver's own methods are untouched — 0.18.0.
 - **A bucket with no chunk index says so, once** — the first read of a bucket
   whose chunks collection has no `files_id_1_n_1` emits one `process` warning,
   `NxgtGridFSMissingIndex`, naming the bucket and the collection, so a read

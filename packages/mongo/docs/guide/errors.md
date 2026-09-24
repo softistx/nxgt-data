@@ -141,8 +141,9 @@ What is **not** a `DataError` here, and is worth deciding about on purpose:
   collection hands an unreadable string on rather than throwing. Call
   [`toObjectId` or `objectIdParam`](documents.md#when-a-malformed-id-should-be-a-400)
   where a 400 is wanted.
-- A write refused before anything is sent — a stamp a caller may not write, a
-  filter an [upsert](upsert.md#the-filter-is-written-not-only-matched) cannot
+- A write refused before anything is sent — a stamp a caller may not write,
+  an [`_id` in a patch](documents.md#_id-never-changes), a filter an
+  [upsert](upsert.md#the-filter-is-written-not-only-matched) cannot
   seed from — is a `TypeError`, not a `DataError`. The types refuse most of
   them first. The exception is the one thing about an `upsert` that cannot be
   the caller's doing: a server that

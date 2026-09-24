@@ -113,6 +113,87 @@ await collection.create({ email: 'b@example.com', version: 1 });
 
 `raw` is the way to set a stamp by hand.
 
+### `_id` never changes
+
+MongoDB never changes a document's `_id`, so no `update`, `updateMany` or
+`upsert` writes one. A patch that names `_id` — as a field, through any
+operator (`$set`, `$unset`, `$rename` onto it or away from it, a path under
+it), even as `undefined` or through a cast — is refused **before anything is
+sent**, and before any hook runs:
+
+```
+update on "users": "_id" is immutable, and an update never writes it. Leave it out; a document that needs another _id is a new document
+```
+
+It is a bare `TypeError`, like every refused argument here, and it names the
+call and the collection, never the value. `updateMany` throws the same
+message with `updateMany on` in front; `upsert` has its own, in
+[Upsert](upsert.md#what-it-throws).
+
+The types refuse the same patches, with one gap: a **top-level `_id:
+undefined`** compiles — `update(id, { _id: undefined, name })`, or the idiom
+`update(id, { ...body, _id: undefined })` — because `_id?: never` accepts
+`undefined` unless your tsconfig turns on `exactOptionalPropertyTypes`. It is
+refused at run time only. Inside an operator, `$set: { _id: undefined }`
+does not compile.
+
+```ts
+const { _id, ...patch } = body;           // a body that carries its own id
+await collection.update(ada._id, patch);
+
+// @ts-expect-error `_id` is not in a patch
+await collection.update(ada._id, { _id: other });
+// @ts-expect-error …nor through an operator
+await collection.update(ada._id, { $set: { _id: other } });
+
+// compiles, and throws at run time
+await collection.update(ada._id, { ...body, _id: undefined });
+```
+
+An upsert's values are written on both halves, so they never carry `_id`.
+Its **filter** may, and seeds the inserted document with it — but a filter
+is also what the upsert **matches**, so naming `_id` there changes which
+document it finds. See
+[Upsert](upsert.md#the-filter-is-written-not-only-matched):
+
+```ts
+await posts.upsert({ _id: chosen }, { title: 'a', rank: 1 });
+```
+
+A document that really needs another `_id` is a new document: `create` it
+with the new id and `hardDelete` the old one, in a
+[transaction](transactions.md).
+
+Before 0.18.0 the patch reached the server, which answered a changed `_id`
+with `ImmutableField` (66) — a plain `DataError` with `serverCode: 66`, whose
+message, on an upsert, quoted the new value — and let the same `_id` through
+as no change. Both are refused now.
+
+What newly breaks is a whole document spread back into an update, which
+carries its own `_id` unchanged:
+
+```ts
+const doc = await posts.raw.findOne({ _id: id });   // a raw or driver read
+if (!doc) return;
+await posts.update(id, { ...doc, title: 'b' });
+// 0.17: no change to _id. 0.18: a compile error, and a TypeError at run
+// time for a caller the types do not reach (JavaScript, a cast)
+
+const { _id, ...rest } = doc;                        // take it out first
+await posts.update(id, { ...rest, title: 'b' });
+```
+
+The same goes for a client body with `id` taken off but `_id` left on, and
+for a collection whose schema declares its own `id`, where a read carries no
+computed one. On a collection that keeps stamps, the stamps in such a
+document were refused already. A spread of this package's own `getById`
+result on any other collection already threw in 0.17, on `id`.
+
+The driver's own methods are not this package's: `updateOne`,
+`findOneAndUpdate`, `replaceOne`, `bulkWrite` and `raw` send what they are
+given, and the server refuses a changed `_id` there as it always did (see
+[below](#the-driver-is-on-the-same-object)).
+
 ### Who is writing
 
 `as(actor)` gives back a collection that stamps `createdBy`, `updatedBy` and
@@ -223,6 +304,15 @@ await collection.raw.updateMany({}, { $set: { name: 'x' } });   // → UpdateRes
 `raw` is also the way out for an update operator this package does not name,
 and the way to write a stamp by hand. It runs no hooks, coerces nothing, and
 does not filter out soft-deleted documents.
+
+**The boundary is this package's own calls.** Its rules — the stamps a write
+may not give, [`_id` never written](#_id-never-changes), the empty filter
+refused — hold for `update`, `updateMany`, `upsert` and the rest of its
+methods. A method that is the driver's own — `updateOne`,
+`findOneAndUpdate`, `replaceOne`, `bulkWrite`, `raw.updateMany` — is left as
+the driver wrote it: it checks nothing here, and what it sends is the
+server's to refuse. A changed `_id` sent that way comes back as the driver's
+`MongoServerError`, code 66.
 
 ## The options
 

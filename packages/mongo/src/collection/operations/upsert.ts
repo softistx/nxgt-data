@@ -5,7 +5,7 @@ import { coercedValues } from '../coerce';
 import { type CollectionContext, run } from '../context';
 import { setFromFields, withId, withoutUndefined } from '../documents';
 import { coerced, type Fields, isRecord, live, mergeFilters } from '../filters';
-import { keptByCollection, refuseFixed } from '../stamp-writes';
+import { keptByCollection, refuseFixed, refuseId } from '../stamp-writes';
 
 /**
  * A value written as itself, and not as an expression.
@@ -183,6 +183,7 @@ export async function upsert(
 			`upsert: expected the document's fields, not ${String(values)}`,
 		);
 	}
+	refuseId(ctx, 'upsert', values);
 	const given = coerced(ctx, filter);
 	const seeds = seedsOf(ctx, given);
 	// A field given as `undefined` says nothing, and it must not count as
