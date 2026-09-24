@@ -1,5 +1,13 @@
 # @nxgt/mongo
 
+## 0.18.1
+
+### Patch Changes
+
+- [#129](https://github.com/softistx/nxgt-data/pull/129) [`2607662`](https://github.com/softistx/nxgt-data/commit/2607662b5044bae56de5e65c225c08138d1f966e) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Say where `serverCodeName` comes from. A write error — one document refused inside the server's insert, update or delete command — carries no `codeName`, so `updateMany` gives `serverCode: 121` with no name where `update` (a `findAndModify`) gives `DocumentValidationFailure`. Match on `serverCode`.
+
+- [#131](https://github.com/softistx/nxgt-data/pull/131) [`1fec6f1`](https://github.com/softistx/nxgt-data/commit/1fec6f19a24701217cda2ae6d6426259c3588037) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Say that without post-images an update read after its document was hard deleted arrives with `document: undefined`: the document is looked up when the change is read, and a subscription only a little behind is enough.
+
 ## 0.18.0
 
 ### Minor Changes
