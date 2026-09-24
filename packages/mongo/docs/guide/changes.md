@@ -170,7 +170,9 @@ Three behaviours follow from a collection that keeps none, and each of them
 surprises someone:
 
 - **An update's `document` is today's.** It is looked up when the change is
-  read, so two quick updates can both arrive with the second one's document.
+  read, so two quick updates can both arrive with the second one's document,
+  and an update read after its document was hard deleted arrives with
+  `document: undefined` — a subscription only a little behind is enough.
 - **A hard delete is not filtered.** It carries no document to match, so a
   subscription with a `filter` still hears every hard delete. Ignore the ids
   you never saw, or enable pre-images.

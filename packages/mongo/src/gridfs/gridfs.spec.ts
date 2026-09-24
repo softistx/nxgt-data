@@ -10,8 +10,8 @@ import { createHash } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
-import type { Collection, Db } from 'mongodb';
-import { Binary, GridFSBucket, ObjectId } from 'mongodb';
+import type { Collection, CommandStartedEvent, Db } from 'mongodb';
+import { Binary, GridFSBucket, MongoClient, ObjectId } from 'mongodb';
 import { avatars, clips, uploads } from '../../test/buckets';
 import { rejection, rejectionMessage } from '../../test/rejection';
 import { startMongo, type TestServer } from '../../test/server';
@@ -1220,10 +1220,27 @@ describe('two callers storing the same bytes at once', () => {
 		// The check that found nothing is as old as the wait is long, and a
 		// plain `put` takes no part in the election. Taking the id over on
 		// that stale answer stores the same bytes a second time.
-		const taking = files.putOnce(mine);
+		const client = await MongoClient.connect(t.uri, { monitorCommands: true });
+		const { promise: waiting, resolve } = Promise.withResolvers<void>();
+		client.on('commandStarted', (event: CommandStartedEvent) => {
+			// Only the wait for the winner reads `files` by `_id`.
+			const filter = event.command.filter as { _id?: unknown } | undefined;
+			if (event.commandName === 'find' && _id.equals(filter?._id as never)) {
+				resolve();
+			}
+		});
+		const taking = getFiles(client.db(t.db.databaseName), uploads).putOnce(
+			mine,
+		);
+		// Only once it waits. A `put` that lands before `putOnce`'s own check
+		// is found by that check, and nothing is asked again — measured, the
+		// usual order when both simply start. One that lands between that
+		// check and the claim, with the stray chunk gone, lets the claim
+		// through: `stored: true`, once on a loaded CI runner.
+		await waiting;
 		const put = await files.put(mine);
 		await t.db.collection('uploads.chunks').deleteOne({ files_id: _id, n: 0 });
-		const { file, stored } = await taking;
+		const { file, stored } = await taking.finally(() => client.close());
 		expect(stored).toBe(false);
 		expect(file._id).toEqual(put._id);
 		expect(

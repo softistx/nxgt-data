@@ -4,6 +4,7 @@ import {
 	beforeEach,
 	describe,
 	expect,
+	setDefaultTimeout,
 	test,
 } from 'bun:test';
 import { z } from 'zod';
@@ -14,6 +15,11 @@ import { defineCollection } from '../../definition/define-collection';
 import { id } from '../../definition/fields';
 import { getCollection } from '../get-collection';
 import type { ChangeSubscription } from './types';
+
+// `until` gives a change 10 seconds to arrive, and Bun gives a test 5: on a
+// loaded runner the test was killed before `until` could say what it was
+// waiting for. A test here outlives every wait it makes.
+setDefaultTimeout(30_000);
 
 let t: TestServer;
 const open: ChangeSubscription[] = [];
@@ -50,6 +56,9 @@ describe('what a subscription hears', () => {
 
 		const post = await collection.create({ title: 'a', rank: 1 });
 		await collection.update(post._id, { title: 'b' });
+		// An update's document is looked up when it is read: delete before
+		// then and it arrives with none. That is its own test, below.
+		await until(() => heard.length === 2, 'the update');
 		await collection.delete(post._id);
 		await until(() => heard.length === 3, 'three changes');
 
@@ -212,6 +221,32 @@ describe('soft deletes', () => {
 		} as never);
 		await until(() => heard.length === 5, 'five changes');
 		expect(heard).toEqual(['create', 'delete', 'delete', 'delete', 'update']);
+	});
+
+	test('without pre-images, an update read after a delete has no document', async () => {
+		const collection = getCollection(t.db, posts);
+		const one = track(collection.onChange(() => {}));
+		await one.ready;
+		const post = await collection.create({ title: 'a', rank: 1 });
+		await until(() => one.resumeToken !== undefined, 'the create');
+		const token = one.resumeToken;
+		await one.close();
+
+		// Both made before anything reads the update, which is what a busy
+		// server does to a subscription that is only a little behind.
+		await collection.update(post._id, { title: 'b' });
+		await collection.delete(post._id);
+		const heard: unknown[] = [];
+		track(
+			collection.onChange((c) => void heard.push([c.type, c.document, c.id]), {
+				startAfter: token,
+			}),
+		);
+		await until(() => heard.length === 2, 'the update and the delete');
+		expect(heard).toEqual([
+			['update', undefined, post._id],
+			['delete', undefined, post._id],
+		]);
 	});
 
 	test('without the soft delete option, the stamp is an ordinary update', async () => {
