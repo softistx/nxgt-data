@@ -1423,7 +1423,8 @@ operator, and getting it subtly wrong is worse than being honest about it.
   client: `if (error instanceof ConnectionError) return c.json({ error: 'shutting down' }, 503);`.
 - **Without post-images, an update's `document` is today's.** It is looked up
   when the change is read, so two quick updates can both arrive with the
-  second one's document. Enable `changeStreamPreAndPostImages` when the exact
+  second one's document, and an update read after a hard delete arrives with
+  `document: undefined`. Enable `changeStreamPreAndPostImages` when the exact
   state after each change matters.
 - **Without pre-images, a hard delete is not filtered.** It carries no
   document to match, so a subscription with a `filter` still hears every

@@ -5,6 +5,7 @@ import {
 	beforeEach,
 	describe,
 	expect,
+	setDefaultTimeout,
 	test,
 } from 'bun:test';
 import { MongoClient } from 'mongodb';
@@ -15,6 +16,11 @@ import { sleep, until } from '../../../test/until';
 import { DataError } from '../../errors/data-error';
 import { getCollection } from '../get-collection';
 import type { ChangeSubscription } from './types';
+
+// `until` gives a change 10 seconds to arrive, and Bun gives a test 5: on a
+// loaded runner the test was killed before `until` could say what it was
+// waiting for. A test here outlives every wait it makes.
+setDefaultTimeout(30_000);
 
 let t: TestServer;
 const open: ChangeSubscription[] = [];
