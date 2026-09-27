@@ -40,4 +40,9 @@ describe('staleBuilds', () => {
 		expect(NOT_A_BUILD_INPUT.test('__snapshots__/a.snap')).toBe(true);
 		expect(NOT_A_BUILD_INPUT.test('collection/upsert.ts')).toBe(false);
 	});
+
+	test('does not count the fixtures specs share, and counts a plain fixtures.ts', () => {
+		expect(NOT_A_BUILD_INPUT.test('connection/connect.fixtures.ts')).toBe(true);
+		expect(NOT_A_BUILD_INPUT.test('conformance/fixtures.ts')).toBe(false);
+	});
 });
