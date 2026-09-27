@@ -143,8 +143,8 @@ matching key in `exports`.
   a `files` entry the tarball holds nothing under, with
   `<package>: files lists <entry>, which the tarball does not hold` — npm
   skips such an entry without a word, and every package here lists `dist`
-  and `docs`. It also fails a tarball that ships test code — a `*.spec.*`, a `*.test.*`, a
-  snapshot, or a `<subject>.fixtures.*`, with
+  and `docs`. It also fails a tarball that ships test code — a `*.spec.*`,
+  a `*.test.*`, a snapshot, or a `<subject>.fixtures.*`, with
   `<package>: the tarball ships test code: <path>`. A plain `fixtures.*`
   passes: the dotted prefix is what marks the fixtures specs share. Each
   `tsconfig.build.json` excludes only `test/` and `**/*.spec.ts`, and no
