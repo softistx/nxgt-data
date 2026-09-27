@@ -60,8 +60,8 @@ async function tarballsSound(
 		'\nA `link:` or `file:` no consumer can resolve, a required peer that is\n' +
 			'on no registry, a sibling range that leaves out the sibling beside\n' +
 			'it, an exact pin on a sibling, a package that lists itself, a\n' +
-			'license other than MIT or no LICENSE shipped, or test code shipped.\n' +
-			'See AGENTS.md.',
+			'license other than MIT or no LICENSE shipped, a `files` entry the\n' +
+			'tarball does not hold, or test code shipped. See AGENTS.md.',
 	);
 	return false;
 }

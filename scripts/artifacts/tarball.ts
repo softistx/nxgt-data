@@ -20,6 +20,7 @@ export async function readTarball(tgz: string): Promise<Tarball> {
 export function tarballProblems({ manifest, entries }: Tarball): string[] {
 	return [
 		...licenseProblems(manifest, entries),
+		...missingFiles(manifest, entries),
 		...testCodeProblems(manifest, entries),
 	];
 }
@@ -37,6 +38,35 @@ export function licenseProblems(
 		problems.push(`${manifest.name}: the tarball has no LICENSE`);
 	}
 	return problems;
+}
+
+/**
+ * Each `files` entry the tarball holds nothing under: neither the file itself
+ * nor anything in the folder it names. Every package here lists `dist` and
+ * `docs`; a folder renamed or deleted, or an entry mistyped, would otherwise
+ * publish without a word, since npm skips a `files` entry that matches
+ * nothing. A glob is left to npm, unread.
+ */
+export function missingFiles(
+	manifest: Record<string, unknown>,
+	entries: readonly string[],
+): string[] {
+	const files: unknown[] = Array.isArray(manifest.files) ? manifest.files : [];
+	return files
+		.filter((entry): entry is string => typeof entry === 'string')
+		.filter((entry) => !/[*?[{!]/.test(entry))
+		.map((entry) => entry.replace(/^\.\//, '').replace(/\/+$/, ''))
+		.filter(
+			(entry) =>
+				!entries.some(
+					(path) =>
+						path === `package/${entry}` || path.startsWith(`package/${entry}/`),
+				),
+		)
+		.map(
+			(entry) =>
+				`${manifest.name}: files lists ${entry}, which the tarball does not hold — build it first, or drop it from files`,
+		);
 }
 
 /**

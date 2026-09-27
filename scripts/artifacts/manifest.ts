@@ -28,6 +28,9 @@ import { type Tarball, tarballProblems } from './tarball';
  *     re-creating. A package self-references through its `name` and `exports`.
  *   - a **license other than MIT, or no `LICENSE` in the tarball**. npm only
  *     ships the `LICENSE` in the package's own directory, never the root's.
+ *   - a **`files` entry the tarball does not hold**. npm skips an entry that
+ *     matches nothing, so a `docs` folder renamed or a mistyped entry would
+ *     publish without a word.
  *   - **test code**: a `*.spec.*`, a `*.test.*`, a snapshot, or a
  *     `<subject>.fixtures.*` file.
  */
