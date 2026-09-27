@@ -28,6 +28,8 @@ import { type Tarball, tarballProblems } from './tarball';
  *     re-creating. A package self-references through its `name` and `exports`.
  *   - a **license other than MIT, or no `LICENSE` in the tarball**. npm only
  *     ships the `LICENSE` in the package's own directory, never the root's.
+ *   - **test code**: a `*.spec.*`, a `*.test.*`, a snapshot, or a
+ *     `<subject>.fixtures.*` file.
  */
 export async function manifestProblems(
 	tarballs: readonly Tarball[],

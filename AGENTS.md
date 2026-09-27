@@ -139,7 +139,14 @@ matching key in `exports`.
   `--help`, and rejects a manifest that would break an install: a `link:` or
   `file:` in a field a consumer resolves, a **required** peer on no registry,
   a sibling range that leaves out the sibling released beside it, an exact pin
-  on a sibling, or a package that is not MIT or ships no `LICENSE`. `changeset:publish` runs it, so a release cannot skip it.
+  on a sibling, or a package that is not MIT or ships no `LICENSE`. It also
+  fails a tarball that ships test code — a `*.spec.*`, a `*.test.*`, a
+  snapshot, or a `<subject>.fixtures.*`, with
+  `<package>: the tarball ships test code: <path>`. A plain `fixtures.*`
+  passes: the dotted prefix is what marks the fixtures specs share. Each
+  `tsconfig.build.json` excludes only `test/` and `**/*.spec.ts`, and no
+  package holds any of the other kinds today, so the build emits none of
+  it; this check is what holds that. `changeset:publish` runs it, so a release cannot skip it.
   `scripts/verify-artifacts.ts` only runs the stages in order and stops at
   the first that fails; each lives in `scripts/artifacts/`, one module per
   responsibility, with a spec beside each pure one: `packages.ts` reads the
@@ -705,17 +712,17 @@ the file.
 
 ## Known state
 
-`bun run test` is **1471 pass, 0 fail**: drizzle 152, meilisearch 130,
+`bun run test` is **1476 pass, 0 fail**: drizzle 152, meilisearch 130,
 mongo 565, drizzle-meilisearch 42, mongo-meilisearch 58, mongo-kit 101,
 mongo-search-kit 17, redis 46, redis-guard 124, redis-kit 55, s3 104,
-hono-api-example 43, scripts 34. hono-api-example's 43 was measured on its
+hono-api-example 43, scripts 39. hono-api-example's 43 was measured on its
 own (three runs, one on 2 CPUs under load), as redis-guard's 124 was, and
 meilisearch's 130, and mongo's 565 with the package's own `bun run test`
-when its change-stream and gridfs flakes were fixed, and scripts' 34 with
+when its change-stream and gridfs flakes were fixed, and scripts' 39 with
 `bun test scripts`;
 the total is computed — develop's 1456, stated before its serverCodeName
 spec made mongo 564, with mongo's 563 replaced by 565 gives 1458, and the
-13 specs of `scripts/artifacts/` give 1471 — not measured by a full run. It runs one process
+18 specs of `scripts/artifacts/` give 1476 — not measured by a full run. It runs one process
 per package, then the scripts' specs. Treat any failure as yours.
 
 - **The test mongod runs with `enableTestCommands`**, so a spec can make it

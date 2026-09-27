@@ -18,7 +18,10 @@ export async function readTarball(tgz: string): Promise<Tarball> {
 
 /** Every check on what one tarball holds, as opposed to what it declares. */
 export function tarballProblems({ manifest, entries }: Tarball): string[] {
-	return [...licenseProblems(manifest, entries)];
+	return [
+		...licenseProblems(manifest, entries),
+		...testCodeProblems(manifest, entries),
+	];
 }
 
 /** A license other than MIT, or no `LICENSE` among the tarball's entries. */
@@ -34,4 +37,31 @@ export function licenseProblems(
 		problems.push(`${manifest.name}: the tarball has no LICENSE`);
 	}
 	return problems;
+}
+
+/**
+ * A spec, a snapshot, or the `<subject>.fixtures.ts` specs share, emitted or
+ * not. The dotted prefix is what tells a spec's fixtures from a shipped one:
+ * a plain `fixtures.ts` may be a module a consumer runs, as nxgt-janus's
+ * conformance suite ships. `NOT_A_BUILD_INPUT` in `stale.ts` names the same
+ * files as sources; a new kind of test file belongs in both.
+ */
+export const TEST_CODE =
+	/(^|\/)__snapshots__\/|\.(spec|test)\.[^/]*$|(^|\/)[^/]+\.fixtures\.[^/]*$/;
+
+/**
+ * Test code in the tarball. Every `tsconfig.build.json` excludes `test/` and
+ * each `.spec.ts`, and no package holds the other kinds, so the build emits
+ * none of it; this holds the day that stops being true. A `.d.ts` for a
+ * fixtures file is a published module importing `bun:test`, or a sibling's
+ * source that is not in the tarball.
+ */
+export function testCodeProblems(
+	manifest: Record<string, unknown>,
+	entries: readonly string[],
+): string[] {
+	return entries
+		.map((path) => path.replace(/^package\//, ''))
+		.filter((path) => TEST_CODE.test(path))
+		.map((path) => `${manifest.name}: the tarball ships test code: ${path}`);
 }

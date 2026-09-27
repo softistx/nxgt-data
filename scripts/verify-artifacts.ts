@@ -54,13 +54,14 @@ async function tarballsSound(
 	const versions = Object.fromEntries(packages.map((p) => [p.name, p.version]));
 	const problems = await manifestProblems(tarballs, versions);
 	if (problems.length === 0) return true;
-	console.error('\nA published manifest would break a consumer:\n');
+	console.error('\nA published tarball would break a consumer:\n');
 	for (const problem of problems) console.error(`  ${problem}`);
 	console.error(
 		'\nA `link:` or `file:` no consumer can resolve, a required peer that is\n' +
 			'on no registry, a sibling range that leaves out the sibling beside\n' +
-			'it, an exact pin on a sibling, a package that lists itself, or a\n' +
-			'license other than MIT or no LICENSE shipped. See AGENTS.md.',
+			'it, an exact pin on a sibling, a package that lists itself, a\n' +
+			'license other than MIT or no LICENSE shipped, or test code shipped.\n' +
+			'See AGENTS.md.',
 	);
 	return false;
 }
