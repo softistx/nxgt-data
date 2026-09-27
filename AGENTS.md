@@ -23,7 +23,8 @@ registry:
 
 `examples/` holds applications, not packages: they are `private`, unscoped,
 and the release scripts never see them — `publish.ts` and
-`verify-artifacts.ts` both glob `packages/*/package.json`. They are workspace
+`verify-artifacts.ts` (through `scripts/artifacts/packages.ts`) both glob
+`packages/*/package.json`. They are workspace
 members, so one `bun install` covers them and biome lints them, and the root
 `typecheck` and `test` run theirs after the packages'. An example that no
 longer compiles is a failure like any other: that is the whole point of
@@ -139,6 +140,12 @@ matching key in `exports`.
   `file:` in a field a consumer resolves, a **required** peer on no registry,
   a sibling range that leaves out the sibling released beside it, an exact pin
   on a sibling, or a package that is not MIT or ships no `LICENSE`. `changeset:publish` runs it, so a release cannot skip it.
+  `scripts/verify-artifacts.ts` only runs the stages in order and stops at
+  the first that fails; each lives in `scripts/artifacts/`, one module per
+  responsibility, with a spec beside each pure one: `packages.ts` reads the
+  workspace, `tarball.ts` a tarball's entries, `manifest.ts` its dependency
+  fields, `registry.ts` asks npm, then `stale.ts`, `install.ts`, `load.ts`
+  and `classes.ts`.
 - **Build before typecheck and tests.** CI builds first.
 
 - **`@nxgt/redis` has no client dependency at all.** `RedisClient` is Bun's
@@ -473,7 +480,7 @@ publishes to npm.
 | Kept twice | Why |
 | --- | --- |
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
-| `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change both when the reason applies to both |
+| `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change both when the reason applies to both. One divergence: `verify-artifacts.ts` is split into `scripts/artifacts/`, module for module as nxgt-janus split its copy, to keep each file under 250 lines; nxgt-http's is still one file. A check added to one split copy belongs in the other. What nxgt-janus's has and this one does not yet: its `missingFiles` check (a `files` entry the tarball does not hold), and the guard in `newestMtime` that makes an unbuilt package report `no dist/` — here `Bun.Glob().scan` throws `ENOENT` on the missing folder first (measured on bun 1.4.2), so that branch of `staleBuilds` is unreachable |
 | `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 104 and 109 lines, fifteen of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ. `@nxgt/s3`'s `ObjectPage` is **not** a copy either — four lines agreeing with `CursorPage`'s shape so a caller pages the same way, with no logic to keep in step |
 | `connection/connect.ts`, in `@nxgt/mongo` and `@nxgt/redis` | reference-counted client sharing per URI, copied rather than factored: a shared `@nxgt/connection` would make both depend on a sibling for one function, and layering comes first. **107 of 167 lines are identical**, comments included — closer than `page.ts` — so **a fix in one is a fix to make in the other**, and a spec added to one belongs in the other. What deliberately differs: `@nxgt/redis` has no `db`, holds the `RedisClient` itself rather than a `Promise<MongoClient>`, closes synchronously, closes sequentially in `closeRedis` where `closeMongo` uses `Promise.all`, and compares options with `Bun.deepEquals` in place of a hand-written `sameValue`. Since the error-code work, a sixth: `@nxgt/redis`'s `ping` races the command against a timer of its own and reports `PING_TIMEOUT` on the result, while `@nxgt/mongo`'s leaves the deadline to the driver's `timeoutMS` and reports whatever it produced. Both connection failures are a class with a code now, and **neither carries the URI** — a connection string holds the password, and a spec in each asserts its absence |
 | `pingClient` in `@nxgt/redis-kit`, and `ping` in `@nxgt/redis`'s `connection/connect.ts` | a client the *configuration* handed in carries no `ping` — that one belongs to what `connectRedis` returned — so the kit has its own copy, down to the `PING_TIMEOUT` code and the message, and a health route reads the same answer either way. **A fix in one is a fix to make in the other.** The sibling exports no standalone `ping` to call instead; if it ever does, this copy goes |
@@ -698,16 +705,17 @@ the file.
 
 ## Known state
 
-`bun run test` is **1458 pass, 0 fail**: drizzle 152, meilisearch 130,
+`bun run test` is **1471 pass, 0 fail**: drizzle 152, meilisearch 130,
 mongo 565, drizzle-meilisearch 42, mongo-meilisearch 58, mongo-kit 101,
 mongo-search-kit 17, redis 46, redis-guard 124, redis-kit 55, s3 104,
-hono-api-example 43, scripts 21. hono-api-example's 43 was measured on its
+hono-api-example 43, scripts 34. hono-api-example's 43 was measured on its
 own (three runs, one on 2 CPUs under load), as redis-guard's 124 was, and
 meilisearch's 130, and mongo's 565 with the package's own `bun run test`
-when its change-stream and gridfs flakes were fixed, and scripts' 21 with
+when its change-stream and gridfs flakes were fixed, and scripts' 34 with
 `bun test scripts`;
 the total is computed — develop's 1456, stated before its serverCodeName
-spec made mongo 564, with mongo's 563 replaced by 565 gives 1458 — not measured by a full run. It runs one process
+spec made mongo 564, with mongo's 563 replaced by 565 gives 1458, and the
+13 specs of `scripts/artifacts/` give 1471 — not measured by a full run. It runs one process
 per package, then the scripts' specs. Treat any failure as yours.
 
 - **The test mongod runs with `enableTestCommands`**, so a spec can make it
