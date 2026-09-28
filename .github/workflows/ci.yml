@@ -30,12 +30,27 @@ on:
   push:
     branches: [develop]
 
+# A pull request's new push supersedes its run in progress. A push to
+# `develop` never does: each one is in a group of its own, by run id, because
+# that run is what writes the caches every pull request reads — and a group
+# with `cancel-in-progress: false` still cancels a run left *pending* in it.
+# The same group as nxgt-janus's.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref != 'refs/heads/develop' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     name: CI
     # GitHub-hosted: this repository is public, so the minutes are free and
     # unlimited.
     runs-on: ubuntu-latest
+    # Measured on the 60 runs up to 2026-09-27: 6½ to 9¾ minutes, of which
+    # `bun install` took almost 4 — a Redis nothing used, compiled by a
+    # postinstall the setup action now skips — and the tests about 3. Past
+    # 25, it is hung, and the six-hour default would hold the runner for
+    # nothing.
+    timeout-minutes: 25
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -44,8 +59,10 @@ jobs:
           fetch-depth: 0
       - name: Setup
         uses: ./.github/actions/setup
+      # The Biome bun.lock resolved, as `bun run check` runs it locally: one
+      # version, the one biome.json's $schema names, and never `latest`.
       - name: Lint code
-        run: biome ci
+        run: bunx biome ci
       # Build FIRST. Every package's `exports` points at `./dist/*`, so on a
       # clean checkout a package that imports a sibling resolves it to nothing
       # and typecheck reports phantom TS2307s. A developer's tree always has a

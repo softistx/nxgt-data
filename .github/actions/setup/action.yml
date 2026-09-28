@@ -14,9 +14,17 @@ runs:
       # No token: @nxgt/* are public on npmjs, and installing them needs no
       # authentication. Only the release job authenticates, through bunfig.toml
       # reading NPM_TOKEN.
+      #
+      # Without REDISMS_DISABLE_POSTINSTALL this step took 226 s on develop's
+      # last run. redis-memory-server is on Bun's default trusted list, so its
+      # postinstall runs and compiles the latest Redis from source into
+      # node_modules/.cache — a binary no spec uses: scripts/redis.ts builds
+      # the version test/server.ts pins into .cache/redis, which CI caches.
+      # nxgt-janus measured the same install at 227 s with the postinstall and
+      # 31 s without (softistx/nxgt-janus#91).
+      #
+      # No Biome step: ci.yml runs the Biome bun.lock resolved, `bunx biome ci`.
       run: bun i --frozen-lockfile
       shell: bash
-    - name: Setup Biome
-      uses: biomejs/setup-biome@v2
-      with:
-        version: latest
+      env:
+        REDISMS_DISABLE_POSTINSTALL: '1'
