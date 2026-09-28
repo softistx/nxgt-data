@@ -33,6 +33,19 @@ describe('staleBuilds', () => {
 		]);
 	});
 
+	test('reports an unbuilt package as no dist/, rather than crashing', async () => {
+		// `Bun.Glob().scan` throws ENOENT on a missing folder (bun 1.4.2), so
+		// this branch was unreachable until `newestMtime` checked first.
+		const root = await mkdtemp(join(tmpdir(), 'nxgt-data-stale-'));
+		dirs.push(root);
+		await mkdir(join(root, 'unbuilt', 'src'), { recursive: true });
+		await writeFile(join(root, 'unbuilt', 'src', 'index.ts'), '');
+
+		expect(
+			await staleBuilds([{ name: 'unbuilt', dir: join(root, 'unbuilt') }]),
+		).toEqual(['unbuilt: no dist/']);
+	});
+
 	test('does not count a spec or a snapshot as a build input', () => {
 		// CI runs the tests between the build and this script, and `bun test`
 		// rewrites a snapshot's mtime: counting them failed a green pipeline.

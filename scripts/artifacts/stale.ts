@@ -7,6 +7,16 @@ import type { Pkg } from './packages';
  * a build is only as fresh as its stalest input.
  */
 async function newestMtime(dir: string, skip?: RegExp): Promise<number> {
+	// `Bun.Glob().scan` throws ENOENT on a missing `cwd` rather than yielding
+	// nothing (measured on bun 1.4.2), so without this an unbuilt package
+	// crashed on a filesystem error and never reached the "no dist/" branch
+	// of `staleBuilds`, the one that says to run the build.
+	const exists = await stat(dir).then(
+		(entry) => entry.isDirectory(),
+		() => false,
+	);
+	if (!exists) return 0;
+
 	let newest = 0;
 	const glob = new Bun.Glob('**/*');
 	for await (const rel of glob.scan({ cwd: dir, onlyFiles: true })) {
