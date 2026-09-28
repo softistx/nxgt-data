@@ -1,9 +1,10 @@
 name: nxgt versions
 
-# examples/hono-api builds its routes with @nxgt/openapi-codegen, from
-# nxgt-http, and its specs run only the version bun.lock holds: a new @nxgt/*
-# release is used by nobody here until the lock is bumped. This asks npm every
-# week instead of relying on someone remembering. Copied from nxgt-janus.
+# examples/hono-api builds its routes with @nxgt/openapi-codegen and binds
+# them with @nxgt/openapi-hono, both from nxgt-http, and its specs run only
+# the versions bun.lock holds: a new @nxgt/* release is used by nobody here
+# until the lock is bumped. This asks npm every week instead of relying on
+# someone remembering. Copied from nxgt-janus.
 #
 # Not Dependabot: its Bun updater reads bun.lock up to lockfileVersion 1
 # (MAX_SUPPORTED_LOCKFILE_VERSION in dependabot-core's

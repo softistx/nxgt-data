@@ -3,17 +3,19 @@
  * Lists every `@nxgt/*` devDependency whose locked version is behind npm's
  * `latest`.
  *
- * Here that is the example's: `examples/hono-api` builds its routes with
- * `@nxgt/openapi-codegen`, from nxgt-http, and its specs run only the version
- * `bun.lock` holds. A new release upstream is therefore used by nobody here
- * until someone bumps the lock. This check is what makes that someone the
- * `nxgt-versions` workflow, weekly, instead of memory.
+ * Here those are the example's: `examples/hono-api` builds its routes with
+ * `@nxgt/openapi-codegen` and binds them with `@nxgt/openapi-hono`, both from
+ * nxgt-http, and its specs run only the versions `bun.lock` holds. A new
+ * release upstream is therefore used by nobody here until someone bumps the
+ * lock. This check is what makes that someone the `nxgt-versions` workflow,
+ * weekly, instead of memory.
  *
  * Copied from nxgt-janus, where the packages peer the nxgt libraries they wrap
  * by range. What differs: this copy reads every workspace the root
  * `package.json` names — `examples/*` as well as `packages/*` — so a
  * directory is named from the root (`examples/hono-api`), not from
- * `packages/`.
+ * `packages/`; and a private workspace's `dependencies` count as
+ * devDependencies, since nobody installs it.
  *
  * Dependabot would do it, but not here: its Bun updater reads `bun.lock` up to
  * `lockfileVersion` 1 and this one, written by Bun 1.4.2, is 2.
@@ -138,8 +140,45 @@ export async function latestOf(name: string): Promise<string> {
 }
 
 /**
+ * The folder a workspace glob names. Pure. Only `<folder>/*` is read: any
+ * other glob throws, since skipping what it names would report "current".
+ */
+export function folderOf(glob: string): string {
+	if (!/^[^*]+\/\*$/.test(glob)) {
+		throw new Error(
+			`check-nxgt-versions: cannot read the workspace ${glob}, only <folder>/*`,
+		);
+	}
+	return glob.slice(0, -2);
+}
+
+/**
+ * A workspace's manifest, as `tracked` reads it. Pure. A private one — an
+ * example — is installed by nobody, so its `dependencies` are development
+ * inputs too, and count as devDependencies.
+ */
+export function manifestOf(
+	dir: string,
+	json: {
+		name?: unknown;
+		private?: unknown;
+		dependencies?: Record<string, string>;
+		devDependencies?: Record<string, string>;
+	},
+): Manifest {
+	return {
+		dir,
+		name: String(json.name),
+		devDependencies: {
+			...(json.private === true ? json.dependencies : {}),
+			...json.devDependencies,
+		},
+	};
+}
+
+/**
  * The manifests of every workspace the root `package.json` names, and
- * `bun.lock`'s packages. A workspace is a `<folder>/*` glob.
+ * `bun.lock`'s packages.
  */
 export async function read(root: string): Promise<{
 	manifests: Manifest[];
@@ -152,17 +191,12 @@ export async function read(root: string): Promise<{
 	};
 	const manifests: Manifest[] = [];
 	for (const glob of workspaces ?? []) {
-		const folder = glob.replace(/\/\*$/, '');
+		const folder = folderOf(glob);
 		for (const name of await readdir(join(root, folder))) {
 			const dir = `${folder}/${name}`;
 			const file = Bun.file(join(root, dir, 'package.json'));
 			if (!(await file.exists())) continue;
-			const manifest = await file.json();
-			manifests.push({
-				dir,
-				name: manifest.name,
-				devDependencies: manifest.devDependencies ?? {},
-			});
+			manifests.push(manifestOf(dir, await file.json()));
 		}
 	}
 	const lock = Bun.JSONC.parse(

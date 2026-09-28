@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import {
 	behind,
+	folderOf,
 	latestOf,
 	type Manifest,
+	manifestOf,
 	read,
 	report,
 	tracked,
@@ -62,11 +64,13 @@ describe('tracked', () => {
 	});
 
 	test('holds every version the lock resolves, oldest first', () => {
-		const [mongo] = tracked(manifests, {
+		const [codegen] = tracked(manifests, {
 			'@nxgt/openapi-codegen': ['@nxgt/openapi-codegen@0.18.1'],
-			'hono-api-example/@nxgt/mongo': ['@nxgt/openapi-codegen@0.17.1'],
+			'hono-api-example/@nxgt/openapi-codegen': [
+				'@nxgt/openapi-codegen@0.17.1',
+			],
 		});
-		expect(mongo?.locked).toEqual(['0.17.1', '0.18.1']);
+		expect(codegen?.locked).toEqual(['0.17.1', '0.18.1']);
 	});
 
 	test('reads an empty lock as nothing locked', () => {
@@ -87,13 +91,13 @@ describe('tracked, on what is not a release', () => {
 	});
 
 	test('skips a lock entry that is not a registry version', () => {
-		const [mongo] = tracked(manifests, {
+		const [codegen] = tracked(manifests, {
 			'@nxgt/openapi-codegen': ['@nxgt/openapi-codegen@0.18.1'],
-			'hono-api-example/@nxgt/mongo': [
+			'hono-api-example/@nxgt/openapi-codegen': [
 				'@nxgt/openapi-codegen@github:softistx/nxgt-http',
 			],
 		});
-		expect(mongo?.locked).toEqual(['0.18.1']);
+		expect(codegen?.locked).toEqual(['0.18.1']);
 	});
 });
 
@@ -221,14 +225,56 @@ describe('latestOf', () => {
 	});
 });
 
+describe('folderOf', () => {
+	test('reads the folder of a <folder>/* workspace', () => {
+		expect(folderOf('examples/*')).toBe('examples');
+	});
+
+	test('throws on any other glob, rather than skipping what it names', () => {
+		for (const glob of ['packages/**', 'examples/hono-api', '*']) {
+			expect(() => folderOf(glob)).toThrow(
+				`cannot read the workspace ${glob}, only <folder>/*`,
+			);
+		}
+	});
+});
+
+describe('manifestOf', () => {
+	const json = {
+		name: 'hono-api-example',
+		dependencies: { '@nxgt/openapi-hono': '^0.3.0' },
+		devDependencies: { '@nxgt/openapi-codegen': '^0.4.1' },
+	};
+
+	test("counts a private workspace's dependencies as devDependencies", () => {
+		expect(manifestOf('examples/hono-api', { ...json, private: true })).toEqual(
+			{
+				dir: 'examples/hono-api',
+				name: 'hono-api-example',
+				devDependencies: {
+					'@nxgt/openapi-hono': '^0.3.0',
+					'@nxgt/openapi-codegen': '^0.4.1',
+				},
+			},
+		);
+	});
+
+	test("leaves a published package's dependencies out", () => {
+		expect(manifestOf('packages/x', json).devDependencies).toEqual({
+			'@nxgt/openapi-codegen': '^0.4.1',
+		});
+	});
+});
+
 describe('read', () => {
 	test("reads this repository's manifests and bun.lock, trailing commas included", async () => {
 		const { manifests: found, lockPackages } = await read(ROOT);
 		const packages = tracked(found, lockPackages);
-		expect(packages.map((one) => one.name)).toContain('@nxgt/openapi-codegen');
-		expect(
-			packages.find((one) => one.name === '@nxgt/openapi-codegen')?.dirs,
-		).toEqual(['examples/hono-api']);
+		for (const name of ['@nxgt/openapi-codegen', '@nxgt/openapi-hono']) {
+			expect(packages.find((one) => one.name === name)?.dirs).toEqual([
+				'examples/hono-api',
+			]);
+		}
 		for (const one of packages) expect(one.locked.length).toBeGreaterThan(0);
 	});
 });
