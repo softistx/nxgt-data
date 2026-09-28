@@ -1,0 +1,85 @@
+name: nxgt versions
+
+# examples/hono-api builds its routes with @nxgt/openapi-codegen, from
+# nxgt-http, and its specs run only the version bun.lock holds: a new @nxgt/*
+# release is used by nobody here until the lock is bumped. This asks npm every
+# week instead of relying on someone remembering. Copied from nxgt-janus.
+#
+# Not Dependabot: its Bun updater reads bun.lock up to lockfileVersion 1
+# (MAX_SUPPORTED_LOCKFILE_VERSION in dependabot-core's
+# bun/lib/dependabot/bun/bun_package_manager.rb, Bun 1.3.14 in its image), and
+# this lock, written by Bun 1.4.2, is version 2.
+#
+# Something behind opens one issue, or updates the one already open, and fails
+# the run; everything current closes it. The bump itself is a pull request
+# like any other, so it runs the whole of CI.
+
+on:
+  schedule:
+    # Mondays, 06:17 UTC — off the hour, when scheduled runs queue.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: nxgt-versions
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: '@nxgt/* devDependencies at npm latest'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TITLE: '@nxgt/* devDependencies behind npm latest'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      # The script reads package.json and bun.lock and asks the registry;
+      # it imports nothing installed, so no `bun install`.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          # packageManager in package.json holds the pin, as the lock requires.
+          bun-version-file: package.json
+      # Exit 1 is "behind", 2 is "could not tell": only 0 and 1 are answers.
+      - name: Compare with npm
+        id: check
+        run: |
+          set +e
+          bun run nxgt:outdated > "$RUNNER_TEMP/outdated.txt"
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/outdated.txt"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          [ "$status" -le 1 ]
+      - name: Open or update the issue
+        if: steps.check.outputs.status == '1'
+        run: |
+          {
+            echo 'The specs run only what `bun.lock` holds, so these releases are not yet used or tested here:'
+            echo
+            cat "$RUNNER_TEMP/outdated.txt"
+            echo
+            echo 'Bump each devDependency, commit `bun.lock` with it, and run the suites that use it; AGENTS.md says which, and whether the bump needs a changeset.'
+            echo
+            echo "Found by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > "$RUNNER_TEMP/body.md"
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 500 --json number,title --jq "map(select(.title == env.TITLE))[0].number // empty")
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
+          fi
+          exit 1
+      - name: Close the issue
+        if: steps.check.outputs.status == '0'
+        run: |
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 500 --json number,title --jq "map(select(.title == env.TITLE))[0].number // empty")
+          if [ -n "$number" ]; then
+            gh issue close "$number" --repo "$GITHUB_REPOSITORY" --comment "Every @nxgt/* devDependency is at npm latest: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fi

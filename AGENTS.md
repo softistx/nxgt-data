@@ -504,6 +504,24 @@ publishes to npm.
   lockfile alone. `changeset:version` therefore ends with
   `bun install --lockfile-only`, and a stale `bun.lock` in a release is a bug,
   not noise.
+- **A new `@nxgt/*` release is found by a schedule, not by memory.** The one
+  `@nxgt/*` devDependency from outside this repository is
+  `examples/hono-api`'s `@nxgt/openapi-codegen`, from nxgt-http, and the
+  example's specs run only the version `bun.lock` holds. `bun run
+  nxgt:outdated` (`scripts/check-nxgt-versions.ts`, spec'd beside it) lists
+  every `@nxgt/*` devDependency of a workspace — `packages/*` and
+  `examples/*` — that is not a sibling and whose locked version is behind
+  npm's `latest`: exit 0 when all are current, 1 when something is behind, 2
+  when the registry did not answer, which is never read as "current". The
+  `nxgt versions` workflow runs it every Monday and on `workflow_dispatch`;
+  something behind opens the issue *@nxgt/\* devDependencies behind npm
+  latest*, or updates the one open, and fails the run, and a later run with
+  nothing behind closes it. The bump is a pull request like any other: the
+  devDependency and `bun.lock` in one commit, and the example's `typecheck`
+  and `test` run. A bump confined to `examples/` needs no changeset — the
+  example is private and `changeset status` passes without one. Not
+  Dependabot: its Bun updater reads `bun.lock` up to `lockfileVersion` 1,
+  and this one, from Bun 1.4.2, is 2.
 - **`typescript` is a peer, `^6.0.3`, in every package**, as in nxgt-core
   and nxgt-http; do not raise it in one package alone.
 - **Every package is public**, like the repository. Never `private: true`.
@@ -515,7 +533,7 @@ publishes to npm.
 | Kept twice | Why |
 | --- | --- |
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
-| `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change every copy the reason applies to. `verify-artifacts.ts` is split into `scripts/artifacts/`, module for module, in all four copies — nxgt-janus first, then here (#135), in nxgt-http (softistx/nxgt-http#53) and in nxgt-core (softistx/nxgt-core#152, with a `browser.ts` of its own) — to keep each file under 250 lines. A check added to one copy belongs in the others. All four hold the same three: the test-code check, the guard in `newestMtime` (an unbuilt package reports `no dist/` rather than crashing on `ENOENT`), and `missingFiles`, whose spec holds that a `files` entry `dis` is not covered by `dist/`. Where they still differ: only nxgt-core has `browser.ts`; this copy and nxgt-janus read a sibling's version from the workspace, nxgt-http and nxgt-core from the packed manifests; and, outside `scripts/artifacts/`, `check-changesets.ts` and `check-nxgt-versions.ts` are nxgt-janus's alone, as `meilisearch.ts`, `redis.ts` and `seaweedfs.ts` are this copy's |
+| `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change every copy the reason applies to. `verify-artifacts.ts` is split into `scripts/artifacts/`, module for module, in all four copies — nxgt-janus first, then here (#135), in nxgt-http (softistx/nxgt-http#53) and in nxgt-core (softistx/nxgt-core#152, with a `browser.ts` of its own) — to keep each file under 250 lines. A check added to one copy belongs in the others. All four hold the same three: the test-code check, the guard in `newestMtime` (an unbuilt package reports `no dist/` rather than crashing on `ENOENT`), and `missingFiles`, whose spec holds that a `files` entry `dis` is not covered by `dist/`. Where they still differ: only nxgt-core has `browser.ts`; this copy and nxgt-janus read a sibling's version from the workspace, nxgt-http and nxgt-core from the packed manifests; and, outside `scripts/artifacts/`, `check-changesets.ts` is nxgt-janus's alone, as `meilisearch.ts`, `redis.ts` and `seaweedfs.ts` are this copy's. `check-nxgt-versions.ts`, its spec and `.github/workflows/nxgt-versions.yml` are copied from nxgt-janus; this copy reads every workspace the root `package.json` names, `examples/*` included, where nxgt-janus's reads `packages/*` alone, so it names a directory from the root (`examples/hono-api`), not from `packages/` |
 | `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 104 and 109 lines, fifteen of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ. `@nxgt/s3`'s `ObjectPage` is **not** a copy either — four lines agreeing with `CursorPage`'s shape so a caller pages the same way, with no logic to keep in step |
 | `connection/connect.ts`, in `@nxgt/mongo` and `@nxgt/redis` | reference-counted client sharing per URI, copied rather than factored: a shared `@nxgt/connection` would make both depend on a sibling for one function, and layering comes first. **107 of 167 lines are identical**, comments included — closer than `page.ts` — so **a fix in one is a fix to make in the other**, and a spec added to one belongs in the other. What deliberately differs: `@nxgt/redis` has no `db`, holds the `RedisClient` itself rather than a `Promise<MongoClient>`, closes synchronously, closes sequentially in `closeRedis` where `closeMongo` uses `Promise.all`, and compares options with `Bun.deepEquals` in place of a hand-written `sameValue`. Since the error-code work, a sixth: `@nxgt/redis`'s `ping` races the command against a timer of its own and reports `PING_TIMEOUT` on the result, while `@nxgt/mongo`'s leaves the deadline to the driver's `timeoutMS` and reports whatever it produced. Both connection failures are a class with a code now, and **neither carries the URI** — a connection string holds the password, and a spec in each asserts its absence |
 | `pingClient` in `@nxgt/redis-kit`, and `ping` in `@nxgt/redis`'s `connection/connect.ts` | a client the *configuration* handed in carries no `ping` — that one belongs to what `connectRedis` returned — so the kit has its own copy, down to the `PING_TIMEOUT` code and the message, and a health route reads the same answer either way. **A fix in one is a fix to make in the other.** The sibling exports no standalone `ping` to call instead; if it ever does, this copy goes |
@@ -741,17 +759,11 @@ the file.
 
 ## Known state
 
-`bun run test` is **1481 pass, 0 fail**: drizzle 152, meilisearch 130,
-mongo 565, drizzle-meilisearch 42, mongo-meilisearch 58, mongo-kit 101,
-mongo-search-kit 17, redis 46, redis-guard 124, redis-kit 55, s3 104,
-hono-api-example 43, scripts 44. hono-api-example's 43 was measured on its
-own (three runs, one on 2 CPUs under load), as redis-guard's 124 was, and
-meilisearch's 130, and mongo's 565 with the package's own `bun run test`
-when its change-stream and gridfs flakes were fixed, and scripts' 44 with
-`bun test scripts`;
-the total is computed — develop's 1456, stated before its serverCodeName
-spec made mongo 564, with mongo's 563 replaced by 565 gives 1458, and the
-23 specs of `scripts/artifacts/` give 1481 — not measured by a full run. It runs one process
+`bun run test` is **1497 pass, 0 fail**, measured by a full run on
+2026-09-27: drizzle 152, meilisearch 130, mongo 565, drizzle-meilisearch 42,
+mongo-meilisearch 58, mongo-kit 101, mongo-search-kit 17, redis 46,
+redis-guard 124, redis-kit 55, s3 104, hono-api-example 43, scripts 60 — the
+44 before and the 16 of `scripts/check-nxgt-versions.spec.ts`. It runs one process
 per package, then the scripts' specs. Treat any failure as yours.
 
 - **The test mongod runs with `enableTestCommands`**, so a spec can make it

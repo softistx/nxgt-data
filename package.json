@@ -18,7 +18,8 @@
 		"changeset:version": "changeset version && bun install --lockfile-only",
 		"changeset:publish": "bun run build && bun run verify:artifacts && bun run scripts/publish.ts",
 		"verify:artifacts": "bun run scripts/verify-artifacts.ts",
-		"changeset:status": "changeset status --since=origin/develop"
+		"changeset:status": "changeset status --since=origin/develop",
+		"nxgt:outdated": "bun run scripts/check-nxgt-versions.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.9",
