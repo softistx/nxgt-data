@@ -1,5 +1,11 @@
 # @nxgt/drizzle
 
+## 0.6.2
+
+### Patch Changes
+
+- [#141](https://github.com/softistx/nxgt-data/pull/141) [`ee8c5ff`](https://github.com/softistx/nxgt-data/commit/ee8c5ff6bb8474b1a3e33fe212bf74ba1bab2873) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `toDataError` reads the SQLSTATE from `errno` when `code` is not one, as Bun's `SQL` sends it (`code: 'ERR_POSTGRES_SERVER_ERROR'`, `errno: '23505'`). Over `drizzle-orm/bun-sql`, a unique violation is now a `ConflictError`, and every other database error a `DataError` with its `sqlState`, instead of Drizzle's `DrizzleQueryError` returned as it was. A field that is not a string is no longer read: on Bun every `Error` has a numeric `column`, the stack frame's, so a NOT NULL violation through postgres.js on Bun now names its column from `column_name` instead of reading `Column "15"`.
+
 ## 0.6.1
 
 ### Patch Changes
