@@ -31,7 +31,7 @@ function createRepository<TTable extends PgTable, TKey, TSoft, TLock>(
 ```
 
 `PgDatabase` is any PostgreSQL Drizzle database — `node-postgres`,
-`postgres-js`, PGlite, Neon — and a transaction is one too, so
+`postgres-js`, Bun's `SQL`, PGlite, Neon — and a transaction is one too, so
 `createRepository(tx, users)` works.
 
 | Option | Type | Default | Effect |

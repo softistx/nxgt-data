@@ -165,7 +165,9 @@ It returns `unknown` on purpose: what goes in may not be a database error.
   `errno`.
 - It reads both field spellings: `constraint`/`table`/`column`
   (`node-postgres`, PGlite, Bun's `SQL`) and
-  `constraint_name`/`table_name`/`column_name` (`postgres.js`).
+  `constraint_name`/`table_name`/`column_name` (`postgres.js`). Only a
+  string is read: on Bun every `Error` has a numeric `column`, the stack
+  frame's, which is not the database's.
 - An error with no SQLSTATE — a `TypeError`, an aborted fetch — comes back
   unchanged, and a `DataError` comes back as it is. `throw toDataError(error)`
   is always safe in a `catch`.

@@ -337,6 +337,12 @@ the one column PostgreSQL named.
 await users.create({ email }); // every NOT NULL column without a default
 ```
 
+On 0.6.1 or earlier, `postgres.js` running on Bun names a number instead of
+the column — `Column "15" on "users" cannot be null`, with `columns: [15]`:
+every `Error` on Bun has a numeric `column`, the stack frame's, and it was read
+before `postgres.js`'s `column_name`. Upgrade to 0.6.2 or later, which reads
+only string fields.
+
 ### `invalid input syntax for type uuid: "nope"`
 
 **When:** any query handed a value the column's type cannot read — most often
