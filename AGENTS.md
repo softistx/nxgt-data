@@ -168,7 +168,8 @@ matching key in `exports`.
 - **Every job has a `timeout-minutes`**, sized at two to three times the
   slowest run measured: 25 for CI, whose 60 runs up to 2026-09-27 took 6½ to
   9¾ minutes, and 20 for the release, whose took 3 to 7. Past it a run is
-  hung, and the six-hour default holds the runner for nothing. `ci.yml` has
+  hung, and the six-hour default holds the runner for nothing; the weekly
+  `nxgt versions` job has 5, as nxgt-janus's does. `ci.yml` has
   a `concurrency` group, nxgt-janus's: a pull request's new push cancels its
   run in progress, and a push to `develop` never does — each is in a group of
   its own, by run id, because that run writes the caches every pull request
@@ -289,7 +290,7 @@ matching key in `exports`.
   `node_modules/.cache` — a binary no spec runs, since `scripts/redis.ts`
   builds the pinned one into `.cache/redis`. The setup action sets
   `REDISMS_DISABLE_POSTINSTALL=1`, as nxgt-janus's does
-  (softistx/nxgt-janus#91): the install step took 226 s with it on
+  (softistx/nxgt-janus#91): the install step took 226 s without it on
   develop's last run before. Locally, `REDISMS_DISABLE_POSTINSTALL=1 bun
   install` saves the same minutes; a plain `bun install` still works.
 
@@ -667,7 +668,7 @@ the file.
 ## Conventions
 
 - Biome, with tabs and single quotes. Run `./node_modules/.bin/biome check
-  --write` before committing, and `biome ci` must pass.
+  --write` before committing, and `bunx biome ci` must pass, as in CI.
 - Commit messages: `<type>: <Capitalized summary>`, with types `feat`, `fix`,
   `update`, `chore`, `docs`, `typo`, and `ci` for the workflows and the setup
   action.
