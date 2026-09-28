@@ -160,6 +160,20 @@ matching key in `exports`.
   the folder exists before scanning it, because `Bun.Glob().scan` throws
   `ENOENT` on a missing one (measured on bun 1.4.2).
 - **Build before typecheck and tests.** CI builds first.
+- **CI lints with the Biome `bun.lock` resolved**: `bunx biome ci`, the
+  version `bun run check` runs locally, and the one `biome.json`'s `$schema`
+  names — 2.5.13 today. Not `biomejs/setup-biome` with `latest`, which linted
+  CI with a newer Biome than anyone ran locally. Raising Biome is a lock bump
+  that moves the `$schema` with it.
+- **Every job has a `timeout-minutes`**, sized at two to three times the
+  slowest run measured: 25 for CI, whose 60 runs up to 2026-09-27 took 6½ to
+  9¾ minutes, and 20 for the release, whose took 3 to 7. Past it a run is
+  hung, and the six-hour default holds the runner for nothing. `ci.yml` has
+  a `concurrency` group, nxgt-janus's: a pull request's new push cancels its
+  run in progress, and a push to `develop` never does — each is in a group of
+  its own, by run id, because that run writes the caches every pull request
+  reads. The release has no cancelling group, since a publish killed half-way
+  is worse than one waited on.
 
 - **`@nxgt/redis` has no client dependency at all.** `RedisClient` is Bun's
   own, which is what makes the package Bun-only and why it declares no driver
@@ -270,6 +284,14 @@ matching key in `exports`.
   `REDIS_VERSION`, has no cache path, and is not in the CI key. `@nxgt/redis`'s `test/fixtures.ts` calls `closeRedis()` before stopping the server,
   because `connectRedis` shares a client per URI and a connection a test left
   open would outlive it.
+  **`bun install` builds no Redis in CI**: `redis-memory-server` is on Bun's
+  default trusted list, so its postinstall compiles the *latest* Redis into
+  `node_modules/.cache` — a binary no spec runs, since `scripts/redis.ts`
+  builds the pinned one into `.cache/redis`. The setup action sets
+  `REDISMS_DISABLE_POSTINSTALL=1`, as nxgt-janus's does
+  (softistx/nxgt-janus#91): the install step took 226 s with it on
+  develop's last run before. Locally, `REDISMS_DISABLE_POSTINSTALL=1 bun
+  install` saves the same minutes; a plain `bun install` still works.
 
 - **`@nxgt/redis-guard`'s specs run against a real Redis** too, from the
   third copy of the server (`test/server.ts`), one per spec file, emptied
@@ -627,7 +649,8 @@ the file.
 - Biome, with tabs and single quotes. Run `./node_modules/.bin/biome check
   --write` before committing, and `biome ci` must pass.
 - Commit messages: `<type>: <Capitalized summary>`, with types `feat`, `fix`,
-  `update`, `chore`, `docs` and `typo`.
+  `update`, `chore`, `docs`, `typo`, and `ci` for the workflows and the setup
+  action.
 - Git: the default branch is `develop`. Work on a feature branch and open a
   pull request into `develop`.
 - A repository script is a TypeScript file run by Bun, with Bun Shell, not a

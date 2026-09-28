@@ -28,6 +28,12 @@ jobs:
     # GitHub-hosted: this repository is public, so the minutes are free and
     # unlimited.
     runs-on: ubuntu-latest
+    # Measured on the 60 runs up to 2026-09-27: 3 to 7 minutes, most of it
+    # `bun install` before the setup action skipped redis-memory-server's
+    # postinstall. Generous on purpose: a publish killed half-way is worse
+    # than one waited on, and the concurrency group above never cancels one
+    # under way — this only stops a run that has hung.
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
