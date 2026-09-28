@@ -160,8 +160,14 @@ It returns `unknown` on purpose: what goes in may not be a database error.
 - It reads the SQLSTATE on the error, or anywhere down its `cause` chain (up
   to eight links), so it takes Drizzle's `DrizzleQueryError` and a bare
   driver error alike.
-- It reads both field spellings: `constraint`/`table` (`node-postgres`,
-  PGlite) and `constraint_name`/`table_name` (`postgres.js`).
+- It reads the SQLSTATE from `code`, or from `errno` when `code` is not one:
+  Bun's `SQL` puts `'ERR_POSTGRES_SERVER_ERROR'` in `code` and the SQLSTATE in
+  `errno`.
+- It reads both field spellings: `constraint`/`table`/`column`
+  (`node-postgres`, PGlite, Bun's `SQL`) and
+  `constraint_name`/`table_name`/`column_name` (`postgres.js`). Only a
+  string is read: on Bun every `Error` has a numeric `column`, the stack
+  frame's, which is not the database's.
 - An error with no SQLSTATE — a `TypeError`, an aborted fetch — comes back
   unchanged, and a `DataError` comes back as it is. `throw toDataError(error)`
   is always safe in a `catch`.

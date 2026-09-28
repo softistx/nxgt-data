@@ -11,7 +11,7 @@ import type { CursorPage, Page, PageOptions } from '../../pagination/page';
 
 /**
  * A PostgreSQL database or transaction, whatever the driver: `drizzle-orm/
- * node-postgres`, `postgres-js`, `pglite`, `neon-serverless`… A transaction
+ * node-postgres`, `postgres-js`, `bun-sql`, `pglite`, `neon-serverless`… A transaction
  * is one, so everything that takes a database takes a transaction.
  */
 export type PgDatabase = PgAsyncDatabase<PgQueryResultHKT, any>;

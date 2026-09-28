@@ -30,7 +30,7 @@ The dialects under **Later** come after.
   relational queries, which 0.x does not have. The required peer is
   `drizzle-orm >=1.0.0-rc.4 <2`.
 - **A driver of its own** — any Drizzle driver does (node-postgres,
-  postgres-js, PGlite, Neon…), and a library that shipped one would give an
+  postgres-js, Bun's `SQL`, PGlite, Neon…), and a library that shipped one would give an
   app two copies of drizzle-orm and an `is()` that fails for one of them.
 - **Reading the primary key off the table** — Drizzle 1.0's column types do
   not carry `.primaryKey()`, so nothing in the type says which column it is.
@@ -55,6 +55,11 @@ The dialects under **Later** come after.
 
 ## Shipped
 
+- **Database errors on Bun's `SQL`** — `toDataError`, the repository and
+  `withTransaction` read the SQLSTATE from `errno` when `code` is not one, as
+  Bun's `SQL` sends it, so a unique violation over `drizzle-orm/bun-sql` is a
+  `ConflictError` and every other database error carries its `sqlState` —
+  0.6.2.
 - **`upsert`, optimistic locking and actor stamps, as `@nxgt/mongo` has
   them** — `upsert(where, values)` inserts or updates in one
   `INSERT … ON CONFLICT` on the columns a unique constraint covers, and
