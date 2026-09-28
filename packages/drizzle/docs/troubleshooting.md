@@ -32,6 +32,7 @@ one.
   - [`as on "teams": the table has no createdBy, updatedBy or deletedBy column to stamp`](#as-on-teams-the-table-has-no-createdby-updatedby-or-deletedby-column-to-stamp)
 - **Reading and writing**
   - [`Unique constraint "users_email_unique" violated on "users"`](#unique-constraint-users_email_unique-violated-on-users)
+  - [`Failed query: insert into "users" …`, on Bun's `SQL`, where a `ConflictError` was expected](#failed-query-insert-into-users--on-buns-sql-where-a-conflicterror-was-expected)
   - [`Foreign key "posts_author_id_fkey" violated on "posts"`](#foreign-key-posts_author_id_fkey-violated-on-posts)
   - [`Check constraint "users_age_check" violated on "users"`](#check-constraint-users_age_check-violated-on-users)
   - [`Column "email" on "users" cannot be null`](#column-email-on-users-cannot-be-null)
@@ -256,6 +257,33 @@ For the soft-delete case, make the constraint partial —
 `hardDelete`. And note that `error.detail` can hold the refused value
 (`Key (email)=(ada@example.com) already exists.`): log it, never send it to a
 client.
+
+### `Failed query: insert into "users" …`, on Bun's `SQL`, where a `ConflictError` was expected
+
+**When:** on `@nxgt/drizzle` 0.6.1 or earlier, over `drizzle-orm/bun-sql`: a
+unique violation, or any other database error, reaches the `catch` as
+Drizzle's `DrizzleQueryError` instead of a `ConflictError` or a `DataError`
+with its `sqlState`.
+**Why:** Bun's `SQL.PostgresError` puts `'ERR_POSTGRES_SERVER_ERROR'` in
+`code` and the SQLSTATE in `errno`, where the other drivers put the SQLSTATE
+in `code`. Those versions read `code` only, found no SQLSTATE, and returned the
+error as it was.
+**Fix:** upgrade to 0.6.2 or later, which reads `errno` when `code` is not a
+SQLSTATE:
+
+```sh
+bun add @nxgt/drizzle@latest
+```
+
+On a version that cannot move, read the SQLSTATE yourself:
+
+```ts
+import { SQL } from 'bun';
+
+const sqlState = error instanceof Error && error.cause instanceof SQL.PostgresError
+	? error.cause.errno
+	: undefined;
+```
 
 ### `Foreign key "posts_author_id_fkey" violated on "posts"`
 

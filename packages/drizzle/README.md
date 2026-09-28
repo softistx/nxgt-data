@@ -18,7 +18,7 @@ Everything is typed from the table: rows are `table.$inferSelect`, what
 table's columns, with their types.
 
 PostgreSQL today, through any Drizzle driver (`node-postgres`,
-`postgres-js`, PGlite, Neon…). MySQL and SQLite will come as their own
+`postgres-js`, Bun's `SQL`, PGlite, Neon…). MySQL and SQLite will come as their own
 subpaths.
 
 > **0.x, on drizzle-orm 1.0 (RC).** The API is still settling.
@@ -513,7 +513,8 @@ try {
 ```
 
 It reads the SQLSTATE on the error or anywhere down its `cause` chain, under
-`node-postgres`, PGlite or `postgres.js` field names. An error with none, a
+`node-postgres`, PGlite or `postgres.js` field names, and from `errno` on Bun's
+`SQL`, whose `code` is `'ERR_POSTGRES_SERVER_ERROR'`. An error with none, a
 `TypeError` say, comes back as it is, so `throw toDataError(error)` is
 always safe.
 

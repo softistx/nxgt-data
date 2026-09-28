@@ -6,6 +6,7 @@ import {
 	expect,
 	test,
 } from 'bun:test';
+import { SQL } from 'bun';
 import { DrizzleQueryError, sql } from 'drizzle-orm';
 import { createTestDb } from '../../test/db';
 import { memberships, teams, users } from '../../test/schema';
@@ -241,6 +242,108 @@ describe('toDataError, on anything else', () => {
 		expect(error).toBeInstanceOf(ConflictError);
 		expect(error.constraint).toBe('orders_ref_unique');
 		expect(error.table).toBe('orders');
+		expect(error.columns).toEqual(['ref']);
+	});
+});
+
+/**
+ * Bun's `SQL` puts `'ERR_POSTGRES_SERVER_ERROR'` in `code` and the SQLSTATE in
+ * `errno`. The specs run on PGlite, with no server Bun could reach, so these
+ * are Bun's own `SQL.PostgresError`, built with the fields a real server sent
+ * — measured on Bun 1.4.2 against PostgreSQL 17 through `drizzle-orm/bun-sql`,
+ * which wraps it in a `DrizzleQueryError` as every Drizzle driver does.
+ */
+describe("toDataError, on Bun's SQL", () => {
+	function bunError(
+		message: string,
+		fields: Omit<ConstructorParameters<typeof SQL.PostgresError>[1], 'code'>,
+	): DrizzleQueryError {
+		const driver = new SQL.PostgresError(message, {
+			code: 'ERR_POSTGRES_SERVER_ERROR',
+			severity: 'ERROR',
+			...fields,
+		});
+		return new DrizzleQueryError('insert into "users" …', [], driver);
+	}
+
+	test('a unique violation is a ConflictError, with its SQLSTATE from errno', () => {
+		const raw = bunError(
+			'duplicate key value violates unique constraint "users_email_unique"',
+			{
+				errno: '23505',
+				schema: 'public',
+				table: 'users',
+				constraint: 'users_email_unique',
+				detail: 'Key (email)=(ada@example.com) already exists.',
+			},
+		);
+		const error = toDataError(raw) as ConflictError;
+		expect(error).toBeInstanceOf(ConflictError);
+		expect(error.sqlState).toBe('23505');
+		expect(error.constraint).toBe('users_email_unique');
+		expect(error.table).toBe('users');
+		expect(error.columns).toEqual(['email']);
+		expect(error.cause).toBe(raw);
+		expect(error.message).toBe(
+			'Unique constraint "users_email_unique" violated on "users"',
+		);
+	});
+
+	test('a null in a NOT NULL column names the column Bun reports', () => {
+		const error = toDataError(
+			bunError(
+				'null value in column "email" of relation "users" violates not-null constraint',
+				{ errno: '23502', table: 'users', column: 'email' },
+			),
+		) as NotNullViolationError;
+		expect(error).toBeInstanceOf(NotNullViolationError);
+		expect(error.columns).toEqual(['email']);
+		expect(error.message).toBe('Column "email" on "users" cannot be null');
+	});
+
+	test('any other server error is a DataError with its SQLSTATE', () => {
+		const raw = bunError('relation "nowhere" does not exist', {
+			errno: '42P01',
+			position: '15',
+		});
+		const error = toDataError(raw) as DataError;
+		expect(error.constructor).toBe(DataError);
+		expect(error.code).toBe('DATABASE');
+		expect(error.sqlState).toBe('42P01');
+		expect(error.message).toBe('relation "nowhere" does not exist');
+		// Bun's own `code` is not a SQLSTATE and must not leak into one.
+		expect(error.sqlState).not.toBe('ERR_POSTGRES_SERVER_ERROR');
+	});
+
+	test('an error from Bun with no errno, such as a closed connection, is returned as it is', () => {
+		const raw = new SQL.PostgresError('Connection closed', {
+			code: 'ERR_POSTGRES_CONNECTION_CLOSED',
+		});
+		expect(toDataError(raw)).toBe(raw);
+	});
+});
+
+describe('toDataError, on node-postgres', () => {
+	test("reads a DatabaseError's code, deep in the cause chain", () => {
+		// `pg`'s `DatabaseError`: the SQLSTATE in `code`, `column` absent
+		// unless the server named one.
+		const driver = Object.assign(
+			new Error('duplicate key value violates unique constraint'),
+			{
+				code: '23505',
+				severity: 'ERROR',
+				table: 'orders',
+				constraint: 'orders_ref_unique',
+				detail: 'Key (ref)=(A-1) already exists.',
+				column: undefined,
+			},
+		);
+		const error = toDataError(
+			new DrizzleQueryError('insert …', [], driver),
+		) as ConflictError;
+		expect(error).toBeInstanceOf(ConflictError);
+		expect(error.sqlState).toBe('23505');
+		expect(error.constraint).toBe('orders_ref_unique');
 		expect(error.columns).toEqual(['ref']);
 	});
 });
