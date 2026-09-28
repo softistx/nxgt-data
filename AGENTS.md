@@ -768,11 +768,12 @@ mongo-meilisearch 58, mongo-kit 101, mongo-search-kit 17, redis 46,
 redis-guard 124, redis-kit 55, s3 104, hono-api-example 43, scripts 64 — and
 3 of those 64 were `redis-guard`'s `run-script.spec.ts` run a second time.
 The scripts' 61 are the 41 before and the 20 of
-`scripts/check-nxgt-versions.spec.ts`. It runs one process
-per package, then the scripts' specs through `bun test ./scripts/`. The
-leading `./` matters: a bare `bun test scripts` is a substring filter, and on
-2026-09-28 it ran 64 tests across 11 files, `packages/redis-guard/src/scripts/run-script.spec.ts`
-included. Treat any failure as yours.
+`scripts/check-nxgt-versions.spec.ts`. It runs one process per package, then
+the scripts' specs through `bun test ./scripts/`. The leading `./` matters: a
+bare `bun test scripts` is a substring filter, and on 2026-09-28 it ran 64
+tests across 11 files,
+`packages/redis-guard/src/scripts/run-script.spec.ts` included. Treat any
+failure as yours.
 
 - **The test mongod runs with `enableTestCommands`**, so a spec can make it
   fail a command on demand with `t.failNext(['getMore', 'aggregate'], …)`.
