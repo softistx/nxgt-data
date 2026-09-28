@@ -25,7 +25,7 @@
         "zod": "4.6.5",
       },
       "devDependencies": {
-        "@nxgt/openapi-codegen": "^0.4.0",
+        "@nxgt/openapi-codegen": "^0.4.1",
         "@redocly/openapi-core": "^2.52.1",
         "@types/bun": "^1.4.0",
         "mongodb-memory-server-core": "11.2.0",
@@ -294,7 +294,7 @@
 
     "@nxgt/mongo-search-kit": ["@nxgt/mongo-search-kit@workspace:packages/mongo-search-kit"],
 
-    "@nxgt/openapi-codegen": ["@nxgt/openapi-codegen@0.4.0", "", { "peerDependencies": { "@redocly/openapi-core": "^2.52.1", "typescript": "^6.0.3", "zod": "^4.5.4" }, "optionalPeers": ["@redocly/openapi-core"], "bin": { "nxgt-openapi": "dist/cli.js" } }, "sha512-gufo2rU7jJWZIWdfft2DJNS4CLfm/2PHt4Q55hbzjzwTPSOLkhVTrD1tlI79qPU0oTtBkIOIZkwoC/LNE6Iq1g=="],
+    "@nxgt/openapi-codegen": ["@nxgt/openapi-codegen@0.4.1", "", { "peerDependencies": { "@redocly/openapi-core": "^2.52.1", "typescript": "^6.0.3", "zod": "^4.5.4" }, "optionalPeers": ["@redocly/openapi-core"], "bin": { "nxgt-openapi": "dist/cli.js" } }, "sha512-GrJzkidA9ef3AjoZIOryaie/Oknwa5CDncAMEKlvz+Ize2Yh8IHdbrgvoRGkuiacsCtDbaWQmONSsGDlI44asA=="],
 
     "@nxgt/openapi-hono": ["@nxgt/openapi-hono@0.3.0", "", { "peerDependencies": { "hono": "^4.13.4", "typescript": "^6.0.3" } }, "sha512-FMOJxP/TehtFrmOOYQjKI0+UiXuGn/GTXkhdjj5kzZVBy42fwquQbToeR4cZanfDjAH8SUgx0eQdIBxxyRaNUQ=="],
 
