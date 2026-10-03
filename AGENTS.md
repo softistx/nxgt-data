@@ -149,17 +149,56 @@ matching key in `exports`.
   passes: the dotted prefix is what marks the fixtures specs share. Each
   `tsconfig.build.json` excludes only `test/` and `**/*.spec.ts`, and no
   package holds any of the other kinds today, so the build emits none of
-  it; this check is what holds that. `changeset:publish` runs it, so a release cannot skip it.
+  it; this check is what holds that. It refuses a scoped package without
+  `publishConfig.access: "public"` (`<package>: publishConfig.access is not
+  "public"; …`): `scripts/publish.ts` runs `bun publish`, which never reads
+  the changeset config's `access`, and npm publishes a scoped package as
+  restricted by default. And once the tarballs are installed, it reads
+  every built import, the `.js` through Bun's own scanner and the `.d.ts`
+  through `declarations.ts`, since a declaration file's imports are
+  type-only and Bun's scanner drops those. It fails one that names a package
+  the manifest does not declare in `dependencies`, `peerDependencies` or
+  `optionalDependencies` (`<package>: dist/<file> imports "<specifier>"`):
+  the install holds every sibling side by side, so an import of a sibling a
+  package lists only as a devDependency, as every kit and bridge here lists
+  its siblings for its specs, loads there and fails for a consumer who
+  installs that package alone. Only literal specifiers are read.
+  `changeset:publish` runs it, so a release cannot skip it.
   `scripts/verify-artifacts.ts` only runs the stages in order and stops at
   the first that fails; each lives in `scripts/artifacts/`, one module per
   responsibility, with a spec beside each pure one: `packages.ts` reads the
   workspace, `tarball.ts` a tarball's entries, `manifest.ts` its dependency
-  fields, `registry.ts` asks npm, then `stale.ts`, `install.ts`, `load.ts`
-  and `classes.ts`. An unbuilt package stops at the first stage with
+  fields, `registry.ts` asks npm, then `stale.ts`, `install.ts`, `load.ts`,
+  `classes.ts` and `imports.ts`, which `declarations.ts` serves. An unbuilt package stops at the first stage with
   `<package>: no dist/` and a hint to run `bun run build`: `stale.ts` checks
   the folder exists before scanning it, because `Bun.Glob().scan` throws
   `ENOENT` on a missing one (measured on bun 1.4.2).
-- **Build before typecheck and tests.** CI builds first.
+- **Build before typecheck and tests.** CI builds first. `bun run build`,
+  `typecheck` and `test` run the packages through `scripts/workspace.ts`,
+  alxia's, which starts a package only once every sibling it names in any
+  dependency field has finished, and the ones of one wave in parallel:
+  `bun run --filter` started dependents beside their dependencies on a clean
+  checkout in alxia. Three waves here: the standalone packages, then the two
+  bridges, `@nxgt/mongo-kit` and `@nxgt/redis-kit`, then
+  `@nxgt/mongo-search-kit`. The examples run after them, with
+  `--filter './examples/*'`.
+- **CI's "Newest peers" job tests the other end of every peer range.** The
+  CI job runs the lockfile: the exact version each package pins as a
+  devDependency, the oldest its range accepts. `scripts/newest-peers.ts`,
+  after alxia's, rewrites every manifest that installs a peer to the
+  newest end of the range: the last alternative of an `a || b` range, as
+  in alxia, or else the range itself — `mongodb` `>=7.0.0 <8`, `zod`
+  `>=4.6.5 <5`, `meilisearch` `>=0.62.0 <1`, `drizzle-orm`
+  `>=1.0.0-rc.4 <2`, `typescript` `^6.0.3`. The job then deletes `bun.lock`,
+  whose versions satisfy those ranges, installs, and builds, typechecks,
+  tests and verifies the artifacts. Every manifest gets the same range: the
+  packages', the examples' (including their `dependencies`) and the root's
+  `devDependencies` and `overrides`. One range is one version in the tree,
+  and two `mongodb`s would be two `ObjectId` classes. A peer that nobody
+  installs fails the script, and so do two packages that disagree on a
+  range. The job is informational, as alxia's is: an upstream release can
+  turn it red with no change here, so read it, and do not make it a
+  required check.
 - **CI lints with the Biome `bun.lock` resolved**: `bunx biome ci`, the
   version `bun run check` runs locally, and the one `biome.json`'s `$schema`
   names. Not `biomejs/setup-biome` with `latest`, which linted
@@ -591,7 +630,7 @@ publishes to npm.
 | Kept twice | Why |
 | --- | --- |
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
-| `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change every copy the reason applies to. `verify-artifacts.ts` is split into `scripts/artifacts/`, module for module, in all four copies — nxgt-janus first, then here (#135), in nxgt-http (softistx/nxgt-http#53) and in nxgt-core (softistx/nxgt-core#152, with a `browser.ts` of its own) — to keep each file under 250 lines. A check added to one copy belongs in the others. All four hold the same three: the test-code check, the guard in `newestMtime` (an unbuilt package reports `no dist/` rather than crashing on `ENOENT`), and `missingFiles`, whose spec holds that a `files` entry `dis` is not covered by `dist/`. Where they still differ: only nxgt-core has `browser.ts`; this copy and nxgt-janus read a sibling's version from the workspace, nxgt-http and nxgt-core from the packed manifests; and, outside `scripts/artifacts/`, `check-changesets.ts` is nxgt-janus's alone, as `meilisearch.ts`, `redis.ts` and `seaweedfs.ts` are this copy's. `check-nxgt-versions.ts`, its spec and `.github/workflows/nxgt-versions.yml` are copied from nxgt-janus; this copy reads every workspace the root `package.json` names, `examples/*` included, where nxgt-janus's reads `packages/*` alone, so it names a directory from the root (`examples/hono-api`), not from `packages/`, and it counts a private workspace's `dependencies` as devDependencies (`folderOf` and `manifestOf`, which nxgt-janus's has not) |
+| `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml` | copied from nxgt-http, not shared: each repository releases on its own. Change every copy the reason applies to. `verify-artifacts.ts` is split into `scripts/artifacts/`, module for module, in all four copies — nxgt-janus first, then here (#135), in nxgt-http (softistx/nxgt-http#53) and in nxgt-core (softistx/nxgt-core#152, with a `browser.ts` of its own) — to keep each file under 250 lines. A check added to one copy belongs in the others. All four hold the same three: the test-code check, the guard in `newestMtime` (an unbuilt package reports `no dist/` rather than crashing on `ENOENT`), and `missingFiles`, whose spec holds that a `files` entry `dis` is not covered by `dist/`. This copy, alxia's and bumail's hold two more, which alxia took from bumail (softistx/alxia#32) and this copy from alxia: `imports.ts` with `declarations.ts`, the undeclared-import check, and `accessProblems` in `manifest.ts`. nxgt-janus, nxgt-http and nxgt-core do not have them yet. `scripts/workspace.ts` and `scripts/newest-peers.ts`, with their specs and the "Newest peers" job in `ci.yml`, are alxia's (and bumail has them too). This copy of `newest-peers.ts` differs in three ways: a single range counts as its own newest end, since no peer here has an `a || b` range; it also rewrites the examples' manifests and every `dependencies`/`devDependencies` entry that installs a peer, so the kits' and the example's `zod` and `mongodb` follow the peers; and the job deletes `bun.lock` before installing. `workspace.ts` is unchanged except for its comment, and it runs `packages/*` only. Where they still differ: only nxgt-core has `browser.ts`; this copy and nxgt-janus read a sibling's version from the workspace, nxgt-http and nxgt-core from the packed manifests; and, outside `scripts/artifacts/`, `check-changesets.ts` is nxgt-janus's alone, as `meilisearch.ts`, `redis.ts` and `seaweedfs.ts` are this copy's. `check-nxgt-versions.ts`, its spec and `.github/workflows/nxgt-versions.yml` are copied from nxgt-janus; this copy reads every workspace the root `package.json` names, `examples/*` included, where nxgt-janus's reads `packages/*` alone, so it names a directory from the root (`examples/hono-api`), not from `packages/`, and it counts a private workspace's `dependencies` as devDependencies (`folderOf` and `manifestOf`, which nxgt-janus's has not) |
 | `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 104 and 109 lines, fifteen of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ. `@nxgt/s3`'s `ObjectPage` is **not** a copy either — four lines agreeing with `CursorPage`'s shape so a caller pages the same way, with no logic to keep in step |
 | `connection/connect.ts`, in `@nxgt/mongo` and `@nxgt/redis` | reference-counted client sharing per URI, copied rather than factored: a shared `@nxgt/connection` would make both depend on a sibling for one function, and layering comes first. **107 of 167 lines are identical**, comments included — closer than `page.ts` — so **a fix in one is a fix to make in the other**, and a spec added to one belongs in the other. What deliberately differs: `@nxgt/redis` has no `db`, holds the `RedisClient` itself rather than a `Promise<MongoClient>`, closes synchronously, closes sequentially in `closeRedis` where `closeMongo` uses `Promise.all`, and compares options with `Bun.deepEquals` in place of a hand-written `sameValue`. Since the error-code work, a sixth: `@nxgt/redis`'s `ping` races the command against a timer of its own and reports `PING_TIMEOUT` on the result, while `@nxgt/mongo`'s leaves the deadline to the driver's `timeoutMS` and reports whatever it produced. Both connection failures are a class with a code now, and **neither carries the URI** — a connection string holds the password, and a spec in each asserts its absence |
 | `pingClient` in `@nxgt/redis-kit`, and `ping` in `@nxgt/redis`'s `connection/connect.ts` | a client the *configuration* handed in carries no `ping` — that one belongs to what `connectRedis` returned — so the kit has its own copy, down to the `PING_TIMEOUT` code and the message, and a health route reads the same answer either way. **A fix in one is a fix to make in the other.** The sibling exports no standalone `ping` to call instead; if it ever does, this copy goes |

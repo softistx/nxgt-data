@@ -7,10 +7,10 @@
 		"examples/*"
 	],
 	"scripts": {
-		"build": "bun run --filter './packages/*' build",
-		"typecheck": "bun run typecheck:scripts && bun run --filter './packages/*' typecheck && bun run --filter './examples/*' typecheck",
+		"build": "bun run scripts/workspace.ts build",
+		"typecheck": "bun run typecheck:scripts && bun run scripts/workspace.ts typecheck && bun run --filter './examples/*' typecheck",
 		"typecheck:scripts": "tsc --noEmit -p scripts/tsconfig.json",
-		"test": "bun run scripts/redis.ts && bun run --filter './packages/*' test && bun run --filter './examples/*' test && bun test ./scripts/",
+		"test": "bun run scripts/redis.ts && bun run scripts/workspace.ts test && bun run --filter './examples/*' test && bun test ./scripts/",
 		"check": "biome check",
 		"format": "biome format",
 		"lint": "biome lint",
