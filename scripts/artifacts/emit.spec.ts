@@ -72,6 +72,16 @@ describe('withFixtures', () => {
 	});
 });
 
+describe('TSCONFIG', () => {
+	test("compiles with Bun's types, from a folder that holds them", () => {
+		// Without them, a type from `bun` is an error type skipLibCheck hides.
+		const { types, typeRoots } = TSCONFIG.compilerOptions;
+		expect(types).toEqual(['bun']);
+		expect(typeRoots).toHaveLength(1);
+		expect(existsSync(join(typeRoots[0] ?? '', 'bun'))).toBe(true);
+	});
+});
+
 describe('declarationsEmit', () => {
 	test('passes, running nothing, when no package has a fixture', async () => {
 		const root = await scratch();
