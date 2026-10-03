@@ -34,12 +34,13 @@ function isRuntime(specifier: string): boolean {
  * a declaration file through `declarationSpecifiers`, since Bun's drops the
  * type-only imports (`import type`, `export type … from`, `import('x').T`,
  * and `/// <reference types>`) that are all a `.d.ts` holds, and a
- * consumer's `tsc` still resolves them.
+ * consumer's `tsc` still resolves them. A bin's `#!` line is not read.
  */
 function specifiersOf(rel: string, text: string): string[] {
 	if (rel.endsWith('.d.ts')) return declarationSpecifiers(text);
+	// A bin's `#!` line, which Bun's scanner refuses as a syntax error.
 	return new Bun.Transpiler({ loader: 'js' })
-		.scanImports(text)
+		.scanImports(text.replace(/^#!.*/, ''))
 		.map(({ path }) => path);
 }
 

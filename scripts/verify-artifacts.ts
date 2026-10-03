@@ -20,6 +20,10 @@
  * does. Optional peers are installed too, the way a
  * consumer who uses the subpath that needs one would.
  *
+ * A package's `test/declarations/*.ts` is compiled with the declaration
+ * build on, against the install: a type a consumer's `.d.ts` must name and
+ * the entry does not export fails there with TS2883, and nowhere else.
+ *
  * Every built import must name something the manifest declares: the
  * install holds every sibling, so an undeclared one would load here and
  * fail for a consumer.
@@ -32,6 +36,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { classesDefinedOnce } from './artifacts/classes';
+import { declarationsEmit } from './artifacts/emit';
 import { importsDeclared } from './artifacts/imports';
 import { installAsConsumer, type Packed, pack } from './artifacts/install';
 import { binsRun, subpathsLoad } from './artifacts/load';
@@ -85,7 +90,8 @@ async function main(): Promise<boolean> {
 			(await subpathsLoad(workdir, packages)) &&
 			(await classesDefinedOnce(workdir, packages)) &&
 			(await importsDeclared(workdir, packages)) &&
-			(await binsRun(workdir, packages))
+			(await binsRun(workdir, packages)) &&
+			(await declarationsEmit(workdir, packages))
 		);
 	} finally {
 		await rm(workdir, { recursive: true, force: true });
