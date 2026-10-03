@@ -7,10 +7,11 @@ import {
 	defineIdempotency,
 	defineRateLimit,
 } from '@nxgt/redis-guard';
+import type { RedisClient } from 'bun';
 import { z } from 'zod';
 
-/** Bun's client, as the bind functions take it. */
-declare const redis: Parameters<typeof bindRateLimit>[0];
+/** Bun's client: its types are a Bun consumer's, so the bound guards name it. */
+declare const redis: RedisClient;
 
 export const exportLimit = defineRateLimit({
 	name: 'export',

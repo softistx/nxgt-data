@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { cp, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { $ } from 'bun';
-import type { Pkg } from './packages';
+import { type Pkg, ROOT } from './packages';
 
 /** Where a package keeps the files a consumer's declaration build must name. */
 export const FIXTURES = join('test', 'declarations');
@@ -83,10 +83,17 @@ export async function declarationsEmit(
 	return true;
 }
 
-/** A consumer's strict settings, with the declaration build on. */
+/**
+ * A consumer's strict settings, with the declaration build on. Bun's types
+ * come from this repository's own `@types/bun`, as a Bun consumer has them:
+ * without them a type a package takes from `bun` or `node:*`, such as
+ * `RedisClient`, would be an error type that `skipLibCheck` hides, and emit
+ * as a name the `.d.ts` does not import.
+ */
 export const TSCONFIG = {
 	compilerOptions: {
-		types: [],
+		types: ['bun'],
+		typeRoots: [join(ROOT, 'node_modules', '@types')],
 		lib: ['ESNext', 'DOM'],
 		target: 'ESNext',
 		module: 'ESNext',
