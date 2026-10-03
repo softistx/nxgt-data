@@ -65,6 +65,17 @@ describe('undeclaredImports', () => {
 		).toEqual([]);
 	});
 
+	test("reads a bin past its #! line, which Bun's scanner refuses", () => {
+		expect(
+			undeclaredImports(kit, [
+				[
+					'dist/cli/index.js',
+					'#!/usr/bin/env bun\nimport { main } from "../chunks/main-abc.js";\nimport "left-pad";\nmain();',
+				],
+			]),
+		).toEqual([['dist/cli/index.js', 'left-pad']]);
+	});
+
 	test('catches a dynamic import, a require and a re-export too', () => {
 		expect(
 			undeclaredImports(kit, [
