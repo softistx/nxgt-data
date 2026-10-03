@@ -206,7 +206,7 @@ describe('a presigned POST, against the service', () => {
 			{ userId: 'u1' },
 			{ type: 'image/png', acl: 'public-read' },
 		);
-		expect(form.fields.acl).toBe('public-read');
+		expect(form.fields['acl']).toBe('public-read');
 		expect(await upload(form, blob(10))).toMatchObject({ status: 204 });
 	});
 
@@ -386,7 +386,7 @@ describe('a presigned POST, on a clock of its own', () => {
 				now,
 			);
 			return JSON.parse(
-				Buffer.from(form.fields.policy ?? '', 'base64').toString(),
+				Buffer.from(form.fields['policy'] ?? '', 'base64').toString(),
 			).expiration;
 		};
 		expect(expiry({ expiresIn: 60 })).toBe('2026-01-01T00:01:00.000Z');
@@ -396,7 +396,8 @@ describe('a presigned POST, on a clock of its own', () => {
 
 describe('a presigned POST with no secret to sign with', () => {
 	// The environment could supply one; these hold only where it does not.
-	const unset = !Bun.env.S3_SECRET_ACCESS_KEY && !Bun.env.AWS_SECRET_ACCESS_KEY;
+	const unset =
+		!Bun.env['S3_SECRET_ACCESS_KEY'] && !Bun.env['AWS_SECRET_ACCESS_KEY'];
 
 	test.if(unset)('is Bun’s own error, as for the other presigned calls', () => {
 		const bucket = bindBucket(avatars, {

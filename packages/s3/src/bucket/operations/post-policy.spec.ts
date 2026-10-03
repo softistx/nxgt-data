@@ -68,7 +68,7 @@ describe('a signed POST policy', () => {
 	});
 
 	test('fixes every field it hands out, the bucket, and the range', () => {
-		expect(decoded(signed().fields.policy)).toEqual({
+		expect(decoded(signed().fields['policy'])).toEqual({
 			expiration: '2015-12-29T01:00:00.000Z',
 			conditions: [
 				{ bucket: 'avatars' },
@@ -100,7 +100,7 @@ describe('a signed POST policy', () => {
 			expiresIn: 1,
 			now: new Date('2026-01-01T00:00:00.000Z'),
 		});
-		expect(decoded(later.fields.policy).expiration).toBe(
+		expect(decoded(later.fields['policy']).expiration).toBe(
 			'2026-01-01T00:00:01.000Z',
 		);
 	});
@@ -111,7 +111,7 @@ describe('a signed POST policy', () => {
 			{ fields: { key: 'k' }, conditions: [], expiresIn: 60, now },
 		);
 		expect(form.fields['x-amz-security-token']).toBe('a-token');
-		expect(decoded(form.fields.policy).conditions).toContainEqual([
+		expect(decoded(form.fields['policy']).conditions).toContainEqual([
 			'eq',
 			'$x-amz-security-token',
 			'a-token',

@@ -204,8 +204,8 @@ export function readChunks(
 					await cursor.close();
 					return;
 				}
-				if (chunk.n !== expected) throw missingChunk(ctx, filesId, expected);
-				const bytes = bytesOf(ctx, filesId, chunk.n, chunk.data);
+				if (chunk['n'] !== expected) throw missingChunk(ctx, filesId, expected);
+				const bytes = bytesOf(ctx, filesId, chunk['n'], chunk['data']);
 				const at = expected * chunkSize;
 				// Only the first and the last chunk are ever cut.
 				const from = Math.max(0, start - at);

@@ -32,20 +32,20 @@ const users = defineCollection({
 
 type User = DocumentOf<typeof users>;
 
-type _renamedField = Assert<Equals<User['removedAt'], Date | null>>;
-type _createdAt = Assert<Equals<User['createdAt'], Date>>;
-type _updatedAt = Assert<Equals<User['updatedAt'], Date>>;
-type _version = Assert<Equals<User['version'], number>>;
+export type _renamedField = Assert<Equals<User['removedAt'], Date | null>>;
+export type _createdAt = Assert<Equals<User['createdAt'], Date>>;
+export type _updatedAt = Assert<Equals<User['updatedAt'], Date>>;
+export type _version = Assert<Equals<User['version'], number>>;
 // The actor's own type is the one the option carried, not an ObjectId.
-type _actor = Assert<Equals<User['createdBy'], string | null>>;
-type _ownField = Assert<Equals<User['email'], string>>;
+export type _actor = Assert<Equals<User['createdBy'], string | null>>;
+export type _ownField = Assert<Equals<User['email'], string>>;
 
 // The field moved: it was renamed, not added under both names.
 // @ts-expect-error `deletedAt` is `removedAt` here
 type _noDefaultName = User['deletedAt'];
 
 // A stamp has a default, so a write may leave it out.
-const _write: NewDocumentOf<typeof users> = { email: 'ada@example.com' };
+export const _write: NewDocumentOf<typeof users> = { email: 'ada@example.com' };
 
 // --- no options at all ------------------------------------------------
 
@@ -58,7 +58,7 @@ type Log = DocumentOf<typeof logs>;
 
 // Nothing is injected, and no index signature is left behind: an option
 // that is absent must read as absent, not as the constraint's type.
-type _bareKeys = Assert<Equals<keyof Log, '_id' | 'message'>>;
+export type _bareKeys = Assert<Equals<keyof Log, '_id' | 'message'>>;
 
 // --- some on, some explicitly off -------------------------------------
 
@@ -71,7 +71,7 @@ const events = defineCollection({
 
 type Event = DocumentOf<typeof events>;
 
-type _partialKeys = Assert<
+export type _partialKeys = Assert<
 	Equals<keyof Event, '_id' | 'createdAt' | 'updatedAt'>
 >;
 
@@ -85,11 +85,11 @@ const tickets = defineCollection({
 
 type Ticket = DocumentOf<typeof tickets>;
 
-type _actorRenamed = Assert<
+export type _actorRenamed = Assert<
 	Equals<Ticket['openedBy'], ReturnType<typeof objectId>['_output'] | null>
 >;
 // An absent key means on under its default name; only `false` turns one off.
-type _actorKept = Assert<
+export type _actorKept = Assert<
 	Equals<keyof Ticket, '_id' | 'openedBy' | 'updatedBy'>
 >;
 
@@ -98,13 +98,13 @@ type _actorKept = Assert<
 // The actor's type is read under the name the option gave the field. Reading
 // it under the default `createdBy` resolved to `never` here, which made
 // `as()` uncallable on a collection that does have an actor.
-type _actorRenamedType = Assert<
+export type _actorRenamedType = Assert<
 	Equals<ActorOf<typeof tickets>, ReturnType<typeof objectId>['_output']>
 >;
 // And it is the actor's own type when the option carried one.
-type _actorOwnType = Assert<Equals<ActorOf<typeof users>, string>>;
+export type _actorOwnType = Assert<Equals<ActorOf<typeof users>, string>>;
 // A collection with no actor field has none to stamp.
-type _noActor = Assert<Equals<ActorOf<typeof logs>, never>>;
+export type _noActor = Assert<Equals<ActorOf<typeof logs>, never>>;
 
 // --- the collection options are keyed on the schema too ---------------
 

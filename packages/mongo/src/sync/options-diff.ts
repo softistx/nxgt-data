@@ -62,79 +62,79 @@ const SPECS: readonly OptionSpec[] = [
 	{
 		option: 'capped',
 		of: (w) => (w.capped === undefined ? undefined : true),
-		on: (l) => (l.capped === true ? true : undefined),
+		on: (l) => (l['capped'] === true ? true : undefined),
 		mutable: false,
 	},
 	{
 		option: 'capped.size',
 		of: (w) => w.capped?.size,
-		on: (l) => l.size,
+		on: (l) => l['size'],
 		mutable: true,
 	},
 	{
 		option: 'capped.max',
 		of: (w) => w.capped?.max,
-		on: (l) => l.max,
+		on: (l) => l['max'],
 		mutable: true,
 	},
 	{
 		option: 'timeseries.timeField',
 		of: (w) => w.timeseries?.timeField,
-		on: (l) => timeseriesOf(l)?.timeField,
+		on: (l) => timeseriesOf(l)?.['timeField'],
 		mutable: false,
 	},
 	{
 		option: 'timeseries.metaField',
 		of: (w) => w.timeseries?.metaField,
-		on: (l) => timeseriesOf(l)?.metaField,
+		on: (l) => timeseriesOf(l)?.['metaField'],
 		mutable: false,
 	},
 	{
 		option: 'timeseries.granularity',
 		of: (w) => w.timeseries?.granularity,
-		on: (l) => timeseriesOf(l)?.granularity,
+		on: (l) => timeseriesOf(l)?.['granularity'],
 		mutable: true,
 	},
 	{
 		option: 'timeseries.bucketMaxSpanSeconds',
 		of: (w) => w.timeseries?.bucketMaxSpanSeconds,
-		on: (l) => timeseriesOf(l)?.bucketMaxSpanSeconds,
+		on: (l) => timeseriesOf(l)?.['bucketMaxSpanSeconds'],
 		mutable: true,
 	},
 	{
 		option: 'timeseries.bucketRoundingSeconds',
 		of: (w) => w.timeseries?.bucketRoundingSeconds,
-		on: (l) => timeseriesOf(l)?.bucketRoundingSeconds,
+		on: (l) => timeseriesOf(l)?.['bucketRoundingSeconds'],
 		mutable: true,
 	},
 	{
 		option: 'expireAfterSeconds',
 		of: (w) => w.expireAfterSeconds,
-		on: (l) => l.expireAfterSeconds,
+		on: (l) => l['expireAfterSeconds'],
 		mutable: true,
 	},
 	{
 		option: 'collation',
 		of: (w) => w.collation,
-		on: (l) => l.collation,
+		on: (l) => l['collation'],
 		mutable: false,
 	},
 	{
 		option: 'clusteredIndex',
 		of: (w) => w.clusteredIndex,
-		on: (l) => l.clusteredIndex,
+		on: (l) => l['clusteredIndex'],
 		mutable: false,
 	},
 	{
 		option: 'changeStreamPreAndPostImages',
 		of: (w) => w.changeStreamPreAndPostImages,
-		on: (l) => l.changeStreamPreAndPostImages,
+		on: (l) => l['changeStreamPreAndPostImages'],
 		mutable: true,
 	},
 ];
 
 function timeseriesOf(live: Document): Record<string, unknown> | undefined {
-	const value = live.timeseries;
+	const value = live['timeseries'];
 	return typeof value === 'object' && value !== null
 		? (value as Record<string, unknown>)
 		: undefined;
@@ -175,13 +175,13 @@ export function collModForOptions(
 	const timeseries: Document = {};
 	for (const { option, wanted, mutable } of mismatches) {
 		if (!mutable) continue;
-		if (option === 'capped.size') command.cappedSize = wanted;
-		else if (option === 'capped.max') command.cappedMax = wanted;
+		if (option === 'capped.size') command['cappedSize'] = wanted;
+		else if (option === 'capped.max') command['cappedMax'] = wanted;
 		else if (option.startsWith('timeseries.')) {
 			timeseries[option.slice('timeseries.'.length)] = wanted;
 		} else command[option] = wanted;
 	}
-	if (Object.keys(timeseries).length > 0) command.timeseries = timeseries;
+	if (Object.keys(timeseries).length > 0) command['timeseries'] = timeseries;
 	return command;
 }
 

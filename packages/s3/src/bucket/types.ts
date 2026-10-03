@@ -14,7 +14,7 @@ export interface BucketDefinition<P> {
 	 * The content types this bucket accepts. A write of anything else is
 	 * refused **before it is sent**. Left out, anything goes.
 	 */
-	readonly contentType?: string | readonly string[];
+	readonly contentType?: string | readonly string[] | undefined;
 	/**
 	 * The biggest body this bucket accepts, in bytes, refused before it is
 	 * sent. Left out, anything goes — see the Traps about bodies whose size

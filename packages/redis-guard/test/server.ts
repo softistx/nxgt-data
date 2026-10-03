@@ -44,7 +44,7 @@ export const REDIS_CACHE = join(
  * build happens before any test's timeout can run out.
  */
 export async function redisBinary(): Promise<string> {
-	const given = process.env.REDIS_BIN;
+	const given = process.env['REDIS_BIN'];
 	if (given) return given;
 	return await RedisBinary.getPath({
 		version: REDIS_VERSION,
@@ -69,8 +69,8 @@ export interface TestServer {
  */
 export async function startRedis(): Promise<TestServer> {
 	const server = await RedisMemoryServer.create({
-		binary: process.env.REDIS_BIN
-			? { systemBinary: process.env.REDIS_BIN }
+		binary: process.env['REDIS_BIN']
+			? { systemBinary: process.env['REDIS_BIN'] }
 			: { version: REDIS_VERSION, downloadDir: REDIS_CACHE },
 	});
 	const host = await server.getHost();

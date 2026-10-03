@@ -86,11 +86,11 @@ describe('the column helpers', () => {
 			updated_by: nullable('uuid'),
 			deleted_by: nullable('uuid'),
 		});
-		expect(sqlTypes(pgTable('by_text', actors('text'))).created_by?.type).toBe(
-			'text',
-		);
 		expect(
-			sqlTypes(pgTable('by_int', actors('integer'))).deleted_by?.type,
+			sqlTypes(pgTable('by_text', actors('text')))['created_by']?.type,
+		).toBe('text');
+		expect(
+			sqlTypes(pgTable('by_int', actors('integer')))['deleted_by']?.type,
 		).toBe('integer');
 	});
 

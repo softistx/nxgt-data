@@ -30,7 +30,7 @@ describe('toMongoJsonSchema', () => {
 				amount: z.number().meta({ bsonType: 'decimal' }),
 			}),
 		);
-		expect(schema.properties).toMatchObject({
+		expect(schema['properties']).toMatchObject({
 			amount: { bsonType: 'decimal' },
 		});
 	});
@@ -39,26 +39,28 @@ describe('toMongoJsonSchema', () => {
 		const schema = toMongoJsonSchema(
 			z.object({ _id: objectId(), count: z.int().min(0) }),
 		);
-		const count = (schema.properties as Record<string, Record<string, unknown>>)
-			.count as Record<string, unknown>;
+		const count = (
+			schema['properties'] as Record<string, Record<string, unknown>>
+		)['count'] as Record<string, unknown>;
 		// A whole number reaches BSON as an int, or a double past 32 bits;
 		// `multipleOf` is what then refuses a fractional one.
-		expect(count.bsonType).toEqual(['int', 'long', 'double']);
-		expect(count.multipleOf).toBe(1);
-		expect(count.type).toBeUndefined();
-		expect(count.minimum).toBe(0);
+		expect(count['bsonType']).toEqual(['int', 'long', 'double']);
+		expect(count['multipleOf']).toBe(1);
+		expect(count['type']).toBeUndefined();
+		expect(count['minimum']).toBe(0);
 	});
 
 	test('keeps a nullable integer nullable', () => {
 		const schema = toMongoJsonSchema(
 			z.object({ _id: objectId(), count: z.int().nullable() }),
 		);
-		const count = (schema.properties as Record<string, Record<string, unknown>>)
-			.count as Record<string, unknown>;
+		const count = (
+			schema['properties'] as Record<string, Record<string, unknown>>
+		)['count'] as Record<string, unknown>;
 		const nullable =
-			count.bsonType ??
-			(count.anyOf as Record<string, unknown>[] | undefined)?.flatMap(
-				(one) => one.bsonType ?? one.type,
+			count['bsonType'] ??
+			(count['anyOf'] as Record<string, unknown>[] | undefined)?.flatMap(
+				(one) => one['bsonType'] ?? one['type'],
 			);
 		expect(JSON.stringify(nullable)).toContain('null');
 	});
@@ -82,14 +84,14 @@ describe('toMongoJsonSchema', () => {
 		const schema = toMongoJsonSchema(
 			z.object({ _id: objectId(), home: address, work: address }),
 		);
-		expect(schema.definitions).toBeUndefined();
+		expect(schema['definitions']).toBeUndefined();
 		expect(JSON.stringify(schema)).not.toContain('$ref');
-		const properties = schema.properties as Record<
+		const properties = schema['properties'] as Record<
 			string,
 			Record<string, unknown>
 		>;
-		expect(properties.home).toEqual(properties.work as never);
-		expect(properties.home).toMatchObject({
+		expect(properties['home']).toEqual(properties['work'] as never);
+		expect(properties['home']).toMatchObject({
 			type: 'object',
 			properties: { city: { type: 'string' } },
 		});

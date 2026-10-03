@@ -52,8 +52,8 @@ describe('create', () => {
 			updatedAt: at,
 		});
 		expect(ada.createdAt).toEqual(at);
-		expect((await stored('users'))[0]?.createdAt).toEqual(at);
-		expect((await stored('users'))[0]?.updatedAt).toEqual(at);
+		expect((await stored('users'))[0]?.['createdAt']).toEqual(at);
+		expect((await stored('users'))[0]?.['updatedAt']).toEqual(at);
 	});
 
 	test.each([
@@ -166,7 +166,7 @@ describe('update', () => {
 		expect(
 			await rejectionMessage(collection.update(ada._id, loose(patch))),
 		).toContain('"updatedAt" is kept by "users" itself and cannot be removed');
-		expect((await stored('users'))[0]?.updatedAt).toEqual(ada.updatedAt);
+		expect((await stored('users'))[0]?.['updatedAt']).toEqual(ada.updatedAt);
 	});
 
 	test('a value given as undefined inside an operator says nothing', async () => {
@@ -220,9 +220,9 @@ describe('update', () => {
 			),
 		).toContain(`updateMany: ${kept(name)}`);
 		const [document] = await stored('users');
-		expect(document?.version).toBe(0);
-		expect(document?.createdAt).toEqual(ada.createdAt);
-		expect(document?.deletedAt).toBeNull();
+		expect(document?.['version']).toBe(0);
+		expect(document?.['createdAt']).toEqual(ada.createdAt);
+		expect(document?.['deletedAt']).toBeNull();
 	});
 
 	test('refuses them under the names the collection gives them', async () => {
@@ -238,7 +238,7 @@ describe('update', () => {
 				await rejectionMessage(collection.update(ticket._id, loose(patch))),
 			).toContain('is kept by "tickets" itself');
 		}
-		expect((await stored('tickets'))[0]?.revision).toBe(0);
+		expect((await stored('tickets'))[0]?.['revision']).toBe(0);
 	});
 
 	test('a hook cannot slip a stamp in', async () => {

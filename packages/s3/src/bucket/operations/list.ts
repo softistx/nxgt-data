@@ -1,4 +1,4 @@
-import type { S3ListObjectsResponse } from 'bun';
+import type { S3ListObjectsOptions, S3ListObjectsResponse } from 'bun';
 import type { BucketContext } from '../context';
 import type { ObjectPage, StoredObject } from '../types';
 
@@ -7,11 +7,11 @@ export async function listObjects<P>(
 	context: BucketContext<P>,
 	options: { prefix?: string; limit?: number; cursor?: string | null } = {},
 ): Promise<ObjectPage> {
-	const answer = await context.client.list({
-		prefix: options.prefix,
-		maxKeys: options.limit,
-		continuationToken: options.cursor ?? undefined,
-	});
+	const request: S3ListObjectsOptions = {};
+	if (options.prefix !== undefined) request.prefix = options.prefix;
+	if (options.limit !== undefined) request.maxKeys = options.limit;
+	if (options.cursor != null) request.continuationToken = options.cursor;
+	const answer = await context.client.list(request);
 	const contents: NonNullable<S3ListObjectsResponse['contents']> =
 		answer.contents ?? [];
 	const items: StoredObject[] = contents.map((found) => ({

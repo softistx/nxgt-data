@@ -23,7 +23,7 @@ export interface BucketOptions {
 	 */
 	hash?: boolean;
 	/** The session every read and write of this bucket runs in. */
-	session?: ClientSession;
+	session?: ClientSession | undefined;
 	/**
 	 * Creates the bucket's indexes before the first call that needs them, once
 	 * per database for the life of the process. Off by default, as it is on a

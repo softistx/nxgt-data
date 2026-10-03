@@ -33,7 +33,7 @@ const uids = async () =>
 
 const titles = async (uid = 'movies') =>
 	(await t.client.index(uid).search('', { sort: ['year:asc'] })).hits.map(
-		(hit) => hit.title,
+		(hit) => hit['title'],
 	);
 
 /** The live index, synced and holding the sample movies. */
@@ -81,7 +81,7 @@ describe('rebuild', () => {
 			facets: ['genres'],
 		});
 		expect(result.hits.map((m) => m.id)).toEqual([4, 2, 1]);
-		expect(result.facetDistribution?.genres?.scifi).toBe(3);
+		expect(result.facetDistribution?.['genres']?.['scifi']).toBe(3);
 		const settings = await t.client.index('movies').getSettings();
 		expect(settings.filterableAttributes?.slice().sort()).toEqual([
 			'director.name',

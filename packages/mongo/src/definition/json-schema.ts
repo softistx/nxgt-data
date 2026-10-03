@@ -60,20 +60,20 @@ function isRecord(value: unknown): value is Node {
 const INTEGER_BSON_TYPES = ['int', 'long', 'double'];
 
 function convertIntegerType(node: Node): void {
-	const type = node.type;
+	const type = node['type'];
 	if (type === 'integer') {
-		delete node.type;
-		node.bsonType = [...INTEGER_BSON_TYPES];
-		node.multipleOf ??= 1;
+		delete node['type'];
+		node['bsonType'] = [...INTEGER_BSON_TYPES];
+		node['multipleOf'] ??= 1;
 		return;
 	}
 	if (Array.isArray(type) && type.includes('integer')) {
-		delete node.type;
-		node.bsonType = [
+		delete node['type'];
+		node['bsonType'] = [
 			...type.filter((one) => one !== 'integer'),
 			...INTEGER_BSON_TYPES,
 		];
-		node.multipleOf ??= 1;
+		node['multipleOf'] ??= 1;
 	}
 }
 
@@ -87,8 +87,8 @@ function inline(value: unknown, defs: Node, stack: string[]): unknown {
 	}
 	if (!isRecord(value)) return value;
 
-	if (typeof value.$ref === 'string') {
-		const name = refName(value.$ref);
+	if (typeof value['$ref'] === 'string') {
+		const name = refName(value['$ref']);
 		if (stack.includes(name)) {
 			throw new TypeError(
 				`toMongoJsonSchema: "${name}" refers to itself. MongoDB's $jsonSchema ` +
@@ -100,7 +100,7 @@ function inline(value: unknown, defs: Node, stack: string[]): unknown {
 		const target = defs[name];
 		if (!isRecord(target)) {
 			throw new TypeError(
-				`toMongoJsonSchema: cannot resolve ${value.$ref}, which zod emitted`,
+				`toMongoJsonSchema: cannot resolve ${value['$ref']}, which zod emitted`,
 			);
 		}
 		const { $ref: _ref, ...siblings } = value;
@@ -155,16 +155,16 @@ export function toMongoJsonSchema(schema: z.ZodType): Record<string, unknown> {
 		override: (ctx) => {
 			const type = (ctx.zodSchema as { _zod: { def: { type: string } } })._zod
 				.def.type;
-			if (type === 'date' && ctx.jsonSchema.bsonType === undefined) {
-				ctx.jsonSchema.bsonType = 'date';
+			if (type === 'date' && ctx.jsonSchema['bsonType'] === undefined) {
+				ctx.jsonSchema['bsonType'] = 'date';
 			}
 		},
 	}) as Node;
 
-	const definitions = isRecord(json.definitions)
-		? json.definitions
-		: isRecord(json.$defs)
-			? json.$defs
+	const definitions = isRecord(json['definitions'])
+		? json['definitions']
+		: isRecord(json['$defs'])
+			? json['$defs']
 			: {};
 	return inline(json, definitions, []) as Record<string, unknown>;
 }

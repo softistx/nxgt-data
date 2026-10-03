@@ -67,8 +67,8 @@ export function bucketContext<P>(
 	};
 	const secret =
 		secretAccessKey ||
-		Bun.env.S3_SECRET_ACCESS_KEY ||
-		Bun.env.AWS_SECRET_ACCESS_KEY;
+		Bun.env['S3_SECRET_ACCESS_KEY'] ||
+		Bun.env['AWS_SECRET_ACCESS_KEY'];
 	if (secret) secrets.set(context, secret);
 	return context;
 }

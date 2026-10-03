@@ -122,10 +122,10 @@ function writeTypeOf(
 	const field = ctx.softDeletes ? ctx.stamps.deletedAt : false;
 	if (!field) return 'update';
 	let deletedNow: boolean | undefined;
-	if (event.operationType === 'replace') {
+	if (event['operationType'] === 'replace') {
 		deletedNow = document ? isSet(document[field]) : undefined;
 	} else {
-		const description = event.updateDescription as
+		const description = event['updateDescription'] as
 			| { updatedFields?: Fields; removedFields?: string[] }
 			| undefined;
 		const set = description?.updatedFields ?? {};
@@ -137,7 +137,7 @@ function writeTypeOf(
 		if (isSet(before[field]) === deletedNow) return 'update';
 		return deletedNow ? 'delete' : 'restore';
 	}
-	if (event.operationType === 'replace')
+	if (event['operationType'] === 'replace')
 		return deletedNow ? 'delete' : 'update';
 	return deletedNow ? 'delete' : 'restore';
 }
@@ -152,9 +152,9 @@ export function toChange(
 	event: Fields,
 	options: ChangeOptions<never>,
 ): Fields | undefined {
-	const operation = event.operationType;
-	const document = documentOf(ctx, event.fullDocument);
-	const before = documentOf(ctx, event.fullDocumentBeforeChange);
+	const operation = event['operationType'];
+	const document = documentOf(ctx, event['fullDocument']);
+	const before = documentOf(ctx, event['fullDocumentBeforeChange']);
 	const type: ChangeType | undefined =
 		operation === 'insert'
 			? 'create'
@@ -175,14 +175,14 @@ export function toChange(
 		return undefined;
 	}
 
-	const description = event.updateDescription as
+	const description = event['updateDescription'] as
 		| { updatedFields: Fields; removedFields: string[] }
 		| undefined;
 	return {
 		type,
-		id: (event.documentKey as Fields)._id,
-		at: (event.wallTime as Date | undefined) ?? new Date(),
-		resumeToken: event._id,
+		id: (event['documentKey'] as Fields)['_id'],
+		at: (event['wallTime'] as Date | undefined) ?? new Date(),
+		resumeToken: event['_id'],
 		document,
 		before,
 		...(type === 'delete' ? { hard: operation === 'delete' } : {}),

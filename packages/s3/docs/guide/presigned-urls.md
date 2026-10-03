@@ -34,7 +34,7 @@ presignGet(params: P, options?: PresignOptions): string;
 presignPut(params: P, options?: PresignOptions): string;
 
 interface PresignOptions {
-	expiresIn?: number;
+	expiresIn?: number | undefined;
 	acl?: S3Options['acl'];
 }
 ```

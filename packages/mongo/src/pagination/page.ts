@@ -19,9 +19,9 @@ export interface CursorPage<T> {
 
 export interface PageOptions {
 	/** 1-based. Default `1`. */
-	page?: number;
+	page?: number | undefined;
 	/** Default `20`, at most `maxPageSize`. */
-	pageSize?: number;
+	pageSize?: number | undefined;
 }
 
 export interface PageWindow {

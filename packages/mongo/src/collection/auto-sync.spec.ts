@@ -46,7 +46,7 @@ describe('autoSync', () => {
 		const [info] = await t.db
 			.listCollections({ name: 'invoices' }, { nameOnly: false })
 			.toArray();
-		expect(info?.options?.validator).toBeDefined();
+		expect(info?.options?.['validator']).toBeDefined();
 	});
 
 	test('concurrent operations all wait for the one sync', async () => {
@@ -119,7 +119,7 @@ describe('autoSync', () => {
 		const [info] = await t.db
 			.listCollections({ name: 'audit' }, { nameOnly: false })
 			.toArray();
-		expect(info?.options?.capped).toBe(true);
+		expect(info?.options?.['capped']).toBe(true);
 	});
 
 	test('off by default: nothing is created ahead of the write', async () => {
