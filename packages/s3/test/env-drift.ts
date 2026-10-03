@@ -8,9 +8,10 @@ import { defineBucket } from '../src/bucket/define-bucket';
 
 const mode = process.argv[2];
 if (mode === 'changed') {
-	process.env.S3_SECRET_ACCESS_KEY = `${process.env.S3_SECRET_ACCESS_KEY}-changed`;
+	process.env['S3_SECRET_ACCESS_KEY'] =
+		`${process.env['S3_SECRET_ACCESS_KEY']}-changed`;
 } else if (mode === 'deleted') {
-	delete process.env.S3_SECRET_ACCESS_KEY;
+	delete process.env['S3_SECRET_ACCESS_KEY'];
 }
 
 const bucket = bindBucket(
@@ -20,7 +21,7 @@ const bucket = bindBucket(
 try {
 	const form = bucket.presignPost('u1');
 	console.log(
-		JSON.stringify({ signed: typeof form.fields.policy === 'string' }),
+		JSON.stringify({ signed: typeof form.fields['policy'] === 'string' }),
 	);
 } catch (error) {
 	const { name, message } = error as Error;

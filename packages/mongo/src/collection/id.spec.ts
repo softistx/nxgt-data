@@ -64,7 +64,7 @@ describe('the id of a document', () => {
 	test('is carried by JSON and by a spread, so a handler can return it', async () => {
 		const { ada } = await seed();
 		const asJson = JSON.parse(JSON.stringify(ada)) as Record<string, unknown>;
-		expect(asJson.id).toBe(ada.id);
+		expect(asJson['id']).toBe(ada.id);
 		expect({ ...ada }.id).toBe(ada.id);
 		expect(Object.keys(ada)).toContain('id');
 	});
@@ -168,7 +168,7 @@ describe('the id of a document', () => {
 		expect(thing.id).toBe('mine');
 		// It is a field like any other: stored, and read back as it was.
 		const stored = await t.db.collection('things').findOne({ _id: thing._id });
-		expect(stored?.id).toBe('mine');
+		expect(stored?.['id']).toBe('mine');
 		expect((await collection.getById(thing._id)).id).toBe('mine');
 	});
 });
@@ -384,7 +384,7 @@ describe('no update writes _id', () => {
 		expect(
 			await rejectionMessage(board.upsert({ title: 'a' }, { rank: 1 })),
 		).toStartWith(immutable('upsert', 'posts'));
-		expect((await stored('users'))[0]?.name).toBeNull();
+		expect((await stored('users'))[0]?.['name']).toBeNull();
 		expect(await stored('posts')).toEqual([]);
 	});
 

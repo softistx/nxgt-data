@@ -29,7 +29,7 @@ describe('close', () => {
 		expect(kit.clients.default).toBe(server.client);
 		await kit.close();
 		const answer = await server.client.db().command({ ping: 1 });
-		expect(answer.ok).toBe(1);
+		expect(answer['ok']).toBe(1);
 	});
 
 	test('runs once, however many callers ask', async () => {

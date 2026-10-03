@@ -21,7 +21,7 @@ export function findOne(
 export async function findById(
 	ctx: CollectionContext,
 	id: unknown,
-	opts: { withDeleted?: boolean } = {},
+	opts: { withDeleted?: boolean | undefined } = {},
 ): Promise<Fields | undefined> {
 	const found = await findOne(ctx, scoped(ctx, { _id: id }, opts.withDeleted));
 	return found ?? undefined;
@@ -30,7 +30,7 @@ export async function findById(
 export async function getById(
 	ctx: CollectionContext,
 	id: unknown,
-	opts: { withDeleted?: boolean } = {},
+	opts: { withDeleted?: boolean | undefined } = {},
 ): Promise<Fields> {
 	// Not for the query — `findById` scopes and coerces the filter itself —
 	// but for `notFound`, whose message would otherwise name the raw string.
@@ -46,15 +46,17 @@ export async function findMany(
 ): Promise<Fields[]> {
 	return run(ctx, async () => {
 		let cursor = ctx.collection.find(
-			scoped(ctx, opts.filter, opts.withDeleted as boolean | undefined),
+			scoped(ctx, opts['filter'], opts['withDeleted'] as boolean | undefined),
 			{
 				...ctx.sessionOption,
-				...(opts.projection ? { projection: opts.projection } : {}),
+				...(opts['projection'] ? { projection: opts['projection'] } : {}),
 			},
 		);
-		if (opts.sort !== undefined) cursor = cursor.sort(opts.sort as never);
-		if (opts.skip !== undefined) cursor = cursor.skip(opts.skip as number);
-		if (opts.limit !== undefined) cursor = cursor.limit(opts.limit as number);
+		if (opts['sort'] !== undefined) cursor = cursor.sort(opts['sort'] as never);
+		if (opts['skip'] !== undefined)
+			cursor = cursor.skip(opts['skip'] as number);
+		if (opts['limit'] !== undefined)
+			cursor = cursor.limit(opts['limit'] as number);
 		const found = await cursor.toArray();
 		return found.map((document) => withId(ctx, document as Fields));
 	});
@@ -72,7 +74,7 @@ export async function findFirst(
 export async function countDocuments(
 	ctx: CollectionContext,
 	filter?: unknown,
-	opts: { withDeleted?: boolean } = {},
+	opts: { withDeleted?: boolean | undefined } = {},
 ): Promise<number> {
 	return run(ctx, async () =>
 		ctx.collection.countDocuments(scoped(ctx, filter, opts.withDeleted), {
@@ -84,7 +86,7 @@ export async function countDocuments(
 export async function exists(
 	ctx: CollectionContext,
 	filter: unknown,
-	opts: { withDeleted?: boolean } = {},
+	opts: { withDeleted?: boolean | undefined } = {},
 ): Promise<boolean> {
 	const found = await findOne(ctx, scoped(ctx, filter, opts.withDeleted), {
 		_id: 1,

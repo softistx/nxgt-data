@@ -464,7 +464,7 @@ function defineIndex<Doc extends object>(): <const Config extends IndexConfig<Do
 ) => IndexDefinition<Doc, Config>;
 ```
 
-- `interface IndexConfig<Doc> { uid: string; primaryKey: PrimaryKeyOf<Doc>; settings?: IndexSettings<Doc> }`. `uid` is 1 to 400 characters, each an ASCII letter, a digit, `-` or `_`, or `defineIndex` throws a `TypeError`; a literal uid that is empty or holds a space, `*`, `.` or `/` does not compile.
+- `interface IndexConfig<Doc> { uid: string; primaryKey: PrimaryKeyOf<Doc>; settings?: IndexSettings<Doc> | undefined }`. `uid` is 1 to 400 characters, each an ASCII letter, a digit, `-` or `_`, or `defineIndex` throws a `TypeError`; a literal uid that is empty or holds a space, `*`, `.` or `/` does not compile.
 - `interface IndexSettings<Doc>`: the settings in the [table above](#definition), each optional.
 - `type IndexDefinition<Doc, Config>`: the config, read-only, carrying `Doc`. `type AnyIndexDefinition` is any of them.
 - `type DocumentPath<T>`: the keys of `T` and the dot paths into it, four levels deep.
@@ -480,7 +480,7 @@ function syncIndex(client: Meilisearch, definition: AnyIndexDefinition, options?
 function syncIndexes(client: Meilisearch, definitions: readonly AnyIndexDefinition[], options?: SyncOptions): Promise<SyncReport[]>;
 ```
 
-- `interface SyncOptions { dryRun?: boolean; wait?: WaitOptions }`.
+- `interface SyncOptions { dryRun?: boolean | undefined; wait?: WaitOptions | undefined }`.
 - `interface SyncReport { uid: string; created: boolean; primaryKeySet: boolean; changed: (keyof Settings)[]; update: Settings; tasks: Task[]; dryRun: boolean }`.
 - `diffSettings(wanted: WantedSettings, live: Settings): Settings`: the settings of `wanted` that `live` does not match, compared as `sync` does. An `undefined` nested in a setting is stripped, because a field the caller did not state is a field Meilisearch is told to leave alone.
 - `type WantedSettings`: the SDK's `Settings` made readonly at every depth, each field also accepting `undefined` — which is exactly how a frozen definition holds its own settings, so `diffSettings(movies.settings, live)` compiles. A plain mutable `Settings` still goes in.

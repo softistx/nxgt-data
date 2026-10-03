@@ -45,7 +45,7 @@ export class GuardError extends Error {
 	 * Measured on the Redis server's clock. A delay, never a date — the
 	 * caller's clock and the server's need not agree.
 	 */
-	readonly retryAfter?: number;
+	declare readonly retryAfter?: number;
 
 	constructor(
 		code: GuardErrorCode,

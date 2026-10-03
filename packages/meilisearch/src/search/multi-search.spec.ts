@@ -69,7 +69,7 @@ test('each query runs on its own index, and the results come back in order', asy
 		'Blade Runner',
 		'Alien',
 	]);
-	expect(films.facetDistribution?.genres).toEqual({
+	expect(films.facetDistribution?.['genres']).toEqual({
 		drama: 1,
 		horror: 1,
 		noir: 1,

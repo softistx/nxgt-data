@@ -12,4 +12,5 @@ export const provideServices = (kit: Kit) =>
 		// so no route keys a limit on a header nobody read.
 		c.set('actor', actor.toHexString());
 		await next();
+		return undefined;
 	});

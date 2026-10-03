@@ -165,15 +165,18 @@ await people.updateMany({ name: null }, { _id: id });
 await people.updateMany({ name: null }, { $set: { _id: id } });
 // @ts-expect-error an upsert's values are written on both halves
 await board.upsert({ title: 'a' }, { _id: id, rank: 1 });
-// The one gap, pinned: a top-level `_id: undefined` COMPILES, because
-// `_id?: never` accepts `undefined` without `exactOptionalPropertyTypes`
-// (which this repository leaves off, as most consumers do). The run time
-// refuses it — `id.spec.ts`, "as undefined" and the upsert spec. If this
-// ever stops compiling, the docs that name the gap are out of date.
+// A top-level `_id: undefined` is refused too, under the
+// `exactOptionalPropertyTypes` this repository turns on. Without it — as most
+// consumers have it — it compiles: `without-exact/stamp-writes.ts` pins that
+// gap, and the run time refuses it either way.
+// @ts-expect-error `_id?: never` takes no `undefined` here
 await people.update(id, { _id: undefined, name: 'Ada' });
+// @ts-expect-error …nor on many rows
 await people.updateMany({ name: null }, { _id: undefined, name: 'x' });
+// @ts-expect-error …nor in an upsert's values
 await board.upsert({ title: 'a' }, { _id: undefined, rank: 1 });
 declare const body: { name: string };
+// @ts-expect-error …nor spread after a body
 await people.update(id, { ...body, _id: undefined });
 // Inside an operator it does not compile.
 // @ts-expect-error `$set: { _id: undefined }` is refused by the types

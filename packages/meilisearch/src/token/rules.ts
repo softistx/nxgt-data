@@ -70,12 +70,14 @@ function copyRule(value: unknown): TokenIndexRules | null {
 	if (Reflect.ownKeys(own).some((key) => key !== 'filter')) {
 		throw new Refusal('that has a key other than filter');
 	}
-	const filter = own.filter;
+	const filter = own['filter'];
 	if (filter === undefined) return {};
 	if (!('value' in filter)) throw new Refusal('whose filter is a getter');
 	if (!filter.enumerable) throw new Refusal('whose filter is not enumerable');
 	if (filter.value === undefined || filter.value === null) return {};
-	return { filter: copyFilter(filter.value) as TokenIndexRules['filter'] };
+	return {
+		filter: copyFilter(filter.value) as NonNullable<TokenIndexRules['filter']>,
+	};
 }
 
 /** Uids as a message names them: `"movies", "people"`. */

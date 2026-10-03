@@ -221,8 +221,14 @@ export type UpsertOf<Def> = Partial<WritableDocumentOf<Def>> & {
  */
 export type Patch<Def> = ExpectedVersion<Def> &
 	FixedFields<Def> &
+	// `undefined` is accepted for a field, and dropped like any `undefined`
+	// value: a validated body's optional fields are typed that way.
 	(
-		| Partial<WritableDocumentOf<Def>>
+		| {
+				[K in keyof WritableDocumentOf<Def>]?:
+					| WritableDocumentOf<Def>[K]
+					| undefined;
+		  }
 		// Forbidding the document's own fields on this branch is what makes a
 		// mistyped patch fail both of them rather than falling through to this
 		// one.
@@ -246,7 +252,7 @@ export type ManyPatch<Def> = Patch<Def> & {
 
 export interface ReadOptions {
 	/** Include soft-deleted documents. Ignored without a `deletedAt` field. */
-	withDeleted?: boolean;
+	withDeleted?: boolean | undefined;
 }
 
 export interface FindFirstOptions<Def> extends ReadOptions {
@@ -353,7 +359,7 @@ export interface CollectionOptions<Def> {
 	/** The largest `pageSize` or `limit` a page may ask for. Default `100`. */
 	maxPageSize?: number;
 	/** The session every operation runs in. `withSession` is how it is set. */
-	session?: ClientSession;
+	session?: ClientSession | undefined;
 	/** Who is writing, stamped into `createdBy`, `updatedBy` and `deletedBy`. */
 	actor?: ActorOf<Def>;
 	/** Which database, when `getCollection` is given a client rather than a `Db`. */

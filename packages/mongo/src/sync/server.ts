@@ -44,7 +44,7 @@ export async function liveIndexes(
 	session: ClientSession | undefined,
 ): Promise<IndexDescriptionInfo[]> {
 	try {
-		return await db.collection(name).indexes({ session });
+		return await db.collection(name).indexes(session ? { session } : {});
 	} catch (error) {
 		// NamespaceNotFound: nothing is there, so nothing is indexed.
 		if (serverCode(error) === 26) return [];

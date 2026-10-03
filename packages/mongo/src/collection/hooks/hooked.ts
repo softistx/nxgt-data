@@ -157,7 +157,7 @@ export async function hookedUpsert(
 		});
 	} else {
 		await after(ctx, 'afterUpdate', document, context, {
-			id: document._id,
+			id: document['_id'],
 			patch: args.values,
 		});
 	}

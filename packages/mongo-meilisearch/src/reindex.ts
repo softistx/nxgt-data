@@ -40,7 +40,7 @@ async function sendAll(
 		});
 		const documents: Doc[] = [];
 		for (const document of page.items as Doc[]) {
-			const entry = await entryOf(ctx, document._id, document);
+			const entry = await entryOf(ctx, document['_id'], document);
 			if (entry.kind === 'delete') {
 				skipped += 1;
 				continue;

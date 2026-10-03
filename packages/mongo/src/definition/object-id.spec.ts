@@ -68,6 +68,7 @@ describe('toObjectId', () => {
 			} catch (thrown) {
 				return thrown;
 			}
+			return undefined;
 		})();
 		expect(error).toBeInstanceOf(InvalidIdError);
 		expect((error as InvalidIdError).code).toBe('INVALID_ID');

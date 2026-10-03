@@ -87,7 +87,7 @@ export function bsonKindOf(schema: z.ZodType): BsonKind | undefined {
 	// `objectId()` declares it, and so may any schema:
 	// `.meta({ bsonType: 'objectId' })`. It is the same signal the validator
 	// is built from, so a field cannot be one thing to MongoDB and another here.
-	if (inner.meta()?.bsonType === 'objectId') return 'objectId';
+	if (inner.meta()?.['bsonType'] === 'objectId') return 'objectId';
 	if (def.type === 'date') return 'date';
 	return undefined;
 }
@@ -264,7 +264,7 @@ export function coerceFilter(kinds: FieldKinds, filter: Fields): Fields {
 
 /** `{ $elemMatch: { … } }` under a field, filtered with the kinds inside it. */
 function elemMatched(kinds: FieldKinds, path: string, value: Fields): Fields {
-	const inner = value.$elemMatch;
+	const inner = value['$elemMatch'];
 	if (!isPlain(inner)) return value;
 	const under = kindsUnder(kinds, path);
 	return under ? { ...value, $elemMatch: coerceFilter(under, inner) } : value;
@@ -363,6 +363,6 @@ export function coercedValues(
  * back as it was.
  */
 export function coerceId(ctx: CollectionContext, id: unknown): unknown {
-	const kind = ctx.kinds._id;
+	const kind = ctx.kinds['_id'];
 	return ctx.coerces && kind ? coerceValue(kind, id) : id;
 }

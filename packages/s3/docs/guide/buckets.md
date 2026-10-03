@@ -38,7 +38,7 @@ import type { S3Client, S3File, S3Options, S3Stats } from 'bun';
 interface BucketDefinition<P> {
 	readonly bucket: string;
 	readonly key: (params: P) => string;
-	readonly contentType?: string | readonly string[];
+	readonly contentType?: string | readonly string[] | undefined;
 	readonly maxSize?: number;
 }
 

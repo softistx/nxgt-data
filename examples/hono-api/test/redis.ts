@@ -17,7 +17,7 @@ import RedisMemoryServer from 'redis-memory-server';
  * capture into `$REDIS_BIN`.
  */
 function redisBin(): string {
-	const bin = process.env.REDIS_BIN;
+	const bin = process.env['REDIS_BIN'];
 	if (!bin) {
 		throw new Error(
 			'REDIS_BIN is not set: run the specs with `bun run test`, which builds Redis with scripts/redis.ts and passes its path',

@@ -192,7 +192,7 @@ describe('tenantToken', () => {
 			expiresAt: inAnHour(),
 		});
 		const result = await as(token).index('movies').search('');
-		expect(result.hits.map((m) => m.id).sort()).toEqual([1, 2, 4]);
+		expect(result.hits.map((m) => m['id']).sort()).toEqual([1, 2, 4]);
 	});
 
 	test('the plain copy is what is signed: a nested array filter still filters', async () => {
@@ -204,7 +204,7 @@ describe('tenantToken', () => {
 			expiresAt: inAnHour(),
 		});
 		const result = await as(token).index('movies').search('');
-		expect(result.hits.map((m) => m.id).sort()).toEqual([1, 2, 4]);
+		expect(result.hits.map((m) => m['id']).sort()).toEqual([1, 2, 4]);
 	});
 
 	test('a rebuild’s next index takes a rule under its runtime uid', async () => {
@@ -226,7 +226,7 @@ describe('tenantToken', () => {
 				expiresAt: inAnHour(),
 			});
 			const result = await as(token).index(next.uid).search('');
-			hits = result.hits.map((m) => m.id as number).sort();
+			hits = result.hits.map((m) => m['id'] as number).sort();
 		});
 		expect(hits).toEqual([1, 2, 4]);
 	});

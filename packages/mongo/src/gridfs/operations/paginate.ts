@@ -14,7 +14,7 @@ export interface FilePageOptions {
 	/** Default `20`. */
 	limit?: number;
 	/** The `nextCursor` of the previous page. Omit it for the first one. */
-	after?: string | null;
+	after?: string | null | undefined;
 	/** Newest first by default, which is what a file listing almost always wants. */
 	order?: 'newest' | 'oldest';
 }
@@ -60,8 +60,8 @@ export async function paginateFiles(
 		// A compound `$or` rather than `$lt` on a pair: MongoDB compares
 		// documents field by field, and an index on `{ uploadDate, _id }` is
 		// only used when the comparison is written out this way.
-		filter.$and = [
-			...(Array.isArray(filter.$and) ? filter.$and : []),
+		filter['$and'] = [
+			...(Array.isArray(filter['$and']) ? filter['$and'] : []),
 			{
 				$or: [
 					{ uploadDate: { [after]: date } },

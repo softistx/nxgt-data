@@ -21,7 +21,7 @@ describe('createKit', () => {
 			await createKit(defineConfig({ uri: server.uri, collections })),
 		);
 		const answer = await kit.db.command({ ping: 1 });
-		expect(answer.ok).toBe(1);
+		expect(answer['ok']).toBe(1);
 		expect(kit.db.databaseName).toBe('kit-create');
 	});
 

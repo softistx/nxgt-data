@@ -283,7 +283,7 @@ describe('search', () => {
 			facets: ['genres'],
 		});
 		expect(result.hits.map((m) => m.title)).toEqual(['Blade Runner', 'Alien']);
-		expect(result.facetDistribution?.genres).toEqual({
+		expect(result.facetDistribution?.['genres']).toEqual({
 			scifi: 2,
 			horror: 1,
 			noir: 1,

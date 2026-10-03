@@ -39,10 +39,14 @@ function writes(id: string, post: number, transaction = true): Migration {
 		id,
 		transaction,
 		async up({ db, session }) {
-			await db.collection<Post>('posts').insertOne({ _id: post }, { session });
+			await db
+				.collection<Post>('posts')
+				.insertOne({ _id: post }, session ? { session } : {});
 		},
 		async down({ db, session }) {
-			await db.collection<Post>('posts').deleteOne({ _id: post }, { session });
+			await db
+				.collection<Post>('posts')
+				.deleteOne({ _id: post }, session ? { session } : {});
 		},
 	});
 }
@@ -115,7 +119,9 @@ describe('migrate', () => {
 		const failing = defineMigration({
 			id: 'broken',
 			async up({ db, session }) {
-				await db.collection<Post>('posts').insertOne({ _id: 9 }, { session });
+				await db
+					.collection<Post>('posts')
+					.insertOne({ _id: 9 }, session ? { session } : {});
 				throw new Error('boom');
 			},
 		});
@@ -254,7 +260,9 @@ describe('rollback', () => {
 			id: 'stuck',
 			up: async () => {},
 			async down({ db, session }) {
-				await db.collection<Post>('posts').deleteMany({}, { session });
+				await db
+					.collection<Post>('posts')
+					.deleteMany({}, session ? { session } : {});
 				throw new Error('nope');
 			},
 		});

@@ -135,12 +135,15 @@ getCollection(db, users, {
 // --- what is accepted, on purpose --------------------------------------
 
 // An after hook's answer is ignored, so returning the driver's promise is fine.
+// The driver's options refuse `session: undefined` under
+// `exactOptionalPropertyTypes`, so a session that may be absent is passed only
+// when it is there.
 getCollection(db, users, {
 	hooks: {
 		afterCreate: (document, { collection, session }) =>
 			collection.db
 				.collection('audit')
-				.insertOne({ user: document._id }, { session }),
+				.insertOne({ user: document._id }, session ? { session } : {}),
 	},
 });
 

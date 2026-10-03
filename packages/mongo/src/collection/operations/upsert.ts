@@ -60,7 +60,7 @@ function unlessStored(field: string, fallback: Document | unknown): Document {
  * closest true thing and the one place an upsert writes more than `update`.
  */
 function insertingWhen(seeds: Fields): Document | undefined {
-	if (seeds._id !== undefined) return undefined;
+	if (seeds['_id'] !== undefined) return undefined;
 	return { $eq: [{ $type: '$_id' }, 'missing'] };
 }
 
@@ -236,7 +236,7 @@ export async function upsert(
 	}
 	return {
 		document: withId(ctx, document),
-		inserted: answer.lastErrorObject?.upserted !== undefined,
+		inserted: answer.lastErrorObject?.['upserted'] !== undefined,
 	};
 }
 
@@ -302,8 +302,8 @@ function seedsOf(ctx: CollectionContext, filter: Fields): Fields {
 	// `missing` and no branch can write the schema's own. Where that default
 	// is not an `ObjectId`, an insert would land the server's id instead of
 	// the one `create` writes — so the filter has to carry it.
-	if (ctx.parses && seeds._id === undefined) {
-		const filled = ctx.shape._id?.safeParse(undefined);
+	if (ctx.parses && seeds['_id'] === undefined) {
+		const filled = ctx.shape['_id']?.safeParse(undefined);
 		if (
 			filled?.success &&
 			filled.data !== undefined &&

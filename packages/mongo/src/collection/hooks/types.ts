@@ -100,7 +100,6 @@ export type BeforeHook<Args, Context> = (
 	// `undefined` alone accepts an inline hook with no `return`, but refuses
 	// one declared elsewhere and passed by name — measured — which is how a
 	// hook shared between collections is written.
-	// biome-ignore lint/suspicious/noConfusingVoidType: see above
 ) => Awaitable<Args | undefined | void>;
 
 /**

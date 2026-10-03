@@ -16,10 +16,10 @@ export function isCache(
 	if (typeof value !== 'object' || value === null) return false;
 	const it = value as Record<string, unknown>;
 	return (
-		typeof it.name === 'string' &&
-		typeof it.key === 'function' &&
-		typeof it.ttl === 'number' &&
-		it.schema !== undefined
+		typeof it['name'] === 'string' &&
+		typeof it['key'] === 'function' &&
+		typeof it['ttl'] === 'number' &&
+		it['schema'] !== undefined
 	);
 }
 
@@ -30,10 +30,10 @@ export function isChannel(
 	if (typeof value !== 'object' || value === null) return false;
 	const it = value as Record<string, unknown>;
 	return (
-		typeof it.name === 'string' &&
-		it.schema !== undefined &&
-		it.ttl === undefined &&
-		typeof it.key !== 'function'
+		typeof it['name'] === 'string' &&
+		it['schema'] !== undefined &&
+		it['ttl'] === undefined &&
+		typeof it['key'] !== 'function'
 	);
 }
 

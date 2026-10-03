@@ -51,8 +51,8 @@ describe('the scopes', () => {
 	test('a key that is wired nowhere is plainly undefined', () => {
 		// Nothing falls through to a driver here, unlike `@nxgt/mongo-kit`'s
 		// scope over `Db`: a name that is not wired has nothing behind it.
-		expect((kit.cache as Record<string, unknown>).nope).toBeUndefined();
-		expect((kit.channels as Record<string, unknown>).nope).toBeUndefined();
+		expect((kit.cache as Record<string, unknown>)['nope']).toBeUndefined();
+		expect((kit.channels as Record<string, unknown>)['nope']).toBeUndefined();
 	});
 
 	test('the same key gives the same object back, built once', () => {

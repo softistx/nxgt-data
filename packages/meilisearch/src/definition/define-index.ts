@@ -96,7 +96,7 @@ export interface IndexConfig<Doc> {
 	uid: string;
 	/** The attribute that identifies a document; it types every id. */
 	primaryKey: PrimaryKeyOf<Doc>;
-	settings?: IndexSettings<Doc>;
+	settings?: IndexSettings<Doc> | undefined;
 }
 
 declare const documentType: unique symbol;

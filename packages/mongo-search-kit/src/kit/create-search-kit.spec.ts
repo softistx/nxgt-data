@@ -281,7 +281,7 @@ describe('a search kit', () => {
 		// `search.syncs` is the object `start` reads, so wrapping the second
 		// entry puts the failure exactly inside the window.
 		const real = search.syncs.authors;
-		(search.syncs as Record<string, SearchSync>).authors = {
+		(search.syncs as Record<string, SearchSync>)['authors'] = {
 			...real,
 			start: async () => {
 				await servers.kit.db.articles.create({ title: 'bad' });

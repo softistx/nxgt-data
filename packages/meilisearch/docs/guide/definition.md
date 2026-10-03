@@ -248,7 +248,7 @@ interface IndexConfig<Doc> {
 	uid: string;
 	/** The attribute that identifies a document; it types every id. */
 	primaryKey: PrimaryKeyOf<Doc>;
-	settings?: IndexSettings<Doc>;
+	settings?: IndexSettings<Doc> | undefined;
 }
 
 /** The keys of `Doc` whose value is a string or a number. */

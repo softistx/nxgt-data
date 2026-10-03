@@ -84,7 +84,7 @@ async function followBy(
 					sort: { _id: 1 },
 					withDeleted: r.withDeleted,
 				});
-	const byId = new Map(found.map((doc) => [keyOf(doc._id), doc]));
+	const byId = new Map(found.map((doc) => [keyOf(doc['_id']), doc]));
 	for (const document of documents) {
 		const value = document[field];
 		document[name] = list
@@ -96,7 +96,7 @@ async function followBy(
 /** The documents that point to these ones, one query for all of them. */
 async function followOn(documents: Fields[], name: string, r: Relation) {
 	const field = r.on as string;
-	const ids = unique(documents.map((d) => d._id));
+	const ids = unique(documents.map((d) => d['_id']));
 	const found =
 		ids.length === 0
 			? []
@@ -113,7 +113,7 @@ async function followOn(documents: Fields[], name: string, r: Relation) {
 		}
 	}
 	for (const document of documents) {
-		document[name] = byTarget.get(keyOf(document._id)) ?? [];
+		document[name] = byTarget.get(keyOf(document['_id'])) ?? [];
 	}
 }
 

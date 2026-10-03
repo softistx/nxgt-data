@@ -119,6 +119,8 @@ describe('the where and orderBy a read is built from', () => {
 	test('a where object refuses undefined and unknown keys', async () => {
 		const { users } = repos();
 		await expect(
+			// @ts-expect-error refused by the types under exactOptionalPropertyTypes;
+			// a consumer without it can still pass it, and the run time refuses it
 			users.findMany({ where: { name: undefined } }),
 		).rejects.toThrow('"name" is undefined');
 		await expect(

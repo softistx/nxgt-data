@@ -71,7 +71,7 @@ function softDeleteUpdate(ctx: CollectionContext): Fields {
 	if (deletedAt) set[deletedAt] = new Date();
 	if (ctx.actor !== undefined && deletedBy) set[deletedBy] = ctx.actor;
 	const update: Fields = { $set: set };
-	if (ctx.locks && version) update.$inc = { [version]: 1 };
+	if (ctx.locks && version) update['$inc'] = { [version]: 1 };
 	return update;
 }
 
@@ -208,6 +208,6 @@ export async function restore(
 	if (deletedBy) set[deletedBy] = null;
 	if (ctx.touches && updatedAt) set[updatedAt] = new Date();
 	const update: Fields = { $set: set };
-	if (ctx.locks && version) update.$inc = { [version]: 1 };
+	if (ctx.locks && version) update['$inc'] = { [version]: 1 };
 	return updatedOrThrow(ctx, id, { _id: id }, update, undefined);
 }

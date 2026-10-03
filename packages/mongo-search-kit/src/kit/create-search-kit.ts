@@ -71,7 +71,7 @@ export function createSearchKit<C, const I extends IndexMap<I>>(
 	const indexes = {} as Record<keyof I & string, TypedIndex<never>>;
 	for (const key of keys) {
 		const entry = config[key] as unknown as Record<string, unknown>;
-		indexes[key] = entry.index as TypedIndex<never>;
+		indexes[key] = entry['index'] as TypedIndex<never>;
 		syncs[key] = createSearchSync({
 			...entry,
 			collection: collectionAt(scope, key),
