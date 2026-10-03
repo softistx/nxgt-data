@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { manifestShapeProblems } from './manifest';
+import { accessProblems, manifestShapeProblems } from './manifest';
 
 describe('manifestShapeProblems', () => {
 	const versions = {
@@ -67,6 +67,23 @@ describe('manifestShapeProblems', () => {
 		).toEqual([
 			'@nxgt/mongo: dependencies.a = link:../a',
 			'@nxgt/mongo: optionalDependencies.b = file:../b',
+		]);
+	});
+});
+
+describe('accessProblems', () => {
+	test('accepts a scoped package published as public', () => {
+		expect(
+			accessProblems({
+				name: '@nxgt/mongo',
+				publishConfig: { access: 'public' },
+			}),
+		).toEqual([]);
+	});
+
+	test('refuses a scoped package with no publishConfig', () => {
+		expect(accessProblems({ name: '@nxgt/mongo' })).toEqual([
+			'@nxgt/mongo: publishConfig.access is not "public"; bun publish would publish this scoped package as restricted',
 		]);
 	});
 });

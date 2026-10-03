@@ -33,6 +33,11 @@ import { type Tarball, tarballProblems } from './tarball';
  *     publish without a word.
  *   - **test code**: a `*.spec.*`, a `*.test.*`, a snapshot, or a
  *     `<subject>.fixtures.*` file.
+ *   - a **scoped package without `publishConfig.access: "public"`**.
+ *     `scripts/publish.ts` runs `bun publish`, which never reads the
+ *     changeset config's `access`, and npm publishes a scoped package as
+ *     restricted by default: refused on a free organisation, private on a
+ *     paid one.
  */
 export async function manifestProblems(
 	tarballs: readonly Tarball[],
@@ -42,6 +47,7 @@ export async function manifestProblems(
 	const problems = [
 		...tarballs.flatMap(tarballProblems),
 		...manifestShapeProblems(manifests, versions),
+		...manifests.flatMap(accessProblems),
 	];
 	const own = new Set(manifests.map((m) => m.name as string));
 
@@ -64,6 +70,19 @@ export async function manifestProblems(
 	}
 
 	return problems;
+}
+
+/** A scoped package that `bun publish` would publish as restricted. */
+export function accessProblems(manifest: Record<string, unknown>): string[] {
+	const name = manifest.name as string;
+	const access = (manifest.publishConfig as Record<string, unknown> | undefined)
+		?.access;
+	return name.startsWith('@') && access !== 'public'
+		? [
+				`${name}: publishConfig.access is not "public"; bun publish would ` +
+					'publish this scoped package as restricted',
+			]
+		: [];
 }
 
 /**

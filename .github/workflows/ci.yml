@@ -67,7 +67,8 @@ jobs:
       # clean checkout a package that imports a sibling resolves it to nothing
       # and typecheck reports phantom TS2307s. A developer's tree always has a
       # stale `dist/` lying around, which hides this locally — it only ever
-      # shows up in CI. `bun run --filter` builds in dependency order, so
+      # shows up in CI. `bun run build` goes through scripts/workspace.ts,
+      # which builds each package after the siblings it depends on, so
       # building from nothing works.
       - name: Build packages
         run: bun run build
@@ -139,3 +140,56 @@ jobs:
           github.event_name == 'pull_request' &&
           github.head_ref != 'changeset-release/develop'
         run: bun run changeset:status
+
+  newest-peers:
+    # The job above runs the lockfile's toolchain: the exact versions each
+    # package pins as a devDependency, the oldest end of each peer range. This
+    # one runs the newest end — the latest drizzle-orm, meilisearch, mongodb
+    # and zod each range accepts, and TypeScript within `^6.0.3` — so a range
+    # stays true after the release that would break it. It resolves without a
+    # lockfile, so an upstream release can turn it red with no change here:
+    # read it, do not make it a required check.
+    name: Newest peers
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup
+        uses: ./.github/actions/setup
+      # Rewrites the manifests in this checkout only, then installs what they
+      # now name. The lockfile goes: its versions satisfy the rewritten
+      # ranges, so an install that kept it would test the oldest end again.
+      - name: Use the newest peers
+        run: bun scripts/newest-peers.ts && rm bun.lock && bun install
+        env:
+          REDISMS_DISABLE_POSTINSTALL: '1'
+      - name: Build packages
+        run: bun run build
+      - name: Type checking
+        run: bun run typecheck
+      # The same four servers as the job above, from the same caches.
+      - name: Cache the Meilisearch binary
+        uses: actions/cache@v4
+        with:
+          path: .cache/meilisearch
+          key: meilisearch-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/meilisearch.ts') }}
+      - name: Cache the SeaweedFS binary
+        uses: actions/cache@v4
+        with:
+          path: .cache/seaweedfs
+          key: seaweedfs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/seaweedfs.ts') }}
+      - name: Cache the Redis build
+        uses: actions/cache@v4
+        with:
+          path: .cache/redis
+          key: redis-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/redis/test/server.ts', 'packages/redis-kit/test/server.ts', 'packages/redis-guard/test/server.ts', 'scripts/redis.ts') }}
+      - name: Cache the mongod binary
+        uses: actions/cache@v4
+        with:
+          path: .cache/mongodb
+          key: mongod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/mongo/test/server.ts', 'packages/mongo-meilisearch/test/mongo.ts', 'packages/mongo-kit/test/server.ts', 'packages/mongo-search-kit/test/mongo.ts', 'examples/hono-api/test/kit.ts') }}
+      - name: Run tests
+        run: bun run test
+      - name: Verify the built artifacts load
+        run: bun run verify:artifacts
