@@ -125,7 +125,10 @@ describe('declarationsEmit', () => {
 		expect(printed).toContain('FAIL    @nxgt/bad');
 		expect(printed).toContain(`            ${ts2883}`);
 		expect(printed).toContain(
-			"1 package(s) leave a type a consumer's declaration cannot name.",
+			"1 package(s)' fixtures do not emit their declarations.",
+		);
+		expect(printed).toContain(
+			'any other\nerror is a fixture that no longer compiles',
 		);
 	});
 });

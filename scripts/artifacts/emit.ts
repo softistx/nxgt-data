@@ -74,8 +74,9 @@ export async function declarationsEmit(
 	}
 	if (broken > 0) {
 		console.error(
-			`\n${broken} package(s) leave a type a consumer's declaration cannot name.\n` +
-				'Export it from the package entry; see AGENTS.md.',
+			`\n${broken} package(s)' fixtures do not emit their declarations.\n` +
+				'A TS2883 names a type the package entry must export; any other\n' +
+				'error is a fixture that no longer compiles. See AGENTS.md.',
 		);
 		return false;
 	}
