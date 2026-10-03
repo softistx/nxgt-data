@@ -164,7 +164,15 @@ matching key in `exports`.
   version `bun run check` runs locally, and the one `biome.json`'s `$schema`
   names. Not `biomejs/setup-biome` with `latest`, which linted
   CI with a newer Biome than anyone ran locally. Raising Biome is a lock bump
-  that moves the `$schema` with it.
+  that moves the `$schema` with it: 2.5.15 today, as alxia's. `biome.json`
+  is alxia's too. Beyond the recommended rules it turns
+  `noConfusingVoidType` off — a before hook returns
+  `Awaitable<Args | undefined | void>`, the one shape that accepts a hook
+  declared elsewhere and passed by name, measured, in `@nxgt/mongo`'s
+  `collection/hooks/types.ts` — `useLiteralKeys` off, since it would turn the
+  bracket reads `noPropertyAccessFromIndexSignature` asks for back into dots,
+  and `noBannedTypes` up to an error; the two `{}` that mean "adds no field"
+  in `@nxgt/mongo`'s `definition/stamps.ts` carry their own `biome-ignore`.
 - **Every job has a `timeout-minutes`**, sized at two to three times the
   slowest run measured: 25 for CI, whose 60 runs up to 2026-09-27 took 6½ to
   9¾ minutes, and 20 for the release, whose took 3 to 7. Past it a run is
@@ -197,6 +205,52 @@ matching key in `exports`.
   `ERR_REDIS_SERVER_ERROR` every server error carries, so the reply's own
   text (`NOSCRIPT No matching script. Please use EVAL.`) is the only thing to
   tell it by.
+
+## TypeScript
+
+`tsconfig.base.json` is alxia's: the owner chose one skeleton for alxia,
+nxgt-http and nxgt-data on 2026-10-02, the strictest of the three. It is
+strict past `strict` — `exactOptionalPropertyTypes`,
+`noUncheckedIndexedAccess`, `noPropertyAccessFromIndexSignature`,
+`noImplicitAny`, `noImplicitOverride`, `noImplicitReturns`,
+`noUnusedLocals`, `noUnusedParameters`, `useDefineForClassFields` — and has
+no `allowJs`, no decorators and no `strictPropertyInitialization: false`:
+nothing here is JavaScript or uses a decorator. An application's own
+tsconfig may hold any of these, so the published declarations must compile
+under all of them; a package's `tsconfig.json` turns no check on or off.
+
+- **A key off an index signature is read with brackets**: `env['PORT']`,
+  `document['_id']`, `options['withDeleted']`. That is what
+  `noPropertyAccessFromIndexSignature` asks for, and why Biome's
+  `useLiteralKeys` is off.
+- **An option a caller is likely to hold as a maybe-missing value, and whose
+  `undefined` the package treats as left out, is typed `?: T | undefined`**,
+  so a caller under `exactOptionalPropertyTypes` can pass it as it is. So far:
+  `page`, `pageSize`, `withDeleted`, a collection's and a bucket's `session`,
+  `startAfter`, a file listing's `after`, a bucket's `contentType`, a
+  presigned URL's `expiresIn`, a Redis kit's `prefix`, `@nxgt/meilisearch`'s
+  `settings`, `dryRun` and `wait`, a patch's fields in `@nxgt/mongo`, and the
+  key in `@nxgt/drizzle`'s patch, which is dropped. The other options are
+  still `?: T`, stricter than the run time; widen one when it is met. One the
+  run time refuses stays `?: never`, which that setting then refuses at
+  compile time too: `@nxgt/mongo`'s `_id`. A third party's options, the
+  driver's or Bun's, are given only the keys that have a value
+  (`session ? { session } : {}`), and `@nxgt/mongo`'s README has that as a
+  trap.
+- **`useDefineForClassFields` is an emit setting, not a check**: `Bun.build`
+  reads it, so a class field is defined as JavaScript defines it, an own
+  property from construction, in declaration order. A field the constructor
+  sets only sometimes is written `declare` — `GuardError.retryAfter` — or it
+  would be there as `undefined` when it was not given.
+- **What a type does without `exactOptionalPropertyTypes`**, as most
+  consumers compile, is pinned apart: `packages/mongo/test/types/without-exact/`
+  holds the `_id: undefined` gap, under a tsconfig of its own that turns the
+  setting off, and the package's `typecheck` runs it after the strict one.
+  It is the one place a flag is looser, and only for that pin.
+- `scripts/tsconfig.json` relaxes two, as alxia's does:
+  `noPropertyAccessFromIndexSignature` and `exactOptionalPropertyTypes`. The
+  repository scripts read manifests and the environment, whose keys are
+  open, and are copied from nxgt-http as they are.
 
 ## Tests
 
@@ -431,7 +485,8 @@ matching key in `exports`.
 - **Type tests** are `test/types/*.ts`, checked by the package's
   `typecheck` (`tsc --noEmit`) and never run. A call that must not compile
   carries `// @ts-expect-error`; if it compiles, tsc fails on the unused
-  directive.
+  directive. A type alias that only asserts (`Assert<Equals<…>>`) is
+  exported, so `noUnusedLocals` does not count it as dead.
 
 - **A spec that watches a promise reject takes the rejection where the
   promise is made**, not after the line that causes it. In that window

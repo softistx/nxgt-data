@@ -49,7 +49,7 @@ export interface InstanceConfig<Ca, Ch> {
 	 * cannot know and which changes between environments sharing one Redis.
 	 * A cache `sessions` under `myapp:prod` stores `myapp:prod:sessions:<key>`.
 	 */
-	prefix?: string;
+	prefix?: string | undefined;
 	/** `import * as caches from './caches'`, passed as it is. */
 	caches?: Ca;
 	/** `import * as channels from './channels'`, passed as it is. */

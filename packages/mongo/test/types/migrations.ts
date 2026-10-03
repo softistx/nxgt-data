@@ -25,9 +25,11 @@ assertType<Equal<MigrationContext['client'], MongoClient>>(true);
 const one = defineMigration({
 	id: 'one',
 	async up({ db, session }) {
+		// `undefined` with `transaction: false`, which the driver's options refuse
+		// under `exactOptionalPropertyTypes`.
 		await db
 			.collection('posts')
-			.updateMany({}, { $set: { x: 1 } }, { session });
+			.updateMany({}, { $set: { x: 1 } }, session ? { session } : {});
 	},
 	async down() {},
 	transaction: false,

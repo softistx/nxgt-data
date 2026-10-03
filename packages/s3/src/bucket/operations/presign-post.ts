@@ -168,7 +168,7 @@ export function presignPostForm<P>(
 	if ('field' in rule) fields['Content-Type'] = rule.field;
 	if (options?.acl !== undefined) {
 		checkOption(key, 'acl', options.acl, callOn(context));
-		fields.acl = options.acl;
+		fields['acl'] = options.acl;
 	}
 	return signPostPolicy(signerOf(context), {
 		fields,

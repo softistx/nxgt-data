@@ -203,7 +203,7 @@ function syncIndexes(
 	options?: SyncOptions,
 ): Promise<SyncReport[]>;
 
-interface SyncOptions { dryRun?: boolean; wait?: WaitOptions }
+interface SyncOptions { dryRun?: boolean | undefined; wait?: WaitOptions | undefined }
 ```
 
 `TypedIndex.sync(options?)` is `syncIndex` for the definition it was bound

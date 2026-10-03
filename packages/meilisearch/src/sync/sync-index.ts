@@ -18,9 +18,9 @@ export interface SyncOptions {
 	 * Compare and report, but send nothing: no index is created, no setting
 	 * updated. For a check in CI, or a look before a deploy.
 	 */
-	dryRun?: boolean;
+	dryRun?: boolean | undefined;
 	/** How long to wait for each task, and how often to ask. The SDK's. */
-	wait?: WaitOptions;
+	wait?: WaitOptions | undefined;
 }
 
 /** What `sync` found and did to one index. */

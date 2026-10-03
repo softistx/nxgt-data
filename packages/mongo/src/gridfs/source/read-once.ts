@@ -76,9 +76,9 @@ const started = new WeakSet<object>();
 function nodeSpent(source: object): boolean {
 	const node = source as Record<string, unknown>;
 	return (
-		node.readableDidRead === true ||
-		node.readableEnded === true ||
-		node.destroyed === true
+		node['readableDidRead'] === true ||
+		node['readableEnded'] === true ||
+		node['destroyed'] === true
 	);
 }
 

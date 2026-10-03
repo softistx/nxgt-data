@@ -216,8 +216,13 @@ export function defineCollection<
 		}
 	}
 
-	const schema =
-		Object.keys(added).length > 0 ? config.schema.extend(added) : config.schema;
+	// The stamp fields are built at run time from the options, as a
+	// `Record<string, ZodType>`, so `extend` cannot spell the names the
+	// options' literal types do: the stamped type is asserted here, once,
+	// through the `ZodObject` both are.
+	const schema = (Object.keys(added).length > 0
+		? config.schema.extend(added)
+		: config.schema) as z.ZodObject as StampedSchema<Shape, TS, SD, OL, AC>;
 
 	const definition = Object.freeze({
 		name: config.name,
@@ -231,7 +236,9 @@ export function defineCollection<
 			),
 		),
 		options: Object.freeze({ ...config.options }),
-		stamps: Object.freeze(stamps),
+		// Resolved at run time as `string | false` each, which is what
+		// `StampNamesOf` spells from the options' literal types.
+		stamps: Object.freeze(stamps) as StampNamesOf<TS, SD, OL, AC>,
 	}) as CollectionDefinition<
 		StampedSchema<Shape, TS, SD, OL, AC>,
 		StampNamesOf<TS, SD, OL, AC>

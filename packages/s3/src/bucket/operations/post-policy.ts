@@ -30,7 +30,7 @@ export interface PostSigner {
 	/** As Bun signs it: `us-east-1`, `eu-west-3`, or `auto` off AWS. */
 	readonly region: string;
 	/** Temporary credentials: posted as `x-amz-security-token`. */
-	readonly sessionToken?: string;
+	readonly sessionToken?: string | undefined;
 }
 
 /** What the policy fixes, and until when. */

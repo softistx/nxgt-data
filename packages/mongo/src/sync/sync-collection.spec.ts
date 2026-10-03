@@ -48,9 +48,9 @@ describe('syncCollection', () => {
 		]);
 
 		const options = await optionsOf('users');
-		expect(options?.validationLevel).toBe('strict');
-		expect(options?.validationAction).toBe('error');
-		const validator = options?.validator as
+		expect(options?.['validationLevel']).toBe('strict');
+		expect(options?.['validationAction']).toBe('error');
+		const validator = options?.['validator'] as
 			| { $jsonSchema: { properties: object } }
 			| undefined;
 		expect(validator?.$jsonSchema.properties).toMatchObject({
@@ -106,9 +106,9 @@ describe('syncCollection', () => {
 		expect(report.created).toBe(false);
 		expect(report.validator).toBe('updated');
 		const options = await optionsOf('users');
-		expect(options?.validationLevel).toBe('moderate');
-		expect(options?.validationAction).toBe('warn');
-		const validator = options?.validator as
+		expect(options?.['validationLevel']).toBe('moderate');
+		expect(options?.['validationAction']).toBe('warn');
+		const validator = options?.['validator'] as
 			| { $jsonSchema: { required: string[] } }
 			| undefined;
 		expect(validator?.$jsonSchema.required).toEqual(['_id', 'email']);
@@ -169,7 +169,7 @@ describe('syncCollection', () => {
 		const off = await syncCollection(t.db, logs);
 		expect(off.validator).toBe('removed');
 		// Removing it leaves no `validator` key at all, and the level behind.
-		expect((await optionsOf('logs'))?.validator).toBeUndefined();
+		expect((await optionsOf('logs'))?.['validator']).toBeUndefined();
 		expect((await syncCollection(t.db, logs)).validator).toBe('unchanged');
 	});
 
@@ -244,7 +244,7 @@ describe('the collection options', () => {
 		expect(message).toContain('"logs" already exists');
 		expect(message).toContain('capped: the collection has null');
 		// And it sent nothing: the collection is what it was.
-		expect((await optionsOf('logs'))?.capped).toBeUndefined();
+		expect((await optionsOf('logs'))?.['capped']).toBeUndefined();
 	});
 
 	test('a dry run lists them all instead of throwing on the first', async () => {
@@ -262,7 +262,7 @@ describe('the collection options', () => {
 			'capped',
 			'collation',
 		]);
-		expect((await optionsOf('logs'))?.capped).toBeUndefined();
+		expect((await optionsOf('logs'))?.['capped']).toBeUndefined();
 	});
 });
 

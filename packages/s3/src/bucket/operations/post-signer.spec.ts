@@ -58,7 +58,7 @@ describe('where a presigned POST goes, read off the URL Bun signs', () => {
 		});
 		expect(form.fields['x-amz-security-token']).toBe('a-session-token');
 		const policy = JSON.parse(
-			Buffer.from(form.fields.policy ?? '', 'base64').toString(),
+			Buffer.from(form.fields['policy'] ?? '', 'base64').toString(),
 		);
 		expect(policy.conditions).toContainEqual([
 			'eq',
@@ -239,7 +239,7 @@ describe('the secret, checked against the signature Bun put on the probe', () =>
 			...process.env,
 			S3_SECRET_ACCESS_KEY: MARKER,
 		};
-		delete env.AWS_SECRET_ACCESS_KEY;
+		delete env['AWS_SECRET_ACCESS_KEY'];
 		const child = Bun.spawn([process.execPath, 'run', script, mode], {
 			env,
 			stdout: 'pipe',

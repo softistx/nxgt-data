@@ -1,0 +1,12 @@
+{
+	// The settings most consumers compile with: `exactOptionalPropertyTypes`
+	// off, which the repository's own tsconfig turns on. What a published type
+	// does under them is pinned here, apart.
+	"extends": "../../../tsconfig.json",
+	"compilerOptions": {
+		"exactOptionalPropertyTypes": false,
+		"rootDir": "../../.."
+	},
+	"include": ["*.ts"],
+	"exclude": []
+}

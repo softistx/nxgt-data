@@ -1358,6 +1358,11 @@ operator, and getting it subtly wrong is worse than being honest about it.
   binds this package's methods; `collection.aggregate(…)` is the driver's own,
   so it wants `{ session }` in its options like anywhere else. The session is
   on the collection as `collection.session` when you need to pass it along.
+- **Under `exactOptionalPropertyTypes`, the driver refuses `session:
+  undefined`.** A hook's, a migration's and a collection's `session` is
+  `undefined` outside a transaction, and the driver types its option
+  `session?: ClientSession`, so `{ session }` stops compiling there. Pass
+  `session ? { session } : {}`; it sends the same command.
 - **`estimatedDocumentCount` counts writes that have not committed.** It reads
   the storage engine's metadata rather than the documents, so it is not
   transactional and it is not exact — a document inserted by an open

@@ -1225,9 +1225,9 @@ describe('two callers storing the same bytes at once', () => {
 			const { promise: waiting, resolve } = Promise.withResolvers<void>();
 			client.on('commandStarted', (event: CommandStartedEvent) => {
 				// Only the wait for the winner reads `files` by `_id`.
-				const filter = event.command.filter as { _id?: unknown } | undefined;
+				const filter = event.command['filter'] as { _id?: unknown } | undefined;
 				if (
-					event.command.find === 'uploads.files' &&
+					event.command['find'] === 'uploads.files' &&
 					filter?._id instanceof ObjectId &&
 					_id.equals(filter._id)
 				) {

@@ -56,7 +56,7 @@ function canonicalCollation(value: unknown): unknown {
 	for (const [field, fallback] of Object.entries(COLLATION_DEFAULTS)) {
 		out[field] = collation[field] ?? fallback;
 	}
-	out.locale = collation.locale;
+	out['locale'] = collation['locale'];
 	// `version` is the server's ICU version, never something to sync on.
 	return out;
 }
@@ -77,7 +77,7 @@ export function normalizeIndex(
 	for (const [name, value] of Object.entries(index)) {
 		if (IGNORED.has(name) || value === undefined) continue;
 		if (name === 'collation') {
-			options.collation = canonicalCollation(value);
+			options['collation'] = canonicalCollation(value);
 			continue;
 		}
 		if (OPTION_DEFAULTS[name] === value) continue;

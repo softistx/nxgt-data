@@ -203,7 +203,7 @@ it carries.
 | `BoundBucket<P>` | what `bindBucket` gives back |
 | `ObjectPage` | `{ items: StoredObject[]; nextCursor: string \| null }` |
 | `StoredObject` | `{ key: string; size: number \| undefined; lastModified: Date \| undefined; eTag: string \| undefined }` — S3 does not promise the last three, so they are optional here |
-| `PresignOptions` | `{ expiresIn?: number; acl?: … }` |
+| `PresignOptions` | `{ expiresIn?: number \| undefined; acl?: … }` |
 | `PresignPostOptions` | `{ expiresIn?; maxSize?; minSize?; type?: string \| { startsWith: string }; acl? }` |
 | `PresignedPost` | `{ url: string; fields: Record<string, string> }` — post `fields`, then the file |
 | `ParamsOf<D>` | what a definition's `key` takes, for a caller writing its own helper |

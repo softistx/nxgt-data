@@ -566,7 +566,7 @@ between two tables. The timestamps are to the millisecond, as a JavaScript
 
 - `interface Page<T> { items: T[]; total: number; page: number; pageSize: number; pageCount: number }`.
 - `interface CursorPage<T> { items: T[]; nextCursor: string | null }`.
-- `interface PageOptions { page?: number; pageSize?: number }`.
+- `interface PageOptions { page?: number | undefined; pageSize?: number | undefined }`.
 - `pageWindow(options?: PageOptions, maxPageSize = 100, where?: string): PageWindow`: checks a page and turns it into `{ page, pageSize, limit, offset }`. `where` names the call in the `RangeError`, the way `paginate` names itself.
 - `cursorLimit(limit: number | undefined, maxPageSize = 100, where?: string): number`: the cursor half of the same check — a `limit` lowered to the maximum, refused the same way.
 - `toPage<T>(items: T[], total: number, window: PageWindow): Page<T>`.
@@ -627,7 +627,7 @@ The types it uses:
 - `type UpdatePatch<TTable, TLock, TKey>`: `Patch` without the key `TKey` (default `PrimaryKeyOf<TTable>`: `id` when the table has one, else `never`), with `version?: number` — the expected version — where it locks. `type ManyPatch<TTable, TLock, TKey>`: `Patch` without `TKey`, and with no `version` where it locks.
 - `type UpsertWhere<TTable, TLock> = { [K in keyof Row]?: NonNullable<Row[K]> }`, without `version` where it locks, and `type UpsertWhereOf<TTable, TLock, W>`, the `where` `upsert` takes: `W` with no other key, and at least one; `type UpsertValues<TTable, TWhereKey, TLock>`: `Insert` without the where's keys, and without `version` where it locks.
 - `type ActorOf<TTable>`: the type of `createdBy`, else `updatedBy`, else `deletedBy`, not null; `never` without any. `type LockOf<TTable>`: whether the table has an integer `NOT NULL` `version`.
-- `interface ReadOptions { withDeleted?: boolean }`, and `FindFirstOptions`, `FindManyOptions`, `PaginateOptions`, `CursorPaginateOptions` as in the table.
+- `interface ReadOptions { withDeleted?: boolean | undefined }`, and `FindFirstOptions`, `FindManyOptions`, `PaginateOptions`, `CursorPaginateOptions` as in the table.
 - `type BaseRepository<TTable, TKey, TSoft, TLock>` and `type SoftDeleteMethods<TTable, TKey>`, the two halves of `Repository`.
 - `type ColumnKey<TTable>`, `type PrimaryKeyOf<TTable>` (`'id'` when the table has it, else `never`), `type HasColumn<TTable, K>`.
 

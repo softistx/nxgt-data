@@ -39,7 +39,7 @@ describe('create', () => {
 		});
 		const ada = await collection.create({ email: 'ADA@example.com' });
 		expect(ada.email).toBe('ada@example.com');
-		expect((await stored('users'))[0]?.email).toBe('ada@example.com');
+		expect((await stored('users'))[0]?.['email']).toBe('ada@example.com');
 	});
 
 	test('returning nothing keeps it as it was', async () => {
@@ -196,7 +196,7 @@ describe('update', () => {
 		);
 		expect(changed).toBe(1);
 		expect(counts).toEqual([1]);
-		expect((await stored('posts')).map((p) => p.title).sort()).toEqual([
+		expect((await stored('posts')).map((p) => p['title']).sort()).toEqual([
 			'b',
 			'z',
 		]);
@@ -349,7 +349,7 @@ describe('the context', () => {
 				afterCreate: async (document, { collection: self, session }) => {
 					await self.db
 						.collection('audit')
-						.insertOne({ post: document._id }, { session });
+						.insertOne({ post: document._id }, session ? { session } : {});
 				},
 			},
 		});
@@ -369,7 +369,7 @@ describe('the context', () => {
 			),
 		).toContain('abandon');
 
-		expect((await stored('posts')).map((p) => p.title)).toEqual(['kept']);
+		expect((await stored('posts')).map((p) => p['title'])).toEqual(['kept']);
 		expect(await stored('audit')).toHaveLength(1);
 	});
 

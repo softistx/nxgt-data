@@ -141,7 +141,7 @@ export interface ChangeOptions<Def> {
 	 * Start just after this token — a change's `resumeToken`, or a
 	 * subscription's — rather than now.
 	 */
-	startAfter?: ResumeToken;
+	startAfter?: ResumeToken | undefined;
 	/**
 	 * What to do with an error: one the handler threw (the change is then
 	 * skipped and the stream goes on), or one that stopped the stream for

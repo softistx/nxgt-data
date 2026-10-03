@@ -248,7 +248,7 @@ function pageWindow(options?: PageOptions, maxPageSize?: number, where?: string)
 function cursorLimit(limit: number | undefined, maxPageSize?: number, where?: string): number;
 function toPage<T>(items: T[], total: number, window: PageWindow): Page<T>;
 
-interface PageOptions { page?: number; pageSize?: number }
+interface PageOptions { page?: number | undefined; pageSize?: number | undefined }
 interface PageWindow { page: number; pageSize: number; limit: number; offset: number }
 
 const DEFAULT_PAGE_SIZE = 20;

@@ -39,12 +39,12 @@ function keysOfDuplicate(error: Record_): {
 	keys: string[];
 	values: Record_ | undefined;
 } {
-	const pattern = error.keyPattern;
+	const pattern = error['keyPattern'];
 	if (isRecord(pattern)) {
-		const values = isRecord(error.keyValue) ? error.keyValue : undefined;
+		const values = isRecord(error['keyValue']) ? error['keyValue'] : undefined;
 		return { keys: Object.keys(pattern), values };
 	}
-	const inMessage = text(error.errmsg)?.match(/dup key:\s*\{([^}]*)\}/)?.[1];
+	const inMessage = text(error['errmsg'])?.match(/dup key:\s*\{([^}]*)\}/)?.[1];
 	if (!inMessage) return { keys: [], values: undefined };
 	const keys = [...inMessage.matchAll(/([\w.$]+)\s*:/g)].map(
 		(match) => match[1] as string,
@@ -54,9 +54,10 @@ function keysOfDuplicate(error: Record_): {
 
 /** The first write error of a bulk result, which may be one object or a list. */
 function firstWriteError(error: Record_): Record_ | undefined {
-	for (const write of asArray(error.writeErrors)) {
+	for (const write of asArray(error['writeErrors'])) {
 		// The driver wraps each one; its fields sit on `err` there.
-		const inner = isRecord(write) && isRecord(write.err) ? write.err : write;
+		const inner =
+			isRecord(write) && isRecord(write['err']) ? write['err'] : write;
 		if (isRecord(inner)) return inner;
 	}
 	return undefined;
@@ -72,12 +73,12 @@ function issuesOf(details: unknown, path: string[] = []): ValidationIssue[] {
 	for (const rule of asArray(details)) {
 		if (!isRecord(rule)) continue;
 
-		if (rule.propertiesNotSatisfied !== undefined) {
-			for (const property of asArray(rule.propertiesNotSatisfied)) {
+		if (rule['propertiesNotSatisfied'] !== undefined) {
+			for (const property of asArray(rule['propertiesNotSatisfied'])) {
 				if (!isRecord(property)) continue;
-				const name = text(property.propertyName) ?? '';
-				const nested = issuesOf(property.details, [...path, name]);
-				const description = text(property.description);
+				const name = text(property['propertyName']) ?? '';
+				const nested = issuesOf(property['details'], [...path, name]);
+				const description = text(property['description']);
 				issues.push(
 					...(description === undefined
 						? nested
@@ -87,34 +88,33 @@ function issuesOf(details: unknown, path: string[] = []): ValidationIssue[] {
 			continue;
 		}
 
-		if (rule.missingProperties !== undefined) {
-			for (const missing of asArray(rule.missingProperties)) {
+		if (rule['missingProperties'] !== undefined) {
+			for (const missing of asArray(rule['missingProperties'])) {
 				issues.push({
 					path: [...path, String(missing)].join('.'),
 					reason: 'required',
-					specifiedAs: rule.specifiedAs,
+					specifiedAs: rule['specifiedAs'],
 				});
 			}
 			continue;
 		}
 
-		if (rule.schemaRulesNotSatisfied !== undefined) {
-			issues.push(...issuesOf(rule.schemaRulesNotSatisfied, path));
+		if (rule['schemaRulesNotSatisfied'] !== undefined) {
+			issues.push(...issuesOf(rule['schemaRulesNotSatisfied'], path));
 			continue;
 		}
 
+		const consideredType = text(rule['consideredType']);
 		issues.push({
 			path: path.join('.'),
-			reason: text(rule.reason) ?? text(rule.operatorName) ?? 'invalid',
-			...(rule.specifiedAs === undefined
+			reason: text(rule['reason']) ?? text(rule['operatorName']) ?? 'invalid',
+			...(rule['specifiedAs'] === undefined
 				? {}
-				: { specifiedAs: rule.specifiedAs }),
-			...(rule.consideredValue === undefined
+				: { specifiedAs: rule['specifiedAs'] }),
+			...(rule['consideredValue'] === undefined
 				? {}
-				: { consideredValue: rule.consideredValue }),
-			...(text(rule.consideredType) === undefined
-				? {}
-				: { consideredType: text(rule.consideredType) }),
+				: { consideredValue: rule['consideredValue'] }),
+			...(consideredType === undefined ? {} : { consideredType }),
 		});
 	}
 	return issues;
@@ -142,22 +142,22 @@ export function toDataError(
 	// at the top; a single write carries everything at the top.
 	const source = firstWriteError(error) ?? error;
 	const code =
-		typeof source.code === 'number'
-			? source.code
-			: typeof error.code === 'number'
-				? error.code
+		typeof source['code'] === 'number'
+			? source['code']
+			: typeof error['code'] === 'number'
+				? error['code']
 				: undefined;
 	if (typeof code !== 'number') return error;
 
 	const message =
-		text(source.errmsg) ??
-		text(source.message) ??
+		text(source['errmsg']) ??
+		text(source['message']) ??
 		text((error as { message?: unknown }).message) ??
 		'';
 	const common: DataErrorOptions = {
 		collection: context.collection,
 		serverCode: code,
-		serverCodeName: text(error.codeName) ?? text(source.codeName),
+		serverCodeName: text(error['codeName']) ?? text(source['codeName']),
 		cause: error,
 	};
 
@@ -175,8 +175,8 @@ export function toDataError(
 	}
 
 	if (code === 121) {
-		const errInfo = isRecord(source.errInfo) ? source.errInfo : undefined;
-		const issues = issuesOf(errInfo?.details);
+		const errInfo = isRecord(source['errInfo']) ? source['errInfo'] : undefined;
+		const issues = issuesOf(errInfo?.['details']);
 		return new ValidationError(
 			`Document failed validation${
 				context.collection ? ` in "${context.collection}"` : ''

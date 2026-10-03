@@ -37,6 +37,7 @@ describe('assertSucceeded', () => {
 			} catch (e) {
 				return e;
 			}
+			return undefined;
 		})() as SearchIndexError;
 		expect(thrown).toBeInstanceOf(SearchIndexError);
 		expect(thrown.code).toBe('TASK_FAILED');

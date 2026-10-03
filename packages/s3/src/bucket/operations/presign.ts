@@ -5,10 +5,15 @@ import { checkOption } from '../guards';
 /** How a presigned URL is asked for. `expiresIn` is **seconds**, as S3's is. */
 export interface PresignOptions {
 	/** Seconds until it expires. Bun's default is a day; give one. */
-	expiresIn?: number;
+	expiresIn?: number | undefined;
 	/** `public-read` and the rest, when the service honours it. */
 	acl?: S3Options['acl'];
 }
+
+/** What is signed: the options a caller gave, none of them `undefined`. */
+type Signed = {
+	[K in keyof PresignOptions]?: Exclude<PresignOptions[K], undefined>;
+};
 
 /**
  * The options this package signs with, and only those.
@@ -32,7 +37,7 @@ function signed(
 	key: string,
 	options: PresignOptions | undefined,
 	where: string,
-): PresignOptions {
+): Signed {
 	const forwarded: Record<string, unknown> = {};
 	for (const name of SIGNED) {
 		const value = options?.[name];
@@ -43,7 +48,7 @@ function signed(
 		checkOption(key, name, value, where);
 		forwarded[name] = value;
 	}
-	return forwarded as PresignOptions;
+	return forwarded as Signed;
 }
 
 export function presignGetUrl<P>(

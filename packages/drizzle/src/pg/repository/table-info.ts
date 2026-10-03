@@ -55,7 +55,7 @@ export function tableInfo(
 	// moves come from it.
 	const composite = getTableConfig(table).primaryKeys[0]?.columns ?? [];
 	const primaryKey = primaryKeyOf(name, composite, columns, options.primaryKey);
-	if (options.softDelete === true && !columns.deletedAt) {
+	if (options.softDelete === true && !columns['deletedAt']) {
 		throw new TypeError(
 			`createRepository: softDelete needs a "deletedAt" column, and "${name}" has none`,
 		);
@@ -166,7 +166,7 @@ function primaryKeyOf(
 						`\`primaryKey: '${key}'\` to createRepository, which types the id too.`,
 				};
 	}
-	if (columns.id) return { key: 'id', column: columns.id };
+	if (columns['id']) return { key: 'id', column: columns['id'] };
 	return {
 		error:
 			`"${name}" has no primary key: the methods by id need one. Pass ` +

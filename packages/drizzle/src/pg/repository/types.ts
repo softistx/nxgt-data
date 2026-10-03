@@ -95,9 +95,9 @@ export type UpdatePatch<
 	TKey extends PropertyKey = PrimaryKeyOf<TTable>,
 > = TLock extends true
 	? Omit<Patch<TTable>, 'version' | TKey> & { version?: number } & {
-			[K in TKey]?: never;
+			[K in TKey]?: undefined;
 		}
-	: Omit<Patch<TTable>, TKey> & { [K in TKey]?: never };
+	: Omit<Patch<TTable>, TKey> & { [K in TKey]?: undefined };
 
 /**
  * The values `updateMany` takes: no primary key, as for `update`, and on a
@@ -110,9 +110,9 @@ export type ManyPatch<
 	TKey extends PropertyKey = PrimaryKeyOf<TTable>,
 > = TLock extends true
 	? Omit<Patch<TTable>, 'version' | TKey> & { version?: never } & {
-			[K in TKey]?: never;
+			[K in TKey]?: undefined;
 		}
-	: Omit<Patch<TTable>, TKey> & { [K in TKey]?: never };
+	: Omit<Patch<TTable>, TKey> & { [K in TKey]?: undefined };
 
 /**
  * What identifies the row an `upsert` writes: its values under columns a
@@ -184,7 +184,7 @@ export type OrderBy<TTable extends PgTable> =
 
 export interface ReadOptions {
 	/** Include soft-deleted rows. Ignored on a table without soft delete. */
-	withDeleted?: boolean;
+	withDeleted?: boolean | undefined;
 }
 
 export interface FindFirstOptions<TTable extends PgTable> extends ReadOptions {

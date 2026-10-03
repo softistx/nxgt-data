@@ -439,7 +439,7 @@ type OrderBy<TTable> =
 	| ReadonlyArray<SQL | SQL.Aliased | PgColumn>
 	| { [K in keyof Row<TTable>]?: OrderDirection };
 
-interface ReadOptions { withDeleted?: boolean }
+interface ReadOptions { withDeleted?: boolean | undefined }
 interface FindFirstOptions<TTable> extends ReadOptions { orderBy?: OrderBy<TTable> }
 interface FindManyOptions<TTable> extends ReadOptions {
 	where?: Where<TTable>;

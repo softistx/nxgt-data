@@ -19,14 +19,14 @@ export async function paginate(
 	const window = pageWindow(opts, ctx.maxPageSize, `paginate on "${ctx.name}"`);
 	const [items, total] = await Promise.all([
 		findMany(ctx, {
-			filter: opts.filter,
-			sort: opts.sort ?? { _id: 1 },
+			filter: opts['filter'],
+			sort: opts['sort'] ?? { _id: 1 },
 			limit: window.limit,
 			skip: window.skip,
-			withDeleted: opts.withDeleted,
+			withDeleted: opts['withDeleted'],
 		}),
-		countDocuments(ctx, opts.filter, {
-			withDeleted: opts.withDeleted as boolean | undefined,
+		countDocuments(ctx, opts['filter'], {
+			withDeleted: opts['withDeleted'] as boolean | undefined,
 		}),
 	]);
 	return toPage(items, total, window);
@@ -36,27 +36,27 @@ export async function paginateByCursor(
 	ctx: CollectionContext,
 	opts: Fields = {},
 ): Promise<CursorPage<Fields>> {
-	const sortField = (opts.orderBy as string | undefined) ?? '_id';
+	const sortField = (opts['orderBy'] as string | undefined) ?? '_id';
 	if (!ctx.shape[sortField] && sortField !== '_id') {
 		throw new TypeError(
 			`paginateByCursor: "${ctx.name}" has no field "${sortField}" in its schema`,
 		);
 	}
-	const direction = (opts.direction as OrderDirection | undefined) ?? 'asc';
+	const direction = (opts['direction'] as OrderDirection | undefined) ?? 'asc';
 	const fields = sortField === '_id' ? ['_id'] : [sortField, '_id'];
 	const cursorKey = `${sortField}:${direction}`;
 	const limit = cursorLimit(
-		opts.limit as number | undefined,
+		opts['limit'] as number | undefined,
 		ctx.maxPageSize,
 		`paginateByCursor on "${ctx.name}"`,
 	);
 	const past = direction === 'asc' ? '$gt' : '$lt';
 
 	let after: Fields | undefined;
-	if (opts.after) {
+	if (opts['after']) {
 		const where = `paginateByCursor on "${ctx.name}"`;
 		const { values } = decodeCursor(
-			opts.after as string,
+			opts['after'] as string,
 			cursorKey,
 			where,
 			ctx.name,
@@ -89,12 +89,12 @@ export async function paginateByCursor(
 	);
 	const documents = await findMany(ctx, {
 		filter: mergeFilters(
-			isRecord(opts.filter) ? opts.filter : undefined,
+			isRecord(opts['filter']) ? opts['filter'] : undefined,
 			after,
 		),
 		sort,
 		limit: limit + 1,
-		withDeleted: opts.withDeleted,
+		withDeleted: opts['withDeleted'],
 	});
 
 	const items = documents.slice(0, limit);

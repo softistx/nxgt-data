@@ -2,7 +2,7 @@
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
 		"rootDirs": ["src"],
-		"outDir": "dist",
-		"noImplicitAny": true
-	}
+		"outDir": "dist"
+	},
+	"exclude": ["node_modules", "dist", "test/types/without-exact"]
 }

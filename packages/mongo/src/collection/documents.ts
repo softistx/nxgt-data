@@ -22,13 +22,13 @@ export function withId<T>(ctx: CollectionContext, document: T): T {
 	if (
 		ctx.hasOwnId ||
 		!isRecord(document) ||
-		document._id === undefined ||
+		document['_id'] === undefined ||
 		Object.hasOwn(document, 'id')
 	) {
 		return document;
 	}
 	Object.defineProperty(document, 'id', {
-		get: () => String((document as Fields)._id),
+		get: () => String((document as Fields)['_id']),
 		enumerable: true,
 		configurable: true,
 	});
@@ -48,7 +48,7 @@ export function toDocument(ctx: CollectionContext, values: unknown): Fields {
 	// of `_id` and not a field: writing it back would be refused by the
 	// validator, which allows no property the schema does not declare.
 	// Parsing strips it too, but `validate: 'off'` does not parse.
-	if (!ctx.hasOwnId) delete stamped.id;
+	if (!ctx.hasOwnId) delete stamped['id'];
 	if (ctx.actor !== undefined) {
 		const { createdBy, updatedBy } = ctx.stamps;
 		if (createdBy) stamped[createdBy] = ctx.actor;
@@ -141,7 +141,7 @@ export function toUpdate(
 			? coerceFields(ctx.kinds, patch)
 			: { ...patch };
 	const set: Fields = {
-		...(isRecord(update.$set) ? update.$set : {}),
+		...(isRecord(update['$set']) ? update['$set'] : {}),
 		...(operators ? {} : setFromFields(ctx, patch)),
 	};
 
@@ -154,12 +154,12 @@ export function toUpdate(
 	if (ctx.actor !== undefined && updatedBy) {
 		set[updatedBy] = ctx.actor;
 	}
-	if (Object.keys(set).length > 0) update.$set = set;
+	if (Object.keys(set).length > 0) update['$set'] = set;
 
 	if (ctx.locks && version) {
-		const inc = isRecord(update.$inc) ? { ...update.$inc } : {};
+		const inc = isRecord(update['$inc']) ? { ...update['$inc'] } : {};
 		inc[version] = 1;
-		update.$inc = inc;
+		update['$inc'] = inc;
 	}
 	return { update, expectedVersion };
 }
