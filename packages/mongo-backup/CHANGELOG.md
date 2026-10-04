@@ -1,5 +1,11 @@
 # @nxgt/mongo-backup
 
+## 0.2.1
+
+### Patch Changes
+
+- [#164](https://github.com/softistx/nxgt-data/pull/164) [`f0ea6a0`](https://github.com/softistx/nxgt-data/commit/f0ea6a01446c4a2a436ee0f81e4a2fe76d0fc36d) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Docs: a new guide, "Running it in production". It covers where each key lives, a scheduled job (a full backup weekly, incrementals in between, a full one on `HISTORY_LOST`, verify, rotation), the oplog and snapshot windows, alerting, restore drills, and what to run the day you need a backup back. It ships with the runnable example `examples/mongo-backup-job`.
+
 ## 0.2.0
 
 ### Minor Changes
