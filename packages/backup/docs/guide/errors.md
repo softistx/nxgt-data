@@ -78,6 +78,8 @@ up the first time the code runs.
 | `defineBackup` | a name that could not be a path segment |
 | `bindBackup` | a definition not from `defineBackup`, no repository, two repositories with one name, no recipient or one age refuses, a relative `tmpDir`; a `signing.key` that is not an Ed25519 private key, a `trusted` list that is empty, holds a private key or a key that is not an Ed25519 public key, or leaves out `signing.key`'s public half — [signing](signing.md#checked-at-bind-time). These never quote the key and carry no `cause` |
 | `localRepository`, `directorySource`, `directoryTarget` | a relative `path` |
+| `s3Repository` | a `prefix` that is not a relative path of plain segments; a `partSize` under 5 MiB or not an integer. Neither quotes what was given |
+| an `s3Repository`'s `get`, `put`, `delete`, `list` | a key (or a `list` prefix, less its trailing `/`) that is not a relative path of plain segments — only when you call the repository yourself, since the package builds its keys |
 | `list`, `verify`, `restore` | a `from` that names no repository given to `bindBackup` |
 | `verify`, `restore` | an id that is not a backup id; no identity, or one age refuses |
 | `restore` | a target whose `write` resolved before its stream ended: nothing it was given was checked |
@@ -95,7 +97,11 @@ Errors this package did not raise come back as they are:
   errored with, and the backup gets no manifest;
 - from **your target** — `restore` rejects with it, and stops;
 - from **a repository's `get` or `list`** — `list`, `verify` and `restore`
-  reject with it. A failed `put` is caught, and lands in `outcomes`;
+  reject with it: for `s3Repository`, Bun's `S3Error`, such as
+  `AccessDenied`, or `s3 repository: a listing page was cut short with no way
+  to go on` when the store pages without a token. A failed `put` is caught, and lands in `outcomes` — for
+  `s3Repository`, an `S3Error` or `s3 repository: an object was not stored
+  whole` — [repositories](repositories.md#how-it-writes);
 - from **the file system**, for `tmpDir` — `ENOSPC` when there is no room
   for an object, `EACCES` when it cannot be written.
 

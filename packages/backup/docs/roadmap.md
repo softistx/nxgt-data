@@ -5,16 +5,14 @@ item shipped in is the only number on this page.
 
 ## Now
 
-- **Signed manifests** — an Ed25519 signature over each manifest, checked
-  against your `trusted` public keys by `list`, `verify` and `restore` before
-  anything else is read, so a backup proves it was written by you and not by
-  someone who can write to the repository — every manifest holds the public
-  age keys in the clear — [how to sign and check](guide/signing.md).
+- **An S3 repository** — backups kept in any S3-compatible object store,
+  beside or instead of a local folder, through your own Bun `S3Client`
+  (`s3Repository`): one PUT up to 64 MiB, so an object is visible whole or
+  not at all, parts above it, and the stored size read back after every
+  write before it counts as done — [repositories](guide/repositories.md).
 
 ## Next
 
-- **An S3 repository** — backups kept in any S3-compatible object store,
-  beside or instead of a local folder.
 - **A single-writer lock** — one `create`, rotation or clean-up at a time per
   backup and repository, so two jobs started together cannot step on each
   other.
@@ -60,6 +58,12 @@ item shipped in is the only number on this page.
 
 ## Shipped
 
+- **Signed manifests** — 0.2.0: an Ed25519 signature over each manifest,
+  checked against your `trusted` public keys by `list`, `verify` and
+  `restore` before anything else is read, so a backup proves it was written
+  by you and not by someone who can write to the repository — every manifest
+  holds the public age keys in the clear —
+  [how to sign and check](guide/signing.md).
 - **Full, encrypted, verifiable backups** — 0.1.0, the first release: a
   format in which each entry is compressed with zstd, then encrypted with age
   to one or more recipients, behind an encrypted catalog and a clear manifest

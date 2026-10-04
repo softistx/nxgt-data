@@ -71,7 +71,7 @@ rather than at the first backup.
 
 | Option | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `repositories` | `[Repository, ...Repository[]]` | required | where backups are kept. `create` writes to every one; the other calls read from the first unless given `from`. Names must differ — [repositories](repositories.md) |
+| `repositories` | `[Repository, ...Repository[]]` | required | where backups are kept: `localRepository`, `s3Repository`, or your own. `create` writes to every one; the other calls read from the first unless given `from`. Names must differ — [repositories](repositories.md) |
 | `recipients` | `[string, ...string[]]` | required | the age public keys every backup is encrypted to: `age1…` or `age1pq1…`. Each is checked here — [encryption](encryption.md) |
 | `tmpDir` | `string` | the system's temporary folder | an absolute path where each object is staged between the source and the repositories, and between a repository and a restore. One object at a time, removed as soon as it is done |
 | `signing` | `{ key: string }` | none | an Ed25519 private key, PEM (PKCS#8). `create` signs every manifest with it. Only where backups are made — [signing](signing.md) |
@@ -253,8 +253,9 @@ interface Restored {
 With `trusted` keys, `restore` first checks the manifest's signature, and
 refuses an unsigned or untrusted one with `SIGNATURE` before reading anything
 else — [signing](signing.md). Then, for each entry, in the backup's order, it
-copies its object to `tmpDir`, checks its size and SHA-256 against the
-manifest **before a byte of it is decrypted**, then streams it through age and zstd to the target,
+copies its object to `tmpDir` — stopping as soon as it runs past the size
+the manifest gives — checks its size and SHA-256 against the manifest
+**before a byte of it is decrypted**, then streams it through age and zstd to the target,
 checking the plain bytes against the catalog as they go. A damaged entry
 fails its stream at the end with `INTEGRITY`, so a target that waits for the
 end — `directoryTarget` does — lands nothing from it; then the restore
@@ -387,4 +388,4 @@ test('a backup comes back byte for byte', async () => {
 after `bun add -d age-encryption`, so your project names it.
 
 Next: [the format](format.md) of what landed, or
-[where else it can land](repositories.md).
+[where else it can land](repositories.md) — an S3 bucket among them.

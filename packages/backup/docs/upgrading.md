@@ -5,6 +5,44 @@ the next. Each minor is a `0.x` release, so each can ask for something; the
 [changelog](https://github.com/softistx/nxgt-data/blob/develop/packages/backup/CHANGELOG.md)
 has every change, and this page has only what you have to do.
 
+## 0.2 → 0.3
+
+Nothing breaks: 0.3.0 adds a repository and renames nothing, and a 0.2
+backup reads as before.
+
+### New: `s3Repository`
+
+`s3Repository` and its `S3RepositoryOptions` keep backups in an S3 bucket,
+AWS or compatible, through your own Bun `S3Client` — beside a local folder
+or instead of it. Adding one to a binding you already have is one line:
+
+```ts
+import { S3Client } from 'bun';
+import { bindBackup, defineBackup, localRepository, s3Repository } from '@nxgt/backup';
+
+const backups = bindBackup(defineBackup({ name: 'uploads' }), {
+	repositories: [
+		localRepository({ path: '/mnt/backups' }),
+		s3Repository({ client: new S3Client({ bucket: 'backups' }), prefix: 'nightly' }), // 0.3.0
+	],
+	recipients: [process.env.BACKUP_RECIPIENT as string],
+});
+```
+
+The backups already in the local folder stay there and read as before; the
+bucket holds the ones made from now on. Before the first large backup, give
+the bucket a lifecycle rule for abandoned multipart uploads —
+[repositories](guide/repositories.md#abandoned-uploads-add-a-lifecycle-rule).
+
+### An object is cut at its manifest's size
+
+`verify` and `restore` now stop reading an object as soon as it runs past
+the size its manifest gives, from any repository — yours included. Before,
+the whole of what a repository sent was staged in `tmpDir`, then refused.
+The error is the same, `INTEGRITY` with
+`an object differs from its manifest`; only the bytes read before it, and
+the room it takes in `tmpDir`, are smaller. Nothing to change.
+
 ## 0.1 → 0.2
 
 Nothing breaks for callers: 0.2.0 adds signed manifests — the `signing` and

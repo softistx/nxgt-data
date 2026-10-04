@@ -41,7 +41,7 @@
 	},
 	"scripts": {
 		"build": "bun run ../../build.ts",
-		"test": "bun test --timeout 30000 src",
+		"test": "bun run ../../scripts/seaweedfs.ts && bun test --timeout 30000 src",
 		"typecheck": "tsc --noEmit"
 	},
 	"nxgt": {

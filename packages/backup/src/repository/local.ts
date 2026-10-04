@@ -1,6 +1,7 @@
 import { copyFile, rename, rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 import { makeFolders, syncPath, walkFiles } from '../files/files';
+import { isKeyPath } from './keys';
 import type { Repository } from './types';
 
 export interface LocalRepositoryOptions {
@@ -13,23 +14,12 @@ export interface LocalRepositoryOptions {
 /** Marks a file being written: never listed, never read. */
 const PARTIAL = '.partial-';
 
-const SEGMENT = /^[A-Za-z0-9._-]+$/;
-
 /** A key's segments, refusing any key that would leave `root`. */
 function segmentsOf(key: string): string[] {
-	const segments = key.split('/');
-	if (
-		!segments.every(
-			(segment) =>
-				SEGMENT.test(segment) &&
-				segment !== '.' &&
-				segment !== '..' &&
-				!segment.includes(PARTIAL),
-		)
-	) {
+	if (!isKeyPath(key) || key.includes(PARTIAL)) {
 		throw new TypeError('local repository: a key is not a relative path');
 	}
-	return segments;
+	return key.split('/');
 }
 
 function fileOf(root: string, key: string): string {

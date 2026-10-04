@@ -10,6 +10,7 @@ import {
 import { rejection } from '../../test/rejection';
 import { defineBackup } from '../definition/define-backup';
 import { localRepository } from '../repository/local';
+import type { Repository } from '../repository/types';
 import type { BackupSource, RestoreTarget } from '../source/types';
 import { bindBackup } from './bind-backup';
 
@@ -82,5 +83,38 @@ describe('what a caller must give', () => {
 			'restore on "app": the target resolved write before reading its stream ' +
 				'to the end, so nothing it was given was checked',
 		);
+	});
+});
+
+describe('what a repository may send', () => {
+	test('an object longer than its manifest says is cut there, not staged whole', async () => {
+		const { id } = await bound().create(memorySource({ a: 'alpha' }));
+		const inner = localRepository({ path: join(root.path, 'repo') });
+		let pulled = 0;
+		const endless: Repository = {
+			...inner,
+			get: async (key) =>
+				key.endsWith('/0.age')
+					? new ReadableStream<Uint8Array>({
+							pull(controller) {
+								if (pulled >= 256 * 1024 * 1024) return controller.close();
+								pulled += 1024 * 1024;
+								controller.enqueue(new Uint8Array(1024 * 1024));
+							},
+						})
+					: inner.get(key),
+		};
+		const backups = bindBackup(defineBackup({ name: 'app' }), {
+			repositories: [endless],
+			recipients: [keys.recipient],
+			tmpDir: root.path,
+		});
+		const error = await rejection(backups.verify(id));
+		expect(error).toHaveProperty('code', 'INTEGRITY');
+		expect(error).toHaveProperty(
+			'message',
+			'verify on "app": an object differs from its manifest (repository "local")',
+		);
+		expect(pulled).toBeLessThanOrEqual(2 * 1024 * 1024);
 	});
 });
