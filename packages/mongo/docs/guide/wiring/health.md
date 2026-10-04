@@ -59,7 +59,7 @@ The ping carries no session and no actor.
 
 A database the Mongo opened from a `uri` is pinged through its connection, and
 reports the driver's own errors. A database the configuration gave a `client`
-is pinged too, through a copy with a timer of its own. The timer is there
+is pinged too, through the same `ping` raced against a timer of its own. The timer is there
 because of what was measured on mongodb 7.6.0: a client that was **never
 connected** makes its connect on the first command, and that connect waits
 `serverSelectionTimeoutMS` (30 s by default), not the command's `timeoutMS`.

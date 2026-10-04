@@ -1,34 +1,34 @@
 import type { Db } from 'mongodb';
-import type { PingResult } from '../connection/connect';
+import { type PingResult, ping } from '../connection/connect';
 import type { WiringContext } from './context';
 
 /**
  * `ping` on a database the configuration handed a `client`, which has no
- * `MongoConnection` and so no `ping` of its own. A copy of `@nxgt/mongo`'s
- * (`connection/connect.ts`), plus a timer.
+ * `MongoConnection` and so no `ping` of its own: the package's own `ping`
+ * (`connection/connect.ts`), raced against a timer.
  *
  * The timer is for this case alone. Measured on mongodb 7.6.0, `timeoutMS`
  * does not bound the connect a client that was never connected makes on its
  * first command: that waits `serverSelectionTimeoutMS` (30 s by default).
  * `connectMongo`'s clients are always connected, so a database the Mongo
- * opened keeps the original, and the driver's own `MongoOperationTimeoutError`
- * — a timer started with the same deadline would always fire first and hide
- * it, which is what the first version of this did.
+ * opened keeps the original alone, and the driver's own
+ * `MongoOperationTimeoutError` — a timer started with the same deadline would
+ * always fire first and hide it, which is what the first version of this did.
  */
 async function pingDb(db: Db, timeoutMS = 2_000): Promise<PingResult> {
-	const started = performance.now();
 	let timer: ReturnType<typeof setTimeout> | undefined;
-	const deadline = new Promise<never>((_, reject) => {
+	const deadline = new Promise<PingResult>((resolve) => {
 		timer = setTimeout(
-			() => reject(new Error(`ping: no answer in ${timeoutMS}ms`)),
+			() =>
+				resolve({
+					ok: false,
+					error: new Error(`ping: no answer in ${timeoutMS}ms`),
+				}),
 			timeoutMS,
 		);
 	});
 	try {
-		await Promise.race([db.command({ ping: 1 }, { timeoutMS }), deadline]);
-		return { ok: true, latencyMs: performance.now() - started };
-	} catch (error) {
-		return { ok: false, error };
+		return await Promise.race([ping(db, timeoutMS), deadline]);
 	} finally {
 		clearTimeout(timer);
 	}
