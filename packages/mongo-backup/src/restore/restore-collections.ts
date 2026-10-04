@@ -1,5 +1,5 @@
 import type { Db } from 'mongodb';
-import { MongoBackupError } from '../errors';
+import { MongoBackupError, renamed } from '../errors';
 import { describe } from '../source/catalog';
 import { mongoTarget } from '../target/mongo-target';
 import { type Chosen, landDocuments, landWhole } from './landing';
@@ -86,7 +86,10 @@ export function restoreCollections(
 	id: string,
 	options: RestoreCollectionsOptions,
 ): Promise<RestoredCollections> {
-	return restoreSome(backups, id, options, 'restoreCollections');
+	return renamed(
+		restoreSome(backups, id, options, 'restoreCollections'),
+		'restoreCollections',
+	);
 }
 
 /** `restoreCollections`, its messages naming the call `where` says. */

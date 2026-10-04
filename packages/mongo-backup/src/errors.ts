@@ -46,3 +46,20 @@ export function serverCode(error: unknown): number | undefined {
 	const value = (code as { valueOf?: () => unknown } | null)?.valueOf?.();
 	return typeof value === 'number' ? value : undefined;
 }
+
+const BEHIND = /^mongo(Source|Target): /;
+
+/**
+ * `p`, its `mongoSource:` and `mongoTarget:` refusals told as `where` — the
+ * call the consumer wrote — with the same class and code, the original as
+ * `cause`. Any other error passes as it is.
+ */
+export function renamed<T>(p: Promise<T>, where: string): Promise<T> {
+	return p.catch((error: unknown) => {
+		if (!(error instanceof Error) || !BEHIND.test(error.message)) throw error;
+		const message = error.message.replace(BEHIND, `${where}: `);
+		throw error instanceof MongoBackupError
+			? new MongoBackupError(message, error.code, { cause: error })
+			: new TypeError(message, { cause: error });
+	});
+}

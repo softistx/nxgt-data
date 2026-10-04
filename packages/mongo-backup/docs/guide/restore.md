@@ -337,10 +337,11 @@ collection is downloaded, decrypted, written to the scratch database and
 indexed, and every change applied, before one byte reaches `db`. Plan for
 the time, and for the room on the server, of a full restore.
 
-The rebuild is an ordinary `restore`: what it throws — a `BackupError`
-from `@nxgt/backup`, a `MongoBackupError` whose message starts with
-`mongoTarget:`, a driver error — passes through as it is
-([errors](errors.md)), and the scratch database is dropped all the same.
+The rebuild is an ordinary `restore`: a `BackupError` from `@nxgt/backup`
+or a driver error passes through as it is; a refusal of the `mongoTarget`
+behind it is told as `restoreCollections: …`, same class and code, the
+`mongoTarget:` original as its `cause` ([errors](errors.md)). The scratch
+database is dropped all the same.
 
 ### Its signature
 

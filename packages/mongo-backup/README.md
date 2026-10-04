@@ -363,7 +363,8 @@ lower-level functions throw them. `run`, `restore` and `drill` replace that
 prefix with `run on "shop":`, `restore on "shop":` or `drill on "shop":` —
 the backup's name — and keep the rest, the class and the `code`; a
 `mongoSource:` or `mongoTarget:` one keeps the original error as its
-`cause`:
+`cause` (and `restoreCollections`, called directly, renames the
+`mongoTarget:` ones of its scratch restore the same way):
 `restore on "shop": a collection or view the backup holds is already in the database; …`.
 
 | `code` | When | |
