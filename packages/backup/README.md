@@ -3,7 +3,7 @@
 Encrypted, verifiable backups on **Bun**. Each entry a source gives — a file,
 a database dump — is compressed with **zstd**, then encrypted with
 **[age](https://age-encryption.org)** to one or more public keys, and stored
-in one or several repositories at once:
+in one or several repositories at once — a local folder, an S3 bucket:
 
 - the backup host needs **only public keys**; the secret key is needed to
   restore, nowhere else;
@@ -42,8 +42,8 @@ await backups.restore(created.id, directoryTarget({ path: '/srv/restore' }), {
 });
 ```
 
-> **0.x.** Full backups, local repositories, checked restores and signed
-> manifests are here; an S3 repository and rotation are next — see the
+> **0.x.** Full backups, local and S3 repositories, checked restores and
+> signed manifests are here; rotation is next — see the
 > [roadmap](docs/roadmap.md).
 
 ## Install
@@ -221,6 +221,47 @@ Each object goes to every repository still in the run; one that fails is
 left out from then on, and the manifest goes only where everything landed —
 [repositories](docs/guide/repositories.md).
 
+## Keep backups in S3
+
+```ts
+import { S3Client } from 'bun';
+import {
+	bindBackup,
+	defineBackup,
+	directorySource,
+	localRepository,
+	s3Repository,
+} from '@nxgt/backup';
+
+// Your own client: the credentials stay with you.
+const client = new S3Client({
+	bucket: 'backups',
+	endpoint: process.env.S3_ENDPOINT as string, // leave it out for AWS
+	accessKeyId: process.env.S3_ACCESS_KEY_ID as string,
+	secretAccessKey: process.env.S3_SECRET_ACCESS_KEY as string,
+});
+
+const backups = bindBackup(defineBackup({ name: 'uploads' }), {
+	repositories: [
+		localRepository({ path: '/mnt/backups' }), // named 'local'
+		s3Repository({ client, prefix: 'nightly' }), // named 's3'
+	],
+	recipients: [process.env.BACKUP_RECIPIENT as string],
+});
+
+const { id, outcomes } = await backups.create(directorySource({ path: '/srv/uploads' }));
+// outcomes: [{ repository: 'local', stored: true }, { repository: 's3', stored: true }]
+await backups.verify(id, { from: 's3' });
+```
+
+Up to 64 MiB an object goes in one `PUT`, which S3 shows whole or not at
+all; a larger one is streamed from disk in parts of `partSize` (16 MiB by
+default, 5 MiB at least). Every write reads the stored size back before it
+counts, so a bucket that did not keep an object fails that repository's
+outcome at backup time. The writer needs `s3:PutObject`, `s3:GetObject`,
+`s3:ListBucket` and `s3:DeleteObject`; a reader, `s3:GetObject` and
+`s3:ListBucket` — [repositories](docs/guide/repositories.md#s3repository).
+
 ## Your own source, target or repository
 
 A source is a `kind` and an async iterable of `{ name, open }`:
@@ -255,6 +296,7 @@ const settings: BackupSource = {
 | `bindBackup(definition, { repositories, recipients, tmpDir?, signing?, trusted? })` | binds it to where it is kept, who can read it, and who signs it. No I/O; a list or a key that could never work is a bare `TypeError` |
 | `generateSigningKeys()` | a new Ed25519 key pair for `signing` and `trusted`: `{ privateKey, publicKey }`, PEM |
 | `localRepository({ path, name? })` | a repository in a local folder — a disk, a mounted volume, a share. `name` is `local` by default |
+| `s3Repository({ client, prefix?, name?, partSize? })` | a repository in an S3 bucket, AWS or compatible, through your own Bun `S3Client`. `name` is `s3` by default; `partSize` 16 MiB, 5 MiB at least. A `prefix` or `partSize` that could never work is a bare `TypeError` |
 | `directorySource({ path })` | every regular file under a folder, by relative path, sorted. Symbolic links and empty folders are skipped |
 | `directoryTarget({ path, overwrite? })` | writes each entry to a file under a folder. Refuses an unsafe name, and an existing file unless `overwrite: true` |
 
@@ -273,7 +315,7 @@ const settings: BackupSource = {
 | `SigningKeys` | what `generateSigningKeys` gives back |
 | `Created`, `Listing`, `BackupInfo`, `Verified`, `Restored` | what `create`, `list`, `verify` and `restore` resolve to |
 | `ListOptions`, `VerifyOptions`, `RestoreOptions` | their options |
-| `Repository`, `LocalRepositoryOptions` | where backups are kept, to write your own |
+| `Repository`, `LocalRepositoryOptions`, `S3RepositoryOptions` | where backups are kept, the shipped repositories' options, and the contract to write your own |
 | `BackupSource`, `SourceEntry`, `RestoreTarget` | what a backup reads from and a restore writes to |
 | `DirectoryOptions`, `DirectoryTargetOptions` | `directorySource`'s and `directoryTarget`'s options |
 | `BackupError`, `BackupErrorCode`, `BackupErrorOptions`, `RepositoryOutcome` | the error, its codes, and each repository's outcome |
@@ -297,7 +339,8 @@ source**.
 
 **Wiring is a bare `TypeError`**: a bad name, an empty repository list, two
 repositories with one name, a key age refuses, a signing or trusted key that
-is not an Ed25519 key of the right half, a relative path, an unknown `from`,
+is not an Ed25519 key of the right half, a relative path, an S3 `prefix` or
+`partSize` that could never work, an unknown `from`,
 a malformed id. None quotes a key. An error from your source, your target or
 a repository passes through as it is. Every message is in
 [troubleshooting](docs/troubleshooting.md); a handler is in
@@ -338,6 +381,14 @@ Each is a `@ts-expect-error` case in [`test/types/backup.ts`](https://github.com
 - **`tmpDir` needs room for the largest object**, compressed and encrypted,
   for `create`, `verify` and `restore` alike. `tmpDir: '/var/tmp'` when
   `/tmp` is a small tmpfs — [more](docs/troubleshooting.md#a-backup-or-a-restore-fails-for-lack-of-room).
+- **An S3 upload that is never completed leaves parts the bucket bills for**,
+  out of any listing; this package cannot see nor remove them. Give the
+  bucket a lifecycle rule:
+  `"AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }` —
+  [repositories](docs/guide/repositories.md#abandoned-uploads-add-a-lifecycle-rule).
+- **A repository's `name` is in every error message**: never a credential,
+  nor an endpoint URL that holds one. Keep `name: 's3'`, or call it
+  `name: 'offsite'` — [repositories](docs/guide/repositories.md#s3repository).
 - **A failed restore keeps what it already wrote**: entries before the
   damaged one stay. Restore into an empty folder, then move it into place —
   [restore](docs/guide/getting-started.md#restore).
@@ -360,7 +411,8 @@ Each is a `@ts-expect-error` case in [`test/types/backup.ts`](https://github.com
   `signing`, `trusted`, `generateSigningKeys`, `SIGNATURE`, changing the key,
   and checking a signature with `openssl`.
 - [docs/guide/repositories.md](docs/guide/repositories.md) —
-  `localRepository`, several repositories, and writing your own.
+  `localRepository`, `s3Repository` and the bucket it needs, several
+  repositories, and writing your own.
 - [docs/guide/sources-and-targets.md](docs/guide/sources-and-targets.md) —
   `directorySource`, `directoryTarget`, and writing your own.
 - [docs/guide/errors.md](docs/guide/errors.md) — `BackupError`, its codes

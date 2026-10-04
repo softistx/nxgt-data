@@ -13,9 +13,11 @@ export interface Repository {
 	 */
 	readonly name: string;
 	/**
-	 * Stores the local file at `file` under `key`, **whole or not at all**: a
-	 * key is never visible holding part of its bytes, and once this
-	 * resolves the bytes are as durable as the store makes them. Overwrites.
+	 * Stores the local file at `file` under `key`, **whole or not at all**
+	 * once it resolves: the bytes are all there, and as durable as the store
+	 * makes them. One that rejects may leave part of an object under `key`
+	 * for a moment — never a key a manifest names, since the manifest goes
+	 * last and only to a repository that took everything. Overwrites.
 	 */
 	put(key: string, file: string): Promise<void>;
 	/** The bytes under `key`, or `undefined` when there are none. */

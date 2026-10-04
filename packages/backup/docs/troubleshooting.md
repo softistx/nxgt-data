@@ -28,6 +28,8 @@ call instead — `verify on "app": …` or `restore on "app": …`.
   - [`bindBackup: trusted must list at least one public key`](#bindbackup-trusted-must-list-at-least-one-public-key)
   - [`bindBackup: trusted does not hold the public key of signing.key, so this backup could not read what it writes`](#bindbackup-trusted-does-not-hold-the-public-key-of-signingkey-so-this-backup-could-not-read-what-it-writes)
   - [`localRepository: path must be an absolute path`](#localrepository-path-must-be-an-absolute-path)
+  - [`s3Repository: prefix must be a relative path of plain segments`](#s3repository-prefix-must-be-a-relative-path-of-plain-segments)
+  - [`s3Repository: partSize must be 5 MiB at least`](#s3repository-partsize-must-be-5-mib-at-least)
   - [`directorySource: path must be an absolute path`](#directorysource-path-must-be-an-absolute-path)
   - [`directoryTarget: path must be an absolute path`](#directorytarget-path-must-be-an-absolute-path)
 - **Calling it**
@@ -46,6 +48,13 @@ call instead — `verify on "app": …` or `restore on "app": …`.
   - [`create on "app": stored in 0 of 1 repositories`](#create-on-app-stored-in-0-of-1-repositories)
   - [`create on "app": the manifest would be larger than 64 MiB; split the source into several backups`](#create-on-app-the-manifest-would-be-larger-than-64-mib-split-the-source-into-several-backups)
   - [`local repository: a key is not a relative path`](#local-repository-a-key-is-not-a-relative-path)
+  - [`s3 repository: a key is not a relative path`](#s3-repository-a-key-is-not-a-relative-path)
+  - [`s3 repository: an object was not stored whole`](#s3-repository-an-object-was-not-stored-whole)
+  - [`s3 repository: a listing page was cut short with no way to go on`](#s3-repository-a-listing-page-was-cut-short-with-no-way-to-go-on)
+  - [`NoSuchKey`, right after a put](#nosuchkey-right-after-a-put)
+  - [`AccessDenied`](#accessdenied)
+  - [`NoSuchBucket`](#nosuchbucket)
+  - [`ConnectionRefused`](#connectionrefused)
 - **Reading back**
   - [`verify on "app": no backup with that id (repository "local")`](#verify-on-app-no-backup-with-that-id-repository-local)
   - [`verify on "app": the manifest is larger than 64 MiB (repository "local")`](#verify-on-app-the-manifest-is-larger-than-64-mib-repository-local)
@@ -67,6 +76,7 @@ call instead — `verify on "app": …` or `restore on "app": …`.
   - [Every backup made before signing is in `unreadable`](#every-backup-made-before-signing-is-in-unreadable)
   - [A backup that failed left objects in the repository](#a-backup-that-failed-left-objects-in-the-repository)
   - [A backup or a restore fails for lack of room](#a-backup-or-a-restore-fails-for-lack-of-room)
+  - [The bucket bills for storage that `list` does not show](#the-bucket-bills-for-storage-that-list-does-not-show)
 
 ## Install and run
 
@@ -288,6 +298,39 @@ the order to do it in.
 import { resolve } from 'node:path';
 
 localRepository({ path: resolve('backups') });
+```
+
+### `s3Repository: prefix must be a relative path of plain segments`
+
+**When:** `s3Repository({ client, prefix })`, with a `prefix` that starts or
+ends with `/`, holds an empty, `.` or `..` segment — `/backups`, `backups/`,
+`a//b`, `../x` — or a character outside `A–Z a–z 0–9 . _ -` in a segment (a
+space, an accent). The prefix is not quoted.
+**Why:** the prefix is the folder every key goes under, joined with a `/` of
+its own; a key built from it must stay a plain relative path, as for a
+[key](#s3-repository-a-key-is-not-a-relative-path).
+**Fix:** segments only, without the slashes around them — or no `prefix`.
+
+```ts
+import { S3Client } from 'bun';
+import { s3Repository } from '@nxgt/backup';
+
+s3Repository({ client: new S3Client({ bucket: 'my-backups' }), prefix: 'nightly/eu' }); // not '/nightly/eu/'
+```
+
+### `s3Repository: partSize must be 5 MiB at least`
+
+**When:** `s3Repository({ client, partSize })`, with a `partSize` under
+5 MiB (5,242,880 bytes) or not a whole number — often a value given in MiB
+where bytes are meant.
+**Why:** an object over 64 MiB is uploaded in parts, and S3 refuses a part
+under 5 MiB except the last. The default is 16 MiB. S3 also takes at most
+10,000 parts, so `partSize` sets the largest object a repository can take:
+about 156 GiB at 16 MiB.
+**Fix:** a size in bytes.
+
+```ts
+s3Repository({ client, partSize: 64 * 1024 * 1024 }); // 64 MiB, for objects up to about 625 GiB
 ```
 
 ### `directorySource: path must be an absolute path`
@@ -545,6 +588,163 @@ holds it, or that would leave the folder, is refused.
 **Fix:** build keys as the [Repository contract](guide/repositories.md#writing-a-repository) does —
 relative, `/`-separated, each segment a plain name.
 
+### `s3 repository: a key is not a relative path`
+
+**When:** calling an `s3Repository`'s methods yourself with a key (or a
+`list` prefix, less its trailing `/`) that
+starts with `/`, holds an empty, `.` or `..` segment, or has a segment with a
+character outside `A–Z a–z 0–9 . _ -`. Thrown before the bucket is asked. A
+backup never builds such a key.
+**Why:** a key is joined to the `prefix` as it is; one that could climb out of
+it, or that S3 would store under a name no other repository could hold, is
+refused.
+**Fix:** as for `localRepository`, build keys as the
+[Repository contract](guide/repositories.md#writing-a-repository) does.
+
+```ts
+await repository.get('uploads/20261003T221500123Z-9f3a61c0/0.age'); // not '/uploads/…' nor 'uploads//…'
+```
+
+### `s3 repository: an object was not stored whole`
+
+**When:** `create`, inside an outcome: the create rejects with `PARTIAL`
+([stored in 1 of 2](#create-on-app-stored-in-1-of-2-repositories)), or
+`NOT_STORED` when that bucket was the only repository
+([stored in 0 of 1](#create-on-app-stored-in-0-of-1-repositories)).
+**Why:** every `put` reads the stored object's size back before it resolves,
+and the bucket holds a size other than the file's: the store, or something
+between it and you — a proxy, a gateway — kept a different body than the one
+sent. That repository is left out from then on, and gets no manifest, so the
+backup is not stored there.
+**Fix:** find what in front of the store alters a body, then run the next
+backup and verify it from that repository.
+
+```ts
+const { id } = await backups.create(source); // the next run, once the cause is found
+await backups.verify(id, { from: 's3' });
+```
+
+### `s3 repository: a listing page was cut short with no way to go on`
+
+**When:** `list` — or `verify` and `restore` reading through it — on an
+`s3Repository`, when the store answers a page of keys marked as truncated
+and gives no continuation token to ask for the next one.
+**Why:** stopping there would return a listing that looks whole and is
+not: backups missing from `list`, and later from rotation. The store, or a
+proxy in front of it, broke S3's paging contract.
+**Fix:** nothing in your code. Check the endpoint is an S3 API and not a
+cache or a gateway that rewrites listings, then retry; on a store that does
+this every time, report it to its maintainers.
+
+```ts
+// Ask the store for one key: a page marked truncated must carry a token.
+const page = await client.list({ maxKeys: 1 });
+if (page.isTruncated && !page.nextContinuationToken) {
+	console.error('this endpoint breaks S3 paging');
+}
+```
+
+### `NoSuchKey`, right after a put
+
+**When:** `create`, inside an outcome — `outcome.error.code` is `NoSuchKey` —
+for a write the client had reported as done. The create rejects with
+`PARTIAL` or `NOT_STORED`.
+**Why:** the store answered the upload, and holds nothing under that key: the
+read-back of the size found no object. It is caught there rather than on the
+day of a restore. Once, against a store that had just stopped, the upload's
+end resolved anyway.
+**Fix:** check that the store is up and that its disks and quota have room,
+then run the backup again and verify it from that repository.
+
+```ts
+import { BackupError } from '@nxgt/backup';
+
+try {
+	await backups.create(source);
+} catch (error) {
+	if (!(error instanceof BackupError)) throw error;
+	for (const outcome of error.outcomes) {
+		if (!outcome.stored) console.error(outcome.repository, (outcome.error as { code?: string }).code);
+	}
+}
+```
+
+These codes, and the three below, are Bun's: the error is an `S3Error`, with
+the store's code in `code`, passed on as it is. The message is the store's
+own, and varies with it.
+
+### `AccessDenied`
+
+**When:** `create`, inside an outcome; or `list`, `verify` or `restore` from
+that repository, as their rejection.
+**Why:** the credentials the `S3Client` was given lack a permission the call
+needs. A writer puts, reads back, lists and deletes (a failed large upload is
+deleted); a reader reads and lists.
+**Fix:** grant, on the bucket and the prefix:
+
+| Binding | Actions |
+| --- | --- |
+| a writer (`create`) | `s3:PutObject`, `s3:GetObject`, `s3:ListBucket`, `s3:DeleteObject` |
+| a reader (`list`, `verify`, `restore`) | `s3:GetObject`, `s3:ListBucket` |
+
+```json
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Effect": "Allow",
+			"Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+			"Resource": "arn:aws:s3:::my-backups/nightly/*"
+		},
+		{
+			"Effect": "Allow",
+			"Action": "s3:ListBucket",
+			"Resource": "arn:aws:s3:::my-backups",
+			"Condition": { "StringLike": { "s3:prefix": "nightly/*" } }
+		}
+	]
+}
+```
+
+`s3:ListBucket` applies to the bucket, not to its objects, hence the second
+statement.
+
+### `NoSuchBucket`
+
+**When:** the first call that reaches the store — usually `create`, inside
+every outcome for that repository.
+**Why:** the bucket the `S3Client` names does not exist at that endpoint: a
+misspelt name, an environment variable unset or meant for another
+environment, or a bucket created at another endpoint. This package never
+creates a bucket.
+**Fix:** create the bucket, and check what the client was given.
+
+```ts
+import { S3Client } from 'bun';
+
+const client = new S3Client({
+	bucket: process.env.S3_BUCKET as string,
+	endpoint: process.env.S3_ENDPOINT as string,
+	accessKeyId: process.env.S3_ACCESS_KEY_ID as string,
+	secretAccessKey: process.env.S3_SECRET_ACCESS_KEY as string,
+});
+```
+
+### `ConnectionRefused`
+
+**When:** any call to that repository, as soon as it is made — measured on
+Bun 1.4.2: an `S3Error` whose `code` is `ConnectionRefused`.
+**Why:** nothing listens at the client's endpoint: the store is down, the
+port or host is wrong, or a scheme (`http`/`https`) mismatch. With other
+repositories beside it, `create` stores the backup there and rejects with
+`PARTIAL`.
+**Fix:** check the endpoint the client was given, and that the store is up,
+before the job starts.
+
+```ts
+await client.list({ maxKeys: 1 }); // fails here, early, rather than inside an outcome
+```
+
 ## Reading back
 
 `list`, `verify` and `restore` read one repository: the first, or `from`.
@@ -685,7 +885,10 @@ identities: [currentIdentity, previousIdentity],
 object before decrypting a byte; the target got nothing from it.
 **Why:** an object's size or SHA-256 is not the one the manifest pins. Media
 damage, a copy cut short, a sync tool that rewrote it — or someone who
-replaced it, even with a valid age file written to your public key.
+replaced it, even with a valid age file written to your public key. A
+repository that sends **more** bytes than the manifest's size is cut at that
+size: the read stops there, and `tmpDir` never holds more than the object
+should. That holds for every repository — local, S3, or one of your own.
 **Fix:** restore from another repository, and find out what touched this
 one.
 
@@ -861,3 +1064,34 @@ object, compressed and encrypted.
 ```ts
 bindBackup(definition, { repositories, recipients, tmpDir: '/var/tmp' });
 ```
+
+### The bucket bills for storage that `list` does not show
+
+**When:** an `s3Repository` that took objects over 64 MiB, after a `create`
+that stopped partway through one — the process killed, the connection lost
+during a part.
+**Why:** an object over 64 MiB is uploaded in parts, and S3 keeps the parts
+of an upload that was never completed. They are no object: no listing shows
+them, `list` included, and the bucket still bills for them. Objects up to
+64 MiB go in one PUT and leave nothing behind.
+**Fix:** a lifecycle rule that aborts incomplete uploads after a day.
+
+```json
+{
+	"Rules": [
+		{
+			"ID": "abort-incomplete-multipart-uploads",
+			"Status": "Enabled",
+			"Filter": { "Prefix": "" },
+			"AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+		}
+	]
+}
+```
+
+```sh
+aws s3api put-bucket-lifecycle-configuration --bucket my-backups --lifecycle-configuration file://lifecycle.json
+aws s3api list-multipart-uploads --bucket my-backups # what is pending now
+```
+
+Most S3-compatible stores take the same rule; check that yours does.

@@ -20,6 +20,8 @@ export type {
 export { BackupError } from './errors/backup-error';
 export type { LocalRepositoryOptions } from './repository/local';
 export { localRepository } from './repository/local';
+export type { S3RepositoryOptions } from './repository/s3';
+export { s3Repository } from './repository/s3';
 export type { Repository } from './repository/types';
 export type {
 	DirectoryOptions,

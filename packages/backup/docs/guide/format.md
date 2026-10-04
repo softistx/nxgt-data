@@ -20,7 +20,10 @@ without a key and what is not, and how to open it without this package.
 ```
 
 A key is `<backup>/<id>/<object>`, `/`-separated, and a repository stores
-the bytes under it as they are. Several definitions share a repository
+the bytes under it as they are. In an `s3Repository` the same keys sit
+under its `prefix` — `nightly/uploads/<id>/manifest.json` with
+`prefix: 'nightly'` — and opening one by hand starts with your store's own
+tool (`aws s3 cp`, say) where a local folder needs none. Several definitions share a repository
 without meeting, since each lives under its own name.
 
 ## Objects

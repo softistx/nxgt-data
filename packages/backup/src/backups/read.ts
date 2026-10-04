@@ -1,5 +1,5 @@
 import type { Decrypter } from 'age-encryption';
-import { measure } from '../crypto/measure';
+import { expect } from '../crypto/measure';
 import { zstd } from '../crypto/seal';
 import { signedByAny } from '../crypto/signing';
 import { BackupError } from '../errors/backup-error';
@@ -128,12 +128,18 @@ export async function stage(
 ): Promise<void> {
 	const stream = await at.repository.get(keyOf(ctx, at.id, object.key));
 	if (!stream) throw failure(ctx, at, 'INTEGRITY', 'an object is missing');
-	const measured = measure();
-	await Bun.write(path, new Response(stream.pipeThrough(measured.stream)));
-	const { size, sha256 } = measured.result();
-	if (size !== object.size || sha256 !== object.sha256) {
-		throw failure(ctx, at, 'INTEGRITY', 'an object differs from its manifest');
-	}
+	// Cut as soon as it runs past the manifest's size: a repository is not
+	// trusted with how much it sends, nor `tmpDir` with holding it.
+	await Bun.write(
+		path,
+		new Response(
+			stream.pipeThrough(
+				expect(object, () =>
+					failure(ctx, at, 'INTEGRITY', 'an object differs from its manifest'),
+				),
+			),
+		),
+	);
 }
 
 /** age's decryption of a staged file, with its refusal told apart. */

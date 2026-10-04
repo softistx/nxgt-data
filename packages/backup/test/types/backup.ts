@@ -8,6 +8,7 @@ import {
 	directoryTarget,
 	generateSigningKeys,
 	localRepository,
+	s3Repository,
 } from '../../src/index';
 
 const app = defineBackup({ name: 'app' });
@@ -18,6 +19,10 @@ const target = directoryTarget({ path: '/srv/restore' });
 
 // @ts-expect-error — a repository needs its folder
 localRepository({});
+// @ts-expect-error — an S3 repository needs Bun's client
+s3Repository({});
+// @ts-expect-error — and not just any object
+s3Repository({ client: {} });
 // @ts-expect-error — a source needs its folder
 directorySource({});
 // @ts-expect-error — a target needs its folder
