@@ -4,6 +4,7 @@ Data access for TypeScript apps: the code written around every table, once.
 
 | Package | | |
 | --- | --- | --- |
+| [`@nxgt/backup`](packages/backup) | encrypted, verifiable backups on Bun: each entry compressed with zstd then encrypted with age, a manifest written last that pins every object, checked before a byte is decrypted, and several repositories at once | [npm](https://www.npmjs.com/package/@nxgt/backup) |
 | [`@nxgt/drizzle`](packages/drizzle) | typed repositories over Drizzle ORM tables, offset and cursor pagination, transactions, database errors you can `instanceof`, and the columns every table has. PostgreSQL first | [npm](https://www.npmjs.com/package/@nxgt/drizzle) |
 | [`@nxgt/drizzle-meilisearch`](packages/drizzle-meilisearch) | keeps a Meilisearch index in step with a PostgreSQL table: a transform typed by both sides, a full reindex that also takes out what the table no longer holds, and one call per write. No change feed, and none pretended | [npm](https://www.npmjs.com/package/@nxgt/drizzle-meilisearch) |
 | [`@nxgt/meilisearch`](packages/meilisearch) | a typed Meilisearch index on the official SDK: one definition for its uid, primary key and settings, settings synced idempotently, and documents and searches typed by it | [npm](https://www.npmjs.com/package/@nxgt/meilisearch) |
