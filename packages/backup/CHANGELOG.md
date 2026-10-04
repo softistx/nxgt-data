@@ -1,5 +1,11 @@
 # @nxgt/backup
 
+## 0.6.0
+
+### Minor Changes
+
+- [#156](https://github.com/softistx/nxgt-data/pull/156) [`9d7a5ba`](https://github.com/softistx/nxgt-data/commit/9d7a5baf1992c805bd410d5c031d34463c4b7bf4) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Incremental and differential backups: `create(source, { kind: 'incremental' | 'differential', identities })` builds on the newest backup (or the newest full one), stores only the entries that changed, and points to the rest where they are already stored — so `restore` and `verify` of any backup give its whole view, with no replay. A source can give each entry a `fingerprint` (the directory source gives size, times and inode) so an unchanged entry is not even read, and a `position` (a change stream's resume token) handed back as `since.position` to the next backup. A repository whose copy of the chain is not whole is left out; a base encrypted to other recipients is refused (make a full backup after changing recipients). The directory fingerprint is left out for a file changed within the last two seconds, so a coarse clock cannot hide a write. `Created`, `BackupInfo` and the manifest gain `kind` and `parent`; `Verified` gains `chain`. Prune keeps what a kept backup builds on, and now also the parent of a backup whose manifest it cannot read. **Upgrade every process that prunes before creating the first incremental**: a 0.5 prune cannot read an incremental manifest and would remove its base.
+
 ## 0.5.0
 
 ### Minor Changes
