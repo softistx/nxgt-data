@@ -1,5 +1,11 @@
 # @nxgt/backup
 
+## 0.3.0
+
+### Minor Changes
+
+- [#150](https://github.com/softistx/nxgt-data/pull/150) [`9dd96e7`](https://github.com/softistx/nxgt-data/commit/9dd96e757959d7cf3e61fa61ccec5b16b61dff06) Thanks [@SteveGT96](https://github.com/SteveGT96)! - An S3 repository: `s3Repository({ client, prefix, partSize })` keeps backups in any S3-compatible bucket through your own Bun `S3Client`, beside or instead of a local folder. Up to 64 MiB an object goes in one PUT, visible whole or not at all; a larger one is streamed from disk in parts. Every write reads the stored size back before it counts as done. Restores and verifies now stop reading an object as soon as it runs past the size its manifest gives, from any repository.
+
 ## 0.2.0
 
 ### Minor Changes
