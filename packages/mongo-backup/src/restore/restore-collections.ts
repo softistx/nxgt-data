@@ -12,11 +12,11 @@ import {
 } from './options';
 
 /** A scratch database given must hold nothing: it is dropped afterwards. */
-async function checkEmpty(scratch: Db): Promise<void> {
+async function checkEmpty(scratch: Db, where: string): Promise<void> {
 	const held = await scratch.listCollections({}, { nameOnly: true }).toArray();
 	if (held.some((info) => !info.name.startsWith('system.'))) {
 		throw new MongoBackupError(
-			'restoreCollections: the scratch database holds collections; give an empty one',
+			`${where}: the scratch database holds collections; give an empty one`,
 			'EXISTS',
 		);
 	}
@@ -29,13 +29,12 @@ async function checkEmpty(scratch: Db): Promise<void> {
 function checkAsKeys(
 	as: RestoreCollectionsOptions['as'],
 	described: readonly { name: string }[],
+	where: string,
 ): void {
 	if (as === undefined || typeof as === 'function') return;
 	const names = new Set(described.map((d) => d.name));
 	if (!Object.keys(as).every((key) => names.has(key))) {
-		throw new TypeError(
-			'restoreCollections: as names a collection not restored',
-		);
+		throw new TypeError(`${where}: as names a collection not restored`);
 	}
 }
 
@@ -43,6 +42,7 @@ function checkAsKeys(
 async function choose(
 	scratch: Db,
 	options: RestoreCollectionsOptions,
+	where: string,
 ): Promise<Chosen[]> {
 	const { collections } = options;
 	if (Array.isArray(collections)) {
@@ -54,7 +54,7 @@ async function choose(
 		);
 		if (!collections.every((name) => names.has(name))) {
 			throw new MongoBackupError(
-				'restoreCollections: a collection named in collections is not in the backup',
+				`${where}: a collection named in collections is not in the backup`,
 				'NOT_FOUND',
 			);
 		}
@@ -63,15 +63,13 @@ async function choose(
 	const described = ((await describe(scratch, collections)) ?? []).filter(
 		(d) => !options.documents || d.type !== 'view',
 	);
-	checkAsKeys(options.as, described);
+	checkAsKeys(options.as, described, where);
 	const chosen = described.map((d) => ({
 		described: d,
-		as: destinationOf(options.as, d.name),
+		as: destinationOf(options.as, d.name, where),
 	}));
 	if (new Set(chosen.map((c) => c.as)).size !== chosen.length) {
-		throw new TypeError(
-			'restoreCollections: as gives two collections one name',
-		);
+		throw new TypeError(`${where}: as gives two collections one name`);
 	}
 	return chosen;
 }
@@ -83,28 +81,38 @@ async function choose(
  * what is there. The backup is rebuilt in `scratch` first, then what was
  * asked for is taken from it, and `scratch` is dropped, failed or not.
  */
-export async function restoreCollections(
+export function restoreCollections(
 	backups: Restorer,
 	id: string,
 	options: RestoreCollectionsOptions,
 ): Promise<RestoredCollections> {
-	checkOptions(options);
+	return restoreSome(backups, id, options, 'restoreCollections');
+}
+
+/** `restoreCollections`, its messages naming the call `where` says. */
+export async function restoreSome(
+	backups: Restorer,
+	id: string,
+	options: RestoreCollectionsOptions,
+	where: string,
+): Promise<RestoredCollections> {
+	checkOptions(options, where);
 	const { db } = options;
 	const scratch =
 		options.scratch ?? db.client.db(`nxgt-restore-${crypto.randomUUID()}`);
-	if (options.scratch) await checkEmpty(scratch);
+	if (options.scratch) await checkEmpty(scratch, where);
 	try {
 		const restored = await backups.restore(
 			id,
 			mongoTarget({ db: scratch, tmpDir: options.tmpDir }),
 			{ identities: options.identities, from: options.from },
 		);
-		const chosen = await choose(scratch, options);
+		const chosen = await choose(scratch, options, where);
 		let counts: Map<string, number> | undefined;
 		if (options.documents) {
 			counts = await landDocuments(scratch, db, chosen, options.documents);
 		} else {
-			await landWhole(scratch, db, chosen, options.replace === true);
+			await landWhole(scratch, db, chosen, options.replace === true, where);
 		}
 		return {
 			...restored,

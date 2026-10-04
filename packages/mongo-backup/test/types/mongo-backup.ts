@@ -5,6 +5,7 @@ import type { Db } from 'mongodb';
 import {
 	MongoBackupError,
 	type MongoBackupErrorCode,
+	mongoBackups,
 	mongoSource,
 	mongoTarget,
 	type Restorer,
@@ -61,3 +62,25 @@ restoreCollections(restorer, 'id', {
 	documents: { filter: {}, existing: 'merge' },
 });
 restoreCollections(restorer, 'id', { identities: [], db, replace: true });
+
+// mongoBackups: a database, a repository and a key file, each required; replace and documents are refused together.
+const backups = mongoBackups({ db: db, repository: '/backups', keyFile: '/k' });
+// @ts-expect-error the key file is required
+mongoBackups({ db: db, repository: '/backups' });
+// @ts-expect-error at least one repository
+mongoBackups({ db: db, repository: [], keyFile: '/k' });
+// @ts-expect-error keep is a policy, or false
+mongoBackups({ db: db, repository: '/backups', keyFile: '/k', keep: true });
+void backups.restore({
+	into: db,
+	// @ts-expect-error replace has no meaning with documents: the pair is refused
+	documents: { filter: {}, existing: 'keep' },
+	replace: true,
+});
+// @ts-expect-error existing is required
+void backups.restore({ into: db, documents: { filter: {} } });
+void backups.restore({ into: db, at: new Date(), replace: true });
+// @ts-expect-error restore needs the database it restores into
+void backups.restore({});
+// @ts-expect-error now is a Date, never a string
+void backups.run('2026-10-04');

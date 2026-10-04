@@ -36,6 +36,12 @@ version an item shipped in is the only number on this page.
 
 ## Shipped
 
+- **Backups with the decisions made** — 0.3.0: `mongoBackups` takes a
+  database, a repository and one key file (`nxgt-mongo-backup keygen`), and
+  gives `run` — a full backup a week, incrementals in between, a full one
+  at once when the oplog no longer reaches the last, each read back with
+  the key, then the rotation — `restore` of the newest backup or the one at
+  a time, whole or part of it, and `drill`.
 - **Granular restore** — 0.2.0: `restoreCollections` restores some
   collections and views of a backup, chain included, under their own names
   or others, into the same database or another; each whole, or only the

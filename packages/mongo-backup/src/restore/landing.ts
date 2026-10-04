@@ -13,9 +13,9 @@ export interface Chosen {
 	as: string;
 }
 
-export function taken(): MongoBackupError {
+export function taken(where: string): MongoBackupError {
 	return new MongoBackupError(
-		'restoreCollections: a collection or view to restore is already in the ' +
+		`${where}: a collection or view to restore is already in the ` +
 			'database; restore it under another name, or pass replace: true',
 		'EXISTS',
 	);
@@ -33,9 +33,10 @@ export async function landWhole(
 	db: Db,
 	chosen: readonly Chosen[],
 	replace: boolean,
+	where: string,
 ): Promise<void> {
 	if (!replace) {
-		for (const { as } of chosen) if (await exists(db, as)) throw taken();
+		for (const { as } of chosen) if (await exists(db, as)) throw taken(where);
 	}
 	const renamed = new Map(chosen.map((c) => [c.described.name, c.as]));
 	const admin = db.client.db('admin');
@@ -50,7 +51,7 @@ export async function landWhole(
 				dropTarget: replace,
 			})
 			.catch((error: unknown) => {
-				throw serverCode(error) === NAMESPACE_EXISTS ? taken() : error;
+				throw serverCode(error) === NAMESPACE_EXISTS ? taken(where) : error;
 			});
 	}
 	for (const { described, as } of chosen) {
@@ -63,7 +64,7 @@ export async function landWhole(
 				viewOn: renamed.get(viewOn as string) ?? viewOn,
 			})
 			.catch((error: unknown) => {
-				throw serverCode(error) === NAMESPACE_EXISTS ? taken() : error;
+				throw serverCode(error) === NAMESPACE_EXISTS ? taken(where) : error;
 			});
 	}
 }

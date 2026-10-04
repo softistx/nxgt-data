@@ -4,6 +4,11 @@ This page covers backups that store only what changed since an earlier
 one: what the change stream records, where it starts and stops, what it
 refuses, and how to schedule them.
 
+`mongoBackups(…).run()` makes incrementals for you, and a full backup when
+one is due or the oplog has moved on —
+[getting started](getting-started.md#run). This page is what happens inside
+each one, and how to make them by hand.
+
 ```ts
 import { bindBackup, defineBackup, localRepository } from '@nxgt/backup';
 import { mongoSource, mongoTarget } from '@nxgt/mongo-backup';

@@ -2,9 +2,12 @@
 
 This package throws one error of its own, `MongoBackupError`, told apart by
 its `code`: `SNAPSHOT_TOO_OLD`, `CHANGING`, `HISTORY_LOST`, `UNSUPPORTED`,
-`EXISTS`, `MALFORMED` or `NOT_FOUND`. A refusal of the way `mongoSource`,
-`mongoTarget` or `restoreCollections` was called is a plain `TypeError`. Errors from the driver or the server come back as
+`EXISTS`, `MALFORMED`, `NOT_FOUND` or `KEY_FILE`. A refusal of the way
+`mongoBackups`, `mongoSource`, `mongoTarget` or `restoreCollections` was
+called is a plain `TypeError`. Errors from the driver or the server come back as
 they are; when one is the cause of a `MongoBackupError`, it is its `cause`.
+A key file that is not there is a `KEY_FILE` too, the file system's
+`ENOENT` as its `cause`.
 
 **No message of `MongoBackupError` or of those `TypeError`s quotes a value,
 a document or a collection name**: a backup error ends up in logs. A driver
@@ -31,10 +34,34 @@ use `app` for the definition's name and `local` for the repository's.
 - **Install and run**
   - [`ReferenceError: Bun is not defined`](#referenceerror-bun-is-not-defined)
 - **Configuration**
+  - [`mongoBackups: db must be a MongoDB Db`](#mongobackups-db-must-be-a-mongodb-db)
+  - [`mongoBackups: keyFile must be an absolute path`](#mongobackups-keyfile-must-be-an-absolute-path)
+  - [`mongoBackups: repository must be an absolute folder, or repositories`](#mongobackups-repository-must-be-an-absolute-folder-or-repositories)
+  - [`mongoBackups: keep must be false, or name rules each a whole number, 1 or more`](#mongobackups-keep-must-be-false-or-name-rules-each-a-whole-number-1-or-more)
+  - [`mongoBackups: fullEvery must be a whole number of milliseconds, an hour or more`](#mongobackups-fullevery-must-be-a-whole-number-of-milliseconds-an-hour-or-more)
+  - [`mongoBackups: the database's name cannot name a backup; give name: 1 to 100 characters, lowercase letters, digits, ".", "_" and "-", starting with a letter or a digit, without ".partial-"`](#mongobackups-the-databases-name-cannot-name-a-backup-give-name-1-to-100-characters-lowercase-letters-digits--_-and---starting-with-a-letter-or-a-digit-without-partial-)
+  - [`mongoBackups: name must be 1 to 100 characters, lowercase letters, digits, ".", "_" and "-", starting with a letter or a digit, without ".partial-"`](#mongobackups-name-must-be-1-to-100-characters-lowercase-letters-digits--_-and---starting-with-a-letter-or-a-digit-without-partial-)
+  - [`mongoBackups: repository must list repositories, each under a name of its own`](#mongobackups-repository-must-list-repositories-each-under-a-name-of-its-own)
+  - [`mongoBackups: tmpDir must be an absolute path`](#mongobackups-tmpdir-must-be-an-absolute-path)
+  - [`run on "app": now must be a valid Date`](#run-on-app-now-must-be-a-valid-date)
   - [`mongoSource: db must be a MongoDB Db`](#mongosource-db-must-be-a-mongodb-db)
   - [`mongoSource: collections must be a list of names or a function`](#mongosource-collections-must-be-a-list-of-names-or-a-function)
   - [`mongoTarget: db must be a MongoDB Db`](#mongotarget-db-must-be-a-mongodb-db)
   - [`mongoTarget: tmpDir must be an absolute path`](#mongotarget-tmpdir-must-be-an-absolute-path)
+- **The key file**
+  - [`usage: nxgt-mongo-backup keygen <path>`](#usage-nxgt-mongo-backup-keygen-path)
+  - [`<path> is already there: it is never overwritten`](#path-is-already-there-it-is-never-overwritten)
+  - [`keygen failed: <message>`](#keygen-failed-message)
+  - [`mongoBackups on "app": there is no key file there; write one with nxgt-mongo-backup keygen`](#mongobackups-on-app-there-is-no-key-file-there-write-one-with-nxgt-mongo-backup-keygen)
+  - [`mongoBackups on "app": others than its owner can read or write the key file; chmod 600 it`](#mongobackups-on-app-others-than-its-owner-can-read-or-write-the-key-file-chmod-600-it)
+  - [`mongoBackups on "app": the key file is not one keygen wrote`](#mongobackups-on-app-the-key-file-is-not-one-keygen-wrote)
+- **Choosing the backup to restore**
+  - [`restore on "app": the repository holds no backup yet`](#restore-on-app-the-repository-holds-no-backup-yet)
+  - [`drill on "app": the repository holds no backup yet`](#drill-on-app-the-repository-holds-no-backup-yet)
+  - [`restore on "app": no backup was made at or before that time`](#restore-on-app-no-backup-was-made-at-or-before-that-time)
+  - [`restore on "app": into must be a MongoDB Db`](#restore-on-app-into-must-be-a-mongodb-db)
+  - [`restore on "app": at must be a backup's id or a valid Date`](#restore-on-app-at-must-be-a-backups-id-or-a-valid-date)
+  - [`restore on "app": replace is for whole collections; documents says what happens to those there`](#restore-on-app-replace-is-for-whole-collections-documents-says-what-happens-to-those-there)
 - **Full backups**
   - [`mongoSource: the server gave no snapshot time; a backup needs a replica set or a sharded cluster`](#mongosource-the-server-gave-no-snapshot-time-a-backup-needs-a-replica-set-or-a-sharded-cluster)
   - [`mongoSource: a collection named in collections is not in the database`](#mongosource-a-collection-named-in-collections-is-not-in-the-database)
@@ -73,6 +100,17 @@ use `app` for the definition's name and `local` for the repository's.
   - [`restoreCollections: as names a collection not restored`](#restorecollections-as-names-a-collection-not-restored)
   - [`restoreCollections: a collection or view to restore is already in the database; restore it under another name, or pass replace: true`](#restorecollections-a-collection-or-view-to-restore-is-already-in-the-database-restore-it-under-another-name-or-pass-replace-true)
 
+**Through `mongoBackups`, the prefix names the call.** Every
+`mongoSource:`, `mongoTarget:` and `restoreCollections:` message below is
+quoted as the function throws it when you call it directly. `run`,
+`restore` and `drill` replace that prefix with `run on "<name>":`,
+`restore on "<name>":` or `drill on "<name>":`, `<name>` being the
+backup's name — `restore on "shop": a collection or view the backup holds
+is already in the database; …` for the `mongoTarget:` one. The class and
+the `code` are the same; a `mongoSource:` or `mongoTarget:` one keeps the
+original as its `cause`, a `restoreCollections:` one is thrown under the
+call's prefix directly and has none. Search for the part after the colon.
+
 ## Install and run
 
 ### `ReferenceError: Bun is not defined`
@@ -89,8 +127,188 @@ bun run backup.ts
 
 ## Configuration
 
-These are thrown by `mongoSource(…)` or `mongoTarget(…)` themselves, where
-the backup is wired: nothing was read or written.
+These are thrown by `mongoBackups(…)`, `mongoSource(…)` or `mongoTarget(…)`
+themselves, where the backup is wired — or, for `now`, by `run` before it
+starts: nothing was read or written, and `mongoBackups` has not read the
+key file yet.
+
+### `mongoBackups: db must be a MongoDB Db`
+
+**Code:** none — a `TypeError`, thrown by `mongoBackups(…)` itself.
+**When:** `mongoBackups({ db, … })` with something that is not a driver
+`Db` — a `MongoClient`, a database name, or a Mongoose connection's `db`
+read before it connected.
+**Why:** the backups are of one database: its name is the backup's name by
+default, and `drill` restores into a database on its client.
+**Fix:** give the database, not the client.
+
+```ts
+import { MongoClient } from 'mongodb';
+import { mongoBackups } from '@nxgt/mongo-backup';
+
+const client = await MongoClient.connect(process.env.MONGO_URL!);
+const backups = mongoBackups({
+	db: client.db('shop'),
+	repository: '/var/backups/shop',
+	keyFile: '/etc/backup/shop.key',
+});
+```
+
+### `mongoBackups: keyFile must be an absolute path`
+
+**Code:** none — a `TypeError`, thrown by `mongoBackups(…)` itself.
+**When:** `mongoBackups({ keyFile })` with a relative path, or with
+something that is not a string — most often an environment variable that is
+not set, read as `undefined`.
+**Why:** a relative path would depend on the folder the job was started
+from, and a backup job is started from wherever its scheduler likes.
+**Fix:** an absolute path; check the variable before the call.
+
+```ts
+const keyFile = process.env.BACKUP_KEY_FILE;
+if (!keyFile) throw new Error('BACKUP_KEY_FILE is not set');
+const backups = mongoBackups({ db, repository: '/var/backups/shop', keyFile });
+```
+
+### `mongoBackups: repository must be an absolute folder, or repositories`
+
+**Code:** none — a `TypeError`, thrown by `mongoBackups(…)` itself.
+**When:** `mongoBackups({ repository })` with a relative folder, such as
+`'backups'` or `'./backups'`.
+**Why:** a string is a local folder, and as for `keyFile`, a relative one
+would move with the folder the job was started from.
+**Fix:** an absolute folder — or one or more repositories of
+`@nxgt/backup`, such as `localRepository` or `s3Repository`.
+
+```ts
+import { join } from 'node:path';
+import { localRepository } from '@nxgt/backup';
+
+mongoBackups({ db, keyFile, repository: join(import.meta.dir, 'backups') });
+mongoBackups({ db, keyFile, repository: [localRepository({ path: '/var/backups/shop' })] });
+```
+
+### `mongoBackups: keep must be false, or name rules each a whole number, 1 or more`
+
+**Code:** none — a `TypeError`, thrown by `mongoBackups(…)` itself, before
+any backup is stored.
+**When:** `mongoBackups({ keep })` with an empty policy (`{}`), a rule with
+`0`, a fraction or a string, or something that is not a policy at all.
+**Why:** `keep` is what `run` keeps after each backup: `@nxgt/backup`'s
+`KeepPolicy` — `last`, `hourly`, `daily`, `weekly`, `monthly`, `yearly`,
+`within`, `maxTotalSize` — each a whole number of 1 or more. A policy that
+names no rule would keep nothing, so it is refused here rather than by
+`prune` after every backup.
+**Fix:** name at least one rule, leave `keep` out for `DEFAULT_KEEP`, or
+pass `false` to keep everything.
+
+```ts
+mongoBackups({ db, repository, keyFile, keep: { daily: 14, weekly: 8 } });
+mongoBackups({ db, repository, keyFile, keep: false });
+```
+
+### `mongoBackups: fullEvery must be a whole number of milliseconds, an hour or more`
+
+**Code:** none — a `TypeError`, thrown by `mongoBackups(…)` itself.
+**When:** `mongoBackups({ fullEvery })` with a number of days or hours
+rather than milliseconds, a fraction, or less than an hour.
+**Why:** `fullEvery` is how old the newest full backup may grow before
+`run` makes another, in milliseconds — a week by default,
+`DEFAULT_FULL_EVERY`. Under an hour, every run would be a full backup.
+**Fix:**
+
+```ts
+const DAY = 24 * 60 * 60 * 1000;
+mongoBackups({ db, repository, keyFile, fullEvery: 3 * DAY });
+```
+
+### `mongoBackups: the database's name cannot name a backup; give name: 1 to 100 characters, lowercase letters, digits, ".", "_" and "-", starting with a letter or a digit, without ".partial-"`
+
+**Code:** none — a `TypeError`, thrown by `mongoBackups(…)` itself; its
+`cause` is `@nxgt/backup`'s `defineBackup` `TypeError`.
+**When:** `mongoBackups({ db })` without `name`, on a database whose name is
+not a backup name: `client.db('MyShop')`, `client.db('shop_EU')`, a name
+over 100 characters.
+**Why:** the backup is named after the database by default, and a backup
+name becomes a folder and a key prefix in every repository: lowercase
+letters, digits, `.`, `_` and `-` only.
+**Fix:** give the backup a name of its own — and keep it: a new name starts
+a new chain, and the old backups stay under the old one.
+
+```ts
+mongoBackups({ db: client.db('MyShop'), name: 'myshop', repository, keyFile });
+```
+
+### `mongoBackups: name must be 1 to 100 characters, lowercase letters, digits, ".", "_" and "-", starting with a letter or a digit, without ".partial-"`
+
+**Code:** none — a `TypeError`, thrown by `mongoBackups(…)` itself; its
+`cause` is `@nxgt/backup`'s `defineBackup` `TypeError`.
+**When:** `mongoBackups({ name })` with capitals, spaces, `/`, an empty
+string, or more than 100 characters.
+**Why:** as for [the database's name](#mongobackups-the-databases-name-cannot-name-a-backup-give-name-1-to-100-characters-lowercase-letters-digits--_-and---starting-with-a-letter-or-a-digit-without-partial-):
+the name becomes a folder and a key prefix.
+**Fix:**
+
+```ts
+mongoBackups({ db, name: 'shop-eu', repository, keyFile });
+```
+
+### `mongoBackups: repository must list repositories, each under a name of its own`
+
+**Code:** none — a `TypeError`, thrown by `mongoBackups(…)` itself.
+**When:** `mongoBackups({ repository: [] })`, or a list holding two
+repositories with the same `name` — two `s3Repository`s left at their
+default name `s3`, say.
+**Why:** every backup is written to each repository, and each one's outcome
+is reported under its name; two under one name could not be told apart.
+**Fix:** name each one.
+
+```ts
+import { s3Repository } from '@nxgt/backup';
+import { S3Client } from 'bun';
+
+mongoBackups({
+	db,
+	keyFile,
+	repository: [
+		s3Repository({ client: new S3Client({ bucket: 'backups-eu' }), name: 's3-eu' }),
+		s3Repository({ client: new S3Client({ bucket: 'backups-us' }), name: 's3-us' }),
+	],
+});
+```
+
+### `mongoBackups: tmpDir must be an absolute path`
+
+**Code:** none — a `TypeError`, thrown by `mongoBackups(…)` itself.
+**When:** `mongoBackups({ tmpDir })` with a relative path.
+**Why:** objects and changes are staged there; a relative path would
+depend on the folder the job was started from.
+**Fix:** an absolute path, or leave it out for the system's temporary
+folder.
+
+```ts
+mongoBackups({ db, repository, keyFile, tmpDir: '/var/tmp' });
+```
+
+### `run on "app": now must be a valid Date`
+
+**Code:** none — a `TypeError`; `run` rejects with it before reading
+anything, the key file included. `app` is the backup's name.
+**When:** `run(now)` with something that is not a `Date`, or an invalid
+one — `new Date('tomorrow')`, a date parsed from an empty variable.
+**Why:** `now` decides whether a full or an incremental backup is due;
+with no time, it could decide neither. It decides nothing else: the
+backup and the rotation go by the machine's clock, since a later `now`
+given to the rotation would remove the backup just made.
+**Fix:** leave it out on a schedule; pass a valid `Date` in a spec, or to
+force a full backup.
+
+```ts
+import { DEFAULT_FULL_EVERY } from '@nxgt/mongo-backup';
+
+await backups.run(); // the machine's time
+await backups.run(new Date(Date.now() + DEFAULT_FULL_EVERY)); // a full backup now
+```
 
 ### `mongoSource: db must be a MongoDB Db`
 
@@ -152,6 +370,232 @@ entry — or leave `tmpDir` out for the system's temporary folder.
 import { join } from 'node:path';
 
 mongoTarget({ db, tmpDir: join(import.meta.dir, 'tmp') });
+```
+
+## The key file
+
+`mongoBackups` reads every key it needs from one file, written by
+`nxgt-mongo-backup keygen`. It reads it at the first call that needs it —
+`run`, `restore`, `drill`, `list` or `binding` — and not in
+`mongoBackups(…)` itself. A read that failed is tried again at the next
+call, so a file put right needs no restart.
+
+### `usage: nxgt-mongo-backup keygen <path>`
+
+**Exit code:** 2; nothing was written.
+**When:** `nxgt-mongo-backup` run without a command, with a command other
+than `keygen`, or with `keygen` and no path.
+**Why:** the bin has one command, and it takes the path of the file to
+write.
+**Fix:**
+
+```sh
+bunx nxgt-mongo-backup keygen /etc/backup/shop.key
+```
+
+A relative path is taken from the current folder. The command prints the
+path, and the recipient — the public half; never a secret.
+
+### `<path> is already there: it is never overwritten`
+
+**Exit code:** 1; the file there is untouched.
+**When:** `nxgt-mongo-backup keygen <path>` on a path that already holds a
+file — a second run of a setup script, say.
+**Why:** every backup is encrypted to the key in that file and signed with
+it; writing a new one over it would make every backup made with it
+unreadable.
+**Fix:** keep the file there — it is the one the job reads — or write the
+new one to another path.
+
+```sh
+bunx nxgt-mongo-backup keygen /etc/backup/shop-2.key
+```
+
+Retire an old key file only once no backup made with it is kept, and keep
+its copy away from the backups until then.
+
+### `keygen failed: <message>`
+
+**Exit code:** 1.
+**When:** `nxgt-mongo-backup keygen <path>` could not write the file for
+any reason other than one already there: a folder that does not exist, one
+you cannot write to, a full disk. `<message>` is the system's, such as
+`ENOENT: no such file or directory, open '/etc/backup/shop.key'`.
+**Why:** the file and its folder are written and synced before the command
+says it is done; a write that fails halfway removes the file it created,
+so nothing half-written is left at the path.
+**Fix:** make the folder, or run as a user who can write to it, and run the
+same command again — it is not refused as already there.
+
+```sh
+mkdir -p /etc/backup && bunx nxgt-mongo-backup keygen /etc/backup/shop.key
+```
+
+### `mongoBackups on "app": there is no key file there; write one with nxgt-mongo-backup keygen`
+
+**Code:** `KEY_FILE`; the file system's `ENOENT` is its `cause`, and it
+names the path, never a key. Called directly, `readKeyFile` says
+`readKeyFile: there is no key file there; …`. Any other failure to open
+the file — `EACCES`, `ENOTDIR` — is the system's error, as it is.
+**When:** the first `run`, `restore`, `drill`, `list` or `binding` of a
+`mongoBackups` whose `keyFile` is not there: a typo, a secret not mounted
+yet, a file written on another machine.
+**Why:** `mongoBackups(…)` only checks that the path is absolute; the file
+is read when a key is first needed. The failed read is not kept: the next
+call reads the file again.
+**Fix:** write it there once, or point `keyFile` at the one you have.
+
+```sh
+bunx nxgt-mongo-backup keygen /etc/backup/shop.key
+```
+
+If backups were already made, do not write a new file in place of a lost
+one — it cannot read them. Put back the copy kept away from the backups.
+
+### `mongoBackups on "app": others than its owner can read or write the key file; chmod 600 it`
+
+**Code:** `KEY_FILE`. Called directly, `readKeyFile` says
+`readKeyFile: others than its owner can read or write the key file; …`.
+**When:** the first call that reads the key file, when its mode gives
+anything to its group or to others — reading, or writing: a copy made under a loose `umask`, a
+file put there by a deployment tool, a mounted secret with its default
+mode.
+**Why:** the file holds the key that decrypts every backup and the one that
+signs them, so — as `ssh` does with a private key — it is refused rather
+than used while others can read it, or write a key of their own into
+it. `keygen` writes it with mode `600`.
+**Fix:**
+
+```sh
+chmod 600 /etc/backup/shop.key
+```
+
+For a mounted secret, give it mode `0400` or `0600` where it is mounted.
+
+### `mongoBackups on "app": the key file is not one keygen wrote`
+
+**Code:** `KEY_FILE`, without a `cause`: the parsers' own errors quote the
+key. Called directly, `readKeyFile` says
+`readKeyFile: the key file is not one keygen wrote`.
+**When:** the first call that reads the key file, when it holds no age
+identity (`AGE-SECRET-KEY-1…`) or no Ed25519 private key in PEM
+(`-----BEGIN PRIVATE KEY-----`), or one that does not parse: the wrong
+file, an `age-keygen` identity alone, a public key, a file cut short, an
+identity with a character changed (its checksum fails), an RSA or other
+private key where the Ed25519 one should be — or one whose line
+endings became `\r\n` on its way through an editor or a secret store.
+**Why:** one file gives both keys: the identity backups are encrypted to and
+read with, and the key their manifests are signed with.
+**Fix:** use the file `keygen` wrote, as it wrote it — or, before any backup
+was made, write a new one.
+
+```sh
+bunx nxgt-mongo-backup keygen /etc/backup/shop.key
+```
+
+## Choosing the backup to restore
+
+`mongoBackups`' `restore` takes the backup `at` names — an id as it is, a
+time as the newest backup made at or before it, nothing as the newest of
+all — and `drill` takes the newest.
+
+### `restore on "app": the repository holds no backup yet`
+
+**Code:** `NOT_FOUND`; nothing was read from the repository but its list.
+`app` is the backup's name: `name`, or the database's name by default.
+**When:** `restore` without `at` before the first `run` — or
+on a repository other than the one the job writes to, or under another
+`name`: the backup's name is the database's by default.
+**Why:** with no `at`, the newest backup is restored, and there is none.
+**Fix:** make one first — or check that `repository` and `name` are the
+job's.
+
+```ts
+await backups.run();
+await backups.restore({ into: client.db('shop-restored') });
+```
+
+### `drill on "app": the repository holds no backup yet`
+
+**Code:** `NOT_FOUND`; nothing was restored, and no drill database made.
+**When:** `drill` before the first `run`, or on another repository or
+`name` than the job's.
+**Why:** a drill restores the newest backup, and there is none.
+**Fix:** as for
+[`restore`](#restore-on-app-the-repository-holds-no-backup-yet): run the
+job first, or check `repository` and `name`. A scheduled drill that starts
+before the first backup fails this way once.
+
+```ts
+await backups.run();
+await backups.drill();
+```
+
+### `restore on "app": no backup was made at or before that time`
+
+**Code:** `NOT_FOUND`; nothing was read from the repository but its list.
+**When:** `restore({ into, at })` with a `Date` older than every backup the
+repository still holds: one from before the first backup, one the rotation
+of `keep` has pruned since, or a `Date` parsed from a string in another
+time zone than meant.
+**Why:** a time picks the newest backup made at or before it, and none
+was. A later one is never taken in its place: it would hold changes made
+after the time asked for.
+**Fix:** list what is kept, and restore by id — the oldest, if it will do.
+
+```ts
+const [oldest] = await backups.list(); // oldest first
+if (oldest) await backups.restore({ into: client.db('shop-restored'), at: oldest.id });
+```
+
+### `restore on "app": into must be a MongoDB Db`
+
+**Code:** none — a `TypeError`; `restore` rejects with it before reading
+anything, the key file included.
+**When:** `restore({ into })` with a database name, a `MongoClient`, or
+nothing.
+**Why:** `into` is the database the backup lands in, and must be the
+driver's `Db`.
+**Fix:**
+
+```ts
+await backups.restore({ into: client.db('shop-restored') });
+```
+
+### `restore on "app": at must be a backup's id or a valid Date`
+
+**Code:** none — a `TypeError`; `restore` rejects with it before reading
+anything, the key file included.
+**When:** `restore({ into, at })` with a `Date` that is not a time —
+`new Date('yesterday')`, say — usually parsed from user input or an
+environment variable.
+**Why:** an invalid `Date` is no time at all; taken as one, it would pick
+a backup nobody asked for.
+**Fix:** check the date before the restore, or pass the id `list` gives.
+
+```ts
+const at = new Date(Bun.env['RESTORE_AT'] ?? '');
+if (Number.isNaN(at.getTime())) throw new Error('RESTORE_AT is not a date');
+await backups.restore({ into: client.db('shop-restored'), at });
+```
+
+### `restore on "app": replace is for whole collections; documents says what happens to those there`
+
+**Code:** none — a `TypeError`; `restore` rejects with it before reading
+anything. The types refuse it first: with `documents`, `replace` is
+`never`.
+**When:** `restore({ into, documents, replace })` — both at once.
+**Why:** `replace` swaps whole collections already there; `documents`
+merges some documents into them, and its `existing` already says what
+happens to a document there.
+**Fix:** keep one of the two.
+
+```ts
+await backups.restore({
+	into: client.db('shop'),
+	collections: ['orders'],
+	documents: { filter: { _id: 'o-1001' }, existing: 'replace' }, // the documents, not the collection
+});
 ```
 
 ## Full backups
@@ -361,6 +805,16 @@ try {
 	if (!(error instanceof MongoBackupError && error.code === 'HISTORY_LOST')) throw error;
 	await backups.create(source); // full: the chain starts again here
 }
+```
+
+With `mongoBackups`, `run()` does this by itself: when an incremental was
+due and fails with `HISTORY_LOST`, it makes a full backup instead and
+reports `fellBack: true`. Watch for it — it means the oplog is shorter than
+the time between runs.
+
+```ts
+const report = await backups.run();
+if (report.fellBack) console.warn('backup: the oplog no longer reached the last backup; made a full one');
 ```
 
 To keep more oplog, on each member — the size in megabytes, or a minimum
@@ -584,6 +1038,12 @@ moves it into `db` — whole, or only the documents `documents` selects —
 then drops the scratch database, failed or not — save one you passed that
 was not empty, which is refused and left as it was. Of the errors below,
 only the last one may leave something in `db`.
+
+`mongoBackups`' `restore` goes through it for a partial restore —
+`collections`, `as` or `documents` — and its messages then name that call
+and the backup instead: `restore on "app": as names a collection not
+restored` where the heading says `restoreCollections: as names a
+collection not restored`. Search for the part after the colon.
 
 ### `restoreCollections: db must be a MongoDB Db`
 
