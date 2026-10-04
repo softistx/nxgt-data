@@ -59,7 +59,8 @@ failed `put` removes its partial file.
 A `delete` removes the file, then each folder it leaves empty, up to the
 repository's root — never the root itself — so a backup `prune` removed
 leaves no folder behind. A `put` whose folder such a delete removed under
-it makes the folder again and retries, up to three times. A file whose name holds `.partial-` is
+it — or a folder on the way to it — makes the folder again and retries, up
+to five times, even when another `put` has made it again meanwhile. A file whose name holds `.partial-` is
 never listed nor read, which is why `defineBackup` refuses a name holding
 `.partial-`.
 

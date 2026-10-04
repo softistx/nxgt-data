@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdir, readdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { folder } from '../../test/fixtures';
-import { localRepository } from './local';
+import { localRepository, raced } from './local';
 
 let tmp: Awaited<ReturnType<typeof folder>>;
 beforeEach(async () => {
@@ -121,6 +121,16 @@ describe('localRepository', () => {
 			'app/locks/49-a.json',
 			'app/locks/49-b.json',
 		]);
+	});
+
+	test('a put retries a race lost on the way to its folder, even one made again since', async () => {
+		const here = join(tmp.path, 'here');
+		await mkdir(here);
+		const enoent = Object.assign(new Error('gone'), { code: 'ENOENT' });
+		const einval = Object.assign(new Error('invalid'), { code: 'EINVAL' });
+		expect(await raced(enoent, here)).toBe(true);
+		expect(await raced(einval, here)).toBe(false);
+		expect(await raced(einval, join(tmp.path, 'missing'))).toBe(true);
 	});
 
 	test('a relative path is refused', () => {
