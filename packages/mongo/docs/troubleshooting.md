@@ -7,7 +7,9 @@ heading is usually a `DataError` subclass's message: `ConflictError`,
 `MigrationLockedError`, `ConnectionError`. Each carries a `code` you can
 switch on, and the driver's error as `cause`. A mistake in a call — a field
 that is not in the schema, an option a collection does not have — is a
-`TypeError` instead: that is a bug in the code, not data.
+`TypeError` instead: that is a bug in the code, not data. The wiring's own
+refusals are a `WiringError` — a `TypeError` with a `code` — and have a
+[part of their own](#wiring) at the end.
 
 The classes are exported from `@nxgt/mongo`, and the same classes again from
 `@nxgt/mongo/gridfs`, so `instanceof` holds across both.
@@ -92,6 +94,46 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
 - **Connections**
   - [`connectMongo: this URI is already connected with other options.`](#connectmongo-this-uri-is-already-connected-with-other-options)
   - [`connectMongo: every client was closed while this one was connecting.`](#connectmongo-every-client-was-closed-while-this-one-was-connecting)
+- **Wiring**
+  - [`"command" is a member of the driver's Db: wire this collection under another key`](#command-is-a-member-of-the-drivers-db-wire-this-collection-under-another-key)
+  - [`"posts" is not wired by this database: there are no options for it`](#posts-is-not-wired-by-this-database-there-are-no-options-for-it)
+  - [`"watch" is a member of the driver's Db: wire this bucket under another key`](#watch-is-a-member-of-the-drivers-db-wire-this-bucket-under-another-key)
+  - [`"users" is also a collection of this database: wire this bucket under another key`](#users-is-also-a-collection-of-this-database-wire-this-bucket-under-another-key)
+  - [`this database wires no buckets: there are no bucket options to give`](#this-database-wires-no-buckets-there-are-no-bucket-options-to-give)
+  - [`"autoSync" is the wiring's to decide: withSession and transactions carry the session, and autoSync is the database's`](#autosync-is-the-wirings-to-decide-withsession-and-transactions-carry-the-session-and-autosync-is-the-databases)
+  - [`defineMongo: a configuration object is required`](#definemongo-a-configuration-object-is-required)
+  - [``defineMongo: databases must be an object of databases by name, as `{ databases: { main: … } }`. One database is the configuration itself, and names itself with `database`.``](#definemongo-databases-must-be-an-object-of-databases-by-name-as--databases--main----one-database-is-the-configuration-itself-and-names-itself-with-database)
+  - [`defineMongo: database "main" has neither a uri nor a client`](#definemongo-database-main-has-neither-a-uri-nor-a-client)
+  - [`defineMongo: database "main" has both a uri and a client: pass the one it should use`](#definemongo-database-main-has-both-a-uri-and-a-client-pass-the-one-it-should-use)
+  - [`defineMongo: database "main" has client options beside a client it did not open: pass them where the client is made`](#definemongo-database-main-has-client-options-beside-a-client-it-did-not-open-pass-them-where-the-client-is-made)
+  - [`` defineMongo: database "main" has a collections object with no definition in it: pass the module, as in `import * as collections` ``](#-definemongo-database-main-has-a-collections-object-with-no-definition-in-it-pass-the-module-as-in-import--as-collections-)
+  - [`defineMongo: database "main" wires "users" and "people" to the same collection, "users"`](#definemongo-database-main-wires-users-and-people-to-the-same-collection-users)
+  - [`defineMongo: database "main" has "session" in options, which the wiring decides: …`](#definemongo-database-main-has-session-in-options-which-the-wiring-decides-)
+  - [`defineMongo: database "main" has options for "posts", which it does not wire`](#definemongo-database-main-has-options-for-posts-which-it-does-not-wire)
+  - [``defineMongo: databases names none. Give it at least one, as `{ databases: { main: … } }`.``](#definemongo-databases-names-none-give-it-at-least-one-as--databases--main---)
+  - [`` defineMongo: database "main" has a buckets object with no bucket definition in it: pass the module, as in `import * as buckets` ``](#-definemongo-database-main-has-a-buckets-object-with-no-bucket-definition-in-it-pass-the-module-as-in-import--as-buckets-)
+  - [`defineMongo: database "main" wires "users" as both a collection and a bucket: export one of them under another name`](#definemongo-database-main-wires-users-as-both-a-collection-and-a-bucket-export-one-of-them-under-another-name)
+  - [`defineMongo: database "main" wires "avatars" and "pictures" to the same bucket, "avatars"`](#definemongo-database-main-wires-avatars-and-pictures-to-the-same-bucket-avatars)
+  - [`defineMongo: database "main" has "session" in bucketOptions, which the wiring decides: …`](#definemongo-database-main-has-session-in-bucketoptions-which-the-wiring-decides-)
+  - [`defineMongo: database "main" has bucketOptions but no buckets: pass the buckets they are for, or leave them out`](#definemongo-database-main-has-bucketoptions-but-no-buckets-pass-the-buckets-they-are-for-or-leave-them-out)
+  - [`openMongo: database "main" wires a collection under "command", which is a member of the driver's Db: it would be unreachable. Export that definition under another name.`](#openmongo-database-main-wires-a-collection-under-command-which-is-a-member-of-the-drivers-db-it-would-be-unreachable-export-that-definition-under-another-name)
+  - [`openMongo: database "main" wires a bucket under "watch", which is a member of the driver's Db: it would be unreachable. Export that definition under another name.`](#openmongo-database-main-wires-a-bucket-under-watch-which-is-a-member-of-the-drivers-db-it-would-be-unreachable-export-that-definition-under-another-name)
+  - [`Bucket "avatars" has no files_id_1_n_1 on "avatars.chunks": every read scans the whole collection, and the cost grows with the bucket rather than with the file. Call syncIndexes() at start-up, or bind with autoSync.`](#bucket-avatars-has-no-files_id_1_n_1-on-avatarschunks-every-read-scans-the-whole-collection-and-the-cost-grows-with-the-bucket-rather-than-with-the-file-call-syncindexes-at-start-up-or-bind-with-autosync)
+  - [`MongoServerSelectionError: connect ECONNREFUSED 127.0.0.1:27017`](#mongoserverselectionerror-connect-econnrefused-12700127017)
+  - [`ping: no answer in 2000ms`](#ping-no-answer-in-2000ms)
+  - [`MongoTopologyClosedError: Topology is closed`](#mongotopologyclosederror-topology-is-closed)
+  - [`connectMongo: this URI is already connected with other options. Pass the same options everywhere, or close the first connection.`](#connectmongo-this-uri-is-already-connected-with-other-options-pass-the-same-options-everywhere-or-close-the-first-connection)
+  - [``db: this Mongo has several databases. Read the one you mean, as `mongo.databases.main`.``](#db-this-mongo-has-several-databases-read-the-one-you-mean-as-mongodatabasesmain)
+  - [`No database "reporting" in this Mongo: it has "main", "analytics".`](#no-database-reporting-in-this-mongo-it-has-main-analytics)
+  - [``close: this Mongo came from `as`, `withSession` or a transaction. Close the one `openMongo` returned — the clients are shared.``](#close-this-mongo-came-from-as-withsession-or-a-transaction-close-the-one-openmongo-returned--the-clients-are-shared)
+  - [`not authorized on app to execute command { collMod: "users", … }`](#not-authorized-on-app-to-execute-command--collmod-users--)
+  - [``transaction: this Mongo holds more than one client, and a transaction lives on one. Name the database it runs on, as `{ on: 'main' }`.``](#transaction-this-mongo-holds-more-than-one-client-and-a-transaction-lives-on-one-name-the-database-it-runs-on-as--on-main-)
+  - [``transaction: this Mongo is already in a session, which this call joins, so `on` has no client left to choose.``](#transaction-this-mongo-is-already-in-a-session-which-this-call-joins-so-on-has-no-client-left-to-choose)
+  - [`ClientSession must be from the same MongoClient`](#clientsession-must-be-from-the-same-mongoclient)
+  - [`ReferenceError: Bun is not defined`](#referenceerror-bun-is-not-defined)
+  - [`discoverCollections: a glob is required`](#discovercollections-a-glob-is-required)
+  - [`discoverCollections: src/models/one.model.ts and src/models/two.model.ts both define the collection "twice"`](#discovercollections-srcmodelsonemodelts-and-srcmodelstwomodelts-both-define-the-collection-twice)
+  - [`discoverCollections: src/models/notes.ts exports no definition named "definition"`](#discovercollections-srcmodelsnotests-exports-no-definition-named-definition)
 
 ## Install and types
 
@@ -1363,3 +1405,759 @@ try {
 
 `mongo.client.close()` skips the count: the closed client stays shared, and
 every later `connectMongo` for that URI gets it, dead, until `closeMongo()`.
+
+## Wiring
+
+Everything the **wiring** refuses — `defineMongo`, `openMongo`, a derived
+`Mongo`'s `transaction` and `close`, and `discoverCollections` — is a
+`WiringError`, exported from `@nxgt/mongo`. It carries a `code` — `CONFIG`,
+`COLLISION`, `NO_DATABASE`, `SEVERAL_DATABASES`, `TRANSACTION`, `DERIVED` or
+`DISCOVERY` — beside the `database` and the `key` it is about, so a caller
+switches on the code instead of matching the sentence. It extends
+`TypeError`, so a `catch` written against `TypeError` still catches it. The
+driver's own errors, and the `DataError`s above, reach you unchanged.
+
+```ts
+import { WiringError } from '@nxgt/mongo';
+
+try {
+	await mongo.transaction(work, { on: 'main' });
+} catch (error) {
+	if (error instanceof WiringError) {
+		log.error({ code: error.code, database: error.database, key: error.key });
+	}
+	throw error;
+}
+```
+
+### `"command" is a member of the driver's Db: wire this collection under another key`
+
+The whole line is a `TS2322`:
+
+```
+error TS2322: Type 'CollectionDefinition<…>' is not assignable to type
+'CollectionDefinition<…> & "\"command\" is a member of the driver's Db: wire this collection under another key"'.
+```
+
+**When:** compiling the file that calls `defineMongo`.
+
+**Why:** `mongo.db` is the driver's `Db` with the collections on it, so a key the
+`Db` already answers to — `command`, `watch`, `collection`, `admin`,
+`databaseName`… — would be unreachable, and reading it would give the driver's
+member instead of your collection. The reserved names are read from the
+driver's own type (`DbMemberName = keyof Db`), so a member a later driver
+release adds is refused the day the pin moves.
+
+**Fix:** export the definition under another name.
+
+```ts
+// src/models/commands.model.ts
+export const commandLog = defineCollection({ name: 'commands', schema });
+//           ^ the key on `mongo.db`; `name` is the collection on the server
+```
+
+The key is the **export name**, not the collection's `name`: only the export
+name has to change.
+
+### `"posts" is not wired by this database: there are no options for it`
+
+**When:** compiling a `defineMongo` whose `optionsFor` names a key its
+`collections` does not hold.
+
+**Why:** `optionsFor` is keyed by the same export names as `collections`, and
+options written for a key that is not wired would silently do nothing —
+usually a renamed or moved model.
+
+**Fix:**
+
+```ts
+defineMongo({
+	uri: process.env.MONGO_URI!,
+	collections,                       // `import * as collections from './models'`
+	optionsFor: { articles: { maxPageSize: 200 } },  // a key `collections` exports
+});
+```
+
+### `"watch" is a member of the driver's Db: wire this bucket under another key`
+
+**When:** compiling a `defineMongo` whose `buckets` exports a bucket under
+a name the driver's `Db` answers to.
+
+**Why:** a bucket sits on the scope beside the collections, so it has the
+same problem as a
+[collection under such a key](#command-is-a-member-of-the-drivers-db-wire-this-collection-under-another-key):
+`mongo.db.watch` would be the driver's method, never your bucket.
+
+**Fix:** export it under another name. The export name is the key; the
+bucket's `name` is what the server sees, and need not change.
+
+```ts
+// src/files/index.ts
+export const watchClips = defineBucket({ name: 'watch' });
+```
+
+### `"users" is also a collection of this database: wire this bucket under another key`
+
+**When:** compiling a `defineMongo` whose `buckets` and `collections`
+export something under the same name.
+
+**Why:** both would be `mongo.db.users`. Usually one module of models and one
+of files that grew the same export name.
+
+**Fix:** rename one of the two exports.
+
+```ts
+export const userPhotos = defineBucket({ name: 'users' });
+//           ^ the key on `mongo.db`: `mongo.db.users` stays the collection
+```
+
+### `this database wires no buckets: there are no bucket options to give`
+
+The whole line is a `TS2322`, on `bucketOptions`:
+
+```
+error TS2322: Type '{ hash: false; }' is not assignable to type
+'{ readonly hash: false; } & "this database wires no buckets: there are no bucket options to give"'.
+```
+
+**When:** compiling a `defineMongo` whose database has `bucketOptions` and
+no `buckets`.
+
+**Why:** the options would apply to nothing — usually `buckets` was left
+out, or moved to another database of a multi-database config while its
+options stayed behind.
+
+**Fix:** pass the buckets beside their options, or drop the options.
+
+```ts
+import * as buckets from './files';
+defineMongo({ uri, collections, buckets, bucketOptions: { hash: false } });
+```
+
+### `"autoSync" is the wiring's to decide: withSession and transactions carry the session, and autoSync is the database's`
+
+The same message names `"session"` when that is the key at fault.
+
+**When:** compiling a `defineMongo` whose `bucketOptions` holds `session`
+or `autoSync`.
+
+**Why:** a bucket takes its session from the Mongo — `withSession`, or the
+transaction a `mongo.transaction` body runs in — and its `autoSync` from the
+database. Pinned in the config, either would outrank the mongo, and a file
+would be written outside the transaction around it.
+
+**Fix:**
+
+```ts
+defineMongo({
+	uri: process.env.MONGO_URI!,
+	collections,
+	buckets,
+	autoSync: true,                    // the database's, for tests and development
+	bucketOptions: { hash: false },    // only validate, coerce and hash
+});
+```
+
+
+`defineMongo` connects to nothing: everything below is a `WiringError` with
+`code: 'CONFIG'`, thrown where the configuration is written, before the
+application starts. It names the database it is about as `error.database`,
+and the collection key as `error.key` when one is at fault.
+
+### `defineMongo: a configuration object is required`
+
+**When:** calling `defineMongo` with nothing, `undefined` or `null` — usually
+a config read from a module that exports it under another name, or a value
+built at run time that came out empty.
+
+**Why:** the configuration is read as an object before anything else is
+checked, so there is nothing to name a database with. A `defineMongo(config)`
+where `config` is `undefined` is most often an import that resolved to
+`undefined`: a default export read as a named one, or two modules importing
+each other, so one of them is still empty when the other runs.
+
+**Fix:** write the config as a literal, where the compiler sees its shape:
+
+```ts
+import * as collections from './models';
+
+export const config = defineMongo({ uri, collections });
+```
+
+### ``defineMongo: databases must be an object of databases by name, as `{ databases: { main: … } }`. One database is the configuration itself, and names itself with `database`.``
+
+**When:** calling `defineMongo` with a `databases` that is a string, a number
+or `null`.
+
+**Why:** `databases` is the multi-database shape, and its **keys** are the
+names — `databases: 'main'` looks like naming the one database, which is what
+`database` does. A single database says `database`, several say `databases`.
+
+**Fix:**
+
+```ts
+defineMongo({ uri, database: 'analytics', collections });      // one database
+defineMongo({ databases: { main: { uri, collections } } });    // several
+```
+
+`database` is the database on the server; the key under `databases` is the
+name your code reads it by, as `mongo.databases.main`.
+
+### `defineMongo: database "main" has neither a uri nor a client`
+
+**When:** calling `defineMongo`.
+
+**Why:** a database says where it is exactly once. This is most often an
+environment variable that was not read — `process.env.MONGO_URI` is
+`undefined`, so the property is absent.
+
+**Fix:**
+
+```ts
+const uri = process.env.MONGO_URI;
+if (!uri) throw new Error('MONGO_URI is not set');
+export const config = defineMongo({ uri, collections });
+```
+
+### `defineMongo: database "main" has both a uri and a client: pass the one it should use`
+
+**When:** calling `defineMongo`.
+
+**Why:** the two mean different things about closing: with a `uri` the Mongo
+opens the client and `close()` gives it back, with a `client` it uses yours and
+never closes it. It will not guess which you meant.
+
+**Fix:**
+
+```ts
+defineMongo({ client, database: 'main', collections });  // yours to close
+```
+
+### `defineMongo: database "main" has client options beside a client it did not open: pass them where the client is made`
+
+**When:** calling `defineMongo` with both `client` and `clientOptions`.
+
+**Why:** `clientOptions` is what the Mongo passes to the driver when it opens a
+client. A client that is already open cannot take them, so they would be
+ignored.
+
+**Fix:**
+
+```ts
+const client = new MongoClient(uri, { maxPoolSize: 50 }); // here
+defineMongo({ client, collections });
+```
+
+### `` defineMongo: database "main" has a collections object with no definition in it: pass the module, as in `import * as collections` ``
+
+**When:** calling `defineMongo`.
+
+**Why:** the object holds no value that looks like a `defineCollection` —
+usually a module of *types* only, a default export, or a barrel whose files
+export builders rather than definitions.
+
+**Fix:**
+
+```ts
+// src/models/index.ts
+export * from './users.model';   // `export const users = defineCollection(…)`
+export * from './posts.model';
+
+// src/db.ts
+import * as collections from './models';
+defineMongo({ uri, collections });
+```
+
+Anything in that module that is not a definition — a function, a constant, a
+type — is left out of the scope rather than refused.
+
+### `defineMongo: database "main" wires "users" and "people" to the same collection, "users"`
+
+**When:** calling `defineMongo`.
+
+**Why:** two exports carry definitions with the same `name`, so two keys on
+`mongo.db` would write to one server collection with two schemas and two sets of
+options. Usually a copy-and-pasted model whose `name` was not changed.
+
+**Fix:**
+
+```ts
+export const people = defineCollection({ name: 'people', schema });
+//                                       ^ one `name` per collection
+```
+
+### `defineMongo: database "main" has "session" in options, which the wiring decides: …`
+
+The full message names what to use instead:
+
+```text
+defineMongo: database "main" has "session" in options, which the wiring decides:
+a database is named by its key, `as` and `withSession` carry the actor and the
+session, and `autoSync` is the database's
+```
+
+The same refusal covers `db`, `actor` and `autoSync`, in `options` and under
+`optionsFor` — where the text reads `has "session" in the options of "users"`.
+
+**When:** calling `defineMongo`.
+
+**Why:** those four are the Mongo's. A `session` pinned in the config would
+outrank the one a transaction hands the collection, and the write would land
+outside the transaction.
+
+**Fix:**
+
+```ts
+const mongo = await openMongo(config);
+await mongo.transaction(async (tx) => {   // the session is the Mongo's
+	await tx.db.users.create({ email: 'ada@example.com' });
+});
+```
+
+`autoSync` belongs to the database, beside `collections`, not to a collection's
+options.
+
+### `defineMongo: database "main" has options for "posts", which it does not wire`
+
+**When:** calling `defineMongo`, when the types were bypassed — an `as never`,
+a config built at run time, or JavaScript.
+
+**Why:** the same cause as the type error
+[above](#posts-is-not-wired-by-this-database-there-are-no-options-for-it):
+`optionsFor` names a key `collections` does not export.
+
+**Fix:** write the config as a literal, so the compiler refuses it first:
+
+```ts
+export const config = defineMongo({ uri, collections, optionsFor: { users: {} } });
+```
+
+### ``defineMongo: databases names none. Give it at least one, as `{ databases: { main: … } }`.``
+
+**When:** calling `defineMongo` with `databases: {}`.
+
+**Why:** the multi-database shape was used and the object came out empty —
+typically built from environment variables that were not set.
+
+**Fix:**
+
+```ts
+defineMongo({ databases: { main: { uri, collections } } });
+```
+
+### `` defineMongo: database "main" has a buckets object with no bucket definition in it: pass the module, as in `import * as buckets` ``
+
+**When:** calling `defineMongo` with a `buckets` that holds no
+`defineBucket` — or that is not an object at all.
+
+**Why:** a bucket is told by its shape, and nothing in the object had it.
+Usually the collections passed as `buckets` by mistake, a module of types
+only, or a default export.
+
+**Fix:**
+
+```ts
+// src/files/index.ts
+export const avatars = defineBucket({ name: 'avatars' });
+
+// src/db.ts
+import * as buckets from './files';
+defineMongo({ uri, collections, buckets });
+```
+
+Leave `buckets` out when the database has none; an empty object is refused.
+
+### `defineMongo: database "main" wires "users" as both a collection and a bucket: export one of them under another name`
+
+**When:** calling `defineMongo`, when the types were bypassed — an
+`as never`, a config built at run time, or JavaScript.
+
+**Why:** the same cause as the
+[type error](#users-is-also-a-collection-of-this-database-wire-this-bucket-under-another-key):
+two exports would both be `mongo.db.users`. `error.key` is the key.
+
+**Fix:** rename one export, as above.
+
+### `defineMongo: database "main" wires "avatars" and "pictures" to the same bucket, "avatars"`
+
+**When:** calling `defineMongo`.
+
+**Why:** two exports carry buckets with the same `name`, so two keys on
+`mongo.db` would write to one pair of server collections, `avatars.files` and
+`avatars.chunks`, perhaps with two metadata schemas. Usually a
+copy-and-pasted `defineBucket` whose `name` was not changed.
+
+**Fix:**
+
+```ts
+export const pictures = defineBucket({ name: 'pictures' });
+//                                     ^ one `name` per bucket
+```
+
+### `defineMongo: database "main" has "session" in bucketOptions, which the wiring decides: …`
+
+The full message:
+
+```text
+defineMongo: database "main" has "session" in bucketOptions, which the Mongo
+decides: `withSession` and transactions carry the session, and `autoSync` is
+the database's
+```
+
+It reads `has "autoSync" in bucketOptions` for the other one.
+
+**When:** calling `defineMongo`, when the types were bypassed.
+
+**Why:** the same cause as the
+[type error](#autosync-is-the-wirings-to-decide-withsession-and-transactions-carry-the-session-and-autosync-is-the-databases):
+a session pinned for every bucket would put file writes outside the
+transaction around them.
+
+**Fix:** take it out, and set `autoSync` on the database beside
+`collections` if you want it.
+
+### `defineMongo: database "main" has bucketOptions but no buckets: pass the buckets they are for, or leave them out`
+
+**When:** calling `defineMongo`, when the types were bypassed.
+
+**Why:** the same cause as the
+[type error](#this-database-wires-no-buckets-there-are-no-bucket-options-to-give):
+options with no bucket to apply to, which would otherwise do nothing without
+a word — as `optionsFor` under a key nothing is wired under is refused.
+
+**Fix:**
+
+```ts
+defineMongo({ uri, collections, buckets, bucketOptions: { hash: false } });
+```
+
+
+### `openMongo: database "main" wires a collection under "command", which is a member of the driver's Db: it would be unreachable. Export that definition under another name.`
+
+**When:** `await openMongo(config)`, and the connections opened before it are
+given back before it throws.
+
+**Why:** the same collision as the
+[type error](#command-is-a-member-of-the-drivers-db-wire-this-collection-under-another-key),
+asked of the live `Db` object rather than of its type. A `WiringError` with
+`code: 'COLLISION'`, carrying the `database` and the `key` it refused. It
+fires when the types were bypassed, and when a driver release adds a member
+your key already uses.
+
+**Fix:** rename the export, as above. If the driver added the member, raising
+`mongodb` is what surfaced it — the check is deliberate, not a regression.
+
+### `openMongo: database "main" wires a bucket under "watch", which is a member of the driver's Db: it would be unreachable. Export that definition under another name.`
+
+**When:** `await openMongo(config)`, with the connections opened before it
+given back.
+
+**Why:** the bucket form of the collision above, asked of the live `Db`:
+the types refuse it
+[where the config is written](#watch-is-a-member-of-the-drivers-db-wire-this-bucket-under-another-key),
+and this catches the config that bypassed them, or a member a later driver
+adds. `code: 'COLLISION'`, with the `database` and the `key`.
+`defineMongo` cannot ask it: it has no `Db` until `openMongo` connects.
+
+**Fix:** rename the export.
+
+```ts
+export const watchClips = defineBucket({ name: 'watch' });
+```
+
+### `Bucket "avatars" has no files_id_1_n_1 on "avatars.chunks": every read scans the whole collection, and the cost grows with the bucket rather than with the file. Call syncIndexes() at start-up, or bind with autoSync.`
+
+Printed as a process warning, not thrown:
+
+```text
+(node:4242) [NxgtGridFSMissingIndex] Warning: Bucket "avatars" has no files_id_1_n_1 on "avatars.chunks": …
+```
+
+**When:** the first read of a file from a bucket whose chunk index is not
+there, once per database and bucket for the life of the process. The read
+itself works.
+
+**Why:** nothing creates a bucket's indexes until something is asked to, and
+`mongo.sync()` does not: it syncs collection definitions. Without
+`files_id_1_n_1`, reading one file examines every chunk of the bucket. The
+warning comes from `@nxgt/mongo/gridfs`, which is why it names that package's
+`syncIndexes()`; on the Mongo the call is `syncBuckets()`.
+
+**Fix:** create the indexes at start-up, beside `sync()`:
+
+```ts
+await mongo.sync();
+await mongo.syncBuckets();
+```
+
+In tests and development, the database's `autoSync: true` does it before
+each bucket's first call instead — mind its
+[transaction caveat](guide/wiring/files.md#autosync-and-the-first-upload-in-a-transaction).
+To act on the warning rather than read it, listen for its code:
+
+```ts
+process.on('warning', (warning) => {
+	if ((warning as { code?: string }).code === 'NxgtGridFSMissingIndex') {
+		log.warn(warning.message);
+	}
+});
+```
+
+### `MongoServerSelectionError: connect ECONNREFUSED 127.0.0.1:27017`
+
+**When:** `await openMongo(config)` — never at `defineMongo`.
+
+**Why:** `defineMongo` connects to nothing; `openMongo` is the one call that
+opens clients. A wrong URI, a server that is not up, or an unreachable host
+therefore fails at start-up, not at the first query.
+
+**Fix:** check the connection where the application starts, and let it fail
+there:
+
+```ts
+export const mongo = await openMongo(config);   // top level: a bad URI stops the boot
+```
+
+### `ping: no answer in 2000ms`
+
+**When:** the `error` of a `{ ok: false }` that `mongo.ping()` reported, never
+a throw.
+
+**Why:** a database the configuration handed a `client` did not answer within
+`timeoutMS`. Only such a database reports this: the Mongo races a timer of its
+own for it, because a client that was never connected makes its connect on
+the first command, and that connect waits `serverSelectionTimeoutMS`, not
+`timeoutMS` (measured on mongodb 7.6.0). A database the Mongo opened from a
+`uri` is always connected, and reports the driver's own error instead —
+`MongoOperationTimeoutError` for a server that is too slow.
+
+**Fix:** answer 503 and look at the server. If the database is a `client` you
+handed over, connect it before `openMongo`:
+
+```ts
+const client = await new MongoClient(uri).connect();
+```
+
+### `MongoTopologyClosedError: Topology is closed`
+
+**When:** every command on a database the configuration gave a `client`, and
+every `ping` of it, after one failure — at once, with no retry.
+
+**Why:** the client was handed over unconnected, its first command made the
+connect, and the connect failed. Measured on mongodb 7.6.0, the driver then
+closes that client for good, so the server coming back changes nothing.
+
+**Fix:** connect the client yourself before handing it over, so a server that
+is down fails where the application starts, and a client that connected
+reconnects on its own afterwards:
+
+```ts
+const client = await new MongoClient(uri).connect();
+export const mongo = await openMongo(defineMongo({ client, collections }));
+```
+
+### `connectMongo: this URI is already connected with other options. Pass the same options everywhere, or close the first connection.`
+
+**When:** `openMongo`, or a second `openMongo` in the same process.
+
+**Why:** `@nxgt/mongo` shares one client per URI, and a shared client can only
+have one set of options. Two databases on one URI with different
+`clientOptions` — or a test that builds a second Mongo with other options —
+ask for two.
+
+**Fix:** give the same options on that URI, and name the databases instead:
+
+```ts
+defineMongo({
+	databases: {
+		main: { uri, database: 'main', collections },
+		analytics: { uri, database: 'analytics', collections: events },
+	},
+});
+```
+
+Both databases then share the one client, which is the point.
+
+### ``db: this Mongo has several databases. Read the one you mean, as `mongo.databases.main`.``
+
+**When:** reading `mongo.db` on a Mongo built from a `databases` config.
+
+**Why:** `db` is the sole database's scope. With several there is no sole one,
+so its type is already `never` — this is what a cast or a JavaScript call-site
+gets at run time. `code: 'SEVERAL_DATABASES'`.
+
+**Fix:**
+
+```ts
+await mongo.databases.main.users.create({ email: 'ada@example.com' });
+```
+
+### `No database "reporting" in this Mongo: it has "main", "analytics".`
+
+**When:** `transaction(fn, { on })` with a name the config does not hold.
+
+**Why:** the names are the keys of `databases` in the config, nothing else —
+not the database names on the server. `code: 'NO_DATABASE'`, with the name
+that was asked for as `error.database`. (Reading `mongo.databases.<name>` for a
+name that is not there does not throw: it does not compile, and gives
+`undefined` where the types were bypassed.)
+
+**Fix:**
+
+```ts
+await mongo.transaction(fn, { on: 'main' });   // a key of `config.databases`
+```
+
+### ``close: this Mongo came from `as`, `withSession` or a transaction. Close the one `openMongo` returned — the clients are shared.``
+
+**When:** `close()` — including the implicit one of `await using` — on a Mongo
+that came from `as`, `withSession`, or the one handed to a transaction body.
+
+**Why:** a derived Mongo shares the databases and the clients of the Mongo
+`openMongo` returned. Closing it would take the connections from every other
+Mongo derived from the same root. `code: 'DERIVED'`.
+
+**Fix:** keep `await using` for the root, and let the derived ones fall away:
+
+```ts
+await using mongo = await openMongo(config);   // the only one to close
+const actor = mongo.as(userId);                // no close, nothing to give back
+```
+
+### `not authorized on app to execute command { collMod: "users", … }`
+
+**When:** `mongo.sync()`, or the first operation of a collection when
+`autoSync: true`.
+
+**Why:** applying a `$jsonSchema` validator and the collection options is
+`collMod`, which needs `dbAdmin`; `readWrite` alone is enough for the indexes
+and every data operation but not for that.
+
+**Fix:** run `sync()` as a deployment step, with a user that has `dbAdmin`, and
+leave the application's own user on `readWrite`:
+
+```ts
+// scripts/sync.ts — run with the migration user, not the app's
+await using mongo = await openMongo(config);
+await mongo.sync();
+```
+
+`autoSync` is for tests and development for the same reason.
+
+
+### ``transaction: this Mongo holds more than one client, and a transaction lives on one. Name the database it runs on, as `{ on: 'main' }`.``
+
+**When:** `mongo.transaction(fn)` on a Mongo whose databases are on more than one
+client.
+
+**Why:** a transaction lives on a single client, and the types cannot decide:
+two databases on one URI share a client and need no `on`, so what matters is
+the number of *clients*, which is known only once they are open.
+`code: 'TRANSACTION'`.
+
+**Fix:**
+
+```ts
+await mongo.transaction((tx) => tx.databases.main.users.create(user), { on: 'main' });
+```
+
+### ``transaction: this Mongo is already in a session, which this call joins, so `on` has no client left to choose.``
+
+**When:** `transaction({ on })` inside a transaction body, or on a Mongo from
+`withSession`.
+
+**Why:** a nested transaction **joins** the outer one rather than opening a
+second beside it, so it runs on the session that is already open — there is no
+client left to pick. `code: 'TRANSACTION'`, as above.
+
+**Fix:**
+
+```ts
+await mongo.transaction(async (tx) => {
+	await service(tx);            // its own `tx.transaction(fn)` joins this one
+}, { on: 'main' });               // `on` belongs to the outermost call
+```
+
+### `ClientSession must be from the same MongoClient`
+
+A `MongoInvalidArgumentError`, from the driver.
+
+**When:** inside a transaction body, touching a database that is on another
+client than the one the transaction runs on.
+
+**Why:** a transaction reaches the databases of **one** client. With
+`{ on: 'main' }`, an operation on a database of a second client carries a
+session that client does not own, and the driver refuses it.
+
+**Fix:** put the two databases on one client, or write two transactions and
+accept that they do not commit together:
+
+```ts
+await mongo.transaction((tx) => tx.databases.main.users.create(user), { on: 'main' });
+await mongo.databases.analytics.events.create({ kind: 'signup' }); // outside it
+```
+
+
+`discoverCollections` is for scripts run from the repository: it reads a glob
+from the file system, gives no types, and does not survive bundling. What it
+refuses is a `WiringError` with `code: 'DISCOVERY'`, and the path it was reading
+as `error.key`.
+
+### `ReferenceError: Bun is not defined`
+
+**When:** calling `discoverCollections` from a script run by Node.
+
+**Why:** the glob is `Bun.Glob`. This one function needs the Bun runtime;
+everything else in the package runs anywhere.
+
+**Fix:** run the script with Bun, or wire the collections statically — which is
+what an application does anyway:
+
+```ts
+import * as collections from './models';    // a bundler follows this, Bun.Glob is not needed
+```
+
+### `discoverCollections: a glob is required`
+
+**When:** running the script, with `glob` empty or absent — typically an
+argument the script was not given, or an environment variable that is unset.
+
+**Why:** the glob is the only thing that says which files to read. An empty
+one matches nothing, and a discovery that came back empty would sync no
+collection at all without saying so, so it is refused instead.
+
+**Fix:** give the option a default the script can run with:
+
+```ts
+const glob = process.argv[2] ?? 'src/models/*.model.ts';
+const definitions = await discoverCollections({ glob });
+```
+
+### `discoverCollections: src/models/one.model.ts and src/models/two.model.ts both define the collection "twice"`
+
+**When:** running the script, while reading the files the glob matched.
+
+**Why:** two matched files export definitions with the same collection `name`.
+A sync driven from them would apply two schemas to one server collection.
+
+**Fix:** give each collection its own `name`, or narrow the glob so only the
+files you mean are read:
+
+```ts
+await discoverCollections({ glob: 'src/models/*.model.ts' });
+```
+
+### `discoverCollections: src/models/notes.ts exports no definition named "definition"`
+
+**When:** running the script with the `export` option set.
+
+**Why:** `export` names the single export to read in each matched file, and one
+of them does not have it — or has it under that name holding something that is
+not a definition.
+
+**Fix:** drop the option and let every definition in each file be read, which
+is what `import * as collections` gives:
+
+```ts
+await discoverCollections({ glob: 'src/models/*.model.ts' });
+```

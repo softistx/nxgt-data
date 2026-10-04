@@ -1,19 +1,19 @@
 # Health
 
-`kit.ping()` asks every database the kit wires whether it answers, at once,
+`mongo.ping()` asks every database the Mongo wires whether it answers, at once,
 and reports each under its name. It is written for a health endpoint: it
 never throws, and it answers within its deadline whatever the servers do.
 
 ```ts
-import { createKit, defineConfig } from '@nxgt/mongo-kit';
+import { defineMongo, openMongo } from '@nxgt/mongo';
 import * as collections from './models';
 
-export const kit = await createKit(
-	defineConfig({ uri: process.env.MONGO_URI!, collections }),
+export const mongo = await openMongo(
+	defineMongo({ uri: process.env.MONGO_URI!, collections }),
 );
 
 app.get('/health', async (c) => {
-	const databases = await kit.ping({ timeoutMS: 1_000 });
+	const databases = await mongo.ping({ timeoutMS: 1_000 });
 	const up = Object.values(databases).every((result) => result.ok);
 	return c.json(
 		Object.fromEntries(
@@ -29,7 +29,8 @@ app.get('/health', async (c) => {
 
 ## What it reports
 
-`Record<DbName, PingResult>`, where `PingResult` is `@nxgt/mongo`'s —
+`Record<DbName, PingResult>`, where `PingResult` is the type a `connectMongo`
+connection's own `ping` answers with —
 `import type { PingResult } from '@nxgt/mongo'`:
 
 | Result | Means |
@@ -38,7 +39,7 @@ app.get('/health', async (c) => {
 | `{ ok: false, error }` | it did not, within `timeoutMS`; `error` is the driver's — `MongoOperationTimeoutError` for a server too slow, `MongoNetworkError` or `MongoServerSelectionError` for one that is gone — or, for a `client` the configuration handed over, `Error('ping: no answer in 1000ms')` when the deadline passed first |
 
 The keys are the database names the configuration gave, `default` when it
-named none, and the types know them: `health.main` on a kit with no `main`
+named none, and the types know them: `health.main` on a Mongo with no `main`
 does not compile.
 
 Keep `error` in the log and out of the response: a driver error can name the
@@ -50,13 +51,13 @@ host it tried.
 | --- | --- | --- | --- |
 | `timeoutMS` | `number` | `2000` | The deadline for each database, and for the whole call, since they run at once. Spelt as the driver spells it |
 
-## Which kit, which client
+## Which Mongo, which client
 
-Every kit answers — the one `createKit` returned, one from `as` or
+Every Mongo answers — the one `openMongo` returned, one from `as` or
 `withSession`, one inside a transaction — because they share the databases.
 The ping carries no session and no actor.
 
-A database the kit opened from a `uri` is pinged through its connection, and
+A database the Mongo opened from a `uri` is pinged through its connection, and
 reports the driver's own errors. A database the configuration gave a `client`
 is pinged too, through a copy with a timer of its own. The timer is there
 because of what was measured on mongodb 7.6.0: a client that was **never
@@ -72,5 +73,5 @@ Connect a client before handing it to the configuration:
 
 ```ts
 const client = await new MongoClient(uri).connect();
-const kit = await createKit(defineConfig({ client, collections }));
+const mongo = await openMongo(defineMongo({ client, collections }));
 ```

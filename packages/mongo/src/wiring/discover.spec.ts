@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { rejectionMessage } from '../../test/rejection';
-import { KitError } from '../errors/kit-error';
+import { WiringError } from '../errors/wiring-error';
 import { clearCollectionRegistry } from '../sync/registry';
 import { discoverCollections } from './discover';
 
@@ -83,7 +83,7 @@ describe('discoverCollections', () => {
 			'message',
 			expect.stringContaining('a glob is required'),
 		);
-		expect(error).toBeInstanceOf(KitError);
+		expect(error).toBeInstanceOf(WiringError);
 		expect(error).toHaveProperty('code', 'DISCOVERY');
 	});
 });

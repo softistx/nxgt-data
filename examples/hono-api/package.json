@@ -2,7 +2,7 @@
 	"name": "hono-api-example",
 	"version": "0.0.0",
 	"private": true,
-	"description": "A Hono API on @nxgt/mongo-kit and @nxgt/redis-guard, from an OpenAPI spec: the example is not published",
+	"description": "A Hono API on @nxgt/mongo and @nxgt/redis-guard, from an OpenAPI spec: the example is not published",
 	"type": "module",
 	"scripts": {
 		"generate:api": "nxgt-openapi generate",
@@ -16,7 +16,6 @@
 	},
 	"dependencies": {
 		"@nxgt/mongo": "workspace:^",
-		"@nxgt/mongo-kit": "workspace:^",
 		"@nxgt/openapi-hono": "^0.3.0",
 		"@nxgt/redis-guard": "workspace:^",
 		"hono": "^4.13.8",

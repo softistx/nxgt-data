@@ -2,62 +2,62 @@ import { describe, expect, test } from 'bun:test';
 import { MongoClient, ObjectId } from 'mongodb';
 import { rejectionMessage } from '../../test/rejection';
 import { collections, events, useMongo } from '../../test/wiring';
-import { KitError } from '../errors/kit-error';
-import { defineConfig } from './config/define-config';
-import { createKit } from './create-kit';
+import { WiringError } from '../errors/wiring-error';
+import { defineMongo } from './config/define-mongo';
+import { openMongo } from './open-mongo';
 
-const { server, track } = useMongo('kit-transaction');
+const { server, track } = useMongo('wiring-transaction');
 
-const plainKit = async () =>
-	track(await createKit(defineConfig({ uri: server.uri, collections })));
+const plainMongo = async () =>
+	track(await openMongo(defineMongo({ uri: server.uri, collections })));
 
 describe('transaction', () => {
 	test('commits what it wrote', async () => {
-		const kit = await plainKit();
-		const written = await kit.transaction(async (tx) => {
+		const mongo = await plainMongo();
+		const written = await mongo.transaction(async (tx) => {
 			await tx.db.users.create({ email: 'ada@example.com' });
 			return tx.db.posts.create({ title: 'a' });
 		});
 		expect(written.title).toBe('a');
-		expect(await kit.db.users.count()).toBe(1);
-		expect(await kit.db.posts.count()).toBe(1);
+		expect(await mongo.db.users.count()).toBe(1);
+		expect(await mongo.db.posts.count()).toBe(1);
 	});
 
 	test('rolls back everything when the body throws', async () => {
-		const kit = await plainKit();
+		const mongo = await plainMongo();
 		expect(
 			await rejectionMessage(
-				kit.transaction(async (tx) => {
+				mongo.transaction(async (tx) => {
 					await tx.db.users.create({ email: 'ada@example.com' });
 					throw new Error('no');
 				}),
 			),
 		).toContain('no');
-		expect(await kit.db.users.count()).toBe(0);
+		expect(await mongo.db.users.count()).toBe(0);
 	});
 
-	test('gives the body a kit in the session', async () => {
-		const kit = await plainKit();
-		await kit.transaction(async (tx) => {
+	test('gives the body a Mongo in the session', async () => {
+		const mongo = await plainMongo();
+		await mongo.transaction(async (tx) => {
 			expect(tx.session).toBeDefined();
 			expect(tx.session?.inTransaction()).toBe(true);
-			// The kit it came from is not in it.
-			expect(kit.session).toBeUndefined();
+			// The Mongo it came from is not in it.
+			expect(mongo.session).toBeUndefined();
 		});
 	});
 
-	test('keeps the actor the kit was stamping', async () => {
-		const kit = await plainKit();
+	test('keeps the actor the Mongo was stamping', async () => {
+		const mongo = await plainMongo();
 		const actor = new ObjectId();
-		const user = await kit
+		const user = await mongo
 			.as(actor)
 			.transaction((tx) => tx.db.users.create({ email: 'ada@example.com' }));
 		expect(user.createdBy).toEqual(actor);
 	});
 
 	test('takes the options it is given', async () => {
-		const kit = await plainKit();
-		const written = await kit.transaction(
+		const mongo = await plainMongo();
+		const written = await mongo.transaction(
 			(tx) => tx.db.users.create({ email: 'ada@example.com' }),
 			{ readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' } },
 		);
@@ -65,10 +65,10 @@ describe('transaction', () => {
 	});
 
 	test('joins the transaction it is already in', async () => {
-		const kit = await plainKit();
+		const mongo = await plainMongo();
 		expect(
 			await rejectionMessage(
-				kit.transaction(async (outer) => {
+				mongo.transaction(async (outer) => {
 					await outer.db.users.create({ email: 'ada@example.com' });
 					await outer.transaction(async (inner) => {
 						expect(inner.session).toBe(outer.session);
@@ -79,13 +79,13 @@ describe('transaction', () => {
 				}),
 			),
 		).toContain('no');
-		expect(await kit.db.users.count()).toBe(0);
-		expect(await kit.db.posts.count()).toBe(0);
+		expect(await mongo.db.users.count()).toBe(0);
+		expect(await mongo.db.posts.count()).toBe(0);
 	});
 
 	test('refuses `on` once it is in a session', async () => {
-		const kit = await plainKit();
-		const error = await kit
+		const mongo = await plainMongo();
+		const error = await mongo
 			.transaction((outer) =>
 				outer.transaction(async () => undefined, { on: 'default' }),
 			)
@@ -94,39 +94,39 @@ describe('transaction', () => {
 			'message',
 			expect.stringContaining('already in a session'),
 		);
-		expect(error).toBeInstanceOf(KitError);
+		expect(error).toBeInstanceOf(WiringError);
 		expect(error).toHaveProperty('code', 'TRANSACTION');
 	});
 
 	describe('with several databases', () => {
 		const twoOnOneClient = () =>
-			defineConfig({
+			defineMongo({
 				databases: {
 					main: { uri: server.uri, collections },
 					analytics: {
 						uri: server.uri,
-						database: 'kit-transaction-analytics',
+						database: 'wiring-transaction-analytics',
 						collections: { events },
 					},
 				},
 			});
 
 		test('runs on the one client they share', async () => {
-			const kit = track(await createKit(twoOnOneClient()));
-			await kit.transaction(async (tx) => {
+			const mongo = track(await openMongo(twoOnOneClient()));
+			await mongo.transaction(async (tx) => {
 				await tx.databases.main.users.create({ email: 'ada@example.com' });
 				await tx.databases.analytics.events.create({ kind: 'signup' });
 			});
-			expect(await kit.databases.main.users.count()).toBe(1);
-			expect(await kit.databases.analytics.events.count()).toBe(1);
-			await kit.clients.analytics
-				.db('kit-transaction-analytics')
+			expect(await mongo.databases.main.users.count()).toBe(1);
+			expect(await mongo.databases.analytics.events.count()).toBe(1);
+			await mongo.clients.analytics
+				.db('wiring-transaction-analytics')
 				.dropDatabase();
 		});
 
 		test('takes the client `on` names', async () => {
-			const kit = track(await createKit(twoOnOneClient()));
-			const written = await kit.transaction(
+			const mongo = track(await openMongo(twoOnOneClient()));
+			const written = await mongo.transaction(
 				(tx) => tx.databases.main.users.create({ email: 'ada@example.com' }),
 				{ on: 'analytics' },
 			);
@@ -134,16 +134,16 @@ describe('transaction', () => {
 		});
 
 		test('refuses a database it does not have', async () => {
-			const kit = track(await createKit(twoOnOneClient()));
+			const mongo = track(await openMongo(twoOnOneClient()));
 			await expect(
 				await rejectionMessage(
-					kit.transaction(async () => undefined, { on: 'nowhere' as never }),
+					mongo.transaction(async () => undefined, { on: 'nowhere' as never }),
 				),
-			).toContain('has no database "nowhere"');
-			const error = await kit
+			).toContain('No database "nowhere" in this Mongo');
+			const error = await mongo
 				.transaction(async () => undefined, { on: 'nowhere' as never })
 				.then(null, (reason: unknown) => reason);
-			expect(error).toBeInstanceOf(KitError);
+			expect(error).toBeInstanceOf(WiringError);
 			expect(error).toHaveProperty('code', 'NO_DATABASE');
 			expect(error).toHaveProperty('database', 'nowhere');
 		});
@@ -151,14 +151,14 @@ describe('transaction', () => {
 		test('refuses to choose between two clients', async () => {
 			const other = new MongoClient(server.uri);
 			await other.connect();
-			const kit = track(
-				await createKit(
-					defineConfig({
+			const mongo = track(
+				await openMongo(
+					defineMongo({
 						databases: {
 							main: { uri: server.uri, collections },
 							analytics: {
 								client: other,
-								database: 'kit-transaction-analytics',
+								database: 'wiring-transaction-analytics',
 								collections: { events },
 							},
 						},
@@ -167,10 +167,10 @@ describe('transaction', () => {
 			);
 			try {
 				await expect(
-					await rejectionMessage(kit.transaction(async () => undefined)),
+					await rejectionMessage(mongo.transaction(async () => undefined)),
 				).toContain('holds more than one client');
 				// Named, it runs — on that client's database alone.
-				await kit.transaction(
+				await mongo.transaction(
 					(tx) => tx.databases.main.users.create({ email: 'ada@example.com' }),
 					{ on: 'main' },
 				);
@@ -178,7 +178,7 @@ describe('transaction', () => {
 				// its session: a transaction reaches one client's databases.
 				await expect(
 					await rejectionMessage(
-						kit.transaction(
+						mongo.transaction(
 							(tx) => tx.databases.analytics.events.create({ kind: 'signup' }),
 							{ on: 'main' },
 						),

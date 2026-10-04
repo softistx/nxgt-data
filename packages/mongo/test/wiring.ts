@@ -20,7 +20,7 @@ export const users = defineCollection({
 	indexes: [{ key: { email: 1 }, unique: true, name: 'users_email_unique' }],
 });
 
-/** Soft-deleted, so a spec can tell a kit's options from a collection's. */
+/** Soft-deleted, so a spec can tell a Mongo's options from a collection's. */
 export const posts = defineCollection({
 	name: 'posts',
 	schema: z.object({
@@ -54,18 +54,18 @@ export const uploads = defineBucket({ name: 'uploads' });
 
 /**
  * What an application passes as `import * as buckets`, with an export that
- * is no bucket, which the kit leaves out.
+ * is no bucket, which the Mongo leaves out.
  */
 export const buckets = { avatars, uploads, MAX_SIZE: 1024 };
 
 /**
- * One mongod per spec file, emptied before every test, and the kits a test
- * opened closed after it — a kit left open holds a client, and the server
+ * One mongod per spec file, emptied before every test, and the Mongos a test
+ * opened closed after it — a Mongo left open holds a client, and the server
  * would not stop.
  */
 export function useMongo(name: string) {
 	const server = {} as TestServer;
-	const kits: { close(): Promise<void> }[] = [];
+	const Mongos: { close(): Promise<void> }[] = [];
 	beforeAll(async () => {
 		Object.assign(server, await startMongo(name));
 	});
@@ -73,16 +73,16 @@ export function useMongo(name: string) {
 		await server.reset();
 	});
 	afterAll(async () => {
-		for (const kit of kits) await kit.close().catch(() => undefined);
+		for (const mongo of Mongos) await mongo.close().catch(() => undefined);
 		await closeMongo();
 		await server.stop();
 	});
 	return {
 		server,
-		/** Closes this kit after the file, whatever the test does. */
-		track<K extends { close(): Promise<void> }>(kit: K): K {
-			kits.push(kit);
-			return kit;
+		/** Closes this Mongo after the file, whatever the test does. */
+		track<K extends { close(): Promise<void> }>(mongo: K): K {
+			Mongos.push(mongo);
+			return mongo;
 		},
 	};
 }

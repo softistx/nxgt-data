@@ -1,14 +1,14 @@
 import { getCollection } from '../collection/get-collection';
 import { type BucketDefinition, getFiles } from '../gridfs';
-import type { DatabaseContext, KitContext } from './context';
+import type { DatabaseContext, WiringContext } from './context';
 
 /**
- * What sits under `key` in this kit's cache, built by `build` the first time
+ * What sits under `key` in this Mongo's cache, built by `build` the first time
  * it is read. One cache for collections and buckets alike: a key is one or
- * the other, never both, which `defineConfig` refuses.
+ * the other, never both, which `defineMongo` refuses.
  */
 function cached(
-	ctx: KitContext,
+	ctx: WiringContext,
 	database: DatabaseContext,
 	key: string,
 	build: () => unknown,
@@ -28,10 +28,10 @@ function cached(
 /**
  * The collection under `key`, built the first time it is read and kept:
  * `getCollection` caches nothing, so a scope that built them all would pay
- * for every collection on every request that derives a kit.
+ * for every collection on every request that derives a Mongo.
  */
 export function collectionAt(
-	ctx: KitContext,
+	ctx: WiringContext,
 	database: DatabaseContext,
 	key: string,
 	definition: DatabaseContext['wired'][number][1],
@@ -49,12 +49,12 @@ export function collectionAt(
 
 /**
  * The bucket under `key`, built and kept the way `collectionAt` keeps a
- * collection. It runs in the kit's session, so a file written in a
+ * collection. It runs in the Mongo's session, so a file written in a
  * transaction is part of it, and takes the database's `autoSync`. A bucket
  * has no actor to carry.
  */
 export function bucketAt(
-	ctx: KitContext,
+	ctx: WiringContext,
 	database: DatabaseContext,
 	key: string,
 	definition: BucketDefinition,
@@ -74,10 +74,10 @@ export function bucketAt(
  * `Db`, read through a proxy — the shape `getCollection` already uses to put
  * this package's methods over the driver's collection.
  *
- * A key the `Db` already answers to never reaches here: `createKit` refuses
+ * A key the `Db` already answers to never reaches here: `openMongo` refuses
  * it, and the types refuse it before that.
  */
-export function scopeOf(ctx: KitContext, database: DatabaseContext): object {
+export function scopeOf(ctx: WiringContext, database: DatabaseContext): object {
 	const collections: Record<string, unknown> = {};
 	for (const [key, definition] of database.wired) {
 		Object.defineProperty(collections, key, {

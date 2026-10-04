@@ -1,20 +1,20 @@
-import { KitError } from '../../errors/kit-error';
+import { WiringError } from '../../errors/wiring-error';
 import { checkDatabase } from './checks';
 import type {
 	Checked,
 	DatabaseConfig,
-	KitConfig,
-	KitConfigInput,
+	MongoConfig,
+	MongoConfigInput,
 } from './types';
 
 /** Whether the config named its databases, or is one database itself. */
 function databasesOf(
-	config: KitConfigInput,
+	config: MongoConfigInput,
 ): Record<string, DatabaseConfig<object>> {
 	if (typeof config !== 'object' || config === null) {
-		throw new KitError(
+		throw new WiringError(
 			'CONFIG',
-			'defineConfig: a configuration object is required',
+			'defineMongo: a configuration object is required',
 		);
 	}
 	if (!('databases' in config)) {
@@ -22,18 +22,18 @@ function databasesOf(
 	}
 	const { databases } = config;
 	if (typeof databases !== 'object' || databases === null) {
-		throw new KitError(
+		throw new WiringError(
 			'CONFIG',
-			'defineConfig: databases must be an object of databases by name, ' +
+			'defineMongo: databases must be an object of databases by name, ' +
 				'as `{ databases: { main: … } }`. One database is the ' +
 				'configuration itself, and names itself with `database`.',
 		);
 	}
 	const names = Object.keys(databases);
 	if (names.length === 0) {
-		throw new KitError(
+		throw new WiringError(
 			'CONFIG',
-			'defineConfig: databases names none. Give it at least one, ' +
+			'defineMongo: databases names none. Give it at least one, ' +
 				'as `{ databases: { main: … } }`.',
 		);
 	}
@@ -46,7 +46,7 @@ function databasesOf(
  * ```ts
  * import * as collections from './models';
  *
- * export const config = defineConfig({
+ * export const config = defineMongo({
  * 	uri: process.env.MONGO_URI!,
  * 	collections,
  * });
@@ -55,7 +55,7 @@ function databasesOf(
  * Several databases name themselves:
  *
  * ```ts
- * defineConfig({
+ * defineMongo({
  * 	databases: {
  * 		main: { uri: process.env.MONGO_URI!, collections },
  * 		analytics: { uri: process.env.ANALYTICS_URI!, collections: events },
@@ -67,14 +67,14 @@ function databasesOf(
  * with the configuration throws here, where the application starts, and the
  * variables are the application's to read.
  */
-export function defineConfig<const C extends KitConfigInput>(
+export function defineMongo<const C extends MongoConfigInput>(
 	config: C & Checked<C>,
-): KitConfig<C> {
+): MongoConfig<C> {
 	const databases = databasesOf(config);
 	for (const [name, database] of Object.entries(databases)) {
 		checkDatabase(name, database);
 	}
 	return Object.freeze({
 		databases: Object.freeze({ ...databases }),
-	}) as KitConfig<C>;
+	}) as MongoConfig<C>;
 }

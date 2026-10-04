@@ -7,23 +7,23 @@ import {
 	events,
 	useMongo,
 } from '../../test/wiring';
-import { KitError } from '../errors/kit-error';
+import { WiringError } from '../errors/wiring-error';
 import { defineBucket } from '../gridfs';
-import { defineConfig } from './config/define-config';
-import { createKit } from './create-kit';
+import { defineMongo } from './config/define-mongo';
+import { openMongo } from './open-mongo';
 
-const { server, track } = useMongo('kit-buckets');
+const { server, track } = useMongo('wiring-buckets');
 
-const bucketKit = async (more: { autoSync?: boolean } = {}) =>
+const bucketMongo = async (more: { autoSync?: boolean } = {}) =>
 	track(
-		await createKit(
-			defineConfig({ uri: server.uri, collections, buckets, ...more }),
+		await openMongo(
+			defineMongo({ uri: server.uri, collections, buckets, ...more }),
 		),
 	);
 
 const bytes = (n: number, fill = 7) => new Uint8Array(n).fill(fill);
 
-/** What a collection holds, counted from outside the kit. */
+/** What a collection holds, counted from outside the Mongo. */
 const count = (name: string) => server.db.collection(name).countDocuments();
 
 /** The indexes of a collection, by name; none when it is not there. */
@@ -49,13 +49,13 @@ const rejection = (promise: Promise<unknown>): Promise<unknown> =>
 
 describe('a bucket on the scope', () => {
 	test('puts and gets a file, its metadata typed and coerced', async () => {
-		const kit = await bucketKit();
+		const mongo = await bucketMongo();
 		const userId = new ObjectId();
-		const put = await kit.db.avatars.put(bytes(3000), {
+		const put = await mongo.db.avatars.put(bytes(3000), {
 			filename: 'ada.png',
 			metadata: { userId: userId.toHexString(), width: 64 },
 		});
-		const file = await kit.db.avatars.get(put.id);
+		const file = await mongo.db.avatars.get(put.id);
 		expect(await file.bytes()).toEqual(bytes(3000));
 		expect(file.filename).toBe('ada.png');
 		expect(file.metadata.userId).toBeInstanceOf(ObjectId);
@@ -64,27 +64,27 @@ describe('a bucket on the scope', () => {
 	});
 
 	test('lists the buckets beside the collections, and nothing else', async () => {
-		const kit = await bucketKit();
-		expect(Object.keys(kit.db)).toEqual([
+		const mongo = await bucketMongo();
+		expect(Object.keys(mongo.db)).toEqual([
 			'users',
 			'posts',
 			'avatars',
 			'uploads',
 		]);
-		expect('MAX_SIZE' in kit.db).toBe(false);
-		expect(kit.db.avatars.definition).toBe(avatars);
+		expect('MAX_SIZE' in mongo.db).toBe(false);
+		expect(mongo.db.avatars.definition).toBe(avatars);
 	});
 
 	test('gives the same bucket back at every read', async () => {
-		const kit = await bucketKit();
-		expect(kit.db.avatars).toBe(kit.db.avatars);
-		expect(kit.db.uploads).not.toBe(kit.db.avatars as never);
+		const mongo = await bucketMongo();
+		expect(mongo.db.avatars).toBe(mongo.db.avatars);
+		expect(mongo.db.uploads).not.toBe(mongo.db.avatars as never);
 	});
 
 	test('passes bucketOptions to every bucket', async () => {
-		const kit = track(
-			await createKit(
-				defineConfig({
+		const mongo = track(
+			await openMongo(
+				defineMongo({
 					uri: server.uri,
 					collections,
 					buckets,
@@ -92,58 +92,58 @@ describe('a bucket on the scope', () => {
 				}),
 			),
 		);
-		const file = await kit.db.uploads.put(bytes(10));
+		const file = await mongo.db.uploads.put(bytes(10));
 		expect(file.sha256).toBeUndefined();
 		// Without the option, the bucket hashes: the option is what changed it.
-		const plain = await bucketKit();
+		const plain = await bucketMongo();
 		expect((await plain.db.uploads.put(bytes(10))).sha256).toBeString();
 	});
 
 	test('creates the indexes before the first call when autoSync is on', async () => {
-		const kit = await bucketKit({ autoSync: true });
-		await kit.db.avatars.put(bytes(10), {
+		const mongo = await bucketMongo({ autoSync: true });
+		await mongo.db.avatars.put(bytes(10), {
 			metadata: { userId: new ObjectId() },
 		});
 		expect(await indexNames('avatars.chunks')).toContain('files_id_1_n_1');
 	});
 
 	test('creates none when autoSync is off', async () => {
-		const kit = await bucketKit();
-		await kit.db.uploads.put(bytes(10));
+		const mongo = await bucketMongo();
+		await mongo.db.uploads.put(bytes(10));
 		expect(await indexNames('uploads.chunks')).not.toContain('files_id_1_n_1');
 	});
 });
 
 describe('a bucket in a session', () => {
-	test('a derived kit carries its session to the bucket', async () => {
-		const kit = await bucketKit();
+	test('a derived Mongo carries its session to the bucket', async () => {
+		const mongo = await bucketMongo();
 		const session = server.client.startSession();
 		try {
-			const derived = kit.withSession(session);
+			const derived = mongo.withSession(session);
 			expect(derived.db.avatars.session).toBe(session);
-			expect(kit.db.avatars.session).toBeUndefined();
-			expect(derived.db.avatars).not.toBe(kit.db.avatars);
-			// And the actor a kit stamps does not reach a bucket, which has none.
-			expect(kit.as(new ObjectId()).db.avatars.session).toBeUndefined();
+			expect(mongo.db.avatars.session).toBeUndefined();
+			expect(derived.db.avatars).not.toBe(mongo.db.avatars);
+			// And the actor a Mongo stamps does not reach a bucket, which has none.
+			expect(mongo.as(new ObjectId()).db.avatars.session).toBeUndefined();
 		} finally {
 			await session.endSession();
 		}
 	});
 
 	test('a transaction gives its buckets its session', async () => {
-		const kit = await bucketKit();
-		const seen = await kit.transaction(async (tx) => ({
+		const mongo = await bucketMongo();
+		const seen = await mongo.transaction(async (tx) => ({
 			bucket: tx.db.uploads.session,
-			kit: tx.session,
+			mongo: tx.session,
 		}));
 		expect(seen.bucket).toBeDefined();
-		expect(seen.bucket).toBe(seen.kit);
+		expect(seen.bucket).toBe(seen.mongo);
 	});
 
 	test('a transaction that throws leaves no file', async () => {
-		const kit = await bucketKit();
+		const mongo = await bucketMongo();
 		const failed = await rejection(
-			kit.transaction(async (tx) => {
+			mongo.transaction(async (tx) => {
 				await tx.db.users.create({ email: 'ada@example.com' });
 				await tx.db.uploads.put(bytes(600_000));
 				throw new Error('rolled back');
@@ -156,8 +156,8 @@ describe('a bucket in a session', () => {
 	});
 
 	test('a transaction that commits leaves the file beside the document', async () => {
-		const kit = await bucketKit();
-		const { user, file } = await kit.transaction(async (tx) => {
+		const mongo = await bucketMongo();
+		const { user, file } = await mongo.transaction(async (tx) => {
 			const user = await tx.db.users.create({ email: 'ada@example.com' });
 			const file = await tx.db.avatars.put(bytes(600_000), {
 				metadata: { userId: user._id },
@@ -165,7 +165,7 @@ describe('a bucket in a session', () => {
 			return { user, file };
 		});
 		expect(await count('users')).toBe(1);
-		const stored = await kit.db.avatars.get(file.id);
+		const stored = await mongo.db.avatars.get(file.id);
 		expect(stored.metadata.userId.equals(user._id)).toBe(true);
 		expect(await stored.bytes()).toEqual(bytes(600_000));
 		// 600 000 bytes are three chunks of 255 KiB: every one committed.
@@ -175,9 +175,9 @@ describe('a bucket in a session', () => {
 
 describe('autoSync and a transaction', () => {
 	/** A transaction writing a document and then a file, counting its runs. */
-	const attemptsOf = async (kit: Awaited<ReturnType<typeof bucketKit>>) => {
+	const attemptsOf = async (mongo: Awaited<ReturnType<typeof bucketMongo>>) => {
 		let attempts = 0;
-		await kit.transaction(async (tx) => {
+		await mongo.transaction(async (tx) => {
 			attempts += 1;
 			await tx.db.users.create({ email: `ada${attempts}@example.com` });
 			await tx.db.uploads.put(bytes(10));
@@ -191,8 +191,8 @@ describe('autoSync and a transaction', () => {
 		// fails with 112 — "Collection namespace '….uploads.chunks' is already
 		// in use" — and the driver runs the body again. A source that can be
 		// read once is spent by then; this one is bytes, read afresh.
-		const kit = await bucketKit({ autoSync: true });
-		expect(await attemptsOf(kit)).toBe(2);
+		const mongo = await bucketMongo({ autoSync: true });
+		expect(await attemptsOf(mongo)).toBe(2);
 		expect(await count('uploads.files')).toBe(1);
 		expect(await count('users')).toBe(1);
 	});
@@ -200,7 +200,7 @@ describe('autoSync and a transaction', () => {
 	test('a stream the first run spent is refused, and nothing commits', async () => {
 		// The second run used to read the stream as empty and commit a file
 		// of 0 bytes beside the user: `@nxgt/mongo/gridfs` refuses it now.
-		const kit = await bucketKit({ autoSync: true });
+		const mongo = await bucketMongo({ autoSync: true });
 		const stream = new ReadableStream<Uint8Array>({
 			start(controller) {
 				controller.enqueue(bytes(10));
@@ -209,7 +209,7 @@ describe('autoSync and a transaction', () => {
 		});
 		let attempts = 0;
 		const failed = await rejection(
-			kit.transaction(async (tx) => {
+			mongo.transaction(async (tx) => {
 				attempts += 1;
 				await tx.db.users.create({ email: 'ada@example.com' });
 				await tx.db.uploads.put(stream);
@@ -225,16 +225,16 @@ describe('autoSync and a transaction', () => {
 	});
 
 	test('runs it once when syncBuckets ran first', async () => {
-		const kit = await bucketKit({ autoSync: true });
-		await kit.syncBuckets();
-		expect(await attemptsOf(kit)).toBe(1);
+		const mongo = await bucketMongo({ autoSync: true });
+		await mongo.syncBuckets();
+		expect(await attemptsOf(mongo)).toBe(1);
 	});
 });
 
 describe('syncBuckets', () => {
 	test('creates the four indexes, and a second run creates none', async () => {
-		const kit = await bucketKit();
-		const first = await kit.syncBuckets();
+		const mongo = await bucketMongo();
+		const first = await mongo.syncBuckets();
 		expect(Object.keys(first)).toEqual(['default']);
 		expect(Object.keys(first.default)).toEqual(['avatars', 'uploads']);
 		const created = first.default.avatars.flatMap((report) => report.created);
@@ -246,19 +246,19 @@ describe('syncBuckets', () => {
 		]);
 		expect(await indexNames('uploads.chunks')).toContain('files_id_1_n_1');
 
-		const second = await kit.syncBuckets();
+		const second = await mongo.syncBuckets();
 		for (const reports of Object.values(second.default)) {
 			expect(reports.flatMap((report) => report.created)).toEqual([]);
 			expect(reports.flatMap((report) => report.existing)).toHaveLength(4);
 		}
 	});
 
-	test('runs outside the session of the kit it is called on', async () => {
+	test('runs outside the session of the Mongo it is called on', async () => {
 		// Inside the transaction's session mongod would refuse `createIndexes`
 		// — the bucket's own `syncIndexes` is refused there — so this passing
-		// is what says the kit's session was left out.
-		const kit = await bucketKit();
-		const reports = await kit.transaction((tx) => tx.syncBuckets());
+		// is what says the Mongo's session was left out.
+		const mongo = await bucketMongo();
+		const reports = await mongo.transaction((tx) => tx.syncBuckets());
 		expect(reports.default.uploads.flatMap((one) => one.created)).toHaveLength(
 			4,
 		);
@@ -266,45 +266,45 @@ describe('syncBuckets', () => {
 	});
 
 	test('is not what `sync` does', async () => {
-		const kit = await bucketKit();
-		await kit.sync();
+		const mongo = await bucketMongo();
+		await mongo.sync();
 		expect(await indexNames('avatars.chunks')).toEqual([]);
 	});
 
 	test('reports every database, one with no bucket as empty', async () => {
-		const kit = track(
-			await createKit(
-				defineConfig({
+		const mongo = track(
+			await openMongo(
+				defineMongo({
 					databases: {
 						main: { uri: server.uri, collections, buckets },
 						analytics: {
 							uri: server.uri,
-							database: 'kit-buckets-analytics',
+							database: 'wiring-buckets-analytics',
 							collections: { events },
 						},
 					},
 				}),
 			),
 		);
-		const reports = await kit.syncBuckets();
+		const reports = await mongo.syncBuckets();
 		expect(Object.keys(reports)).toEqual(['main', 'analytics']);
 		expect(reports.analytics).toEqual({});
 		expect(Object.keys(reports.main)).toEqual(['avatars', 'uploads']);
 	});
 });
 
-describe('createKit', () => {
+describe('openMongo', () => {
 	test('refuses a bucket under a key the driver`s Db answers to', async () => {
 		const failed = await rejection(
-			createKit(
-				defineConfig({
+			openMongo(
+				defineMongo({
 					uri: server.uri,
 					collections,
 					buckets: { watch: defineBucket({ name: 'watch' }) },
 				} as never),
 			),
 		);
-		expect(failed).toBeInstanceOf(KitError);
+		expect(failed).toBeInstanceOf(WiringError);
 		expect(failed).toHaveProperty('code', 'COLLISION');
 		expect(failed).toHaveProperty('key', 'watch');
 		expect(failed).toHaveProperty(

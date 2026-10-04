@@ -1,6 +1,6 @@
 import type { Db } from 'mongodb';
 import type { PingResult } from '../connection/connect';
-import type { KitContext } from './context';
+import type { WiringContext } from './context';
 
 /**
  * `ping` on a database the configuration handed a `client`, which has no
@@ -10,7 +10,7 @@ import type { KitContext } from './context';
  * The timer is for this case alone. Measured on mongodb 7.6.0, `timeoutMS`
  * does not bound the connect a client that was never connected makes on its
  * first command: that waits `serverSelectionTimeoutMS` (30 s by default).
- * `connectMongo`'s clients are always connected, so a database the kit
+ * `connectMongo`'s clients are always connected, so a database the Mongo
  * opened keeps the original, and the driver's own `MongoOperationTimeoutError`
  * — a timer started with the same deadline would always fire first and hide
  * it, which is what the first version of this did.
@@ -35,8 +35,8 @@ async function pingDb(db: Db, timeoutMS = 2_000): Promise<PingResult> {
 }
 
 /** Every database's `ping`, at once, under its name. Never throws. */
-export async function pingKit(
-	ctx: KitContext,
+export async function pingMongo(
+	ctx: WiringContext,
 	options?: { timeoutMS?: number },
 ): Promise<Record<string, PingResult>> {
 	const entries = await Promise.all(

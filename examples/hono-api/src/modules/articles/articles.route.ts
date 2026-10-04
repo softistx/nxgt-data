@@ -12,7 +12,7 @@ function toArticle(article: StoredArticle): Article {
 		id: article.id,
 		title: article.title,
 		body: article.body,
-		// The kit stamped it from the actor of the request that wrote it.
+		// The Mongo stamped it from the actor of the request that wrote it.
 		authorId: String(article.createdBy),
 		createdAt: article.createdAt.toISOString(),
 	};

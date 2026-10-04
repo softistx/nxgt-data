@@ -22,11 +22,11 @@ export type BucketsOf<B> = {
 };
 
 /**
- * The options of every bucket of a database, minus what the kit decides: the
- * session a derived kit or a transaction carries, and the database's
+ * The options of every bucket of a database, minus what the wiring decides: the
+ * session a derived Mongo or a transaction carries, and the database's
  * `autoSync`.
  */
-export type KitBucketOptions = Omit<BucketOptions, 'session' | 'autoSync'>;
+export type WiredBucketOptions = Omit<BucketOptions, 'session' | 'autoSync'>;
 
 /**
  * A name the driver's `Db` already uses. The scope carries the collections
@@ -37,10 +37,10 @@ export type KitBucketOptions = Omit<BucketOptions, 'session' | 'autoSync'>;
  * driver adds is covered the day the pin moves. At run time the same question
  * is asked of the object itself, with `in`.
  */
-export type ReservedName = keyof Db;
+export type DbMemberName = keyof Db;
 
 /** The keys of `C` that a `Db` already answers to. */
-export type Collides<C> = Extract<keyof CollectionsOf<C>, ReservedName>;
+export type Collides<C> = Extract<keyof CollectionsOf<C>, DbMemberName>;
 
 /**
  * Makes a colliding key unassignable, and says why where the developer is
@@ -54,7 +54,7 @@ export type NoCollision<C> = [Collides<C>] extends [never]
 		};
 
 /** The bucket keys of `B` that a `Db` already answers to. */
-export type BucketCollides<B> = Extract<keyof BucketsOf<B>, ReservedName>;
+export type BucketCollides<B> = Extract<keyof BucketsOf<B>, DbMemberName>;
 
 /** The keys under which a database wires both a collection and a bucket. */
 export type BothWired<Cols, B> = Extract<
@@ -81,7 +81,7 @@ export type NoBucketCollision<Cols, B> = ([BucketCollides<B>] extends [never]
 				>]: `"${K & string}" is also a collection of this database: wire this bucket under another key`;
 			});
 
-/** The bucket options the kit decides, which `bucketOptions` may not name. */
+/** The bucket options the wiring decides, which `bucketOptions` may not name. */
 type OwnedBucketOption = 'session' | 'autoSync';
 
 /** Makes `session` or `autoSync` in `bucketOptions` unassignable, and says why. */
@@ -93,7 +93,7 @@ export type NoOwnedBucketOption<BO> = [
 			[K in Extract<
 				keyof BO,
 				OwnedBucketOption
-			>]: `"${K & string}" is the kit's to decide: withSession and transactions carry the session, and autoSync is the database's`;
+			>]: `"${K & string}" is the wiring's to decide: withSession and transactions carry the session, and autoSync is the database's`;
 		};
 
 /**
@@ -111,8 +111,8 @@ export type Unwired<Cols, OF> = [
 			>]: `"${K & string}" is not wired by this database: there are no options for it`;
 		};
 
-/** The options of one collection, minus what the kit decides itself. */
-export type KitCollectionOptions<Def> = Omit<
+/** The options of one collection, minus what the wiring decides itself. */
+export type WiredCollectionOptions<Def> = Omit<
 	CollectionOptions<Def>,
 	'db' | 'session' | 'actor' | 'autoSync'
 >;
@@ -121,11 +121,11 @@ export type KitCollectionOptions<Def> = Omit<
 export interface DatabaseConfig<C, B = object> {
 	/**
 	 * Where to connect. One of `uri` and `client`, never both. Databases on
-	 * one URI share a client, which the kit closes with its last holder.
+	 * one URI share a client, which the Mongo closes with its last holder.
 	 */
 	uri?: string;
 	/**
-	 * A client the application opened. The kit uses it and **never closes
+	 * A client the application opened. The Mongo uses it and **never closes
 	 * it**: what it did not open is not its to close.
 	 */
 	client?: MongoClient;
@@ -136,10 +136,10 @@ export interface DatabaseConfig<C, B = object> {
 	/** `import * as collections from './models'`, passed as it is. */
 	collections: C;
 	/** For every collection of this database. */
-	options?: KitCollectionOptions<AnyCollectionDefinition>;
+	options?: WiredCollectionOptions<AnyCollectionDefinition>;
 	/** For one collection, merged over `options`. */
 	optionsFor?: {
-		[K in keyof CollectionsOf<C>]?: KitCollectionOptions<CollectionsOf<C>[K]>;
+		[K in keyof CollectionsOf<C>]?: WiredCollectionOptions<CollectionsOf<C>[K]>;
 	};
 	/**
 	 * Sync each collection before its first operation, once per database:
@@ -154,18 +154,18 @@ export interface DatabaseConfig<C, B = object> {
 	 */
 	buckets?: B;
 	/** For every bucket of this database. */
-	bucketOptions?: KitBucketOptions;
+	bucketOptions?: WiredBucketOptions;
 }
 
 /** One database, or several under their names. */
-export type KitConfigInput =
+export type MongoConfigInput =
 	| DatabaseConfig<object>
 	| { databases: Record<string, DatabaseConfig<object>> };
 
 /**
  * The config with every key it has to refuse — one the driver's `Db` already
  * answers to, or options for a collection that is not wired — turned into the
- * message above. `defineConfig` takes its argument as `C & Checked<C>`, and a
+ * message above. `defineMongo` takes its argument as `C & Checked<C>`, and a
  * constraint written that way is what makes the refusal land on the key the
  * application wrote, rather than on the whole object.
  */
@@ -227,11 +227,11 @@ export type BucketsIn<C, N extends DbName<C>> = DatabasesOf<C>[N] extends {
 	: Record<never, never>;
 
 /**
- * What `defineConfig` gives back: the databases under their names, checked
+ * What `defineMongo` gives back: the databases under their names, checked
  * and frozen, carrying the shape it was written in — which is what decides
- * whether the kit has a `db` of its own.
+ * whether the Mongo has a `db` of its own.
  */
-export interface KitConfig<C> {
+export interface MongoConfig<C> {
 	readonly databases: {
 		readonly [N in DbName<C>]: DatabaseConfig<
 			CollectionsIn<C, N>,

@@ -1,28 +1,28 @@
 import { describe, expect, test } from 'bun:test';
 import { collections, events, useMongo } from '../../test/wiring';
-import { defineConfig } from './config/define-config';
-import { createKit } from './create-kit';
+import { defineMongo } from './config/define-mongo';
+import { openMongo } from './open-mongo';
 
-const { server, track } = useMongo('kit-sync');
+const { server, track } = useMongo('wiring-sync');
 
 const twoDatabases = () =>
-	defineConfig({
+	defineMongo({
 		databases: {
 			main: { uri: server.uri, collections },
 			analytics: {
 				uri: server.uri,
-				database: 'kit-sync-analytics',
+				database: 'wiring-sync-analytics',
 				collections: { events },
 			},
 		},
 	});
 
 describe('sync', () => {
-	test('creates the collections the kit wires', async () => {
-		const kit = track(
-			await createKit(defineConfig({ uri: server.uri, collections })),
+	test('creates the collections the Mongo wires', async () => {
+		const mongo = track(
+			await openMongo(defineMongo({ uri: server.uri, collections })),
 		);
-		const reports = await kit.sync();
+		const reports = await mongo.sync();
 		expect(Object.keys(reports)).toEqual(['default']);
 		expect(reports.default.map((report) => report.name).sort()).toEqual([
 			'posts',
@@ -36,11 +36,11 @@ describe('sync', () => {
 	});
 
 	test('reports each database under its name', async () => {
-		const kit = track(await createKit(twoDatabases()));
-		const reports = await kit.sync();
+		const mongo = track(await openMongo(twoDatabases()));
+		const reports = await mongo.sync();
 		expect(Object.keys(reports)).toEqual(['main', 'analytics']);
 		expect(reports.analytics.map((report) => report.name)).toEqual(['events']);
-		const analytics = kit.clients.analytics.db('kit-sync-analytics');
+		const analytics = mongo.clients.analytics.db('wiring-sync-analytics');
 		const names = (await analytics.listCollections().toArray()).map(
 			(one) => one.name,
 		);
@@ -49,10 +49,10 @@ describe('sync', () => {
 	});
 
 	test('changes nothing on a dry run', async () => {
-		const kit = track(
-			await createKit(defineConfig({ uri: server.uri, collections })),
+		const mongo = track(
+			await openMongo(defineMongo({ uri: server.uri, collections })),
 		);
-		const reports = await kit.sync({ dryRun: true });
+		const reports = await mongo.sync({ dryRun: true });
 		expect(reports.default).toHaveLength(2);
 		const names = (await server.db.listCollections().toArray()).map(
 			(one) => one.name,

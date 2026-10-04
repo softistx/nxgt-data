@@ -177,12 +177,12 @@ export {
 	ValidationError,
 	type ValidationIssue,
 } from './errors/data-error';
-export {
-	KitError,
-	type KitErrorCode,
-	type KitErrorOptions,
-} from './errors/kit-error';
 export { toDataError } from './errors/to-data-error';
+export {
+	WiringError,
+	type WiringErrorCode,
+	type WiringErrorOptions,
+} from './errors/wiring-error';
 export {
 	type CursorPayload,
 	decodeCursor,
@@ -235,33 +235,33 @@ export {
 	type TransactionHost,
 	withTransaction,
 } from './transaction/with-transaction';
-export { defineConfig } from './wiring/config/define-config';
+export { defineMongo } from './wiring/config/define-mongo';
 export type {
 	BucketsIn,
 	BucketsOf,
 	CollectionsIn,
 	CollectionsOf,
 	DatabaseConfig,
+	DbMemberName,
 	DbName,
-	KitBucketOptions,
-	KitCollectionOptions,
-	KitConfig,
-	KitConfigInput,
+	MongoConfig,
+	MongoConfigInput,
 	NoBucketCollision,
 	NoBucketsToOption,
 	NoCollision,
 	NoOwnedBucketOption,
-	ReservedName,
 	Unwired,
+	WiredBucketOptions,
+	WiredCollectionOptions,
 } from './wiring/config/types';
-export { createKit } from './wiring/create-kit';
 export { type DiscoverOptions, discoverCollections } from './wiring/discover';
+export { openMongo } from './wiring/open-mongo';
 export type {
 	BucketSyncReport,
 	DbScope,
-	KitActor,
-	KitOf,
-	KitTransactionOptions,
-	MongoKit,
+	Mongo,
+	MongoActor,
+	MongoOf,
+	MongoTransactionOptions,
 	SoleScope,
 } from './wiring/types';

@@ -1,12 +1,12 @@
 import type { RedisClient } from 'bun';
-import type { Kit } from './db';
+import type { AppMongo } from './db';
 import { ArticleGuards } from './modules/articles/articles.guards';
 import { ArticleService } from './modules/articles/articles.service';
 import { UserService } from './modules/users/users.service';
 
 /**
  * What a handler is given: the services of this request, each built on the
- * kit that stamps its user. A handler never reaches the kit itself, so it
+ * Mongo that stamps its user. A handler never reaches the Mongo itself, so it
  * cannot write as somebody else, and cannot close it.
  *
  * The services are the classes themselves, so a module adding a method is
@@ -46,11 +46,11 @@ export interface Env {
 	};
 }
 
-/** Builds one request's services on its kit, once. */
-export function buildServices(kit: Kit): Services {
+/** Builds one request's services on its mongo, once. */
+export function buildServices(mongo: AppMongo): Services {
 	return {
-		users: new UserService(kit),
-		articles: new ArticleService(kit),
+		users: new UserService(mongo),
+		articles: new ArticleService(mongo),
 	};
 }
 

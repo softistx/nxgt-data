@@ -1,19 +1,19 @@
-// What the kit refuses about buckets. Checked by `tsc --noEmit`, never run: a
+// What the Mongo refuses about buckets. Checked by `tsc --noEmit`, never run: a
 // refusal that stops holding fails the typecheck on its unused directive.
 
 import type { ObjectId } from 'mongodb';
-import { createKit, defineConfig } from '../../src';
+import { defineMongo, openMongo } from '../../src';
 import { defineBucket, type TypedBucket } from '../../src/gridfs';
 import { avatars, buckets, collections, events, users } from '../wiring';
 
 const uri = 'mongodb://127.0.0.1:1/unused';
 
-const kit = await createKit(defineConfig({ uri, collections, buckets }));
+const mongo = await openMongo(defineMongo({ uri, collections, buckets }));
 
 // A bucket is the typed bucket, its metadata read as the schema says.
-const bucket: TypedBucket<typeof avatars> = kit.db.avatars;
+const bucket: TypedBucket<typeof avatars> = mongo.db.avatars;
 void bucket;
-const file = await kit.db.avatars.put(new Uint8Array(1), {
+const file = await mongo.db.avatars.put(new Uint8Array(1), {
 	// An id may be given as its 24 hex characters, as on a collection.
 	metadata: { userId: '68ca1f0f2b1c4d5e6f7a8b90', width: 64 },
 });
@@ -23,19 +23,19 @@ void userId;
 void width;
 
 // @ts-expect-error — `widht` is no field of an avatar's metadata.
-void kit.db.avatars.put(new Uint8Array(1), { metadata: { widht: 64 } });
+void mongo.db.avatars.put(new Uint8Array(1), { metadata: { widht: 64 } });
 
 // @ts-expect-error — `width` is a number.
-void kit.db.avatars.put(new Uint8Array(1), { metadata: { width: 'wide' } });
+void mongo.db.avatars.put(new Uint8Array(1), { metadata: { width: 'wide' } });
 
 // @ts-expect-error — `MAX_SIZE` is exported beside the buckets, and is none.
-void kit.db.MAX_SIZE;
+void mongo.db.MAX_SIZE;
 
 // The collections are still there, beside the buckets.
-void kit.db.users.create({ email: 'ada@example.com' });
+void mongo.db.users.create({ email: 'ada@example.com' });
 
 // `syncBuckets` reports under the database names, then the bucket keys.
-void kit.syncBuckets().then((reports) => {
+void mongo.syncBuckets().then((reports) => {
 	void reports.default.avatars;
 	// @ts-expect-error — no bucket is wired under that key.
 	void reports.default.nothing;
@@ -44,10 +44,10 @@ void kit.syncBuckets().then((reports) => {
 });
 
 // @ts-expect-error — there is no `dryRun` to give: index creation has none.
-void kit.syncBuckets({ dryRun: true });
+void mongo.syncBuckets({ dryRun: true });
 
 // A bucket under a key the driver's Db already answers to is refused.
-void defineConfig({
+void defineMongo({
 	uri,
 	collections,
 	// @ts-expect-error — "watch" is a member of the driver's Db.
@@ -55,7 +55,7 @@ void defineConfig({
 });
 
 // …and so is one under a key a collection already holds.
-void defineConfig({
+void defineMongo({
 	uri,
 	collections: { users },
 	// @ts-expect-error — "users" is also a collection of this database.
@@ -63,22 +63,22 @@ void defineConfig({
 });
 
 // …whichever shape the config was written in.
-void defineConfig({
+void defineMongo({
 	databases: {
 		// @ts-expect-error — "command" is a member of the driver's Db.
 		main: { uri, collections, buckets: { command: avatars } },
 	},
 });
 
-// The kit decides the session and `autoSync`, even beside an allowed option.
-void defineConfig({
+// The wiring decides the session and `autoSync`, even beside an allowed option.
+void defineMongo({
 	uri,
 	collections,
 	buckets,
-	// @ts-expect-error — the session is the kit's.
+	// @ts-expect-error — the session is the Mongo's.
 	bucketOptions: { hash: false, session: undefined },
 });
-void defineConfig({
+void defineMongo({
 	uri,
 	collections,
 	buckets,
@@ -86,7 +86,7 @@ void defineConfig({
 	bucketOptions: { hash: false, autoSync: true },
 });
 
-void defineConfig({
+void defineMongo({
 	uri,
 	collections,
 	// @ts-expect-error — no buckets, so no bucket options.
@@ -94,8 +94,8 @@ void defineConfig({
 });
 
 // Several databases: each scope carries its own buckets, and only those.
-const many = await createKit(
-	defineConfig({
+const many = await openMongo(
+	defineMongo({
 		databases: {
 			main: { uri, collections, buckets },
 			analytics: { uri, collections: { events } },
@@ -107,7 +107,7 @@ void many.databases.main.avatars;
 void many.databases.analytics.avatars;
 
 // Inside a transaction the buckets are there, typed the same way.
-void kit.transaction(async (tx) => {
+void mongo.transaction(async (tx) => {
 	const inTx: TypedBucket<typeof avatars> = tx.db.avatars;
 	void inTx;
 });

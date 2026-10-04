@@ -3,7 +3,7 @@ import type { Hono } from 'hono';
 import { ObjectId } from 'mongodb';
 import { buildApp } from '../src/app';
 import type { Env, GuardOptions } from '../src/context';
-import { useKit } from './kit';
+import { useMongo } from './mongo';
 import { useRedis } from './redis';
 
 /** Somebody who exists nowhere: the caller of a request that names no one real. */
@@ -38,12 +38,12 @@ function caller(app: () => Hono<Env>): Call {
  * module's route spec calls only its own routes through it.
  */
 export function useApi(database: string, options: GuardOptions = {}) {
-	const state = useKit(database);
+	const state = useMongo(database);
 	const servers = useRedis();
 	let app: Hono<Env>;
 
 	beforeAll(() => {
-		app = buildApp(state.kit, servers.redis.client, options);
+		app = buildApp(state.mongo, servers.redis.client, options);
 	});
 
 	const call = caller(() => app);
@@ -62,9 +62,9 @@ export function useApi(database: string, options: GuardOptions = {}) {
 	 * that compares two settings. Call it inside a test.
 	 */
 	function callWith(other: GuardOptions): Call {
-		const built = buildApp(state.kit, servers.redis.client, other);
+		const built = buildApp(state.mongo, servers.redis.client, other);
 		return caller(() => built);
 	}
 
-	return { kit: state, redis: servers, call, callWith, newUser };
+	return { mongo: state, redis: servers, call, callWith, newUser };
 }

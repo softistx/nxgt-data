@@ -16,7 +16,7 @@ properties:
     type: string
   authorId:
     type: string
-    description: The user the kit stamped as the author.
+    description: The user the Mongo stamped as the author.
   createdAt:
     type: string
     format: date-time

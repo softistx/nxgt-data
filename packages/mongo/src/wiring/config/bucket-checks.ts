@@ -31,12 +31,12 @@ export function bucketsOf(buckets: object): [string, BucketDefinition][] {
 	);
 }
 
-/** The bucket options the kit decides: the session, and the database's `autoSync`. */
+/** The bucket options the wiring decides: the session, and the database's `autoSync`. */
 const OWNED_BY_BUCKETS = ['session', 'autoSync'] as const;
 
 /**
  * `bucketOptions` with no bucket to apply to, or with `session` or
- * `autoSync` in it, which would outrank the kit.
+ * `autoSync` in it, which would outrank the wiring.
  */
 function checkBucketOptions(
 	name: string,
@@ -55,7 +55,7 @@ function checkBucketOptions(
 		if (key in options) {
 			refuse(
 				name,
-				`has "${key}" in bucketOptions, which the kit decides: ` +
+				`has "${key}" in bucketOptions, which the wiring decides: ` +
 					"`withSession` and transactions carry the session, and `autoSync` is the database's",
 			);
 		}
@@ -64,7 +64,7 @@ function checkBucketOptions(
 
 /**
  * What a database's `buckets` and `bucketOptions` must answer. A key the
- * driver's `Db` answers to is refused by `createKit`, which has a `Db` to ask
+ * driver's `Db` answers to is refused by `openMongo`, which has a `Db` to ask
  * with `in`, exactly as it is for a collection: there is none here.
  */
 export function checkBuckets(

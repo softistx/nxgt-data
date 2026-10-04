@@ -1,22 +1,22 @@
-import { KitError } from '../errors/kit-error';
+import { WiringError } from '../errors/wiring-error';
 import type { SyncOptions } from '../sync/sync-collection';
-import { databaseOf, derived, type KitContext } from './context';
-import { pingKit } from './ping';
+import { databaseOf, derived, type WiringContext } from './context';
+import { pingMongo } from './ping';
 import { scopeOf } from './scope';
-import { syncKit, syncKitBuckets } from './sync';
+import { syncMongo, syncMongoBuckets } from './sync';
 import { transact } from './transaction';
-import type { KitTransactionOptions, MongoKit } from './types';
+import type { Mongo, MongoTransactionOptions } from './types';
 
 /**
- * Closes what this kit's context opened. Idempotent, because each
+ * Closes what this Mongo's context opened. Idempotent, because each
  * `MongoConnection` is: a second call awaits the first one's work.
  */
-async function closeKit(ctx: KitContext): Promise<void> {
+async function closeOpened(ctx: WiringContext): Promise<void> {
 	if (!ctx.root) {
-		throw new KitError(
+		throw new WiringError(
 			'DERIVED',
-			'close: this kit came from `as`, `withSession` or a transaction. ' +
-				'Close the kit `createKit` returned — the clients are shared.',
+			'close: this Mongo came from `as`, `withSession` or a transaction. ' +
+				'Close the one `openMongo` returned — the clients are shared.',
 		);
 	}
 	for (const database of ctx.databases) {
@@ -25,11 +25,11 @@ async function closeKit(ctx: KitContext): Promise<void> {
 }
 
 /**
- * A kit over one context. `as` and `withSession` build another over a new
+ * A Mongo over one context. `as` and `withSession` build another over a new
  * context, sharing the databases and the clients: only the collections are
  * built again, and only the ones a caller reads.
  */
-export function kitOf<C>(ctx: KitContext): MongoKit<C> {
+export function mongoOf<C>(ctx: WiringContext): Mongo<C> {
 	const scopes = new Map<string, object>();
 	const scopeFor = (name: string): object => {
 		const found = scopes.get(name);
@@ -52,14 +52,14 @@ export function kitOf<C>(ctx: KitContext): MongoKit<C> {
 		});
 	}
 
-	const kit: MongoKit<C> = {
+	const mongo: Mongo<C> = {
 		get db() {
 			const [only] = ctx.databases;
 			if (ctx.databases.length !== 1 || !only) {
-				throw new KitError(
+				throw new WiringError(
 					'SEVERAL_DATABASES',
-					'kit.db: this kit has several databases. Read the one you mean, ' +
-						`as \`kit.databases.${ctx.databases[0]?.name ?? 'main'}\`.`,
+					'db: this Mongo has several databases. Read the one you mean, ' +
+						`as \`mongo.databases.${ctx.databases[0]?.name ?? 'main'}\`.`,
 				);
 			}
 			return scopeFor(only.name) as never;
@@ -73,37 +73,37 @@ export function kitOf<C>(ctx: KitContext): MongoKit<C> {
 			return ctx.session;
 		},
 		as(actor) {
-			return kitOf<C>(derived(ctx, { actor }));
+			return mongoOf<C>(derived(ctx, { actor }));
 		},
 		withSession(session) {
-			return kitOf<C>(derived(ctx, { session }));
+			return mongoOf<C>(derived(ctx, { session }));
 		},
 		transaction<T>(
-			fn: (kit: MongoKit<C>) => Promise<T>,
-			options?: KitTransactionOptions<C>,
+			fn: (mongo: Mongo<C>) => Promise<T>,
+			options?: MongoTransactionOptions<C>,
 		): Promise<T> {
 			return transact(
 				ctx,
-				(next) => kitOf<C>(next),
+				(next) => mongoOf<C>(next),
 				fn as never,
 				options as never,
 			);
 		},
 		sync(options?: SyncOptions) {
-			return syncKit(ctx, options) as never;
+			return syncMongo(ctx, options) as never;
 		},
 		syncBuckets() {
-			return syncKitBuckets(ctx) as never;
+			return syncMongoBuckets(ctx) as never;
 		},
 		ping(options?: { timeoutMS?: number }) {
-			return pingKit(ctx, options) as never;
+			return pingMongo(ctx, options) as never;
 		},
 		close() {
-			return closeKit(ctx);
+			return closeOpened(ctx);
 		},
 		[Symbol.asyncDispose]() {
-			return closeKit(ctx);
+			return closeOpened(ctx);
 		},
 	};
-	return kit;
+	return mongo;
 }

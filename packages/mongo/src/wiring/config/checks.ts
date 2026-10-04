@@ -27,11 +27,11 @@ export function definitionsOf(
 }
 
 /**
- * The collection options the kit decides itself: the database each collection
- * is on, the session and the actor a derived kit carries, and the sync the
+ * The collection options the wiring decides itself: the database each collection
+ * is on, the session and the actor a derived Mongo carries, and the sync the
  * database's `autoSync` asks for. The types refuse them in `options`, where
- * the shape is `KitCollectionOptions`; under `optionsFor` they are only
- * refused here, and one of them there would quietly outrank the kit.
+ * the shape is `WiredCollectionOptions`; under `optionsFor` they are only
+ * refused here, and one of them there would quietly outrank the wiring.
  */
 const OWNED = ['db', 'session', 'actor', 'autoSync'] as const;
 
@@ -46,7 +46,7 @@ function checkOwned(
 		if (key in options) {
 			refuse(
 				name,
-				`has "${key}" in ${what}, which the kit decides: ` +
+				`has "${key}" in ${what}, which the wiring decides: ` +
 					'a database is named by its key, `as` and `withSession` carry the ' +
 					"actor and the session, and `autoSync` is the database's",
 				forKey,

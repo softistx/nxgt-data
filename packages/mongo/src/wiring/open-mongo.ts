@@ -1,14 +1,14 @@
 import type { Db } from 'mongodb';
 import { connectMongo, type MongoConnection } from '../connection/connect';
-import { KitError } from '../errors/kit-error';
+import { WiringError } from '../errors/wiring-error';
 import { bucketsOf } from './config/bucket-checks';
 import { checkDatabase } from './config/checks';
-import type { DatabaseConfig, KitConfig } from './config/types';
-import type { DatabaseContext, KitContext } from './context';
-import { kitOf } from './derive';
-import type { MongoKit } from './types';
+import type { DatabaseConfig, MongoConfig } from './config/types';
+import type { DatabaseContext, WiringContext } from './context';
+import { mongoOf } from './derive';
+import type { Mongo } from './types';
 
-/** Where one database is, and whether the kit opened it itself. */
+/** Where one database is, and whether the Mongo opened it itself. */
 async function open(
 	config: DatabaseConfig<object>,
 ): Promise<{ db: Db; connection: MongoConnection | undefined }> {
@@ -44,9 +44,9 @@ function checkCollisions(
 ): void {
 	for (const key of keys) {
 		if (key in db) {
-			throw new KitError(
+			throw new WiringError(
 				'COLLISION',
-				`createKit: database "${name}" wires a ${what} under "${key}", ` +
+				`openMongo: database "${name}" wires a ${what} under "${key}", ` +
 					"which is a member of the driver's Db: it would be unreachable. " +
 					'Export that definition under another name.',
 				{ database: name, key },
@@ -60,8 +60,8 @@ function checkCollisions(
  * collections on their database.
  *
  * ```ts
- * await using kit = await createKit(config);
- * const user = await kit.db.users.create({ email: 'ada@example.com' });
+ * await using mongo = await openMongo(config);
+ * const user = await mongo.db.users.create({ email: 'ada@example.com' });
  * ```
  *
  * A database with a `uri` takes a hold on the client `connectMongo` shares
@@ -69,7 +69,7 @@ function checkCollisions(
  * it and never closes it. Nothing is built ahead of the connections: a
  * collection is built the first time it is read.
  */
-export async function createKit<C>(config: KitConfig<C>): Promise<MongoKit<C>> {
+export async function openMongo<C>(config: MongoConfig<C>): Promise<Mongo<C>> {
 	const entries = Object.entries(config.databases) as [
 		string,
 		DatabaseConfig<object>,
@@ -110,12 +110,12 @@ export async function createKit<C>(config: KitConfig<C>): Promise<MongoKit<C>> {
 		for (const database of databases) await database.connection?.close();
 		throw error;
 	}
-	const ctx: KitContext = {
+	const ctx: WiringContext = {
 		databases,
 		session: undefined,
 		actor: undefined,
 		cache: new Map(),
 		root: true,
 	};
-	return kitOf<C>(ctx);
+	return mongoOf<C>(ctx);
 }

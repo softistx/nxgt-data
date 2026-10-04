@@ -3,9 +3,9 @@ import { MongoClient } from 'mongodb';
 import { z } from 'zod';
 import { defineCollection } from '../../definition/define-collection';
 import { id } from '../../definition/fields';
-import { KitError } from '../../errors/kit-error';
+import { WiringError } from '../../errors/wiring-error';
 import { defineBucket } from '../../gridfs';
-import { defineConfig } from './define-config';
+import { defineMongo } from './define-mongo';
 
 const users = defineCollection({
 	name: 'users',
@@ -24,7 +24,7 @@ const pictures = defineBucket({ name: 'avatars' });
 
 const uri = 'mongodb://127.0.0.1:27017/app';
 
-describe('defineConfig', () => {
+describe('defineMongo', () => {
 	/** The error a call threw, or a failure that says it did not throw. */
 	const thrown = (fn: () => unknown): unknown => {
 		try {
@@ -36,13 +36,13 @@ describe('defineConfig', () => {
 	};
 
 	test('names the only database `default`', () => {
-		const config = defineConfig({ uri, collections: { users } });
+		const config = defineMongo({ uri, collections: { users } });
 		expect(Object.keys(config.databases)).toEqual(['default']);
 		expect(config.databases.default?.uri).toBe(uri);
 	});
 
 	test('keeps the names a multi-database config gave', () => {
-		const config = defineConfig({
+		const config = defineMongo({
 			databases: {
 				main: { uri, collections: { users } },
 				analytics: { uri, collections: { users } },
@@ -52,15 +52,15 @@ describe('defineConfig', () => {
 	});
 
 	test('freezes what it gives back', () => {
-		const config = defineConfig({ uri, collections: { users } });
+		const config = defineMongo({ uri, collections: { users } });
 		expect(Object.isFrozen(config)).toBe(true);
 		expect(Object.isFrozen(config.databases)).toBe(true);
 	});
 
 	test('connects to nothing', () => {
-		// A wrong host is still a valid configuration: `createKit` connects.
+		// A wrong host is still a valid configuration: `openMongo` connects.
 		expect(() =>
-			defineConfig({
+			defineMongo({
 				uri: 'mongodb://nowhere.invalid:1/app',
 				collections: { users },
 			}),
@@ -68,7 +68,7 @@ describe('defineConfig', () => {
 	});
 
 	test('keeps the buckets and their options it was given', () => {
-		const config = defineConfig({
+		const config = defineMongo({
 			uri,
 			collections: { users },
 			buckets: { avatars, helper: 1 },
@@ -80,51 +80,51 @@ describe('defineConfig', () => {
 
 	test('takes a client the application opened', () => {
 		const client = new MongoClient(uri);
-		const config = defineConfig({ client, collections: { users } });
+		const config = defineMongo({ client, collections: { users } });
 		expect(config.databases.default?.client).toBe(client);
 	});
 
 	describe('refuses', () => {
 		test('no configuration at all', () => {
-			expect(() => defineConfig(undefined as never)).toThrow(
+			expect(() => defineMongo(undefined as never)).toThrow(
 				'a configuration object is required',
 			);
 		});
 
 		test('an empty `databases`', () => {
-			expect(() => defineConfig({ databases: {} } as never)).toThrow(
+			expect(() => defineMongo({ databases: {} } as never)).toThrow(
 				'databases names none',
 			);
 		});
 
 		test('a `databases` that is not an object, and says what one looks like', () => {
-			expect(() => defineConfig({ databases: 'main' } as never)).toThrow(
+			expect(() => defineMongo({ databases: 'main' } as never)).toThrow(
 				'databases must be an object of databases by name',
 			);
 		});
 
-		test('every refusal is a KitError with the CONFIG code', () => {
+		test('every refusal is a WiringError with the CONFIG code', () => {
 			for (const bad of [
 				undefined,
 				{ databases: 'main' },
 				{ databases: {} },
 				{ uri, collections: {} },
 			]) {
-				const error = thrown(() => defineConfig(bad as never));
-				expect(error).toBeInstanceOf(KitError);
+				const error = thrown(() => defineMongo(bad as never));
+				expect(error).toBeInstanceOf(WiringError);
 				expect(error).toHaveProperty('code', 'CONFIG');
 				// It still answers to `TypeError`, which is what this package threw
-				// before `KitError` existed: no consumer's `catch` stopped working.
+				// before `WiringError` existed: no consumer's `catch` stopped working.
 				expect(error).toBeInstanceOf(TypeError);
 			}
 		});
 
 		test('names the database it is about', () => {
 			// Not a bare `try`/`catch`: with nothing on the resolved path, a
-			// `defineConfig` that stopped refusing would pass this with zero
+			// `defineMongo` that stopped refusing would pass this with zero
 			// assertions run.
 			const error = thrown(() =>
-				defineConfig({
+				defineMongo({
 					databases: { analytics: { uri, collections: {} } },
 				} as never),
 			);
@@ -135,25 +135,25 @@ describe('defineConfig', () => {
 		test('both a uri and a client', () => {
 			const client = new MongoClient(uri);
 			expect(() =>
-				defineConfig({ uri, client, collections: { users } } as never),
+				defineMongo({ uri, client, collections: { users } } as never),
 			).toThrow('has both a uri and a client');
 		});
 
 		test('neither a uri nor a client', () => {
-			expect(() => defineConfig({ collections: { users } } as never)).toThrow(
+			expect(() => defineMongo({ collections: { users } } as never)).toThrow(
 				'has neither a uri nor a client',
 			);
 		});
 
 		test('a uri that is not a string', () => {
 			expect(() =>
-				defineConfig({ uri: 27017, collections: { users } } as never),
+				defineMongo({ uri: 27017, collections: { users } } as never),
 			).toThrow('has a uri that is not a string');
 		});
 
 		test('a client that is not one', () => {
 			expect(() =>
-				defineConfig({
+				defineMongo({
 					client: { db: 'app' },
 					collections: { users },
 				} as never),
@@ -163,7 +163,7 @@ describe('defineConfig', () => {
 		test('client options beside a client', () => {
 			const client = new MongoClient(uri);
 			expect(() =>
-				defineConfig({
+				defineMongo({
 					client,
 					clientOptions: { maxPoolSize: 1 },
 					collections: { users },
@@ -173,31 +173,31 @@ describe('defineConfig', () => {
 
 		test('an empty database name', () => {
 			expect(() =>
-				defineConfig({ uri, database: '', collections: { users } } as never),
+				defineMongo({ uri, database: '', collections: { users } } as never),
 			).toThrow('has an empty database name');
 		});
 
 		test('no collections object', () => {
-			expect(() => defineConfig({ uri } as never)).toThrow(
+			expect(() => defineMongo({ uri } as never)).toThrow(
 				'has no collections object',
 			);
 		});
 
 		test('a module with no definition in it', () => {
 			expect(() =>
-				defineConfig({ uri, collections: { helper: () => 1 } } as never),
+				defineMongo({ uri, collections: { helper: () => 1 } } as never),
 			).toThrow('with no definition in it');
 		});
 
 		test('two keys on one server collection', () => {
 			expect(() =>
-				defineConfig({ uri, collections: { users, people } } as never),
+				defineMongo({ uri, collections: { users, people } } as never),
 			).toThrow('wires "users" and "people" to the same collection, "users"');
 		});
 
 		test('options for a key it does not wire', () => {
 			expect(() =>
-				defineConfig({
+				defineMongo({
 					uri,
 					collections: { users },
 					optionsFor: { posts: { maxPageSize: 10 } },
@@ -205,19 +205,19 @@ describe('defineConfig', () => {
 			).toThrow('has options for "posts", which it does not wire');
 		});
 
-		test('an option the kit decides, for every collection', () => {
+		test('an option the wiring decides, for every collection', () => {
 			expect(() =>
-				defineConfig({
+				defineMongo({
 					uri,
 					collections: { users },
 					options: { session: undefined },
 				} as never),
-			).toThrow('has "session" in options, which the kit decides');
+			).toThrow('has "session" in options, which the wiring decides');
 		});
 
-		test('an option the kit decides, under one key', () => {
+		test('an option the wiring decides, under one key', () => {
 			expect(() =>
-				defineConfig({
+				defineMongo({
 					uri,
 					collections: { users },
 					optionsFor: { users: { autoSync: true } },
@@ -228,25 +228,25 @@ describe('defineConfig', () => {
 		describe('of the buckets', () => {
 			test('a key that is also a collection', () => {
 				const error = thrown(() =>
-					defineConfig({
+					defineMongo({
 						uri,
 						collections: { users },
 						buckets: { users: avatars },
 					} as never),
 				);
-				expect(error).toBeInstanceOf(KitError);
+				expect(error).toBeInstanceOf(WiringError);
 				expect(error).toHaveProperty('code', 'CONFIG');
 				expect(error).toHaveProperty('key', 'users');
 				expect(error).toHaveProperty(
 					'message',
-					'defineConfig: database "default" wires "users" as both a ' +
+					'defineMongo: database "default" wires "users" as both a ' +
 						'collection and a bucket: export one of them under another name',
 				);
 			});
 
 			test('two keys on one bucket', () => {
 				expect(() =>
-					defineConfig({
+					defineMongo({
 						uri,
 						collections: { users },
 						buckets: { avatars, pictures },
@@ -260,7 +260,7 @@ describe('defineConfig', () => {
 				// A collection is no bucket: the shapes tell them apart.
 				for (const bad of [{ users }, {}, 'avatars']) {
 					expect(() =>
-						defineConfig({
+						defineMongo({
 							uri,
 							collections: { users },
 							buckets: bad,
@@ -269,20 +269,20 @@ describe('defineConfig', () => {
 				}
 			});
 
-			test('the session, which the kit decides', () => {
+			test('the session, which the wiring decides', () => {
 				expect(() =>
-					defineConfig({
+					defineMongo({
 						uri,
 						collections: { users },
 						buckets: { avatars },
 						bucketOptions: { hash: false, session: undefined },
 					} as never),
-				).toThrow('has "session" in bucketOptions, which the kit decides');
+				).toThrow('has "session" in bucketOptions, which the wiring decides');
 			});
 
 			test('bucket options with no bucket to apply them to', () => {
 				const error = thrown(() =>
-					defineConfig({
+					defineMongo({
 						uri,
 						collections: { users },
 						bucketOptions: { hash: false },
@@ -291,14 +291,14 @@ describe('defineConfig', () => {
 				expect(error).toHaveProperty('code', 'CONFIG');
 				expect(error).toHaveProperty(
 					'message',
-					'defineConfig: database "default" has bucketOptions but no ' +
+					'defineMongo: database "default" has bucketOptions but no ' +
 						'buckets: pass the buckets they are for, or leave them out',
 				);
 			});
 
 			test('autoSync, which is the database`s', () => {
 				const error = thrown(() =>
-					defineConfig({
+					defineMongo({
 						uri,
 						collections: { users },
 						buckets: { avatars },
@@ -309,7 +309,7 @@ describe('defineConfig', () => {
 				expect(error).toHaveProperty(
 					'message',
 					expect.stringContaining(
-						'has "autoSync" in bucketOptions, which the kit decides',
+						'has "autoSync" in bucketOptions, which the wiring decides',
 					),
 				);
 			});
@@ -317,7 +317,7 @@ describe('defineConfig', () => {
 
 		test('and names the database it is talking about', () => {
 			expect(() =>
-				defineConfig({
+				defineMongo({
 					databases: { analytics: { collections: { users } } },
 				} as never),
 			).toThrow('database "analytics"');

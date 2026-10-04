@@ -1,12 +1,12 @@
-// Every part of the kit an app exports, behind exported values whose types
+// Every part of the Mongo an app exports, behind exported values whose types
 // are inferred: a declaration build must be able to name each one through
 // `@nxgt/mongo` and the peers alone (TS2883 otherwise).
 import {
-	createKit,
 	defineCollection,
-	defineConfig,
+	defineMongo,
 	id,
 	objectId,
+	openMongo,
 } from '@nxgt/mongo';
 import { defineBucket } from '@nxgt/mongo/gridfs';
 import type { ObjectId } from 'mongodb';
@@ -39,16 +39,16 @@ export const avatars = defineBucket({
 	metadata: z.object({ userId: objectId(), width: z.int().optional() }),
 });
 
-export const config = defineConfig({
+export const config = defineMongo({
 	uri,
 	collections: { users, posts },
 	buckets: { avatars },
 });
 
-export const kit = await createKit(config);
+export const mongo = await openMongo(config);
 
-export const several = await createKit(
-	defineConfig({
+export const several = await openMongo(
+	defineMongo({
 		databases: {
 			main: { uri, collections: { users } },
 			analytics: { uri, collections: { posts } },
@@ -57,23 +57,25 @@ export const several = await createKit(
 );
 
 export function asUser(userId: ObjectId) {
-	return kit.as(userId);
+	return mongo.as(userId);
 }
 
 export function inTransaction() {
-	return kit.transaction(async (tx) => tx.db.users.create({ email: 'a@b.c' }));
+	return mongo.transaction(async (tx) =>
+		tx.db.users.create({ email: 'a@b.c' }),
+	);
 }
 
 export function firstUser() {
-	return kit.db.users.findOne({});
+	return mongo.db.users.findOne({});
 }
 
 export function avatar() {
-	return kit.db.avatars;
+	return mongo.db.avatars;
 }
 
 export function synced() {
-	return kit.sync();
+	return mongo.sync();
 }
 
 export function main() {

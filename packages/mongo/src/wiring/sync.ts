@@ -4,18 +4,18 @@ import {
 	type SyncReport,
 	syncCollections,
 } from '../sync/sync-collection';
-import type { KitContext } from './context';
+import type { WiringContext } from './context';
 
 /**
- * Syncs exactly the collections the kit wires, database by database — which
+ * Syncs exactly the collections the Mongo wires, database by database — which
  * `syncAll` cannot do, since the registry knows no database.
  *
  * A deployment step: `collMod` needs the `dbAdmin` role, and neither it nor
  * an index build runs in a transaction. The first database that throws stops
  * the rest, so a `dryRun` is the way to see everything at once.
  */
-export async function syncKit(
-	ctx: KitContext,
+export async function syncMongo(
+	ctx: WiringContext,
 	options: SyncOptions = {},
 ): Promise<Record<string, SyncReport[]>> {
 	const reports: Record<string, SyncReport[]> = {};
@@ -34,13 +34,13 @@ export async function syncKit(
  * and reports each bucket under its key. `sync` does not: a bucket is not a
  * collection definition, and `syncCollections` knows only those.
  *
- * Outside the kit's session, as `syncKit` is: mongod refuses `createIndexes`
+ * Outside the Mongo's session, as `syncMongo` is: mongod refuses `createIndexes`
  * in a transaction, and this is a deployment step, not part of a request.
  * The first database that throws stops the rest. There is no `dryRun`: the
  * bucket's own `syncIndexes` has none to pass on.
  */
-export async function syncKitBuckets(
-	ctx: KitContext,
+export async function syncMongoBuckets(
+	ctx: WiringContext,
 ): Promise<Record<string, Record<string, BucketIndexReport[]>>> {
 	const reports: Record<string, Record<string, BucketIndexReport[]>> = {};
 	for (const database of ctx.databases) {

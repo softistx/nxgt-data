@@ -1,18 +1,18 @@
 # Syncing
 
-`kit.sync()` brings the server in line with the definitions the kit wires:
+`mongo.sync()` brings the server in line with the definitions the Mongo wires:
 the collections, their `$jsonSchema` validators, their collection options and
 their indexes, database by database.
 
 ```ts
-import { createKit, defineConfig } from '@nxgt/mongo-kit';
+import { defineMongo, openMongo } from '@nxgt/mongo';
 import * as collections from './models'; // every `defineCollection` of the app
 
-await using kit = await createKit(
-	defineConfig({ uri: process.env.MONGO_URI!, collections }),
+await using mongo = await openMongo(
+	defineMongo({ uri: process.env.MONGO_URI!, collections }),
 );
 
-const reports = await kit.sync();
+const reports = await mongo.sync();
 // { default: [ { name: 'posts', created: true, … }, { name: 'users', … } ] }
 ```
 
@@ -21,12 +21,12 @@ It reports one `SyncReport[]` per database, under the name the config gave it
 nothing.
 
 It leaves [buckets](files.md) alone: a bucket is not a collection
-definition. Their indexes are `kit.syncBuckets()`'s, the step to run beside
+definition. Their indexes are `mongo.syncBuckets()`'s, the step to run beside
 this one:
 
 ```ts
-await kit.sync();
-await kit.syncBuckets();   // { default: { avatars: [ … ], uploads: [ … ] } }
+await mongo.sync();
+await mongo.syncBuckets();   // { default: { avatars: [ … ], uploads: [ … ] } }
 ```
 
 ## Options
@@ -40,7 +40,7 @@ They are `@nxgt/mongo`'s `SyncOptions`, passed through as they are.
 | `session` | `ClientSession` | — | A session for the reads. Never one in a transaction: MongoDB allows neither `collMod` nor an index build inside one |
 
 ```ts
-const reports = await kit.sync({ dryRun: true });
+const reports = await mongo.sync({ dryRun: true });
 reports.default[0]?.created;          // what it would create
 reports.default[0]?.indexes.created;  // the indexes it would build
 ```
@@ -56,12 +56,12 @@ the new version serves traffic:
 
 ```ts
 // src/sync.ts — `bun run src/sync.ts [--dry-run]`
-import { createKit } from '@nxgt/mongo-kit';
+import { openMongo } from '@nxgt/mongo';
 import { config } from './db';
 
-await using kit = await createKit(config);
+await using mongo = await openMongo(config);
 
-const reports = await kit.sync({ dryRun: process.argv.includes('--dry-run') });
+const reports = await mongo.sync({ dryRun: process.argv.includes('--dry-run') });
 for (const [database, collections] of Object.entries(reports)) {
 	for (const report of collections) {
 		console.log(
@@ -80,15 +80,15 @@ operation instead, and no script is needed.
 
 `@nxgt/mongo`'s `syncAll` works from a global registry, which knows no
 database: it cannot tell the collections of one from those of another.
-`kit.sync()` syncs exactly what the kit wires, on the database each one is
-wired to. For a repository that has no kit — a migration script, a one-off —
+`mongo.sync()` syncs exactly what the Mongo wires, on the database each one is
+wired to. For a repository that has no Mongo — a migration script, a one-off —
 [`discoverCollections`](discover-collections.md) with `syncCollections` is
 the other way round.
 
 ## Signatures
 
 ```ts
-interface MongoKit<C> {
+interface Mongo<C> {
 	sync(options?: SyncOptions): Promise<Record<DbName<C>, SyncReport[]>>;
 }
 
@@ -112,6 +112,6 @@ interface SyncReport {
 ## Next
 
 - [`discoverCollections`](discover-collections.md) — syncing from a glob,
-  without a kit.
+  without a Mongo.
 - [Configuration](configuration.md) — `autoSync`, and the options a
   collection is built with.

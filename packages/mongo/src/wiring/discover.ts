@@ -1,5 +1,5 @@
 import type { AnyCollectionDefinition } from '../definition/define-collection';
-import { KitError } from '../errors/kit-error';
+import { WiringError } from '../errors/wiring-error';
 import { definitionsOf, isDefinition } from './config/checks';
 
 /** What to scan, and what to read in each file it finds. */
@@ -25,9 +25,7 @@ export interface DiscoverOptions {
  * './models'`, which a bundler follows and the compiler sees.
  *
  * ```ts
- * import { connectMongo } from '../connection/connect';
-import { syncCollections } from '../sync/sync-collection';
- * import { discoverCollections } from '@nxgt/mongo-kit';
+ * import { connectMongo, discoverCollections, syncCollections } from '@nxgt/mongo';
  *
  * const mongo = await connectMongo(process.env.MONGO_URI!);
  * const definitions = await discoverCollections({ glob: 'src/**\/*.model.ts' });
@@ -43,7 +41,10 @@ export async function discoverCollections(
 ): Promise<AnyCollectionDefinition[]> {
 	const { glob, cwd = process.cwd(), export: name } = options;
 	if (typeof glob !== 'string' || glob === '') {
-		throw new KitError('DISCOVERY', 'discoverCollections: a glob is required');
+		throw new WiringError(
+			'DISCOVERY',
+			'discoverCollections: a glob is required',
+		);
 	}
 	const paths = await Array.fromAsync(new Bun.Glob(glob).scan({ cwd }));
 	const found: AnyCollectionDefinition[] = [];
@@ -57,7 +58,7 @@ export async function discoverCollections(
 					? ([[name, module[name]]] as [string, AnyCollectionDefinition][])
 					: [];
 		if (name !== undefined && definitions.length === 0) {
-			throw new KitError(
+			throw new WiringError(
 				'DISCOVERY',
 				`discoverCollections: ${path} exports no definition named "${name}"`,
 				{ key: path },
@@ -66,7 +67,7 @@ export async function discoverCollections(
 		for (const [, definition] of definitions) {
 			const seen = byName.get(definition.name);
 			if (seen !== undefined && seen !== path) {
-				throw new KitError(
+				throw new WiringError(
 					'DISCOVERY',
 					`discoverCollections: ${seen} and ${path} both define the collection "${definition.name}"`,
 					{ key: path },

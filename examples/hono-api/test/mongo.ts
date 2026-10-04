@@ -1,10 +1,9 @@
 import { afterAll, beforeAll, beforeEach } from 'bun:test';
 import { join } from 'node:path';
-import { closeMongo } from '@nxgt/mongo';
-import { createKit, defineConfig } from '@nxgt/mongo-kit';
+import { closeMongo, defineMongo, openMongo } from '@nxgt/mongo';
 import { MongoMemoryReplSet } from 'mongodb-memory-server-core';
 import * as collections from '../src/collections';
-import type { Kit } from '../src/db';
+import type { AppMongo } from '../src/db';
 
 /**
  * The same mongod the packages' specs use — a single-node replica set,
@@ -22,12 +21,12 @@ const MONGOD_CACHE = join(
 );
 
 /**
- * One mongod per spec file, a kit over it, and an empty database before
- * every test. The kit is the caller's to derive from — `kit.as(someone)` is
+ * One mongod per spec file, a Mongo over it, and an empty database before
+ * every test. The Mongo is the caller's to derive from — `mongo.as(someone)` is
  * what a request does.
  */
-export function useKit(database: string) {
-	const state = {} as { kit: Kit };
+export function useMongo(database: string) {
+	const state = {} as { mongo: AppMongo };
 	let replSet: MongoMemoryReplSet;
 
 	beforeAll(async () => {
@@ -36,8 +35,8 @@ export function useKit(database: string) {
 			binary: { version: MONGOD_VERSION, downloadDir: MONGOD_CACHE },
 			instanceOpts: [{ launchTimeout: 60_000 }],
 		});
-		state.kit = await createKit(
-			defineConfig({
+		state.mongo = await openMongo(
+			defineMongo({
 				uri: replSet.getUri(database),
 				collections,
 				options: { maxPageSize: 50 },
@@ -46,15 +45,15 @@ export function useKit(database: string) {
 	});
 
 	beforeEach(async () => {
-		await state.kit.db.dropDatabase();
+		await state.mongo.db.dropDatabase();
 		// What `bun run sync` does on a deployment. `autoSync` would not do
 		// here: it syncs once per collection and per process, and the drop
 		// above takes the indexes with it.
-		await state.kit.sync();
+		await state.mongo.sync();
 	});
 
 	afterAll(async () => {
-		await state.kit.close();
+		await state.mongo.close();
 		await closeMongo();
 		await replSet.stop({ doCleanup: true });
 	});

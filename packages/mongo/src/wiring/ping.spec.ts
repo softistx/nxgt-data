@@ -1,28 +1,28 @@
 import { describe, expect, test } from 'bun:test';
 import { MongoClient } from 'mongodb';
 import { collections, events, useMongo } from '../../test/wiring';
-import { defineConfig } from './config/define-config';
-import { createKit } from './create-kit';
+import { defineMongo } from './config/define-mongo';
+import { openMongo } from './open-mongo';
 
-const { server, track } = useMongo('kit-ping');
+const { server, track } = useMongo('wiring-ping');
 
 describe('ping', () => {
 	test('reports every database under its name, with its latency', async () => {
-		const kit = track(
-			await createKit(
-				defineConfig({
+		const mongo = track(
+			await openMongo(
+				defineMongo({
 					databases: {
 						main: { uri: server.uri, collections },
 						analytics: {
 							uri: server.uri,
-							database: 'kit-ping-analytics',
+							database: 'wiring-ping-analytics',
 							collections: { events },
 						},
 					},
 				}),
 			),
 		);
-		const report = await kit.ping();
+		const report = await mongo.ping();
 		expect(Object.keys(report)).toEqual(['main', 'analytics']);
 		for (const result of Object.values(report)) {
 			expect(result.ok).toBe(true);
@@ -30,17 +30,17 @@ describe('ping', () => {
 		}
 	});
 
-	test('answers for a derived kit, which shares the databases', async () => {
-		const kit = track(
-			await createKit(defineConfig({ uri: server.uri, collections })),
+	test('answers for a derived mongo, which shares the databases', async () => {
+		const mongo = track(
+			await openMongo(defineMongo({ uri: server.uri, collections })),
 		);
-		const report = await kit.as({ id: 'x' } as never).ping();
+		const report = await mongo.as({ id: 'x' } as never).ping();
 		expect(report.default.ok).toBe(true);
 	});
 
-	test('a database the kit opened reports the driver’s own timeout', async () => {
-		const kit = track(
-			await createKit(defineConfig({ uri: server.uri, collections })),
+	test('a database the Mongo opened reports the driver’s own timeout', async () => {
+		const mongo = track(
+			await openMongo(defineMongo({ uri: server.uri, collections })),
 		);
 		await server.failNext(['ping'], {
 			blockConnection: true,
@@ -48,7 +48,7 @@ describe('ping', () => {
 		});
 		try {
 			const started = performance.now();
-			const report = await kit.ping({ timeoutMS: 300 });
+			const report = await mongo.ping({ timeoutMS: 300 });
 			const took = performance.now() - started;
 			expect(report.default.ok).toBe(false);
 			if (!report.default.ok) {
@@ -63,16 +63,16 @@ describe('ping', () => {
 	});
 
 	test('a client handed over unconnected is answered for within timeoutMS, without throwing', async () => {
-		// A client the config hands over is never connected by the kit, so a
+		// A client the config hands over is never connected by the mongo, so a
 		// port nothing listens on reaches `ping` itself.
 		const client = new MongoClient('mongodb://127.0.0.1:1/nowhere', {
 			serverSelectionTimeoutMS: 5_000,
 		});
-		const kit = track(
-			await createKit(defineConfig({ client, collections: { events } })),
+		const mongo = track(
+			await openMongo(defineMongo({ client, collections: { events } })),
 		);
 		const started = performance.now();
-		const report = await kit.ping({ timeoutMS: 300 });
+		const report = await mongo.ping({ timeoutMS: 300 });
 		const took = performance.now() - started;
 		expect(report.default.ok).toBe(false);
 		if (!report.default.ok) expect(report.default.error).toBeInstanceOf(Error);

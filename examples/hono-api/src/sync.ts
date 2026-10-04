@@ -1,4 +1,4 @@
-import { createKit } from '@nxgt/mongo-kit';
+import { openMongo } from '@nxgt/mongo';
 import { config } from './db';
 
 /**
@@ -8,9 +8,11 @@ import { config } from './db';
  *
  * `--dry-run` reports what it would change and writes nothing.
  */
-await using kit = await createKit(config);
+await using mongo = await openMongo(config);
 
-const reports = await kit.sync({ dryRun: process.argv.includes('--dry-run') });
+const reports = await mongo.sync({
+	dryRun: process.argv.includes('--dry-run'),
+});
 for (const [database, collections] of Object.entries(reports)) {
 	for (const report of collections) {
 		console.log(

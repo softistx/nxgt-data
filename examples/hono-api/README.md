@@ -1,8 +1,8 @@
-# A Hono API on `@nxgt/mongo-kit`
+# A Hono API on `@nxgt/mongo`
 
-A small blog — users and articles — written to show what the kit wires in a
-real application: one configuration, a **kit per request** carrying the
-author, services that take that kit, and the collections typed on the
+A small blog — users and articles — written to show what the Mongo wires in a
+real application: one configuration, a **Mongo per request** carrying the
+author, services that take that Mongo, and the collections typed on the
 driver's own `Db`.
 
 Writing an article is guarded by
@@ -76,8 +76,8 @@ Redis to start and says so. Set `REDIS_BIN` yourself to use another
 bun.d.ts            the names this app reads from the environment
 src/
   env.ts            the only file that reads `Bun.env`, parsed with zod
-  db.ts             the configuration, and the `Kit` type read from it
-  collections.ts    where the modules' models meet the kit
+  db.ts             the configuration, and the `AppMongo` type read from it
+  collections.ts    where the modules' models meet the Mongo
   api.ts            the spec's registry, shared by every module
   context.ts        what a request carries: the modules' services and guards, composed
   guards.ts         the HTTP side of the guards: milliseconds to headers
@@ -89,7 +89,7 @@ src/
     articles/       articles.model.ts · articles.service.ts · articles.route.ts (+ .spec.ts)
                     articles.guards.ts (+ .spec.ts)
 test/
-  kit.ts            a mongod and a kit per spec file
+  mongo.ts          a mongod and a Mongo per spec file
   redis.ts          a Redis per spec file, emptied before each test
   api.ts            both, plus the built app
   types/routes.ts   what the types refuse, never run
@@ -105,26 +105,26 @@ module is measured where it is read.
 | --- | --- |
 | `bun.d.ts` | `declare module 'bun'`: what `Bun.env` holds for this app, at the package root so TypeScript sweeps it up |
 | `src/env.ts` | the environment parsed once with zod — enums, `z.coerce.number()`, a default per variable, `safeParse` and a readable refusal. Nothing else reads `Bun.env` |
-| `src/db.ts` | the whole configuration: one `defineConfig`, the collections as a module object, the options every collection gets, and `Kit` derived from it with `KitOf` |
-| `src/collections.ts` | the one module `defineConfig` reads — `db.users` comes from the name a definition is **exported** under, not from its collection name |
+| `src/db.ts` | the whole configuration: one `defineMongo`, the collections as a module object, the options every collection gets, and `AppMongo` derived from it with `MongoOf` |
+| `src/collections.ts` | the one module `defineMongo` reads — `db.users` comes from the name a definition is **exported** under, not from its collection name |
 | `src/modules/<name>/<name>.model.ts` | the definitions, each beside the service that uses it |
-| `src/modules/<name>/<name>.service.ts` | the work, as a **class whose constructor takes the kit**, so the same service is built from a request, a script or a test. Its writes take the **validated body** (`NewUser`, `NewArticle`, `UserPatch`, `ArticlePatch`), never the stored document. `paginate`, a **transaction** across two collections, an `update` that stamps `updatedAt` and `updatedBy` on its own, a soft delete |
+| `src/modules/<name>/<name>.service.ts` | the work, as a **class whose constructor takes the Mongo**, so the same service is built from a request, a script or a test. Its writes take the **validated body** (`NewUser`, `NewArticle`, `UserPatch`, `ArticlePatch`), never the stored document. `paginate`, a **transaction** across two collections, an `update` that stamps `updatedAt` and `updatedBy` on its own, a soft delete |
 | `src/modules/<name>/<name>.route.ts` | the controllers, on the module's **own** `Hono`, exported as `router`: validated input in, a reply the spec declares out, and the boundary between the stored document and the API document |
 | `src/modules/<name>/index.ts` | what the module offers the rest of the app, its `router` included |
 | `src/modules/index.ts` | the one list of mounted modules. Adding a module is a line here, and forgetting it is a **startup** error, not a 404 |
-| `src/middlewares/` | what every request goes through, one file per concern — `provideServices(kit)`, which also puts the checked user on the context as `actor`, and `provideGuards(guards)` |
+| `src/middlewares/` | what every request goes through, one file per concern — `provideServices(mongo)`, which also puts the checked user on the context as `actor`, and `provideGuards(guards)` |
 | `src/api.ts` | one registry for the spec, imported by each module — `tag: 'users'` bounds a module to its own operations, and `api.assertComplete()` refuses to start with one nobody serves |
-| `src/context.ts` | `Env`, `buildServices(kit)` and `bindGuards(redis)` — it only **composes** the slices each module declares, so a new module is one line here and nothing else |
+| `src/context.ts` | `Env`, `buildServices(mongo)` and `bindGuards(redis)` — it only **composes** the slices each module declares, so a new module is one line here and nothing else |
 | `src/modules/articles/articles.guards.ts` | the module's guards, described once: `defineRateLimit` keyed on the user, `defineIdempotency` keyed on the user **and** the key, its result checked by the spec's own `zArticle` — and `ArticleGuards`, which binds both to one `RedisClient` |
 | `src/guards.ts` | the guide's HTTP recipe: `rateLimitHeaders(result)` and `seconds(ms)`, rounding **up** |
 | `src/app.ts` | the middlewares, then every module in `src/modules/index.ts` mounted. It holds no middleware and no route of its own. `assertServed` reads the assembled app, so a module left out of that list is a startup error |
-| `src/index.ts` | the kit and the Redis client opened **once** for the process, closed on `SIGINT`/`SIGTERM` |
-| `src/sync.ts` | `kit.sync()` as a deployment step, with `--dry-run` |
+| `src/index.ts` | the Mongo and the Redis client opened **once** for the process, closed on `SIGINT`/`SIGTERM` |
+| `src/sync.ts` | `mongo.sync()` as a deployment step, with `--dry-run` |
 | `src/modules/<name>/<name>.service.spec.ts` | the module's services with no HTTP at all — that is what the layer buys |
 | `src/modules/<name>/<name>.route.spec.ts` | the module's routes over HTTP, called as a client would, over a mongod in memory |
 | `src/modules/articles/articles.guards.spec.ts` | the guards over HTTP, against a real Redis: the headers counting down and the 429, a bucket per user, the replay and its header, the 422 (a re-spaced body included), the 500 for an `INVALID` record and for an error that is not a `GuardError`, and the 409 — two concurrent requests, the first held inside its write by a gate |
 | `src/app.spec.ts` | what is left over: the middleware every request goes through, and that the mounted modules serve the whole spec |
-| `test/kit.ts` | one mongod and one kit per spec file, the database emptied and synced before each test |
+| `test/mongo.ts` | one mongod and one Mongo per spec file, the database emptied and synced before each test |
 | `test/redis.ts` | one Redis per spec file, `FLUSHDB` before each test, started from the binary `$REDIS_BIN` names — it pins no version and builds nothing |
 | `test/api.ts` | both, plus the built app: `call(path, { as })`, a user to send requests as, and `callWith(options)` for a second app on the same servers |
 | `test/types/routes.ts` | the `@ts-expect-error`s: the users module cannot register `/articles`, a service takes the API's types, and a guard's key needs the user. Nothing imports it — `tsc --noEmit` reading it is the test |
@@ -133,12 +133,12 @@ module is measured where it is read.
 
 ```ts
 // src/db.ts — the application's MongoDB, described once
-export const config = defineConfig({
+export const config = defineMongo({
 	uri: process.env.MONGO_URI!,
 	collections,                       // import * as collections from './collections'
 	options: { maxPageSize: 50 },
 });
-export type Kit = KitOf<typeof config>;
+export type AppMongo = MongoOf<typeof config>;
 
 // src/modules/articles/articles.route.ts — the module's own app, exported
 export const router = new Hono<Env>();
@@ -153,12 +153,12 @@ routes.patch('/articles/{id}', async (c) => {   // the shape of every route
 });
 // `POST /articles` adds the guards — see "The guards" below.
 
-// src/middlewares/services.ts — one kit per request, bound into the services
-export const provideServices = (kit: Kit) =>
+// src/middlewares/services.ts — one Mongo per request, bound into the services
+export const provideServices = (mongo: AppMongo) =>
 	createMiddleware<Env>(async (c, next) => {
 		const actor = tryObjectId(c.req.header('x-user-id'));
 		if (!actor) return c.json({ message: 'errors.unauthenticated' }, 401);
-		c.set('services', buildServices(kit.as(actor)));
+		c.set('services', buildServices(mongo.as(actor)));
 		c.set('actor', actor.toHexString());   // what a guard keys on
 		await next();
 	});
@@ -167,21 +167,21 @@ export const provideServices = (kit: Kit) =>
 export const routes = { articles, users };
 
 // src/app.ts — the middlewares, then every module in that list
-app.use(provideServices(kit));
+app.use(provideServices(mongo));
 app.use(provideGuards(bindGuards(redis)));    // bound once, shared by every request
 for (const router of Object.values(routes)) app.route('/', router);
 api.assertComplete();   // every operation has a handler
 assertServed(app);      // and every handler is actually mounted
 
-// src/modules/articles/articles.service.ts — the kit in the constructor,
+// src/modules/articles/articles.service.ts — the Mongo in the constructor,
 // the validated body in, two collections, one transaction
 export class ArticleService {
-	constructor(private readonly kit: Kit) {}
+	constructor(private readonly mongo: AppMongo) {}
 
 	async write(values: NewArticle) {            // the spec's body, already checked
-		const author = this.kit.actor;             // the kit carries who writes
-		if (!author) throw new TypeError('ArticleService.write: this kit stamps nobody');
-		return this.kit.transaction(async (tx) => {
+		const author = this.mongo.actor;             // the Mongo carries who writes
+		if (!author) throw new TypeError('ArticleService.write: this Mongo stamps nobody');
+		return this.mongo.transaction(async (tx) => {
 			const user = await tx.db.users.findById(author);
 			if (!user) return undefined;
 			const article = await tx.db.articles.create(values);
@@ -192,8 +192,8 @@ export class ArticleService {
 }
 ```
 
-Nothing carries a session or a client by hand: `as` gives another kit over
-the same clients, and the transaction's kit puts every collection it touches
+Nothing carries a session or a client by hand: `as` gives another Mongo over
+the same clients, and the transaction's Mongo puts every collection it touches
 in the session.
 
 ## The environment
@@ -261,16 +261,16 @@ Object literal may only specify known properties, and 'LOG_LEVEL' does not
 
 ## The server
 
-`src/index.ts` opens the kit and the Redis client, hands the app to
+`src/index.ts` opens the Mongo and the Redis client, hands the app to
 `Bun.serve`, and gives the clients back on a signal:
 
 ```ts
-const kit = await createKit(config);
+const mongo = await openMongo(config);
 const redis = new RedisClient(env.REDIS_URL);   // Bun's own; no driver
 await redis.connect();
 
 const server = serve({
-	fetch: buildApp(kit, redis).fetch,
+	fetch: buildApp(mongo, redis).fetch,
 	port: env.PORT,
 	hostname: '0.0.0.0',
 	development: env.NODE_ENV !== 'production' && { hmr: true, console: true },
@@ -377,10 +377,10 @@ here.
 - **The parsed port is the port that binds.** Bun reads `PORT` on its own if
   `serve()` is not given one, which would make the schema's default a
   decoration; `port: env.PORT` is what keeps `PORT=abc` a startup error.
-- **The kit is opened once**, not per request. A kit per request would open a
+- **The Mongo is opened once**, not per request. A Mongo per request would open a
   client per request; `as` is what a request costs.
-- **A handler never sees the root kit.** It cannot write as another user, and
-  `close()` on a derived kit throws.
+- **A handler never sees the root Mongo.** It cannot write as another user, and
+  `close()` on a derived Mongo throws.
 - **A module exports its app; it is not handed one.** `api` is a module of
   its own, so a route file is the whole of what its module serves, and
   `app.ts` only mounts. `tag` is what keeps it honest: registering
@@ -396,7 +396,7 @@ here.
   article count is read *inside* the transaction, never from something the
   handler kept.
 - **`autoSync` is not what a deployment does.** It syncs once per collection
-  and per process, so the specs call `kit.sync()` after they drop the
+  and per process, so the specs call `mongo.sync()` after they drop the
   database; production runs `bun run sync`.
 - **The stored document is not the API document.** `_id` is an `ObjectId`
   and the stamps are `Date`s; the mapping to what the spec declares is the
@@ -404,7 +404,7 @@ here.
 - **A patch names the fields it moves, and the collection stamps the rest.**
   `PATCH /users/{id}` takes `UserPatch`, whose properties are the ones the API
   offers; `updatedAt` and `updatedBy` are written by `@nxgt/mongo` from the
-  kit's actor, so no handler and no service spells them, and `createdAt` never
+  Mongo's actor, so no handler and no service spells them, and `createdAt` never
   moves. A body that names no field is allowed and changes only `updatedAt` —
   the spec says `minProperties: 1` nowhere, because the generator does not
   enforce it and a README that claimed it would be wrong.
@@ -414,17 +414,17 @@ here.
   a document that is not there. The header is the exception: `tryObjectId`
   checks `x-user-id` in the middleware, because an actor nobody can name is
   a 401 and not an empty result.
-- **A service holds the kit it was built on, and nothing else.** Its only
-  state is that constructor argument, so `buildServices(kit)` is one `new`
+- **A service holds the Mongo it was built on, and nothing else.** Its only
+  state is that constructor argument, so `buildServices(mongo)` is one `new`
   per module per request and a service is as callable from a script or a
-  test as from a handler — `new ArticleService(kit)` is the whole setup.
-  A field on the class that is not the kit is state a request would leak
+  test as from a handler — `new ArticleService(mongo)` is the whole setup.
+  A field on the class that is not the Mongo is state a request would leak
   into the next one.
 - **A service takes the API's types, not the collection's.** `create` and
   `write` accept `NewUser` and `NewArticle`, the bodies the spec declares
   and the router has already validated. That is what stops a handler
   smuggling `articles` or `createdBy` into a write: those are the
-  collection's default and the kit's stamp, and neither is anybody's to
+  collection's default and the Mongo's stamp, and neither is anybody's to
   pass. `test/types/routes.ts` pins all four refusals.
 - **A service that announces a promise rejects**, never throws at the call
   site: `ArticleService.write` is `async` for that reason alone, and its

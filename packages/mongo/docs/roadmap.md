@@ -50,9 +50,44 @@ _Nothing queued._
   `$ref`, so a schema that refers to itself cannot be expressed;
   `toMongoJsonSchema` throws rather than writing a validator the server would
   refuse.
+- **A typed `discoverCollections`** — it reads the file system under Bun, has
+  no types and does not survive bundling. It is for scripts; an application
+  wires its collections in the configuration, as `import * as collections`,
+  where they stay typed.
+- **Closing a client the configuration handed over** — the Mongo gives back only
+  the clients it opened, `await using` included. A client you opened is closed
+  where it was opened.
+- **A transaction across two clients** — MongoDB refuses a session a client
+  does not own, so a transaction reaches one client's databases and `{ on }`
+  names which. Two databases on one URI share a client and need no `{ on }`.
+- **`autoSync` as a production setting** — it is for tests and development.
+  In production `sync()` is a deployment step: it needs `dbAdmin`, and an
+  index build does not run in a transaction.
+- **Wiring a collection under a name the driver's `Db` already answers to** —
+  refused by the types where the configuration is written, and again by
+  `openMongo` against the object itself, so `mongo.db.command(…)` is always the
+  driver's.
+- **An actor on a bucket** — `@nxgt/mongo/gridfs` stamps no `*By` field, so
+  `as(actor)` has nothing to write on a file. Who uploaded one belongs in
+  its metadata, typed by the bucket's schema.
+- **`sync()` syncing buckets** — `sync()` applies collection definitions and
+  keeps its report shape; a bucket is not one. `syncBuckets()` is the step
+  beside it.
+- **A `dryRun` for `syncBuckets()`** — a bucket's index creation has none to
+  pass on: it creates what is missing and reports what was there.
 
 ## Shipped
 
+- **The wiring of `@nxgt/mongo-kit`, folded in** — `defineMongo` checks a
+  configuration of one or several databases and freezes it; `openMongo` opens
+  the clients and gives back a `Mongo` whose `db` is the driver's own with
+  every collection and every GridFS bucket typed on it, plus `as(actor)`,
+  `withSession`, `transaction`, `sync()`, `syncBuckets()`, `ping()` and
+  `close()`; `discoverCollections` reads definitions for scripts; and every
+  refusal is a `WiringError`, a `TypeError` with a `code`. It is what
+  `@nxgt/mongo-kit` shipped through 0.4.x, renamed (`createKit` is
+  `openMongo`, `defineConfig` is `defineMongo`, `MongoKit` is `Mongo`, `KitError`
+  is `WiringError`), and that package now only re-exports it — 0.19.0.
 - **No update writes `_id`** — `update`, `updateMany` and `upsert` refuse a
   patch that names `_id`, as a field or through any operator, even as
   `undefined`, with a `TypeError` naming the call and the collection before

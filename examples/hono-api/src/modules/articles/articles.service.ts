@@ -1,6 +1,6 @@
 import { NotFoundError, type Page, type ReadDocumentOf } from '@nxgt/mongo';
 import type { ObjectId } from 'mongodb';
-import type { Kit } from '../../db';
+import type { AppMongo } from '../../db';
 import type { ArticlePatch, NewArticle } from '../../generated/types';
 import type { articles } from './articles.model';
 
@@ -11,13 +11,13 @@ export interface ArticleQuery {
 	pageSize?: number | undefined;
 }
 
-/** The articles' work, over one kit — see `UserService` for what that means. */
+/** The articles' work, over one Mongo — see `UserService` for what that means. */
 export class ArticleService {
-	constructor(private readonly kit: Kit) {}
+	constructor(private readonly mongo: AppMongo) {}
 
 	/** Most recent first. `maxPageSize` is the configuration's, not a handler's. */
 	list(query: ArticleQuery = {}): Promise<Page<Article>> {
-		return this.kit.db.articles.paginate({
+		return this.mongo.db.articles.paginate({
 			page: query.page,
 			pageSize: query.pageSize,
 			sort: { createdAt: -1 },
@@ -26,24 +26,24 @@ export class ArticleService {
 
 	/**
 	 * Writes an article and raises its author's count, in one transaction —
-	 * `undefined` when the kit's user is no user.
+	 * `undefined` when the Mongo's user is no user.
 	 *
 	 * `values` is `NewArticle`, the validated body: the author is never one
-	 * of them, because it is stamped from the kit's actor.
+	 * of them, because it is stamped from the Mongo's actor.
 	 *
 	 * The driver may run the body twice on a transient error, so the count is
 	 * read **inside** the transaction and never from anything the caller kept.
 	 */
 	async write(values: NewArticle): Promise<Article | undefined> {
-		const author = this.kit.actor;
+		const author = this.mongo.actor;
 		if (!author) {
 			// `async`, so a method that announces a promise rejects rather than
 			// throwing at the call site.
 			throw new TypeError(
-				'ArticleService.write: this kit stamps nobody, so nobody writes',
+				'ArticleService.write: this Mongo stamps nobody, so nobody writes',
 			);
 		}
-		return this.kit.transaction(async (tx) => {
+		return this.mongo.transaction(async (tx) => {
 			const user = await tx.db.users.findById(author);
 			if (!user) return undefined;
 			const article = await tx.db.articles.create(values);
@@ -58,7 +58,7 @@ export class ArticleService {
 	 *
 	 * `values` is `ArticlePatch`, so a field the API does not offer cannot
 	 * reach the write from a handler. The collection stamps `updatedAt` and
-	 * `updatedBy` on its own, from the kit's actor, which is why neither is
+	 * `updatedBy` on its own, from the Mongo's actor, which is why neither is
 	 * spelled here.
 	 */
 	async edit(
@@ -66,7 +66,7 @@ export class ArticleService {
 		values: ArticlePatch,
 	): Promise<Article | undefined> {
 		try {
-			return await this.kit.db.articles.update(id, values);
+			return await this.mongo.db.articles.update(id, values);
 		} catch (error) {
 			if (error instanceof NotFoundError) return undefined;
 			throw error;
@@ -79,7 +79,7 @@ export class ArticleService {
 	 */
 	async remove(id: ObjectId | string): Promise<boolean> {
 		try {
-			await this.kit.db.articles.delete(id);
+			await this.mongo.db.articles.delete(id);
 			return true;
 		} catch (error) {
 			if (error instanceof NotFoundError) return false;

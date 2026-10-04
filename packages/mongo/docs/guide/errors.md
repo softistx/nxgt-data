@@ -173,16 +173,209 @@ What is **not** a `DataError` here, and is worth deciding about on purpose:
   `paginate on "users": page must be an integer of at least 1, not 0`. It is
   a client's input as often as not, so it is a 400 too — and it is not a
   `DataError`, so the mapping below does not catch it.
-- **A refused *argument* here is a bare `TypeError` with no code**, and that
-  is worth knowing if you also use `@nxgt/drizzle`, where the equivalent is
-  an `ArgumentError` carrying `code: 'INVALID_ARGUMENT'`. An `updateMany`
-  with no filter, or a `paginateByCursor` along a field the schema has not,
-  is recognised here by catching `TypeError` and reading the message. Giving
-  this package a class of its own is a change of its own; until then, a
-  handler that wants one answer for both writes its own check.
+- **A refused *argument* to a collection method is a bare `TypeError` with no
+  code**, and that is worth knowing if you also use `@nxgt/drizzle`, where
+  the equivalent is an `ArgumentError` carrying `code: 'INVALID_ARGUMENT'`. An
+  `updateMany` with no filter, or a `paginateByCursor` along a field the
+  schema has not, is recognised here by catching `TypeError` and reading the
+  message. Giving the collections a class of their own is a change of its own;
+  until then, a handler that wants one answer for both writes its own check.
+  The **wiring's** refusals are different: `defineMongo`, `openMongo` and the
+  rest of [the wiring](#wiring-errors) throw a `WiringError`, a `TypeError`
+  with a `code`.
 
 A failed parse is Zod's own `ZodError`, from `create`, `update` and an
 `upsert` that could not have inserted.
+
+## Wiring errors
+
+`WiringError` is what the wiring refuses — `defineMongo`, `openMongo`, a
+derived `Mongo`'s `transaction` and `close`, and `discoverCollections` — a
+configuration, a name or a call that cannot work, with a `code` beside the
+sentence, so nothing has to match the message text.
+
+```ts
+import { defineMongo, WiringError } from '@nxgt/mongo';
+import * as collections from './models';
+
+try {
+	defineMongo({ uri: process.env.MONGO_URI!, collections });
+} catch (error) {
+	if (error instanceof WiringError) {
+		error.code;      // 'CONFIG'
+		error.database;  // 'default' — the database it is about, when one is named
+		error.key;       // the config key, collection key or path, when one is
+	}
+	throw error;
+}
+```
+
+Errors from the collections themselves — a duplicate key, a failed
+validation, a missing document — are the `DataError` of the sections above
+and its subclasses, unchanged: `mongo.db.users` *is* one of this package's
+collections. `WiringError` is only about the wiring.
+
+### The codes
+
+| `code` | Thrown by | When |
+| --- | --- | --- |
+| `CONFIG` | `defineMongo` | the configuration cannot work: no `uri` and no `client`, both at once, `clientOptions` beside a `client`, a `collections` with no definition in it, two keys on one server collection, `optionsFor` under a key nothing is wired under, or one of the four options the wiring decides; for [buckets](wiring/files.md), a `buckets` with no bucket in it, a bucket key a collection already holds, two keys on one bucket, `session`/`autoSync` in `bucketOptions`, or `bucketOptions` on a database with no `buckets` |
+| `COLLISION` | `openMongo` | a collection or a bucket is wired under a name the driver's `Db` already has — `command`, `watch`, `collection`… — so it would be unreachable |
+| `NO_DATABASE` | `transaction(fn, { on: '<name>' })` | this Mongo holds no database under that name; the message lists the ones it has. Reading `mongo.databases.<name>` does **not** throw — an unknown key is plain `undefined` |
+| `SEVERAL_DATABASES` | reading `mongo.db` | the Mongo holds more than one database, so there is no "the" database to give |
+| `TRANSACTION` | `transaction` | the Mongo holds several clients and the call named none, or it is already in a session and still passed `{ on }` |
+| `DERIVED` | `close` | the Mongo came from `as`, `withSession` or a transaction: the clients are the root Mongo's |
+| `DISCOVERY` | `discoverCollections` | the glob is missing, a matched file has no definition under the `export` asked for, or two files define the same server collection |
+
+`code` is the field to switch on: it survives a build that ends up with two
+copies of the package, which `instanceof` does not.
+
+### What it carries
+
+```ts
+class WiringError extends TypeError {
+	readonly code: WiringErrorCode;
+	/** The database it is about, when one is named. */
+	readonly database: string | undefined;
+	/** The config key, the collection key or the path it is about. */
+	readonly key: string | undefined;
+
+	constructor(code: WiringErrorCode, message: string, options?: WiringErrorOptions);
+}
+
+type WiringErrorCode =
+	| 'CONFIG'
+	| 'COLLISION'
+	| 'NO_DATABASE'
+	| 'SEVERAL_DATABASES'
+	| 'TRANSACTION'
+	| 'DERIVED'
+	| 'DISCOVERY';
+
+interface WiringErrorOptions {
+	database?: string | undefined;
+	key?: string | undefined;
+	cause?: unknown;
+}
+```
+
+`database` is the key the database is named by in the configuration —
+`default` for a lone one — and `key` is the collection key, the config key or
+the file path the refusal is about. Neither is ever a URI: a connection
+string holds the password, and the wiring prints none.
+
+```ts
+import { openMongo, WiringError } from '@nxgt/mongo';
+
+try {
+	await openMongo(config);
+} catch (error) {
+	if (error instanceof WiringError && error.code === 'COLLISION') {
+		error.database; // 'main'
+		error.key;      // 'command' — the export to rename
+	}
+	throw error;
+}
+```
+
+### It is a `TypeError`
+
+`WiringError` extends **`TypeError`**, not `Error`, unlike `DataError` or
+`@nxgt/redis`'s `RedisError`. Every one of these is a call or
+a configuration written wrong, which is what `TypeError` means — and the
+wiring threw bare `TypeError`s before the class existed, so nothing that
+already catches one stopped matching:
+
+```ts
+try {
+	defineMongo({ databases: {} } as never);
+} catch (error) {
+	error instanceof WiringError;   // true
+	error instanceof TypeError;  // true — still what it always was
+}
+```
+
+What is new is the `code`, which a `catch` can switch on instead of reading
+the sentence.
+
+### Where each one comes from
+
+Nothing below reaches a request handler in a working application: they are
+start-up and wiring failures, and `defineMongo` is deliberately the earliest
+of them.
+
+```ts
+import { defineMongo, openMongo, WiringError } from '@nxgt/mongo';
+import * as collections from './models';
+
+// CONFIG — before anything connects.
+defineMongo({ collections } as never);
+// WiringError: defineMongo: database "default" has neither a uri nor a client
+
+// COLLISION — at openMongo, against the driver's own Db.
+await openMongo(
+	defineMongo({ uri: process.env.MONGO_URI!, collections: { command: users } as never }),
+);
+// WiringError: openMongo: database "default" wires a collection under "command", …
+
+// NO_DATABASE — a transaction named on a database this Mongo does not hold.
+// The types refuse the name, so this is the call that came through an `any`,
+// or from JavaScript. Reading `mongo.databases.nowhere` gives `undefined`
+// instead: only `on` looks a name up.
+await mongo.transaction(async () => {}, { on: 'nowhere' as never });
+// WiringError: No database "nowhere" in this Mongo: it has "main", "analytics".
+
+// SEVERAL_DATABASES — `mongo.db` with more than one. Its type is `never`.
+mongo.db;
+// WiringError: db: this Mongo has several databases. Read the one you mean, as `mongo.databases.main`.
+
+// TRANSACTION — several clients, and no `{ on }`.
+await mongo.transaction(async (tx) => { /* … */ });
+// WiringError: transaction: this Mongo holds more than one client, …
+
+// DERIVED — closing a Mongo that `as` derived.
+await mongo.as(userId).close();
+// WiringError: close: this Mongo came from `as`, `withSession` or a transaction. …
+```
+
+A name no database has, and `{ on: 'nowhere' }` with it, do not compile
+either: the types refuse them where they are written. The run-time refusal is
+what catches the call that arrived through an `any`, or from JavaScript — and
+`mongo.db` on a Mongo with several databases, whose type is already `never`.
+
+### A start-up that reports instead of crashing
+
+The useful thing to do with a `WiringError` is to say which database and which
+key, because that is what the fix needs:
+
+```ts
+import { defineMongo, openMongo, WiringError } from '@nxgt/mongo';
+import * as collections from './models';
+
+export async function startDatabase() {
+	try {
+		return await openMongo(
+			defineMongo({ uri: process.env.MONGO_URI!, collections }),
+		);
+	} catch (error) {
+		if (error instanceof WiringError) {
+			console.error(
+				`mongo: ${error.code}` +
+					(error.database ? ` on "${error.database}"` : '') +
+					(error.key ? ` at "${error.key}"` : ''),
+				error.message,
+			);
+			process.exit(1);
+		}
+		throw error; // a driver error: a host that does not answer, a bad password
+	}
+}
+```
+
+MongoDB's own refusal to connect is **not** a `WiringError`: a host that does not
+answer, a wrong password, a replica set with no primary are the driver's
+errors, and they reach the caller unchanged from `openMongo`. A database that
+fails to open gives back every connection opened before it.
 
 ## Raising one yourself
 
@@ -209,5 +402,7 @@ a single write's error only.
 
 - [Troubleshooting](../troubleshooting.md) — the same errors, indexed by the
   message you are staring at.
+- [Configuration](wiring/configuration.md) — what `defineMongo` checks, key by
+  key.
 - [Transactions](transactions.md) — `OptimisticLockError`, and what to do
   with it.

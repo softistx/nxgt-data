@@ -1,11 +1,10 @@
 # `discoverCollections`
 
 Reads the collection definitions a glob matches, for a **script** that has no
-kit to work from — a sync, a migration, a one-off run from the repository.
+Mongo to work from — a sync, a migration, a one-off run from the repository.
 
 ```ts
-import { connectMongo, syncCollections } from '@nxgt/mongo';
-import { discoverCollections } from '@nxgt/mongo-kit';
+import { connectMongo, discoverCollections, syncCollections } from '@nxgt/mongo';
 
 const mongo = await connectMongo(process.env.MONGO_URI!);
 const definitions = await discoverCollections({ glob: 'src/**/*.model.ts' });
@@ -55,7 +54,7 @@ A glob that matches nothing gives `[]`.
 
 ## What it throws
 
-All three are a [`KitError`](errors.md) with `code: 'DISCOVERY'`. The two
+All three are a [`WiringError`](../errors.md) with `code: 'DISCOVERY'`. The two
 that are about a file carry its path on `key`; the missing-glob one has no
 path yet, so its `key` is `undefined`:
 
@@ -82,4 +81,4 @@ function discoverCollections(
 
 ## Next
 
-- [Syncing](sync.md) — the same step for an application that has a kit.
+- [Syncing](sync.md) — the same step for an application that has a Mongo.
