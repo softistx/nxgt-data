@@ -44,18 +44,17 @@ export function localRepository(options: LocalRepositoryOptions): Repository {
 		async put(key, file) {
 			const target = fileOf(root, key);
 			// A delete empties and removes folders; one racing this put can take
-			// the folder from under it between its creation and the copy. Made
+			// a folder from under it between its creation and the copy. Made
 			// again, a few times, rather than failing a lock or a backup on it.
-			// Asked of the folder, not of the error: measured on macOS, a copy
-			// into a folder removed meanwhile fails EINVAL, not ENOENT.
 			for (let attempt = 1; ; attempt++) {
 				try {
 					await makeFolders(dirname(target));
 					await land(file, target);
 					break;
 				} catch (error) {
-					const gone = !(await exists(dirname(target)));
-					if (!gone || attempt === 3) throw error;
+					if (!(await raced(error, dirname(target))) || attempt === 5) {
+						throw error;
+					}
 				}
 			}
 			await syncPath(dirname(target));
@@ -80,6 +79,18 @@ export function localRepository(options: LocalRepositoryOptions): Repository {
 			await removeEmptyFolders(root, dirname(file));
 		},
 	};
+}
+
+/**
+ * Whether a failed put lost a race with a delete: its folder is gone — on
+ * macOS a copy into a folder removed meanwhile fails `EINVAL`, not
+ * `ENOENT` — or something on the way to it was (`ENOENT`), though another
+ * put may have made the folder again since: measured on CI's Linux, the
+ * sync of a parent folder failed `ENOENT` while the folder stood again.
+ */
+export async function raced(error: unknown, folder: string): Promise<boolean> {
+	if ((error as { code?: unknown } | null)?.code === 'ENOENT') return true;
+	return !(await exists(folder));
 }
 
 function exists(path: string): Promise<boolean> {
