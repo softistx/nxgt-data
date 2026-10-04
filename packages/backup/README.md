@@ -46,7 +46,8 @@ await backups.restore(created.id, directoryTarget({ path: '/srv/restore' }), {
 
 > **0.x.** Full, incremental and differential backups, local and S3
 > repositories, checked restores, signed manifests, a single-writer lock and
-> rotation are here; a MongoDB source is next — see the
+> rotation are here; MongoDB is a source and a target in the separate
+> package [`@nxgt/mongo-backup`](https://www.npmjs.com/package/@nxgt/mongo-backup). What comes next is in the
 > [roadmap](docs/roadmap.md).
 
 ## Install

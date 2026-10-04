@@ -23,7 +23,7 @@ only — zstd, hashing and file reads are Bun's own — and its one dependency i
 | [Errors](guide/errors.md) | you are handling a failure: `BackupError`, its eight codes and its fields, the bare `TypeError`s, and a handler for a scheduled job |
 | [Upgrading](upgrading.md) | you are moving from one minor to the next: what to change, and what a repository you already have needs — from 0.5, upgrade every reader and pruner before the first incremental |
 | [Troubleshooting](troubleshooting.md) | a call threw and you have the message, a backup is missing from `list` or in `unreadable`, an incremental has nothing to build on or read every entry again, `prune` kept more than you expected, or the run is out of room |
-| [Roadmap](roadmap.md) | you want to know what is coming — a MongoDB source with incremental backups by change stream, granular restore, append-only storage — and what has been ruled out |
+| [Roadmap](roadmap.md) | you want to know what is coming — granular restore, restore drills, append-only storage — what has been ruled out, and what has shipped, the MongoDB source in `@nxgt/mongo-backup` included |
 
 The [README](../README.md) is the short version: install, keys, an example
 for each operation, signing, rotation, the API, the errors and the traps.

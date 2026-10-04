@@ -5,14 +5,9 @@ item shipped in is the only number on this page.
 
 ## Next
 
-- **`@nxgt/mongo-backup`** — a source for MongoDB collections, and a target to
-  restore them, as a separate package peering on `@nxgt/backup`: a full
-  snapshot of each collection, GridFS files included, and incremental
-  backups driven by the change stream — its resume token kept as the
-  backup's `position`, so the next backup reads only the collections that
-  changed.
 - **Granular restore** — part of a database backup — one collection, say —
-  without restoring the rest. `only` already picks whole entries.
+  without restoring the rest. `only` already picks whole entries; for
+  MongoDB it is the next step of `@nxgt/mongo-backup`.
 
 ## Later
 
@@ -40,6 +35,13 @@ item shipped in is the only number on this page.
 
 ## Shipped
 
+- **A MongoDB source and target, `@nxgt/mongo-backup`** — `@nxgt/mongo-backup`
+  0.1.0, a separate package peering on `@nxgt/backup`: a full backup of every
+  collection at one cluster time, views and GridFS buckets included;
+  incremental and differential backups read from the change stream, its
+  position kept as the backup's `position`; and a restore in which each
+  collection lands whole or not at all, into the same database or another
+  one.
 - **Incremental and differential chains** — 0.6.0: `create(source, { kind:
   'incremental' | 'differential', identities })` builds on the newest backup,
   or the newest full one, and stores only the entries that changed; every
