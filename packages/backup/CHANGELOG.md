@@ -1,5 +1,11 @@
 # @nxgt/backup
 
+## 0.5.0
+
+### Minor Changes
+
+- [#154](https://github.com/softistx/nxgt-data/pull/154) [`0ec34cb`](https://github.com/softistx/nxgt-data/commit/0ec34cb8553e170aede3762ad9043f77e8fb9616) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Backup rotation: `prune({ keep, from, dryRun })` applies a retention policy to one repository under the lock — `last`, `hourly`, `daily`, `weekly`, `monthly`, `yearly`, `within` and `maxTotalSize` (never below the newest `last`, or the newest backup) — and removes the rest, with backups that never got a manifest once they are older than `incompleteAfter`. Every decision says which rules kept a backup or why it went; `dryRun` removes nothing. `hold(id)` puts a legal hold, in every repository that holds the backup, that `prune` always respects until `unhold(id)`, and `list` reports it. A kept backup keeps the backups it builds on. The `LOCKED` message now reads "another create, prune or hold has the lock". A local repository now removes the folders a delete leaves empty.
+
 ## 0.4.0
 
 ### Minor Changes
