@@ -1,0 +1,61 @@
+{
+	"name": "@nxgt/backup",
+	"version": "0.0.0",
+	"description": "Encrypted, verifiable backups on Bun: zstd then age encryption, a manifest written last that pins every object, and several repositories at once",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"docs",
+		"README.md",
+		"package.json",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"keywords": [
+		"backup",
+		"bun",
+		"typescript",
+		"age",
+		"encryption",
+		"zstd",
+		"restore"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/softistx/nxgt-data.git",
+		"directory": "packages/backup"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	},
+	"scripts": {
+		"build": "bun run ../../build.ts",
+		"test": "bun test --timeout 30000 src",
+		"typecheck": "tsc --noEmit"
+	},
+	"nxgt": {
+		"entrypoints": [
+			"src/index.ts"
+		]
+	},
+	"dependencies": {
+		"age-encryption": "~0.3.1"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.4.0"
+	},
+	"peerDependencies": {
+		"typescript": "^6.0.3"
+	}
+}
