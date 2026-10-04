@@ -8,7 +8,7 @@ import {
 } from '@nxgt/mongo';
 import { z } from 'zod';
 import { createSearchSync } from '../src';
-import type { RunningSearchSync, SearchSyncOptions } from '../src/types';
+import type { RunningSearchSync, SearchSyncOptions } from '../src/sync/types';
 import { type TestServer as Meili, startMeilisearch } from './meilisearch';
 import { type TestServer as Mongo, startMongo } from './mongo';
 

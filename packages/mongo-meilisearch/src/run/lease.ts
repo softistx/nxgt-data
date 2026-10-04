@@ -1,7 +1,7 @@
 import { hostname } from 'node:os';
 import { ObjectId } from 'mongodb';
-import type { SyncContext } from './context';
-import { failed, SearchSyncError } from './errors';
+import type { SyncContext } from '../sync/context';
+import { failed, SearchSyncError } from '../sync/errors';
 
 /**
  * The lease on a sync's name: one document in the state collection, whose

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { byId, eventually, useServers } from '../test/fixtures';
-import { SearchSyncError } from './errors';
+import { byId, eventually, useServers } from '../../test/fixtures';
+import { SearchSyncError } from '../sync/errors';
 
 const { servers, collection, index, sync, start, track, indexed } =
 	useServers('follow');

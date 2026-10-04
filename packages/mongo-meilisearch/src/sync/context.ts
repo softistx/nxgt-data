@@ -1,7 +1,7 @@
 import type { AnyIndexDefinition, TypedIndex } from '@nxgt/meilisearch';
 import type { AnyCollectionDefinition, TypedCollection } from '@nxgt/mongo';
 import type { Collection } from 'mongodb';
-import type { LeaseDocument } from './lease';
+import type { LeaseDocument } from '../run/lease';
 import type { SearchSyncOptions, SearchSyncState } from './types';
 
 /** Loosely typed: this layer works on any documents; the public types are what callers see. */

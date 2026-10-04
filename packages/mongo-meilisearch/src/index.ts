@@ -1,9 +1,9 @@
-export { createSearchSync } from './create-search-sync';
+export { createSearchSync } from './sync/create-search-sync';
 export {
 	SearchSyncError,
 	type SearchSyncErrorCode,
 	type SearchSyncErrorOptions,
-} from './errors';
+} from './sync/errors';
 export type {
 	ReindexReport,
 	RunningSearchSync,
@@ -12,4 +12,4 @@ export type {
 	SearchSyncState,
 	ToIndexId,
 	Transform,
-} from './types';
+} from './sync/types';

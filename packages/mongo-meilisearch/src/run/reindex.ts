@@ -1,13 +1,13 @@
 import type { ResumeToken } from '@nxgt/mongo';
 import { MeilisearchApiError } from 'meilisearch';
-import { deleteIds, sendDocuments } from './batch';
-import type { Doc, SyncContext } from './context';
-import { entryOf, keyOf } from './documents';
-import { failed } from './errors';
+import { deleteIds, sendDocuments } from '../sync/batch';
+import type { Doc, SyncContext } from '../sync/context';
+import { entryOf, keyOf } from '../sync/documents';
+import { failed } from '../sync/errors';
+import { checkIdle } from '../sync/running';
+import { saveState } from '../sync/state';
+import type { ReindexReport } from '../sync/types';
 import { confirmLease, type HeldLease, leaseLost, withLease } from './lease';
-import { checkIdle } from './running';
-import { saveState } from './state';
-import type { ReindexReport } from './types';
 
 /**
  * Where the collection's changes are now, without waiting for one: a new
