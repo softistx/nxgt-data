@@ -82,9 +82,13 @@ await backups.prune({ keep: { last: 24, daily: 14, weekly: 8, monthly: 12 } });
 - **`prune` after the backup**, never before: a kept incremental keeps the
   backups it builds on, so a rotation never breaks a chain —
   [`@nxgt/backup`'s rotation](https://github.com/softistx/nxgt-data/blob/develop/packages/backup/docs/guide/rotation.md).
-- **One writer at a time**: `create` and `prune` take the repository's
-  lock, so a run that overlaps the last one fails with `LOCKED` rather than
-  interleave — let the scheduler skip it, not retry it in a loop.
+- **One writer at a time**: `create`, `prune` and `hold` take the
+  repository's lock, so a run that overlaps the last one fails rather than
+  interleave. `prune` rejects with `BackupError` `LOCKED`; `create` with
+  `NOT_STORED` — `PARTIAL` when another repository took it — the `LOCKED`
+  in that repository's outcome,
+  [as `@nxgt/backup`'s locking shows](https://github.com/softistx/nxgt-data/blob/develop/packages/backup/docs/guide/locking.md).
+  Let the scheduler skip such a run, not retry it in a loop.
 
 ## The schedule
 
@@ -120,10 +124,13 @@ import { restoreCollections } from '@nxgt/mongo-backup';
 
 const { backups: held } = await backups.list();
 const newest = held.at(-1);
+if (!newest) throw new Error('no backup to drill');
 const drill = client.db(`drill-${crypto.randomUUID()}`);
 try {
 	const restored = await restoreCollections(backups, newest.id, { identities, db: drill });
 	for (const { as } of restored.collections) {
+		const info = await drill.listCollections({ name: as }).next();
+		if (info?.type === 'view') continue;
 		console.log(as, await drill.collection(as).countDocuments());
 	}
 } finally {

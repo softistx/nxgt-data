@@ -16,7 +16,7 @@ document) and exits non-zero on failure, for the scheduler to alert on.
 
 | Variable | |
 | --- | --- |
-| `MONGO_URL` | a replica set or a sharded cluster |
+| `MONGO_URL` | a replica set (a sharded cluster is untested) |
 | `MONGO_DB` | the database backed up |
 | `BACKUP_PATH` | an absolute folder: the local repository |
 | `BACKUP_RECIPIENT` | the age public key, `age1…` |

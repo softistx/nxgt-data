@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 
 /** What the job needs, read from the environment: secrets from files, never from variables. */
 export interface JobConfig {
-	/** `MONGO_URL`: a replica set or a sharded cluster. */
+	/** `MONGO_URL`: a replica set (a sharded cluster is untested). */
 	mongoUrl: string;
 	/** `MONGO_DB`: the database backed up. */
 	database: string;
