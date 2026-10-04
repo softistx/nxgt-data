@@ -74,6 +74,19 @@ or `hold on "app": …`.
   - [`restore on "app": the catalog does not decrypt (repository "local")`](#restore-on-app-the-catalog-does-not-decrypt-repository-local)
   - [`restore on "app": an entry differs from what its source gave (repository "local")`](#restore-on-app-an-entry-differs-from-what-its-source-gave-repository-local)
   - [`restore on "app": an entry does not decrypt (repository "local")`](#restore-on-app-an-entry-does-not-decrypt-repository-local)
+- **Chains**
+  - [`create on "app": kind must be full, incremental or differential`](#create-on-app-kind-must-be-full-incremental-or-differential)
+  - [`create on "app": identities must list at least one age secret key`](#create-on-app-identities-must-list-at-least-one-age-secret-key)
+  - [`create on "app": no backup to build on (repository "local")`](#create-on-app-no-backup-to-build-on-repository-local)
+  - [`create on "app": no full backup to build on (repository "local")`](#create-on-app-no-full-backup-to-build-on-repository-local)
+  - [`create on "app": the source is not of the kind the backup it builds on was made from`](#create-on-app-the-source-is-not-of-the-kind-the-backup-it-builds-on-was-made-from)
+  - [`create on "app": the backup it builds on is not in this repository (repository "nas")`](#create-on-app-the-backup-it-builds-on-is-not-in-this-repository-repository-nas)
+  - [`create on "app": the backup it builds on is encrypted to other recipients; make a full backup first`](#create-on-app-the-backup-it-builds-on-is-encrypted-to-other-recipients-make-a-full-backup-first)
+  - [`create on "app": the source gave a fingerprint that is not a string of at most 1024 bytes`](#create-on-app-the-source-gave-a-fingerprint-that-is-not-a-string-of-at-most-1024-bytes)
+  - [`create on "app": the source gave a position that is not a string of at most 64 KiB`](#create-on-app-the-source-gave-a-position-that-is-not-a-string-of-at-most-64-kib)
+  - [`restore on "app": a backup it builds on is missing (repository "local")`](#restore-on-app-a-backup-it-builds-on-is-missing-repository-local)
+  - [`restore on "app": the catalog names a backup outside its chain (repository "local")`](#restore-on-app-the-catalog-names-a-backup-outside-its-chain-repository-local)
+  - [`restore on "app": the catalog names an object the manifest lacks (repository "local")`](#restore-on-app-the-catalog-names-an-object-the-manifest-lacks-repository-local)
 - **Pruning**
   - [`prune on "app": keep must name at least one rule`](#prune-on-app-keep-must-name-at-least-one-rule)
   - [`prune on "app": keep.daily must be a whole number, 1 or more`](#prune-on-app-keepdaily-must-be-a-whole-number-1-or-more)
@@ -94,6 +107,8 @@ or `hold on "app": …`.
   - [`overSize` is `true`](#oversize-is-true)
   - [A backup or a restore fails for lack of room](#a-backup-or-a-restore-fails-for-lack-of-room)
   - [The bucket bills for storage that `list` does not show](#the-bucket-bills-for-storage-that-list-does-not-show)
+  - [Every entry was read again](#every-entry-was-read-again)
+  - [Incremental backups are in `unreadable`](#incremental-backups-are-in-unreadable)
 
 ## Install and run
 
@@ -392,8 +407,9 @@ nothing was read or written.
 
 ### `list on "app": no repository has that name`
 
-**When:** `list`, `verify`, `restore`, `prune`, `hold` or `unhold` with a
-`from` that is not the name of a repository given to `bindBackup`.
+**When:** `list`, `verify`, `restore`, `prune`, `hold` or `unhold` — or an
+incremental or differential `create` — with a `from` that is not the name of
+a repository given to `bindBackup`.
 **Why:** reads go to one repository, picked by name; there is no fallback.
 **Fix:** use a name from `backups.repositories`.
 
@@ -593,6 +609,10 @@ for (const outcome of error.outcomes) {
 
 **Code:** `LOCKED`, in that repository's outcome — so `create` rejects with
 `PARTIAL` if another repository took the backup, `NOT_STORED` if none did.
+An incremental or differential `create` given a `from` whose lock is held
+rejects with this `LOCKED` itself: it will not read the backup to build on
+without that lock, which keeps a `prune` from removing it mid-read. Without
+`from`, it reads from the first repository it did lock.
 **When:** `create`, at the start, before any of the backup is written to
 that repository; its own lock file is put, then removed.
 **Why:** `create` takes a lock in every repository it writes to, at
@@ -886,6 +906,9 @@ await client.list({ maxKeys: 1 }); // fails here, early, rather than inside an o
 ## Reading back
 
 `list`, `verify` and `restore` read one repository: the first, or `from`.
+For an incremental or differential backup, an error about an object stored
+in an older backup of its chain carries that backup's id in `error.id` —
+the folder to look in — and so does a `SIGNATURE` on one of its manifests.
 
 ### `verify on "app": no backup with that id (repository "local")`
 
@@ -1005,7 +1028,9 @@ only: (name) => name.startsWith('avatars/'),
 ### `restore on "app": no identity given opens it (repository "local")`
 
 **Code:** `DECRYPT`. `cause` holds age's error.
-**When:** `restore`, or `verify` with identities.
+**When:** `restore`, or `verify` with identities — or an incremental or
+differential `create` (`create on "app": …`), reading the catalog of the
+backup it builds on, before the source is read.
 **Why:** the object matched its manifest, so its bytes are as written; none of
 the identities given is one of the recipients it was encrypted to. Usually a
 key from another environment, or the backup predates a key rotation.
@@ -1055,7 +1080,9 @@ package reads. The reason after the colon says which check failed:
 | `it is not JSON`, `it is not a JSON object` | a file cut short, or not a manifest |
 | `it is not an nxgt-backup manifest` | a `manifest.json` from something else |
 | `its format is one this version does not read` | written by a later version: upgrade to read it |
-| `its kind is not one this version reads`, `its compression is not zstd` | a later version's backup, or an edit |
+| `its kind is not one this version reads` | an incremental or differential backup read by `@nxgt/backup` 0.5 or earlier — [upgrade](#incremental-backups-are-in-unreadable) — or a later version's kind, or an edit |
+| `its compression is not zstd` | a later version's backup, or an edit |
+| `its parent does not fit its kind` | a full backup with a `parent`, an incremental or differential one without one, or a `parent` that is not a backup id older than the manifest's own `id`: an edited or damaged manifest |
 | `its backup name is not one`, `its id is not a backup id`, `its createdAt is not an ISO date`, `its recipients are not age public keys` | an edited or damaged manifest |
 | `an object is not a record`, `an object key is not one this format writes`, `an object size is not a whole number of bytes`, `an object sha256 is not 64 hex digits`, `its catalog key is not catalog.age`, `its objects are not a list`, `its objects are not numbered in order` | an edited or damaged manifest |
 
@@ -1084,10 +1111,16 @@ this version reads. Since both checks passed, either the manifest and the
 catalog were rewritten together — which takes write access and the public
 key — or this version cannot read what a later one wrote. The reason after
 the colon is one of: `it is not JSON`, `it is not an nxgt-backup catalog`,
-`its source has no kind`, `its entries do not match the manifest`, `an entry
-is not a record`, `an entry name is not one`, `its entries do not follow the
-objects`, `an entry size is not a whole number of bytes`, `an entry sha256 is
-not 64 hex digits`, `two entries have the same name`.
+`its source has no kind`, `its position is not one`, `its entries do not
+match the manifest`, `an entry is not a record`, `an entry name is not one`,
+`its entries do not follow the objects`, `an entry stored elsewhere does not
+say where`, `an entry size is not a whole number of bytes`, `an entry sha256
+is not 64 hex digits`, `an entry fingerprint is not one`, `two entries have
+the same name`. `an entry stored elsewhere does not say where` is an entry
+with an `in` that is not a backup id, or whose `object` is not a key this
+format writes; `its entries do not match the manifest`, entries stored in
+the backup itself that are not as many as its manifest's objects —
+[the catalog](guide/format.md#the-catalog).
 **Fix:** another repository's copy, and a look at who can write to this one.
 
 ### `restore on "app": the catalog does not decrypt (repository "local")`
@@ -1120,10 +1153,236 @@ public key can write a valid age file — and the catalog does.
 to match it, and its body fails age's or zstd's checks.
 **Fix:** another repository's copy.
 
-Two more `INTEGRITY` messages exist as a second line of defence, and the
-catalog's own checks make them unreachable: `the catalog names an object the
-manifest lacks` and `the catalog misses an entry`. Treat either as the
-entries above.
+An incremental or differential backup can also fail with
+[a backup it builds on is missing](#restore-on-app-a-backup-it-builds-on-is-missing-repository-local),
+and two more `INTEGRITY` messages guard its pointers:
+[the catalog names a backup outside its chain](#restore-on-app-the-catalog-names-a-backup-outside-its-chain-repository-local)
+and
+[the catalog names an object the manifest lacks](#restore-on-app-the-catalog-names-an-object-the-manifest-lacks-repository-local).
+
+## Chains
+
+Incremental and differential backups — [chains](guide/chains.md). A wrong
+`kind`, `identities` or source kind, and `NOT_FOUND` for a backup with
+nothing to build on, come before the source is read: no object is written.
+A wrong fingerprint or position comes from your source, as it is read.
+
+### `create on "app": kind must be full, incremental or differential`
+
+**When:** `create(source, { kind })` with any other `kind` — a string built
+at run time, since the types refuse a literal one.
+**Why:** there are three kinds, and nothing is guessed.
+**Fix:**
+
+```ts
+await backups.create(source, { kind: 'incremental', identities }); // or leave kind out for a full one
+```
+
+### `create on "app": identities must list at least one age secret key`
+
+**When:** an incremental or differential `create` with `identities: []`.
+With a key age refuses, the message is
+`create on "app": identity 0 is not an age secret key (AGE-SECRET-KEY-…)`,
+the number being its position.
+**Why:** such a backup reads the catalog of the one it builds on — the names,
+digests and fingerprints it recorded — and the catalog is encrypted. A full
+backup needs no key, and the types refuse `identities` on one.
+**Fix:** give the secret key to the host that makes incrementals, from a file
+only the job can read — or make full backups there.
+
+```ts
+const identities = [(await Bun.file('/etc/backup/identity.txt').text()).trim()];
+await backups.create(source, { kind: 'incremental', identities });
+```
+
+[It needs a key where backups are made](guide/chains.md#it-needs-a-key-where-backups-are-made)
+weighs that.
+
+### `create on "app": no backup to build on (repository "local")`
+
+**Code:** `NOT_FOUND`, as `create`'s own rejection; nothing was read from
+the source, and no object written.
+**When:** an incremental `create`, when the repository it looks in — `from`,
+or the first one still in the run — holds no readable backup older than this one: the first run,
+a repository emptied, every backup pruned, or the only ones there unreadable
+(`list` shows them in `unreadable`) or dated after now by a clock that ran
+ahead.
+**Why:** an incremental stores what changed since another backup; without
+one, there is nothing to compare with. A full backup is never made in its
+place without being asked for.
+**Fix:** make a full backup, then incrementals again — or fall back to one
+in the job:
+
+```ts
+import { BackupError } from '@nxgt/backup';
+
+try {
+	await backups.create(source, { kind: 'incremental', identities });
+} catch (error) {
+	if (!(error instanceof BackupError && error.code === 'NOT_FOUND')) throw error;
+	await backups.create(source); // the first one: full
+}
+```
+
+### `create on "app": no full backup to build on (repository "local")`
+
+**Code:** `NOT_FOUND`, as `create`'s own rejection.
+**When:** a differential `create`, when the repository it looks in holds no
+readable full backup older than this one — only incrementals and
+differentials whose full backup was pruned or is unreadable, or nothing.
+**Why:** a differential always builds on a full backup, never on another
+incremental.
+**Fix:** as above: a full backup first.
+
+```ts
+await backups.create(source); // then { kind: 'differential', identities }
+```
+
+### `create on "app": the source is not of the kind the backup it builds on was made from`
+
+**When:** an incremental or differential `create`, once the backup it builds
+on is found and its catalog read; nothing was read from the source.
+**Why:** the source's `kind` is not the one recorded in that backup's
+catalog — a `directorySource` given to a definition whose backups came from
+a database source, say. Pointing to objects another kind of source stored
+would mix two things under one name.
+**Fix:** one definition per kind of source; a new kind starts with a full
+backup.
+
+```ts
+const files = bindBackup(defineBackup({ name: 'uploads' }), { repositories, recipients });
+const dumps = bindBackup(defineBackup({ name: 'database' }), { repositories, recipients });
+```
+
+### `create on "app": the backup it builds on is not in this repository (repository "nas")`
+
+**Code:** `NOT_FOUND`, as one repository's `outcomes[].error`: `create`
+rejects with `PARTIAL`, and the backup is stored in the others.
+**When:** an incremental or differential `create` with several repositories,
+when the backup chosen as parent in `from` (or the first) has no manifest in
+this one — a repository added since the last full backup, one left out of
+an earlier `PARTIAL`, or pruned by another policy.
+**Why:** a backup that points to objects this repository does not hold could
+not be restored from it, so the repository is left out of the run.
+**Fix:** a full backup, which lands everywhere; the next incrementals then
+build on it in every repository.
+
+```ts
+import { BackupError } from '@nxgt/backup';
+
+const lacksParent = (error: unknown) =>
+	error instanceof BackupError &&
+	error.code === 'PARTIAL' &&
+	error.outcomes.some(
+		(outcome) => !outcome.stored && outcome.error instanceof BackupError && outcome.error.code === 'NOT_FOUND',
+	);
+```
+
+A repository that holds that backup but not its whole chain fails with
+[a backup it builds on is missing](#restore-on-app-a-backup-it-builds-on-is-missing-repository-local)
+(`INTEGRITY`) instead, and one whose copy does not read with that reading's
+own error — `INTEGRITY`, `SIGNATURE`.
+
+### `create on "app": the backup it builds on is encrypted to other recipients; make a full backup first`
+
+**When:** an incremental or differential `create`, once the backup to build
+on is found, after `recipients` changed in `bindBackup` — a key added,
+removed or replaced. Nothing was read from the source, and no object
+written.
+**Why:** the new backup would point to that backup's objects, which are
+encrypted to the old recipients: a key you removed could still read it, and
+a key you added could not — its restore would fail `DECRYPT` on every entry
+it did not store itself. The recipients are compared as a set: their order
+does not matter.
+**Fix:** after changing `recipients`, make one full backup; incrementals
+build on it from then on.
+
+```ts
+await backups.create(source); // full, encrypted to the new recipients
+await backups.create(source, { kind: 'incremental', identities });
+```
+
+### `create on "app": the source gave a fingerprint that is not a string of at most 1024 bytes`
+
+**When:** `create`, with a source you wrote whose entry has a `fingerprint`
+that is not a string, or is longer than 1024 bytes in UTF-8 — fewer
+characters, outside ASCII. The entries before it are stored,
+without a manifest.
+**Why:** a fingerprint is kept in the catalog for each entry, and compared
+as it is; a long one is a sign it holds the data rather than describes it.
+**Fix:** a short string that changes whenever the bytes do — a version, an
+ETag, a hash the store already keeps — or none.
+
+```ts
+yield { name, open, fingerprint: `${row.version}:${row.updatedAt.toISOString()}` };
+```
+
+### `create on "app": the source gave a position that is not a string of at most 64 KiB`
+
+**When:** `create`, after the last entry, when your source's `position()`
+returned something that is not a string or `undefined`, or a string over
+64 KiB in UTF-8. Every entry is stored; the backup gets no manifest.
+**Why:** the position is kept in the catalog and handed back as
+`since.position`; it is a cursor, not a payload.
+**Fix:** return the cursor itself — a resume token, an offset — as a string.
+
+```ts
+position: () => (token === undefined ? undefined : JSON.stringify(token)),
+```
+
+### `restore on "app": a backup it builds on is missing (repository "local")`
+
+**Code:** `INTEGRITY`.
+**When:** `restore` or `verify` (`verify on "app": …`) of an incremental or
+differential backup, before any entry is read; nothing reached the target.
+Or an incremental or differential `create` (`create on "app": …`), which
+checks the whole chain of the backup it builds on before reading the
+source: in `from`, it rejects with this; in another repository, that
+repository is left out with this as its outcome, inside `PARTIAL`.
+**Why:** a backup of its chain — its parent, or one further down — has no
+manifest in that repository any more. Its entries may live there, so the
+backup cannot be restored whole, and is not restored in part. Most often a
+`prune` by `@nxgt/backup` 0.5, which cannot read incremental manifests and
+so does not keep their bases; or a deletion by hand, a lifecycle rule, a
+copy that left a folder behind.
+**Fix:** restore from a repository that still holds the whole chain, or the
+newest full backup; then make every process that prunes 0.6 or later —
+[upgrading](upgrading.md#05--06).
+
+```ts
+await backups.restore(id, target, { identities, from: 'nas' });
+```
+
+```ts
+const { backups: listed } = await backups.list();
+const lastFull = listed.filter((b) => b.kind === 'full').at(-1); // restores on its own
+```
+
+### `restore on "app": the catalog names a backup outside its chain (repository "local")`
+
+**Code:** `INTEGRITY`.
+**When:** `restore`, or `verify` with identities, at the entry that points
+there; the entries before it are written.
+**Why:** an entry's `in` names a backup that is not this one nor one it
+builds on. This package never writes that: the catalog, which decrypted and
+matched its manifest, was written by something else with the public key —
+or the manifests' `parent` fields were rewritten.
+**Fix:** another repository's copy, and a look at who can write to this
+one; [signing](guide/signing.md) makes a forged manifest a `SIGNATURE`.
+
+```ts
+await backups.restore(id, target, { identities, from: 'nas' });
+```
+
+### `restore on "app": the catalog names an object the manifest lacks (repository "local")`
+
+**Code:** `INTEGRITY`.
+**When:** `restore`, or `verify` with identities, at the entry that points
+there.
+**Why:** an entry points to an object the manifest of the backup holding it
+does not list — an index past its end, a key spelled another way (`05.age`).
+As above, this package never writes that.
+**Fix:** as above: another repository's copy.
 
 ## Pruning
 
@@ -1408,7 +1667,9 @@ removing `holds/` lifts every hold. A single stale lock file is removed as
 gave:
 
 - `held` — a legal hold in that repository; `list` shows `held: true`;
-- `parent of <id>` — a kept backup builds on it;
+- `parent of <id>` — a kept backup builds on it, or an unreadable one: `prune`
+  never removes an unreadable backup, and keeps the parent its raw manifest
+  names;
 - `newer than now` — its `createdAt` is after `now`: the host's clock is
   behind the one that made the backup, or `now` was given in the past. It
   takes no place from a real backup in `last` or a calendar rule;
@@ -1496,3 +1757,59 @@ aws s3api list-multipart-uploads --bucket my-backups # what is pending now
 ```
 
 Most S3-compatible stores take the same rule; check that yours does.
+
+### Every entry was read again
+
+**When:** an incremental or differential `create` took as long as a full
+one: it read every entry, while `reused` is high and `storedSize` small.
+**Why:** an entry is skipped unread only when the source gives a
+`fingerprint` equal to the one recorded under its name. Here none matched:
+
+- **the folder was restored or copied** — to another machine, a new disk, a
+  fresh checkout: every file has a new inode and new times, so every
+  fingerprint differs once;
+- **the files were touched** — a `chmod -R`, a `chown -R`, a tool that
+  rewrote every file with the same bytes, a `touch`: the change time moves
+  even when the modification time is put back;
+- **the backup it builds on recorded no fingerprints** — made by 0.5, or
+  by a source that gives none;
+- **your source gives no fingerprint**, or one that changes on every run —
+  a time of reading rather than of writing.
+
+Some entries read on every run are files that keep changing: a file
+modified or changed within two seconds of being measured gets **no
+fingerprint** from `directorySource`, since the file system's clock may be
+too coarse to show a second write in the same tick — so the next backup
+reads it again. A log written all the time is read every time; it is
+stored only when its bytes changed.
+
+Nothing is stored twice: an entry whose bytes did not change is dropped
+once read, and points to the object already stored — that is the high
+`reused`.
+**Fix:** none is needed for the first three: the new fingerprints are
+recorded, and the next incremental reads only what moved. For a source of
+your own, give a fingerprint that is stable while the bytes are —
+[writing a source](guide/chains.md#writing-a-source-with-fingerprints-and-a-position).
+
+```ts
+const created = await backups.create(source, { kind: 'incremental', identities });
+console.log(`${created.reused} of ${created.entries} entries unchanged`);
+```
+
+### Incremental backups are in `unreadable`
+
+**When:** `list` or `prune` from `@nxgt/backup` 0.5 or earlier, on a
+repository where 0.6 made incremental or differential backups; `verify` and
+`restore` there fail with
+`the manifest is unreadable: its kind is not one this version reads`.
+**Why:** 0.5 reads full manifests only. Its `prune` never removes an
+unreadable backup — but it does not read the `parent` either, so it does not
+keep the full backup an incremental builds on, and may remove it: the
+incremental then fails with
+[a backup it builds on is missing](#restore-on-app-a-backup-it-builds-on-is-missing-repository-local).
+**Fix:** move every process that lists, restores or prunes that repository
+to 0.6, before making incrementals — [upgrading](upgrading.md#05--06).
+
+```sh
+bun add @nxgt/backup@^0.6.0
+```

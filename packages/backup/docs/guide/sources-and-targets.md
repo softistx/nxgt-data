@@ -46,7 +46,13 @@ function directorySource(options: DirectoryOptions): BackupSource; // kind: 'dir
 - **Files are read as the backup reaches them**, not all at once, so a file
   that changes during the backup is stored as it was when it was read. For a
   consistent copy of a folder that is being written to, back up a
-  file-system snapshot of it.
+  file-system snapshot of it. A file removed between the listing and its
+  turn, or no longer a regular file then, is left out.
+- **Each file has a fingerprint**, `size:mtimeNs:ctimeNs:ino`, from `lstat`
+  just before it is read: an [incremental or differential](chains.md)
+  backup does not open a file whose fingerprint is the one its parent
+  recorded. A file changed in the last two seconds gets none, and the next
+  backup reads it again — [the folder's fingerprint](chains.md#the-folders-fingerprint).
 
 The folder is listed when `create` starts reading: one that is not there
 rejects `create` with the file system's own `ENOENT` — never an empty
@@ -106,15 +112,43 @@ iterable of entries, each a name and a way to open its bytes.
 
 ```ts
 interface BackupSource {
-	readonly kind: string;                  // 'directory', 'pg_dump', …
-	entries(): AsyncIterable<SourceEntry>;  // each opened in turn: never two at once
+	readonly kind: string;                             // 'directory', 'pg_dump', …
+	entries(since?: Since): AsyncIterable<SourceEntry>; // each opened in turn: never two at once
+	position?(): string | undefined | Promise<string | undefined>; // optional; after the last entry
 }
 
 interface SourceEntry {
 	name: string; // unique within the backup; not empty, at most 4096 characters, no NUL
 	open(): ReadableStream<Uint8Array> | Promise<ReadableStream<Uint8Array>>; // called once
+	fingerprint?: string | undefined; // optional; at most 1024 bytes, UTF-8
+}
+
+interface Since {
+	id: string;                   // the backup this one builds on
+	position: string | undefined; // what that backup's position() returned
+	entries: ReadonlyMap<string, { size: number; sha256: string; fingerprint: string | undefined }>;
 }
 ```
+
+`entries`, `name` and `open` are all a full backup needs; a source written
+for 0.5 fits as it is. The rest is for [chains](chains.md):
+
+- **`since`** is given to `entries` when the backup builds on another: what
+  that one recorded, by name. The source still yields every entry the new
+  backup should hold — one it leaves out is not in it.
+- **`fingerprint`** is what the source can say of an entry without reading
+  it — a version, an ETag, a size and a time. An entry whose fingerprint is
+  the recorded one is not opened, and keeps the bytes stored before: **it
+  must change whenever the bytes do.** Without one, every entry is read, and
+  stored only if its bytes changed. Over 1024 bytes in UTF-8 rejects `create`
+  with a `TypeError`.
+- **`position()`** is called once, after the last entry: where the source
+  stands — a change feed's cursor, a log's offset. It is kept, encrypted, in
+  the catalog, and given back as `since.position` to the next backup built
+  on this one. Over 64 KiB in UTF-8 rejects `create` with a `TypeError`.
+
+[Chains](chains.md#writing-a-source-with-fingerprints-and-a-position) has a
+whole source that uses both.
 
 - `create` asks for the next entry only after the previous one is stored,
   and calls `open` once, when it gets to it — so a source can produce each

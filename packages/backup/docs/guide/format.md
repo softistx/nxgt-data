@@ -17,8 +17,10 @@ without a key and what is not, and how to open it without this package.
       catalog.age                      ← the entry names and digests: zstd, then age
       manifest.sig                     ← with `signing`: 64 bytes, just before the manifest
       manifest.json                    ← in the clear, written last
-    20261004T221500087Z-03be44d1/
-      …
+    20261004T221500087Z-03be44d1/      ← an incremental: only what changed since its parent
+      0.age                            ← the first entry it stores itself
+      catalog.age                      ← every entry of its view, stored here or pointed to
+      manifest.json
   database/                            ← another definition, same repository
     …
 ```
@@ -63,9 +65,12 @@ repository, and `prune` never removes one — [rotation](rotation.md#legal-holds
 
 ## Objects
 
-Entry *n* of the source — in the order the source gave them — is stored as
-`<n>.age`: its bytes compressed with zstd, then encrypted with age to every
-recipient. The object's name is a number: an entry's own name never appears
+The *n*-th entry a backup stores itself — counting from 0, in the order the
+source gave them — is `<n>.age`: its bytes compressed with zstd, then
+encrypted with age to every recipient. In a full backup that is every entry;
+an [incremental or differential](chains.md) one numbers only the entries it
+stores, and an entry it points to keeps the key it has in the backup that
+stored it. The object's name is a number: an entry's own name never appears
 in a key, a file name or anything else in the clear.
 
 ## The catalog
@@ -78,18 +83,43 @@ It is what ties an object back to the entry it holds:
 	"format": "nxgt-backup-catalog/1",
 	"source": { "kind": "directory" },
 	"entries": [
-		{ "name": "a.txt", "object": "0.age", "size": 5, "sha256": "8ed3f6ad…" },
-		{ "name": "d/b.txt", "object": "1.age", "size": 4, "sha256": "f44e64e7…" }
+		{ "name": "a.txt", "object": "0.age", "size": 5, "sha256": "8ed3f6ad…", "fingerprint": "5:1791158100123456789:1791158100123456789:48213377" },
+		{ "name": "d/b.txt", "object": "1.age", "size": 4, "sha256": "f44e64e7…", "fingerprint": "4:1791158100223456789:1791158100223456789:48213378" }
 	]
 }
 ```
 
+The catalog of an incremental built on that backup, where `a.txt` changed
+and `d/b.txt` did not: `a.txt` is its own `0.age`, and `d/b.txt` points to
+the object of the backup that stored it:
+
+```json
+{
+	"format": "nxgt-backup-catalog/1",
+	"source": { "kind": "directory" },
+	"entries": [
+		{ "name": "a.txt", "object": "0.age", "size": 6, "sha256": "2c26b46b…", "fingerprint": "6:1791244500123456789:1791244500123456789:48213390" },
+		{ "name": "d/b.txt", "object": "1.age", "in": "20261003T221500123Z-9f3a61c0", "size": 4, "sha256": "f44e64e7…", "fingerprint": "4:1791158100223456789:1791158100223456789:48213378" }
+	]
+}
+```
+
+A source that keeps a position — a change feed's cursor — adds it last:
+`"position": "c-1042"`.
+
 | Field | |
 | --- | --- |
 | `source.kind` | what the source said it was: `directory`, or your own source's `kind` |
+| `entries` | **every entry the backup restores** — its whole view — whether stored in it or in an older backup of its chain |
 | `entries[].name` | the name the source gave: a relative path, a collection's name. Not empty, at most 4096 characters, no NUL, unique within the backup |
-| `entries[].object` | the object holding it; entry *n* is always `<n>.age` |
+| `entries[].object` | the object holding it, in the backup that holds it. The entries this backup stores itself are `0.age`, `1.age`, … in order, as many as its manifest lists |
+| `entries[].in` | only on an entry stored elsewhere: the id of the older backup of its chain that **stored** it — never an intermediate one, so there is no second hop |
 | `entries[].size`, `entries[].sha256` | the **plain** bytes, as the source gave them, before compression |
+| `entries[].fingerprint` | what the source said of it without reading it, if it said anything — at most 1024 bytes in UTF-8. `directorySource` gives `size:mtimeNs:ctimeNs:ino`, or none for a file changed within two seconds of the read — [chains](chains.md#the-folders-fingerprint) |
+| `position` | where the source stood once every entry was read — a cursor, a resume token — if it gave one; at most 64 KiB in UTF-8. Handed back to the next backup built on this one — [chains](chains.md#writing-a-source-with-fingerprints-and-a-position) |
+
+A fingerprint and a position are encrypted with the rest of the catalog:
+a file's times and a feed's cursor say something too.
 
 The names are in the catalog, not the manifest, because names say a lot —
 `customers-2026-export.csv` — and a repository should hold none of them in
@@ -123,13 +153,16 @@ content can be found in any file of the repository.
 | `format` | `nxgt-backup/1`. A manifest of a later format is refused, not guessed at |
 | `backup`, `id` | which backup it describes. A manifest under another backup's folder is refused |
 | `createdAt` | when the backup started, as an ISO date |
-| `kind`, `parent` | `full` and `null`: every backup is full in this version. `prune` keeps a kept backup's `parent`, for the incremental backups to come — [chains](rotation.md#chains) |
+| `kind` | `full`, `incremental` or `differential` — [chains](chains.md#full-incremental-differential) |
+| `parent` | `null` for a full backup; otherwise the id of the backup it builds on, which must be **older** than its own `id` — so walking a chain always ends. One that does not fit its kind is refused. `prune` keeps a kept backup's parent — [rotation](rotation.md#chains) |
 | `recipients` | the public keys it is encrypted to — public, so harmless in the clear, and useful to know which key opens it |
 | `compression` | `zstd` |
 | `catalog`, `objects` | every object's key, its size **encrypted**, and the SHA-256 of its encrypted bytes |
 
 It names no entry, so everything that needs only the manifest needs **no
-key**: `list`, `verify` without identities, and [`prune`](rotation.md).
+key**: `list`, `verify` without identities, and [`prune`](rotation.md). Its
+`objects` are only those the backup stores itself: what an incremental
+points to is pinned by the manifest of the backup that stored it.
 
 **A backup exists once its manifest does.** Every object goes first, then the
 catalog, then — with `signing` — the signature, then the manifest, so a
@@ -144,8 +177,8 @@ objects goes.
 
 **The manifest is untrusted input.** A repository is not trusted: a
 manifest is read field by field, only the known fields are kept, and one
-that does not parse, names another backup or id, or lists objects out of
-order is `INTEGRITY` — or, in `list`, an id in `unreadable`.
+that does not parse, names another backup or id, lists objects out of
+order, or has a `parent` that does not fit its kind is `INTEGRITY` — or, in `list`, an id in `unreadable`.
 [Troubleshooting](../troubleshooting.md#verify-on-app-the-manifest-is-unreadable--repository-local)
 lists each reason.
 
@@ -204,6 +237,9 @@ age -d -i key.txt 0.age | zstd -d > a.txt
 
 # check it against the manifest first, as restore does
 sha256sum 0.age    # the manifest's objects[0].sha256
+
+# an entry an incremental points to: its "object", in the folder its "in" names
+age -d -i key.txt ../20261003T221500123Z-9f3a61c0/1.age | zstd -d > b.txt
 
 # and the manifest against its signature — OpenSSL 3, not macOS's LibreSSL
 openssl pkeyutl -verify -pubin -inkey signing.pub.pem -rawin \

@@ -1,3 +1,4 @@
+import type { BigIntStats } from 'node:fs';
 import { link, lstat, readdir, rename, rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 import { codeOf, makeFoldersInside, syncPath, walkFiles } from '../files/files';
@@ -14,6 +15,15 @@ export interface DirectoryOptions {
  * folder — are skipped, not followed: a link could lead anywhere, including
  * back into the folder.
  * Empty folders are not recorded.
+ *
+ * Each file's fingerprint is its size, modification and change times, in
+ * nanoseconds, and inode, taken before it is read: an incremental backup
+ * opens only the files where one of them moved. The change time is the
+ * kernel's: a tool that puts a file's modification time back cannot. A
+ * file changed within the last two seconds gets none, and is read next
+ * time: its clock may be coarser than its writes — a tick on Linux, two
+ * seconds on FAT — so a write landing in the same tick after the reading
+ * would leave its times as they were.
  */
 export function directorySource(options: DirectoryOptions): BackupSource {
 	const root = absolute(options.path, 'directorySource');
@@ -29,13 +39,44 @@ export function directorySource(options: DirectoryOptions): BackupSource {
 			}
 			names.sort();
 			for (const name of names) {
+				const file = join(root, ...name.split('/'));
+				const stats = await lstat(file, { bigint: true }).catch(
+					(error: unknown) => {
+						if (codeOf(error) === 'ENOENT') return undefined;
+						throw error;
+					},
+				);
+				// Removed since the walk, or no longer a file: not in the backup.
+				if (!stats?.isFile()) continue;
 				yield {
 					name,
-					open: () => Bun.file(join(root, ...name.split('/'))).stream(),
+					open: () => Bun.file(file).stream(),
+					fingerprint: fingerprintOf(stats, now()),
 				};
 			}
 		},
 	};
+}
+
+/** How recent a change must not be for a file to get a fingerprint. */
+export const SETTLED_NS = 2_000_000_000n;
+
+/** Now, in nanoseconds since the epoch, on the clock file times use. */
+function now(): bigint {
+	return BigInt(Date.now()) * 1_000_000n;
+}
+
+/**
+ * A file's fingerprint, or none when it changed within `SETTLED_NS` of
+ * `at`: the racy-clean rule git uses for its index.
+ */
+export function fingerprintOf(
+	stats: Pick<BigIntStats, 'size' | 'mtimeNs' | 'ctimeNs' | 'ino'>,
+	at: bigint,
+): string | undefined {
+	const changed = stats.mtimeNs > stats.ctimeNs ? stats.mtimeNs : stats.ctimeNs;
+	if (at - changed < SETTLED_NS) return undefined;
+	return `${stats.size}:${stats.mtimeNs}:${stats.ctimeNs}:${stats.ino}`;
 }
 
 const NOT_INSIDE =

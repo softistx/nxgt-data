@@ -121,3 +121,15 @@ backups.prune({
 	keep: { last: 3, daily: 7, within: 86_400_000 },
 	dryRun: true,
 });
+
+backups.create(source, {
+	kind: 'incremental',
+	identities: ['AGE-SECRET-KEY-1'],
+});
+backups.create(source, { kind: 'full' });
+// @ts-expect-error — building on a backup reads its catalog: it needs a key
+backups.create(source, { kind: 'differential' });
+// @ts-expect-error — a full backup reads nothing back, so takes no key
+backups.create(source, { identities: ['AGE-SECRET-KEY-1'] });
+// @ts-expect-error — no such kind
+backups.create(source, { kind: 'snapshot', identities: [] });

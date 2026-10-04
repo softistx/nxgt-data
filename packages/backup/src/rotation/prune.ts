@@ -1,7 +1,9 @@
-import { type BackupContext, repositoryOf } from '../backups/context';
+import { type BackupContext, keyOf, repositoryOf } from '../backups/context';
 import { type At, fetchManifest, MANIFEST } from '../backups/read';
 import { BackupError } from '../errors/backup-error';
+import { upTo } from '../files/streams';
 import { isBackupId, timeOfId } from '../format/ids';
+import { MANIFEST_MAX_BYTES } from '../format/manifest';
 import type { Lease } from '../lock/lock';
 import { leaseLost, withLock } from '../lock/run-locks';
 import type { Repository } from '../repository/types';
@@ -69,6 +71,30 @@ async function scan(
 	return byId;
 }
 
+/**
+ * The `parent` an unreadable manifest names, read from its raw bytes, or
+ * nothing. Untrusted — the manifest did not read, or was not signed — but
+ * it only ever keeps more: a backup this version cannot read, or one a
+ * newer kind made, must not lose what it builds on.
+ */
+async function parentOfUnreadable(
+	ctx: BackupContext,
+	repository: Repository,
+	id: string,
+): Promise<string | undefined> {
+	const stream = await repository.get(keyOf(ctx, id, MANIFEST));
+	if (!stream) return undefined;
+	try {
+		const value: unknown = JSON.parse(
+			new TextDecoder().decode(await upTo(stream, MANIFEST_MAX_BYTES)),
+		);
+		const parent = (value as { parent?: unknown } | null)?.parent;
+		return isBackupId(parent) && parent < id ? parent : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 async function candidatesOf(
 	ctx: BackupContext,
 	repository: Repository,
@@ -96,6 +122,15 @@ async function candidatesOf(
 			if (error.code === 'NOT_FOUND') continue;
 			if (error.code !== 'INTEGRITY' && error.code !== 'SIGNATURE') throw error;
 			unreadable.push(id);
+			// Stands in for it, held, so that the plan keeps its parent.
+			candidates.push({
+				id,
+				createdAt: timeOfId(id),
+				storedSize: 0,
+				parent: (await parentOfUnreadable(ctx, repository, id)) ?? null,
+				held: true,
+				standIn: true,
+			});
 		}
 	}
 	return { candidates, unreadable };
@@ -172,11 +207,15 @@ export async function pruneBackups(
 			.filter((id) => !complete.includes(id))
 			.filter((id) => Date.now() - timeOfId(id).getTime() >= incompleteAfter)
 			.sort();
+		const planned = plan(candidates, options.keep, now);
+		const shown = (d: Decision) => !unreadable.includes(d.id);
 		return {
 			byId,
 			unreadable,
 			incomplete,
-			...plan(candidates, options.keep, now),
+			kept: planned.kept.filter(shown),
+			removed: planned.removed.filter(shown),
+			overSize: planned.overSize,
 		};
 	};
 	const result = (d: Awaited<ReturnType<typeof decide>>, dryRun: boolean) => ({

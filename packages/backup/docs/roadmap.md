@@ -5,12 +5,12 @@ item shipped in is the only number on this page.
 
 ## Next
 
-- **Incremental and differential chains** — a backup that stores only what
-  changed since a full one, or since the previous one, with the manifest's
-  `kind` and `parent` describing the chain. Rotation already keeps a chain's
-  base for as long as a kept backup needs it.
 - **`@nxgt/mongo-backup`** — a source for MongoDB collections, and a target to
-  restore them, as a separate package peering on `@nxgt/backup`.
+  restore them, as a separate package peering on `@nxgt/backup`: a full
+  snapshot of each collection, GridFS files included, and incremental
+  backups driven by the change stream — its resume token kept as the
+  backup's `position`, so the next backup reads only the collections that
+  changed.
 - **Granular restore** — part of a database backup — one collection, say —
   without restoring the rest. `only` already picks whole entries.
 
@@ -40,6 +40,17 @@ item shipped in is the only number on this page.
 
 ## Shipped
 
+- **Incremental and differential chains** — 0.6.0: `create(source, { kind:
+  'incremental' | 'differential', identities })` builds on the newest backup,
+  or the newest full one, and stores only the entries that changed; every
+  backup's catalog points to the rest where they are already stored, so
+  `restore` and `verify` of any backup give its whole view with no replay.
+  A source can give each entry a `fingerprint` — the folder source gives
+  size, times and inode — so an unchanged entry is not even read, and a
+  `position` handed back to the next backup. A repository that lacks the
+  backup built on is left out; `verify` without a key checks the whole
+  chain; `prune` keeps every parent a kept backup needs —
+  [chains](guide/chains.md).
 - **Rotation** — 0.5.0: keep what a retention policy names and remove the rest, one
   repository at a time, under the single-writer lock: `last`, `hourly`,
   `daily`, `weekly`, `monthly`, `yearly`, `within`, and a `maxTotalSize` that

@@ -10,6 +10,15 @@ export const MANIFEST_FORMAT = 'nxgt-backup/1';
  */
 export const MANIFEST_MAX_BYTES = 64 * 1024 * 1024;
 
+/**
+ * What a backup stores. A `full` one, every entry; an `incremental` one,
+ * what changed since its parent, the newest backup when it was made; a
+ * `differential` one, what changed since its parent, the newest full one.
+ * The entries that did not change stay where they are, in the backup that
+ * stored them, and its catalog points there.
+ */
+export type BackupKind = 'full' | 'incremental' | 'differential';
+
 /** An object of a backup, as the repository holds it: encrypted bytes. */
 export interface StoredObject {
 	/** Its key, relative to the backup's folder: `0.age`, `catalog.age`. */
@@ -32,8 +41,9 @@ export interface Manifest {
 	id: string;
 	/** When the backup started, as an ISO date. */
 	createdAt: string;
-	kind: 'full';
-	parent: null;
+	kind: BackupKind;
+	/** The backup it builds on: `null` for a full one, an id otherwise. */
+	parent: string | null;
 	/** The public keys it is encrypted to: `age1…`, `age1pq1…`. */
 	recipients: string[];
 	compression: 'zstd';
@@ -82,8 +92,17 @@ function shapeProblem(value: Record<string, unknown>): Problem | undefined {
 	) {
 		return 'its createdAt is not an ISO date';
 	}
-	if (value['kind'] !== 'full' || value['parent'] !== null) {
+	const kind = value['kind'];
+	if (kind !== 'full' && kind !== 'incremental' && kind !== 'differential') {
 		return 'its kind is not one this version reads';
+	}
+	const parent = value['parent'];
+	if (
+		kind === 'full'
+			? parent !== null
+			: !isBackupId(parent) || parent >= (value['id'] as string)
+	) {
+		return 'its parent does not fit its kind';
 	}
 	if (value['compression'] !== 'zstd') return 'its compression is not zstd';
 	const recipients = value['recipients'];
@@ -140,8 +159,8 @@ export function readManifest(text: string): Manifest | Problem {
 		backup: value['backup'] as string,
 		id: value['id'] as string,
 		createdAt: value['createdAt'] as string,
-		kind: 'full',
-		parent: null,
+		kind: value['kind'] as BackupKind,
+		parent: value['parent'] as string | null,
 		recipients: [...(value['recipients'] as string[])],
 		compression: 'zstd',
 		catalog: keep(value['catalog'] as StoredObject),

@@ -130,7 +130,7 @@ What the rules keep, whatever they say:
 | --- | --- |
 | `held` | the backup has a [legal hold](#legal-holds) in that repository |
 | `newer than now` | its `createdAt` is after `now` — a clock that disagrees, or `now` given in the past. Its only reason: no rule counts it |
-| `parent of <id>` | a kept backup builds on it — [chains](#chains) |
+| `parent of <id>` | a kept backup builds on it — or an unreadable one, which `prune` never removes — [chains](#chains) |
 
 A backup can have several reasons; all are listed, rules first:
 
@@ -429,13 +429,42 @@ races another prune.
 
 ## Chains
 
-Every backup is **full** today: each one restores on its own, and `prune`
-can remove any of them. The manifest's `parent` field is there for the
-incremental backups on the [roadmap](../roadmap.md): a backup that stores
-only what changed needs the one it builds on. `prune` already honours it —
-a kept backup keeps its parent, that parent its own, all the way down, each
-with the reason `parent of <id>` — so a policy written today stays safe when
-chains arrive.
+An [incremental or differential](chains.md) backup points to entries stored
+in older backups, so it restores only while each backup it builds on is
+there. `prune` reads each manifest's `parent` and keeps a kept backup's
+parent, that parent's own, down to the full backup, each with the reason
+`parent of <id>` — whether the child was kept by a rule, a hold, or as a
+parent itself. A backup whose manifest does not read — damaged, or not
+signed by a `trusted` key — stays in `unreadable`, in neither `kept` nor
+`removed`, and is never removed; its parent is still kept, with
+`parent of <id>`: `prune` reads the `parent` field from the manifest's raw
+JSON, as best it can, so a damaged incremental does not cost its chain.
+Nothing else keeps a backup alive: one no kept backup builds
+on is kept or removed by the rules alone.
+
+```ts
+// keep: { last: 1 }, with a full backup on Sunday and an incremental on Monday
+const pruned = await backups.prune({ keep: { last: 1 } });
+// pruned.kept:
+// [
+//   { id: '<monday>', reasons: ['last 1 of 1'], … },
+//   { id: '<sunday>', reasons: ['parent of <monday>'], … },
+// ]
+```
+
+So a policy that keeps the last seven days keeps, with daily incrementals,
+up to the full backup each of them builds on — `daily: 7` can keep thirteen
+backups. `maxTotalSize` never removes a parent a kept backup needs either,
+which can leave it [over](#maxtotalsize). A weekly full backup bounds what a
+chain holds on to.
+
+**Every process that prunes must be 0.6 or later before the first
+incremental is made.** A 0.5 `prune` cannot read an incremental or
+differential manifest: it puts the backup in `unreadable` and never removes
+it — but, unlike 0.6, it does not look for its `parent`, so it does not
+keep the full backup it builds on, and may remove it. The incremental then fails to restore with
+`a backup it builds on is missing` —
+[upgrading](../upgrading.md#05--06).
 
 ## What it needs
 

@@ -39,7 +39,7 @@ through at a peak RSS of 88 MB, measured on Bun 1.4.2.
 | | Looks like | Who holds it | Passed as |
 | --- | --- | --- | --- |
 | recipient | `age1…` (X25519) or `age1pq1…` (hybrid post-quantum) | the host that runs `create` — it is public | `bindBackup({ recipients })` |
-| identity | `AGE-SECRET-KEY-1…` or `AGE-SECRET-KEY-PQ-1…` | whoever restores — nobody else | `restore({ identities })`, `verify({ identities })` |
+| identity | `AGE-SECRET-KEY-1…` or `AGE-SECRET-KEY-PQ-1…` | whoever restores — and the host that makes incremental backups | `restore({ identities })`, `verify({ identities })`, `create(source, { kind: 'incremental', identities })` |
 
 Make a pair with the `age-keygen` command, or in code:
 
@@ -64,6 +64,12 @@ before importing it yourself, so your project names it.
 `verify` without identities run on the public key alone, so the host that is
 being backed up — the one an intruder would be on — holds nothing that opens
 its own backups.
+
+The one exception is an [incremental or differential](chains.md) `create`:
+it reads the catalog of the backup it builds on, so it takes `identities`,
+and the host that makes such backups holds a secret key. Keep to full
+backups where that is not acceptable —
+[it needs a key where backups are made](chains.md#it-needs-a-key-where-backups-are-made).
 
 ### Checked at bind time
 

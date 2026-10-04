@@ -1,9 +1,21 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdir, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import {
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { folder, streamOf } from '../../test/fixtures';
 import { rejection } from '../../test/rejection';
-import { directorySource, directoryTarget } from './directory';
+import {
+	directorySource,
+	directoryTarget,
+	fingerprintOf,
+	SETTLED_NS,
+} from './directory';
 
 let tmp: Awaited<ReturnType<typeof folder>>;
 beforeEach(async () => {
@@ -53,6 +65,76 @@ describe('directorySource', () => {
 			})(),
 		);
 		expect(error).toHaveProperty('code', 'ENOENT');
+	});
+});
+
+describe('directorySource fingerprints', () => {
+	async function fingerprints(
+		root: string,
+	): Promise<Record<string, string | undefined>> {
+		const found: Record<string, string | undefined> = {};
+		for await (const entry of directorySource({ path: root }).entries()) {
+			found[entry.name] = entry.fingerprint;
+		}
+		return found;
+	}
+
+	test('a file just changed gets none; a settled one keeps its own', async () => {
+		const root = join(tmp.path, 'src');
+		await mkdir(root);
+		await writeFile(join(root, 'a'), 'a');
+		expect(await fingerprints(root)).toEqual({ a: undefined } as never);
+		await Bun.sleep(2_100);
+		const settled = await fingerprints(root);
+		expect(settled['a']).toMatch(/^1:\d+:\d+:\d+$/);
+		expect(await fingerprints(root)).toEqual(settled);
+	}, 10_000);
+
+	test('moves with any of size, times or inode, and waits two seconds', () => {
+		const stats = { size: 1n, mtimeNs: 10n, ctimeNs: 20n, ino: 7n };
+		const late = 20n + SETTLED_NS;
+		expect(fingerprintOf(stats, late)).toBe('1:10:20:7');
+		for (const moved of [
+			{ size: 2n },
+			{ mtimeNs: 11n },
+			{ ctimeNs: 19n },
+			{ ino: 8n },
+		]) {
+			expect(fingerprintOf({ ...stats, ...moved }, late)).not.toBe('1:10:20:7');
+		}
+		expect(fingerprintOf(stats, late - 1n)).toBeUndefined();
+		expect(
+			fingerprintOf({ ...stats, mtimeNs: 30n }, 20n + SETTLED_NS),
+		).toBeUndefined();
+	});
+
+	test('a file swapped for a link after the walk is left out', async () => {
+		const root = join(tmp.path, 'src');
+		await mkdir(root);
+		await writeFile(join(root, 'a'), 'a');
+		await writeFile(join(root, 'b'), 'b');
+		const names: string[] = [];
+		for await (const entry of directorySource({ path: root }).entries()) {
+			names.push(entry.name);
+			if (entry.name === 'a') {
+				await rm(join(root, 'b'));
+				await symlink('/etc/hosts', join(root, 'b'));
+			}
+		}
+		expect(names).toEqual(['a']);
+	});
+
+	test('a file removed after the walk is left out, not an error', async () => {
+		const root = join(tmp.path, 'src');
+		await mkdir(root);
+		await writeFile(join(root, 'a'), 'a');
+		await writeFile(join(root, 'b'), 'b');
+		const names: string[] = [];
+		for await (const entry of directorySource({ path: root }).entries()) {
+			names.push(entry.name);
+			if (entry.name === 'a') await rm(join(root, 'b'));
+		}
+		expect(names).toEqual(['a']);
 	});
 });
 

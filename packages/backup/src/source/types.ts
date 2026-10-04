@@ -8,14 +8,48 @@ export interface SourceEntry {
 	name: string;
 	/** Its bytes, read when the backup gets to it, and only once. */
 	open(): ReadableStream<Uint8Array> | Promise<ReadableStream<Uint8Array>>;
+	/**
+	 * What the source can say of it without reading it — a file's size,
+	 * modification and change times and inode — at most 1024 bytes.
+	 * An incremental or differential backup does not open an entry whose
+	 * fingerprint is the one recorded in the backup it builds on: it points
+	 * to that backup's copy. It must change whenever the bytes do; without
+	 * one, every entry is read, and stored only if its bytes changed.
+	 */
+	fingerprint?: string | undefined;
+}
+
+/** What the backup an incremental or differential one builds on recorded. */
+export interface Since {
+	/** That backup's id. */
+	id: string;
+	/** Its `position`, if the source gave one. */
+	position: string | undefined;
+	/** Its entries, by name. */
+	entries: ReadonlyMap<
+		string,
+		{ size: number; sha256: string; fingerprint: string | undefined }
+	>;
 }
 
 /** What a backup reads from. */
 export interface BackupSource {
 	/** What it is, recorded in the backup: `directory`, `mongo`. */
 	readonly kind: string;
-	/** Its entries, each opened in turn: never two at once. */
-	entries(): AsyncIterable<SourceEntry>;
+	/**
+	 * Its entries, each opened in turn: never two at once. Given `since`
+	 * when the backup builds on another: an entry it no longer yields is
+	 * not in the new backup, and one it yields with the recorded
+	 * fingerprint is not opened.
+	 */
+	entries(since?: Since): AsyncIterable<SourceEntry>;
+	/**
+	 * Where the source is, once every entry was read — a change stream's
+	 * resume token, a log's offset — recorded in the backup, encrypted, and
+	 * given back in `since.position` to the next backup that builds on it.
+	 * At most 64 KiB.
+	 */
+	position?(): string | undefined | Promise<string | undefined>;
 }
 
 /** Where a restore writes to. */

@@ -1,19 +1,11 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { chainOf, openEntry } from '../chain/view';
 import { decrypterFor } from '../crypto/keys';
-import { openFile } from '../crypto/seal';
 import type { CatalogEntry } from '../format/catalog';
 import type { RestoreTarget } from '../source/types';
 import { type BackupContext, repositoryOf } from './context';
-import {
-	type At,
-	decrypted,
-	failure,
-	fetchCatalog,
-	fetchManifest,
-	guarded,
-	stage,
-} from './read';
+import { type At, failure, fetchCatalog, fetchManifest } from './read';
 
 export interface RestoreOptions {
 	/** The age secret keys to open the backup with. */
@@ -61,7 +53,8 @@ function selected(
 }
 
 /**
- * Writes a backup's entries to `target`, one at a time. Each object is
+ * Writes a backup's entries to `target`, one at a time — those it stored,
+ * and those it points to in the backups it builds on. Each object is
  * staged and checked against the manifest before a byte of it is
  * decrypted, and its plain bytes are checked against what the source gave
  * as they go: a damaged entry fails its stream with `INTEGRITY`, and the
@@ -87,28 +80,18 @@ export async function restoreBackup(
 		const file = join(folder, 'object.age');
 		const catalog = await fetchCatalog(ctx, at, manifest, decrypter, file);
 		const entries = selected(ctx, at, catalog.entries, options.only);
+		const chain = await chainOf(ctx, at, manifest);
 		for (const entry of entries) {
-			const object = manifest.objects[Number.parseInt(entry.object, 10)];
-			if (!object)
-				throw failure(
-					ctx,
-					at,
-					'INTEGRITY',
-					'the catalog names an object the manifest lacks',
-				);
-			await stage(ctx, at, object, file);
-			const stream = await decrypted(ctx, at, () =>
-				openFile(file, decrypter, entry, () =>
-					failure(
-						ctx,
-						at,
-						'INTEGRITY',
-						'an entry differs from what its source gave',
-					),
-				),
-			);
 			const seen = { ended: false };
-			const checked = guarded(ctx, at, stream, seen);
+			const { stream: checked } = await openEntry(
+				ctx,
+				at,
+				chain,
+				entry,
+				decrypter,
+				file,
+				seen,
+			);
 			await target.write(entry.name, checked);
 			if (!seen.ended) {
 				await checked.cancel().catch(() => undefined);
