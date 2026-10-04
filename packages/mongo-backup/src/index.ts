@@ -1,3 +1,14 @@
+export type { BackupKeys } from './backups/key-file';
+export { generateKeyFile, readKeyFile } from './backups/key-file';
+export type {
+	MongoBackups,
+	RestoreReport,
+	RunReport,
+} from './backups/mongo-backups';
+export { mongoBackups } from './backups/mongo-backups';
+export type { MongoBackupsOptions, RestoreAtOptions } from './backups/options';
+export { DEFAULT_FULL_EVERY, DEFAULT_KEEP } from './backups/options';
+export type { DrillReport } from './backups/plan';
 export type { MongoBackupErrorCode } from './errors';
 export { MongoBackupError } from './errors';
 export type {

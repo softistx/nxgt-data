@@ -11,12 +11,15 @@ export type MongoBackupErrorCode =
 	| 'EXISTS'
 	/** An entry is not one this version wrote. */
 	| 'MALFORMED'
-	/** A collection a restore names is not in the backup. */
-	| 'NOT_FOUND';
+	/** A collection a restore names is not in the backup, or no backup is there to restore. */
+	| 'NOT_FOUND'
+	/** The key file is not one `keygen` wrote, or others can read it. */
+	| 'KEY_FILE';
 
 /**
  * What `@nxgt/mongo-backup` throws, told apart by `code`. Its message says
- * what went wrong and never quotes a value, a document or a name: a backup
+ * what went wrong and never quotes a value, a document or a collection's
+ * name — only the backup's own name, which the caller configured: a backup
  * error ends up in logs.
  */
 export class MongoBackupError extends Error {

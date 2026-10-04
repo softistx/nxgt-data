@@ -70,6 +70,7 @@ const NAME = /^[^$\0]+$/;
 export function destinationOf(
 	as: RestoreCollectionsOptions['as'],
 	name: string,
+	where = 'restoreCollections',
 ): string {
 	const to =
 		as === undefined
@@ -80,20 +81,18 @@ export function destinationOf(
 					? as[name]
 					: name;
 	if (typeof to !== 'string' || !NAME.test(to) || to.startsWith('system.')) {
-		throw new TypeError('restoreCollections: as must give a collection name');
+		throw new TypeError(`${where}: as must give a collection name`);
 	}
 	return to;
 }
 
 /** A record `as` is checked at once; a function only once the names are known. */
-function checkAs(as: RestoreCollectionsOptions['as']): void {
+function checkAs(as: RestoreCollectionsOptions['as'], where: string): void {
 	if (as === undefined || typeof as === 'function') return;
 	const names = Object.keys(as);
-	const targets = names.map((name) => destinationOf(as, name));
+	const targets = names.map((name) => destinationOf(as, name, where));
 	if (new Set(targets).size !== targets.length) {
-		throw new TypeError(
-			'restoreCollections: as gives two collections one name',
-		);
+		throw new TypeError(`${where}: as gives two collections one name`);
 	}
 }
 
@@ -104,23 +103,26 @@ function isDb(value: unknown): value is Db {
 	);
 }
 
-export function checkOptions(options: RestoreCollectionsOptions): void {
+export function checkOptions(
+	options: RestoreCollectionsOptions,
+	where: string,
+): void {
 	if (!isDb(options?.db)) {
-		throw new TypeError('restoreCollections: db must be a MongoDB Db');
+		throw new TypeError(`${where}: db must be a MongoDB Db`);
 	}
 	if (options.scratch !== undefined && !isDb(options.scratch)) {
-		throw new TypeError('restoreCollections: scratch must be a MongoDB Db');
+		throw new TypeError(`${where}: scratch must be a MongoDB Db`);
 	}
 	if (
 		options.scratch !== undefined &&
 		options.scratch.client !== options.db.client
 	) {
-		throw new TypeError("restoreCollections: scratch must be on db's client");
+		throw new TypeError(`${where}: scratch must be on db's client`);
 	}
 	if (options.scratch?.databaseName === options.db.databaseName) {
-		throw new TypeError('restoreCollections: scratch must be another database');
+		throw new TypeError(`${where}: scratch must be another database`);
 	}
-	checkAs(options.as);
+	checkAs(options.as, where);
 	const { documents } = options;
 	if (
 		documents !== undefined &&
@@ -128,12 +130,12 @@ export function checkOptions(options: RestoreCollectionsOptions): void {
 			(documents.existing !== 'replace' && documents.existing !== 'keep'))
 	) {
 		throw new TypeError(
-			"restoreCollections: documents must be { filter, existing: 'replace' | 'keep' }",
+			`${where}: documents must be { filter, existing: 'replace' | 'keep' }`,
 		);
 	}
 	if (documents !== undefined && options.replace !== undefined) {
 		throw new TypeError(
-			'restoreCollections: replace is for whole collections; documents says what happens to those there',
+			`${where}: replace is for whole collections; documents says what happens to those there`,
 		);
 	}
 }

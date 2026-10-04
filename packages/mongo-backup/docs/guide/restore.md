@@ -5,6 +5,11 @@ its options, the order things land in, what `replace` does, how changes
 are applied, and what a failure leaves — then bringing back only some
 collections, or some documents, with `restoreCollections`.
 
+`mongoBackups(…).restore()` calls one or the other for you — `mongoTarget`
+for a whole restore, `restoreCollections` when `collections`, `as` or
+`documents` is given — so what this page says of them holds for it too.
+Its own options are in [getting started](getting-started.md#restore).
+
 ```ts
 import { bindBackup, defineBackup, localRepository } from '@nxgt/backup';
 import { mongoTarget } from '@nxgt/mongo-backup';

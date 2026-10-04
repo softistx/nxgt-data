@@ -2,7 +2,7 @@
 	"name": "mongo-backup-job-example",
 	"version": "0.0.0",
 	"private": true,
-	"description": "A scheduled MongoDB backup job on @nxgt/backup and @nxgt/mongo-backup: full weekly, incremental in between, verified, rotated, and a restore drill — the example is not published",
+	"description": "A scheduled MongoDB backup on @nxgt/mongo-backup's mongoBackups: run hourly, drill daily. The example is not published",
 	"type": "module",
 	"scripts": {
 		"backup": "bun src/index.ts backup",
@@ -10,16 +10,16 @@
 		"typecheck": "tsc --noEmit",
 		"test": "bun test --timeout 60000 src",
 		"lint": "biome lint",
-		"check": "biome check --write"
+		"check": "biome check --write",
+		"keygen": "nxgt-mongo-backup keygen"
 	},
 	"dependencies": {
-		"@nxgt/backup": "workspace:^",
 		"@nxgt/mongo-backup": "workspace:^",
+		"@nxgt/backup": "workspace:^",
 		"mongodb": "7.6.0"
 	},
 	"devDependencies": {
 		"@types/bun": "^1.4.0",
-		"age-encryption": "~0.3.1",
 		"mongodb-memory-server-core": "11.2.0",
 		"typescript": "~6.0.3"
 	}

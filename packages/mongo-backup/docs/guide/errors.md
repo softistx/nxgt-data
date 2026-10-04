@@ -1,20 +1,18 @@
 # Errors
 
 This page lists everything `@nxgt/mongo-backup` throws — `MongoBackupError`
-and its seven codes, and the bare `TypeError`s — with every message, and a
+and its eight codes, and the bare `TypeError`s — with every message, and a
 handler for a scheduled job.
 
 ```ts
-import { MongoBackupError, mongoSource } from '@nxgt/mongo-backup';
+import { MongoBackupError, mongoBackups } from '@nxgt/mongo-backup';
 
+const backups = mongoBackups({ db, repository: '/mnt/backups', keyFile: '/etc/backup/shop.key' });
 try {
-	await backups.create(mongoSource({ db }), { kind: 'incremental', identities });
+	console.log(JSON.stringify(await backups.run())); // HISTORY_LOST is handled inside: a full backup
 } catch (error) {
-	if (error instanceof MongoBackupError && error.code === 'HISTORY_LOST') {
-		await backups.create(mongoSource({ db })); // the oplog moved on: start a new chain
-	} else {
-		throw error;
-	}
+	if (error instanceof MongoBackupError) console.error(`backup failed (${error.code}): ${error.message}`);
+	throw error; // exit non-zero: the scheduler alerts
 }
 ```
 
@@ -28,7 +26,8 @@ type MongoBackupErrorCode =
 	| 'UNSUPPORTED'
 	| 'EXISTS'
 	| 'MALFORMED'
-	| 'NOT_FOUND';
+	| 'NOT_FOUND'
+	| 'KEY_FILE';
 
 class MongoBackupError extends Error {
 	readonly name: 'MongoBackupError';
@@ -43,14 +42,66 @@ class MongoBackupError extends Error {
   `cause`. That holds for `MongoBackupError` and the bare `TypeError`s
   only: an error from the driver passes through unchanged, and its message
   may quote names and values — [errors that pass through](#errors-that-pass-through).
+- **Nor does it quote a key**, nor the content of the key file.
 - **`cause` is the server's error**, when there is one — for
-  `SNAPSHOT_TOO_OLD` and `HISTORY_LOST`.
+  `SNAPSHOT_TOO_OLD` and `HISTORY_LOST` — and the file system's `ENOENT`
+  for a missing key file.
 - **It passes through `@nxgt/backup` as it is**: `create` and `restore`
   reject with it, never wrapped. Check `instanceof MongoBackupError`
   before `code` — `@nxgt/backup`'s `BackupError` has a `code` too, and so
   does Node's `ENOENT`.
 
 ## The codes
+
+### `KEY_FILE`
+
+The key file `mongoBackups` was given cannot be used. It is read on the
+first call — `run`, `restore`, `drill`, `list` or `binding` — not by
+`mongoBackups` itself. `readKeyFile` throws the same, its messages
+starting with `readKeyFile:` rather than `mongoBackups on "shop":`. A failed read is
+tried again on the next call, so fixing the file needs no restart —
+[the key file](getting-started.md#the-key-file).
+
+| Message | When |
+| --- | --- |
+| `mongoBackups on "shop": there is no key file there; write one with nxgt-mongo-backup keygen` | nothing at that path; the `ENOENT` is its `cause`. Any other failure to open it — `EACCES`, `ENOTDIR` — is the system's error, as it is |
+| `mongoBackups on "shop": others than its owner can read or write the key file; chmod 600 it` | its group or others have any right on it |
+| `mongoBackups on "shop": the key file is not one keygen wrote` | it holds no age identity, no Ed25519 private key, or one that does not parse — an identity with a bad checksum, or a private key that is not Ed25519, among them. No `cause`: the parsers' own errors quote the key |
+
+```ts
+import { MongoBackupError } from '@nxgt/mongo-backup';
+
+try {
+	await backups.run();
+} catch (error) {
+	if (error instanceof MongoBackupError && error.code === 'KEY_FILE') {
+		console.error(error.message); // never the key: safe to log
+		process.exit(78); // a configuration error: no point in retrying before someone fixes the file
+	}
+	throw error;
+}
+```
+
+### Through `mongoBackups`
+
+**`run`, `restore` and `drill` rename the messages below.** A message that
+starts with `mongoSource:` or `mongoTarget:` when you call those directly
+starts, through `mongoBackups`, with the call and the backup's name —
+`run on "shop":`, `restore on "shop":` or `drill on "shop":` — and the rest
+is unchanged. The class and the `code` stay the same, and the original
+error, with its own prefix, is the `cause`:
+
+```ts
+await backups.restore({ into: client.db('shop') }); // 'shop' already holds a collection
+// MongoBackupError (EXISTS): restore on "shop": a collection or view the backup holds is already in the database; restore into another one, or pass replace: true
+// error.cause.message: mongoTarget: a collection or view the backup holds is already in the database; …
+```
+
+Search for the part after the colon: every message on this page, and on
+[troubleshooting](../troubleshooting.md), is quoted with its direct prefix.
+A partial `restore` throws `restoreCollections:`'s messages under its own
+prefix at once, so those have no `cause`. An error
+from the driver or from `@nxgt/backup` is not renamed.
 
 ### `SNAPSHOT_TOO_OLD`
 
@@ -154,6 +205,19 @@ The apostrophe in `collection’s` is a typographic one, `’`: search for
 
 ### `NOT_FOUND`
 
+`mongoBackups`' `restore` and `drill` found no backup to restore. The
+message names the call and the backup — `name`, or the database's name;
+`shop` here:
+
+| Message | When |
+| --- | --- |
+| `restore on "shop": the repository holds no backup yet` | `restore` without `at`, before the first `run` |
+| `drill on "shop": the repository holds no backup yet` | `drill`, before the first `run` |
+| `restore on "shop": no backup was made at or before that time` | `restore` with an `at` date older than every backup the repository holds |
+
+An `at` id the repository does not hold is `@nxgt/backup`'s `BackupError`
+`NOT_FOUND`, not this one.
+
 A name in the list `restoreCollections` was given as `collections` is not
 in the backup — as its collections were named at the backup's time, after
 every rename the chain replays. It comes after the backup was rebuilt, and
@@ -164,12 +228,28 @@ before anything reaches `db` —
 restoreCollections: a collection named in collections is not in the backup
 ```
 
+`mongoBackups`' `restore` with `collections` goes through
+`restoreCollections`, and throws the same, naming its own call:
+`restore on "shop": a collection named in collections is not in the backup`.
+
 `@nxgt/backup`'s `BackupError` has a `NOT_FOUND` too — a backup id that is
 not there: check `instanceof` before `code`.
 
 ## The bare `TypeError`s
 
 Wiring that could never work is a `TypeError`, not a `MongoBackupError`.
+**Through `mongoBackups`, the messages name the call and the backup.**
+A partial `restore` — `collections`, `as` or `documents` — refuses as
+`restoreCollections` does, with `restore on "<name>":` where the table
+says `restoreCollections:`: `restore on "shop": as names a collection not
+restored`, `restore on "shop": a collection or view to restore is already
+in the database; …`. Called directly, `restoreCollections` keeps its own
+prefix. `shop` is the backup's name in the examples on this page.
+
+`mongoBackups` throws its own at once, before it reads the key file or
+touches the database; `run` rejects with its one, and `restore` with its
+three, before reading anything, and the options it hands on are checked by `mongoTarget` and
+`restoreCollections`, below.
 `mongoSource` and `mongoTarget` throw theirs at once, but for
 `mongoSource: a collection named in collections is not in the database`,
 which `create` throws when the full backup lists the collections.
@@ -181,6 +261,19 @@ and before anything reaches `db`.
 
 | Message | When |
 | --- | --- |
+| `mongoBackups: db must be a MongoDB Db` | `db` is missing, or is not a driver `Db` |
+| `mongoBackups: keyFile must be an absolute path` | `keyFile` is missing, not a string, or relative |
+| `mongoBackups: repository must be an absolute folder, or repositories` | `repository` is a relative path |
+| `mongoBackups: keep must be false, or name rules each a whole number, 1 or more` | `keep` names no rule, or a rule that is not a whole number of 1 or more — checked by `mongoBackups(…)`, before any backup is stored |
+| `mongoBackups: fullEvery must be a whole number of milliseconds, an hour or more` | `fullEvery` is under 3 600 000, or not a whole number |
+| `mongoBackups: repository must list repositories, each under a name of its own` | `repository` is an empty list, or two repositories in it have the same name |
+| `mongoBackups: tmpDir must be an absolute path` | a relative `tmpDir` |
+| `mongoBackups: name must be 1 to 100 characters, lowercase letters, digits, ".", "_" and "-", starting with a letter or a digit, without ".partial-"` | `name` is given, and is not a backup name; `defineBackup`'s `TypeError` is its `cause` |
+| `mongoBackups: the database's name cannot name a backup; give name: 1 to 100 characters, lowercase letters, digits, ".", "_" and "-", starting with a letter or a digit, without ".partial-"` | no `name`, and the database's name is not a backup name — `client.db('MyShop')`: pass `name: 'myshop'`. `defineBackup`'s `TypeError` is its `cause` |
+| `restore on "shop": into must be a MongoDB Db` | `restore` with an `into` that is missing, or not a driver `Db`; it rejects before anything is read |
+| `restore on "shop": at must be a backup's id or a valid Date` | `restore` with an `at` that is an invalid `Date` — `new Date('yesterday')`; it rejects before anything is read |
+| `restore on "shop": replace is for whole collections; documents says what happens to those there` | `restore` with `documents` and `replace` both; the types refuse it too |
+| `run on "shop": now must be a valid Date` | `run` with a `now` that is not a valid `Date`; it rejects before anything is read |
 | `mongoSource: db must be a MongoDB Db` | `db` is missing, or is not a driver `Db` — a name, a client |
 | `mongoSource: collections must be a list of names or a function` | `collections` is a string, or a list holding something else |
 | `mongoSource: a collection named in collections is not in the database` | a name in the list that the database lacks |
@@ -196,6 +289,10 @@ and before anything reaches `db`.
 | `restoreCollections: as gives two collections one name` | `as` gives two collections or views the same name |
 | `restoreCollections: as names a collection not restored` | a key of an `as` map names no collection or view restored — a typo, or a view when `documents` is given; checked once the backup has been rebuilt |
 
+`mongoBackups` checks what `@nxgt/backup` would refuse — the name, the
+repositories, `tmpDir` — when it is called, so none of `defineBackup`'s or
+`bindBackup`'s `TypeError`s reaches you from a later call.
+
 ## Errors that pass through
 
 - **The driver's errors** — a lost connection, an authentication failure, a
@@ -209,8 +306,55 @@ and before anything reaches `db`.
 
 ## A handler for a scheduled job
 
-What to do with each failure of a nightly incremental: start a new chain
-when the chain cannot go on, and alert on everything else.
+`run` already starts a new chain on `HISTORY_LOST`. What is left: skip a
+run that met another on the repository's lock, make a full backup when the
+chain cannot go on, and alert on everything else.
+
+```ts
+import { BackupError } from '@nxgt/backup';
+import { MongoBackupError, mongoBackups, mongoSource } from '@nxgt/mongo-backup';
+import { MongoClient } from 'mongodb';
+
+const client = await MongoClient.connect(process.env.MONGO_URL as string);
+const db = client.db('shop');
+const backups = mongoBackups({ db, repository: '/mnt/backups', keyFile: '/etc/backup/shop.key' });
+
+/** Whether `error` is another run holding the repository's lock. */
+function locked(error: unknown): boolean {
+	if (!(error instanceof BackupError)) return false;
+	if (error.code === 'LOCKED') return true;
+	// NOT_STORED: stored nowhere, each repository's error in `outcomes`.
+	// PARTIAL is not skipped: a copy was stored, and the run stopped before verify.
+	return (
+		error.code === 'NOT_STORED' &&
+		error.outcomes.some((o) => !o.stored && o.error instanceof BackupError && o.error.code === 'LOCKED')
+	);
+}
+
+try {
+	console.log(JSON.stringify(await backups.run()));
+} catch (error) {
+	if (locked(error)) {
+		console.warn('another run holds the repository; skipped');
+	} else if (error instanceof MongoBackupError && (error.code === 'UNSUPPORTED' || error.code === 'MALFORMED')) {
+		// A full backup gets past a rename, a dotted update or a parent this version
+		// cannot read. A time-series collection fails it too, and that error reaches you.
+		const { backups: bound, keys } = await backups.binding();
+		const full = await bound.create(mongoSource({ db }));
+		await bound.verify(full.id, { identities: [keys.identity] });
+	} else {
+		throw error; // KEY_FILE, CHANGING, SNAPSHOT_TOO_OLD, the driver's: a person must look
+	}
+} finally {
+	await client.close();
+}
+```
+
+### By hand
+
+The same for a job on the lower level — `bindBackup` and `mongoSource` —
+that makes its own incrementals: start a new chain when the chain cannot go
+on, and alert on everything else.
 
 ```ts
 import { BackupError, bindBackup, defineBackup, localRepository } from '@nxgt/backup';
