@@ -6,8 +6,10 @@ without a key and what is not, and how to open it without this package.
 ```text
 /mnt/backups/                          ← localRepository({ path: '/mnt/backups' })
   uploads/                             ← the definition's name
-    locks/                             ← the single-writer lock: one file per running create
+    locks/                             ← the single-writer lock: one file per running create, prune or hold
       20261004T221500123Z-1a2b3c4d.json
+    holds/                             ← legal holds: one file per held backup
+      20260611T221500342Z-77ac1e09.json
     20261003T221500123Z-9f3a61c0/      ← the backup's id
       0.age                            ← entry 0: zstd, then age
       1.age                            ← entry 1
@@ -30,9 +32,11 @@ without meeting, since each lives under its own name.
 
 ## Locks
 
-`<backup>/locks/` holds one small JSON file per `create` running against
-that repository — written at its start, rewritten every third of the lease,
-deleted at its end:
+`<backup>/locks/` holds one small JSON file per `create`, `prune`, `hold` or
+`unhold` running against that repository — written at its start, rewritten
+every third of the lease, deleted at its end. `operation` is `create`, or
+`prune` — which `hold` and `unhold` record too, so that a 0.4 reader, which
+knows only those two, reads their lock and lets it expire:
 
 ```json
 {"format":"nxgt-backup-lock/1","id":"20261004T221500123Z-1a2b3c4d","operation":"create","expiresAt":"2026-10-04T22:20:00.123Z"}
@@ -42,6 +46,20 @@ Its `id` is the lock's own, not a backup's. The folder holds no manifest, so
 `list` never takes it for a backup, and it is empty whenever nothing runs —
 unless a run was killed, or a file there does not parse.
 [Locking](locking.md) has the protocol, the lease, and clearing one by hand.
+
+## Holds
+
+`<backup>/holds/` holds one small JSON file per backup under a legal hold,
+named after the backup's id — put by `hold`, deleted by `unhold`, in each
+repository they act in:
+
+```json
+{"format":"nxgt-backup-hold/1","id":"20260611T221500342Z-77ac1e09","heldAt":"2026-10-04T09:12:44.501Z"}
+```
+
+`list` and `prune` read the **keys** alone: a file
+`<backup>/holds/<id>.json` is a hold, whatever it holds. A hold is per
+repository, and `prune` never removes one — [rotation](rotation.md#legal-holds).
 
 ## Objects
 
@@ -105,20 +123,24 @@ content can be found in any file of the repository.
 | `format` | `nxgt-backup/1`. A manifest of a later format is refused, not guessed at |
 | `backup`, `id` | which backup it describes. A manifest under another backup's folder is refused |
 | `createdAt` | when the backup started, as an ISO date |
-| `kind`, `parent` | `full` and `null`: every backup is full in this version |
+| `kind`, `parent` | `full` and `null`: every backup is full in this version. `prune` keeps a kept backup's `parent`, for the incremental backups to come — [chains](rotation.md#chains) |
 | `recipients` | the public keys it is encrypted to — public, so harmless in the clear, and useful to know which key opens it |
 | `compression` | `zstd` |
 | `catalog`, `objects` | every object's key, its size **encrypted**, and the SHA-256 of its encrypted bytes |
 
 It names no entry, so everything that needs only the manifest needs **no
-key**: `list`, `verify` without identities, and — next — rotation.
+key**: `list`, `verify` without identities, and [`prune`](rotation.md).
 
 **A backup exists once its manifest does.** Every object goes first, then the
 catalog, then — with `signing` — the signature, then the manifest, so a
 backup that stopped half-way — the process killed, the disk full, a source that threw, a lock lease that ran out — has no manifest: `list` leaves it out, and
 `verify` and `restore` answer `NOT_FOUND`. With several
 repositories, the manifest goes only into those that took every object before
-it — [repositories](repositories.md#several-repositories).
+it — [repositories](repositories.md#several-repositories). `prune` removes
+such leftovers once they are old enough —
+[incomplete backups](rotation.md#incomplete-backups) — and, removing a
+backup, deletes its manifest first, so it stops existing before any of its
+objects goes.
 
 **The manifest is untrusted input.** A repository is not trusted: a
 manifest is read field by field, only the known fields are kept, and one

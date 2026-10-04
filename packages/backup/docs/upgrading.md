@@ -5,6 +5,93 @@ the next. Each minor is a `0.x` release, so each can ask for something; the
 [changelog](https://github.com/softistx/nxgt-data/blob/develop/packages/backup/CHANGELOG.md)
 has every change, and this page has only what you have to do.
 
+## 0.4 → 0.5
+
+One thing can break at run time: code that matches the `LOCKED` error by its
+**message**. Two can break at compile time: a hand-built `BackupInfo` now
+needs `held`, and a faked `BoundBackup` needs `prune`, `hold` and `unhold`.
+0.5.0 adds rotation — `prune`, `hold` and `unhold` — and a backup made by
+0.4 reads, lists and prunes as it is.
+
+### The `LOCKED` message changed
+
+`prune`, `hold` and `unhold` take the same lock as `create`, so the message
+now names them:
+
+```text
+0.4: create on "uploads": another create or prune holds the lock (repository "nas")
+0.5: create on "uploads": another create, prune or hold has the lock (repository "nas")
+```
+
+A test on `error.message` — `includes('holds the lock')` — stops matching.
+Match on the code, which has not changed:
+
+```ts
+import { BackupError } from '@nxgt/backup';
+
+function isLocked(error: unknown): boolean {
+	return error instanceof BackupError && error.code === 'LOCKED'; // not error.message
+}
+```
+
+A `create` now also fails `LOCKED` in a repository while a `prune`, `hold`
+or `unhold` holds its lock there — briefly, unless a prune has much to
+remove.
+
+### New: `prune`, `hold` and `unhold`
+
+`BoundBackup` has three new methods, and the package exports their types —
+`KeepPolicy`, `PruneOptions`, `Pruned`, `Decision`, `HoldOptions` and
+`HoldResult`. `hold` and `unhold` act in every repository unless given
+`from`. Nothing
+is removed until you call `prune`; try the policy with `dryRun` first:
+
+```ts
+import { bindBackup, defineBackup, localRepository } from '@nxgt/backup';
+
+const backups = bindBackup(defineBackup({ name: 'uploads' }), {
+	repositories: [localRepository({ path: '/mnt/backups' })],
+	recipients: [process.env.BACKUP_RECIPIENT as string],
+});
+
+const plan = await backups.prune({ keep: { last: 7, daily: 14, weekly: 8 }, dryRun: true }); // 0.5.0
+for (const decision of plan.removed) console.log(decision.id, decision.reasons);
+```
+
+The first real `prune` also removes what failed runs left over the years —
+backup ids with no manifest, older than a day — and lists them in
+`incomplete`. A `BoundBackup` you fake in a spec needs the three methods —
+[rotation](guide/rotation.md).
+
+On S3, a host that prunes needs the four permissions a writer already has,
+`s3:DeleteObject` among them; a dry run needs only `s3:GetObject` and
+`s3:ListBucket`.
+
+### `BackupInfo` gains `held`
+
+Each backup `list` returns has a new `held: boolean` — whether it is under a
+legal hold in that repository. A `BackupInfo` literal you build yourself, in
+a spec, needs it. Backups made before 0.5 are not held.
+
+### A repository gains `holds/`, and loses empty folders
+
+`hold` writes `<backup>/holds/<id>.json` beside `<backup>/locks/`; a 0.4
+reader ignores it, as it holds no manifest — [format](guide/format.md#holds).
+Lock files keep the two operations 0.4 knows, `create` and `prune` — a
+`hold` or `unhold` records `prune` — so a 0.4 `create` running beside 0.5
+reads every lock, and lets a crashed one expire.
+
+`localRepository`'s `delete` now removes each folder it leaves empty, up to
+the repository's root, so a pruned backup leaves no folder behind; its `put`
+makes its folder again if such a delete removed it meanwhile. A tool that
+expected an emptied `<backup>/<id>/` or `<backup>/locks/` folder to stay —
+a mount check on `/mnt/backups/uploads/locks`, say — must not.
+
+A `Repository` you wrote yourself now has `delete` called by `prune` on
+every key of each backup it removes, the manifest first; one that throws
+rejects the prune. Removing empty folders, if your store has them, is up to
+it — [the contract](guide/repositories.md#writing-a-repository).
+
 ## 0.3 → 0.4
 
 Two things to change, at most: a `switch` on `BackupErrorCode` with an
@@ -92,7 +179,7 @@ const backups = bindBackup(defineBackup({ name: 'uploads' }), {
 ### `list` no longer fails on a backup removed while it runs
 
 A backup whose manifest is gone between `list`'s listing and its read of
-that manifest — removed by hand, or by rotation once it ships — is now left
+that manifest — removed by hand, or by `prune` from 0.5 — is now left
 out. Before, `list` rejected with `NOT_FOUND`. Nothing to change.
 
 ## 0.2 → 0.3
@@ -237,8 +324,10 @@ Nothing is signed after the fact. Pick one, per repository:
   it. That reader trusts whatever is in the repository, so use it only for
   ids made before the switch.
 - **Re-make them**: run `create` with `signing` on, then remove the unsigned
-  backups yourself — the package deletes nothing yet. A new backup holds the
-  source as it is now, so this gives up the old points in time.
+  backups — by hand, or from 0.5 with `prune` on a binding **without**
+  `trusted`: one with it sees them as `unreadable`, and never removes them.
+  A new backup holds the source as it is now, so this gives up the old
+  points in time.
 
 The writer itself is a reader too: with `signing` alone, its `list` and
 `verify` check its own public key, so the old ids land in its `unreadable`

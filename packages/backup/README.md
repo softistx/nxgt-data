@@ -43,8 +43,8 @@ await backups.restore(created.id, directoryTarget({ path: '/srv/restore' }), {
 ```
 
 > **0.x.** Full backups, local and S3 repositories, checked restores,
-> signed manifests and a single-writer lock are here; rotation is next — see the
-> [roadmap](docs/roadmap.md).
+> signed manifests, a single-writer lock and rotation are here; incremental
+> backups are next — see the [roadmap](docs/roadmap.md).
 
 ## Install
 
@@ -107,10 +107,10 @@ it when [signing](#signed-manifests). The
 ## List and verify
 
 ```ts
-const { backups: held, unreadable } = await backups.list();
-// held: [{ id, createdAt, kind: 'full', entries, storedSize }, …], oldest first
+const { backups: listed, unreadable } = await backups.list();
+// listed: [{ id, createdAt, kind: 'full', entries, storedSize, held }, …], oldest first
 
-const latest = held.at(-1);
+const latest = listed.at(-1);
 if (latest) {
 	await backups.verify(latest.id); // every object's size and SHA-256, no key
 	await backups.verify(latest.id, {
@@ -305,8 +305,41 @@ write to one repository at once. A repository whose lock is held elsewhere
 fails alone with `LOCKED`, and the others go on; when all of them refuse,
 the source is not opened. A run that cannot renew its own lock in time
 starts nothing more in that repository, which fails with `LEASE_LOST` —
-worth an alert, unlike `LOCKED`. `list`, `verify` and `restore` take no
-lock — [locking](docs/guide/locking.md).
+worth an alert, unlike `LOCKED`. `prune`, `hold` and `unhold` take the same
+lock; `list`, `verify`, `restore` and a dry-run `prune` take none —
+[locking](docs/guide/locking.md).
+
+## Rotation
+
+```ts
+import { bindBackup, defineBackup, localRepository } from '@nxgt/backup';
+
+const backups = bindBackup(defineBackup({ name: 'uploads' }), {
+	repositories: [localRepository({ path: '/mnt/backups' })],
+	recipients: [process.env.BACKUP_RECIPIENT as string],
+});
+
+const keep = { last: 7, daily: 14, weekly: 8, monthly: 12, yearly: 3 };
+
+// What would go, and why — nothing removed, no lock taken.
+const plan = await backups.prune({ keep, dryRun: true });
+for (const d of plan.removed) console.log('would remove', d.id, d.reasons); // ['no rule keeps it']
+
+// Then for real, under the lock.
+const pruned = await backups.prune({ keep });
+// { repository: 'local', dryRun: false, kept, removed, incomplete, unreadable, overSize }
+
+// A legal hold, in every repository: prune keeps it whatever the policy says, until unhold.
+await backups.hold('20260611T221500342Z-77ac1e09'); // { id, repositories: ['local'] }
+```
+
+`prune` works on one repository — the first, or `from` — so each can have
+its own policy. Rules add up; each kept backup lists the rules that keep it
+(`last 1 of 7`, `daily 2026-10-03`, `held`, …). It reads manifests only, so
+it needs no key; it removes a backup's manifest first, so a cut prune leaves
+no half backup; and it also removes what failed runs left without a
+manifest, once older than `incompleteAfter` (a day). A backup whose manifest
+does not read is never removed — [rotation](docs/guide/rotation.md).
 
 ## Your own source, target or repository
 
@@ -350,9 +383,12 @@ const settings: BackupSource = {
 | --- | --- |
 | `definition`, `repositories` | the definition, and the repository names in the order given |
 | `create(source)` | takes the lock in every repository, reads every entry and stores a full backup in each. Resolves to `Created` once each holds it; rejects with `PARTIAL` or `NOT_STORED` otherwise — a repository whose lock was held is `LOCKED` in `outcomes`, one whose lease ran out `LEASE_LOST` |
-| `list({ from? })` | the backups one repository holds, oldest first, and the ids whose manifest does not read. No key |
+| `list({ from? })` | the backups one repository holds, oldest first — each with `held`, whether it is under a legal hold — and the ids whose manifest does not read. No key |
 | `verify(id, { from?, identities? })` | reads a backup back and checks it — objects against the manifest without `identities`, entries against the catalog with them |
 | `restore(id, target, { identities, from?, only? })` | writes the entries, or those `only` picks, to `target` |
+| `prune({ keep, from?, dryRun?, incompleteAfter?, now? })` | applies a retention policy to one repository under its lock, and resolves to `Pruned`: `kept` and `removed`, each `Decision` with its `reasons`, the `incomplete` ids it cleaned, the `unreadable` ones it left, and `overSize`. `dryRun` removes nothing and takes no lock. No key. Rejects with `LOCKED` or `LEASE_LOST` itself |
+| `hold(id, { from? })` | puts a legal hold on a backup in every repository that has it — or in `from` alone — taking each one's lock in turn: `prune` keeps it until `unhold`. Resolves to `HoldResult` (`{ id, repositories }`, where it landed); `NOT_FOUND` when no repository has the backup, `LOCKED` while another `create`, `prune` or `hold` runs there |
+| `unhold(id, { from? })` | lifts it in every repository, or `from`, under each lock; resolves to `HoldResult`. Lifting a hold that is not there is not an error |
 
 | Type | |
 | --- | --- |
@@ -361,6 +397,7 @@ const settings: BackupSource = {
 | `SigningKeys` | what `generateSigningKeys` gives back |
 | `Created`, `Listing`, `BackupInfo`, `Verified`, `Restored` | what `create`, `list`, `verify` and `restore` resolve to |
 | `ListOptions`, `VerifyOptions`, `RestoreOptions` | their options |
+| `KeepPolicy`, `PruneOptions`, `Pruned`, `Decision`, `HoldOptions`, `HoldResult` | what `prune` takes and resolves to, one backup's fate in it, and what `hold` and `unhold` take and resolve to |
 | `Repository`, `LocalRepositoryOptions`, `S3RepositoryOptions` | where backups are kept, the shipped repositories' options, and the contract to write your own |
 | `BackupSource`, `SourceEntry`, `RestoreTarget` | what a backup reads from and a restore writes to |
 | `DirectoryOptions`, `DirectoryTargetOptions` | `directorySource`'s and `directoryTarget`'s options |
@@ -382,14 +419,15 @@ source**.
 | `SIGNATURE` | `trusted` keys are set and the manifest has no signature, or none by a trusted key. Nothing else of the backup was read. `list` puts the id in `unreadable` instead | `restore on "uploads": no trusted key signed the manifest (repository "local")` |
 | `PARTIAL` | `create` stored it in some repositories and not others; `outcomes` says which. The stored copies are complete | `create on "uploads": stored in 1 of 2 repositories` |
 | `NOT_STORED` | `create` stored it nowhere; `outcomes` holds each repository's error | `create on "uploads": stored in 0 of 1 repositories` |
-| `LOCKED` | another `create` (or, later, `prune`) of the definition holds that repository's lock: try later. Never thrown by `create` itself: it is one repository's `outcomes[].error`, and the others go on | `create on "uploads": another create or prune holds the lock (repository "nas")` |
-| `LEASE_LOST` | this run held that repository's lock and could not renew it in time — the store out of reach, or the process paused longer than the lease — so it started nothing more there: worth an alert. Like `LOCKED`, only ever one repository's `outcomes[].error` | `create on "uploads": the lock's lease ran out before it was done (repository "local")` |
+| `LOCKED` | another `create`, `prune` or `hold` of the definition has that repository's lock: try later. Never thrown by `create` itself: it is one repository's `outcomes[].error`, and the others go on. `prune`, `hold` and `unhold` reject with it | `create on "uploads": another create, prune or hold has the lock (repository "nas")` |
+| `LEASE_LOST` | this run held that repository's lock and could not renew it in time — the store out of reach, or the process paused longer than the lease — so it started nothing more there: worth an alert. From `create`, like `LOCKED`, only ever one repository's `outcomes[].error`; `prune`, `hold` and `unhold` reject with it | `create on "uploads": the lock's lease ran out before it was done (repository "local")` |
 
 **Wiring is a bare `TypeError`**: a bad name, an empty repository list, two
 repositories with one name, a key age refuses, a signing or trusted key that
 is not an Ed25519 key of the right half, a relative path, an S3 `prefix` or
 `partSize` that could never work, a `lock.lease` out of range, an unknown `from`,
-a malformed id. None quotes a key. An error from your source, your target or
+a malformed id, a `keep` with no rule or a rule under 1, an `incompleteAfter`
+under two lock leases, a `now` that is not a valid `Date`. None quotes a key. An error from your source, your target or
 a repository passes through as it is. Every message is in
 [troubleshooting](docs/troubleshooting.md); a handler is in
 [errors](docs/guide/errors.md).
@@ -407,6 +445,7 @@ Each is a `@ts-expect-error` case in [`test/types/backup.ts`](https://github.com
 - `restore` without `identities`, with one key instead of a list, or with an
   `only` that is neither a list of names nor a test on a name; `verify` with
   one key instead of a list.
+- `prune` without `keep`, or with a rule given as a string (`daily: '7'`).
 
 ## Traps
 
@@ -442,7 +481,27 @@ Each is a `@ts-expect-error` case in [`test/types/backup.ts`](https://github.com
   damaged one stay. Restore into an empty folder, then move it into place —
   [restore](docs/guide/getting-started.md#restore).
 - **A source that throws mid-backup leaves objects without a manifest**:
-  not listed, not restorable, and not cleaned up yet — [more](docs/troubleshooting.md#a-backup-that-failed-left-objects-in-the-repository).
+  not listed, not restorable, until `prune` removes them once older than
+  `incompleteAfter` — a day, counted from the create's start by this
+  machine's clock. Shorter only if every create ends well within it:
+  `prune({ keep, incompleteAfter: 6 * 3_600_000 })`, never under two leases — [more](docs/troubleshooting.md#a-backup-that-failed-left-objects-in-the-repository).
+- **Rotation's calendar is UTC**: `daily`, `weekly` (ISO, Monday first) and
+  the rest cut periods at UTC midnight, not local. A job at 00:30 in Paris
+  makes the previous UTC day's backup; schedule by UTC if the day must
+  match — [the rules](docs/guide/rotation.md#the-rules).
+- **`maxTotalSize` can stay over**: it never removes the newest `last` (or
+  the newest one), a held backup or a needed parent, and says so only with
+  `overSize: true`. Check it: `if (pruned.overSize) alert()` —
+  [more](docs/troubleshooting.md#oversize-is-true).
+- **A dry run takes no lock, so its plan can differ from the real run's**: a
+  `create` or a `hold` may land in between. Act on the real run's `removed`,
+  not the dry run's — [dry run first](docs/guide/rotation.md#dry-run-first).
+- **A hold waits for no one, and `unhold` is idempotent**: `hold` during a
+  running `create` or `prune` rejects `LOCKED` — retry once it ends — and
+  with `from` it holds that repository only. Lifting a hold that is not
+  there is not an error, so a wrong id lifts nothing, silently: check the
+  result's `repositories` and `list`'s `held` —
+  [legal holds](docs/guide/rotation.md#legal-holds).
 - **Overlapping runs no longer both run**: from 0.4, a `create` started while
   another of the same definition is still writing fails `LOCKED` in every
   repository and reads nothing. Treat that outcome as "skipped" in a cron
@@ -470,9 +529,12 @@ Each is a `@ts-expect-error` case in [`test/types/backup.ts`](https://github.com
 - [docs/guide/signing.md](docs/guide/signing.md) — signed manifests:
   `signing`, `trusted`, `generateSigningKeys`, `SIGNATURE`, changing the key,
   and checking a signature with `openssl`.
+- [docs/guide/rotation.md](docs/guide/rotation.md) — `prune` and its
+  retention rules, the reasons, dry runs, a policy per repository, legal
+  holds, and the clean-up of incomplete backups.
 - [docs/guide/locking.md](docs/guide/locking.md) — the single-writer lock
-  `create` takes: `LOCKED`, `LEASE_LOST`, `lock.lease`, the lock file, and
-  clearing one after a crash.
+  `create`, `prune` and `hold` take: `LOCKED`, `LEASE_LOST`, `lock.lease`, the
+  lock file, and clearing one after a crash.
 - [docs/guide/repositories.md](docs/guide/repositories.md) —
   `localRepository`, `s3Repository` and the bucket it needs, several
   repositories, and writing your own.

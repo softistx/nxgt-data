@@ -1,4 +1,15 @@
 import type { BackupDefinition } from '../definition/define-backup';
+import {
+	type HoldOptions,
+	type HoldResult,
+	holdBackup,
+	unholdBackup,
+} from '../rotation/holds';
+import {
+	type Pruned,
+	type PruneOptions,
+	pruneBackups,
+} from '../rotation/prune';
 import type { BackupSource, RestoreTarget } from '../source/types';
 import { type BindBackupOptions, createContext } from './context';
 import { type Created, createBackup } from './create';
@@ -27,6 +38,19 @@ export interface BoundBackup<Name extends string = string> {
 		target: RestoreTarget,
 		options: RestoreOptions,
 	): Promise<Restored>;
+	/**
+	 * Applies a retention policy to one repository, under the lock: keeps
+	 * what `keep` names, removes the rest. Needs no key. `dryRun` says what
+	 * would go, and why, and removes nothing.
+	 */
+	prune(options: PruneOptions): Promise<Pruned>;
+	/**
+	 * Puts a legal hold on one backup, in every repository that holds it
+	 * (or `from` alone): `prune` never removes it there until `unhold`.
+	 */
+	hold(id: string, options?: HoldOptions): Promise<HoldResult>;
+	/** Lifts a legal hold, in every repository (or `from` alone). */
+	unhold(id: string, options?: HoldOptions): Promise<HoldResult>;
 }
 
 /**
@@ -47,5 +71,8 @@ export function bindBackup<Name extends string>(
 		verify: (id, verifyOptions) => verifyBackup(ctx, id, verifyOptions),
 		restore: (id, target, restoreOptions) =>
 			restoreBackup(ctx, id, target, restoreOptions),
+		prune: (pruneOptions) => pruneBackups(ctx, pruneOptions),
+		hold: (id, holdOptions) => holdBackup(ctx, id, holdOptions),
+		unhold: (id, holdOptions) => unholdBackup(ctx, id, holdOptions),
 	};
 }

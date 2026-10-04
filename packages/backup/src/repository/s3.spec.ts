@@ -303,3 +303,28 @@ describe('the lock on S3', () => {
 		}
 	}, 120_000);
 });
+
+describe('prune on S3', () => {
+	test('removes every object of what goes, and keeps a held backup', async () => {
+		const keys = await keyPair();
+		const backups = bindBackup(defineBackup({ name: 'rot' }), {
+			repositories: [s3Repository({ client, prefix: 'p' })],
+			recipients: [keys.recipient],
+			tmpDir: tmp.path,
+		});
+		const one = async (name: string) =>
+			(await backups.create(memorySource({ [name]: name }))).id;
+		const a = await one('a');
+		const b = await one('b');
+		const c = await one('c');
+		await backups.hold(a);
+		const pruned = await backups.prune({ keep: { last: 1 } });
+		expect(pruned.removed.map((d) => d.id)).toEqual([b]);
+		const left = (await client.list({ prefix: 'p/rot/' })).contents ?? [];
+		expect(left.some((o) => o.key?.includes(b))).toBe(false);
+		expect((await backups.list()).backups.map((x) => [x.id, x.held])).toEqual([
+			[a, true],
+			[c, false],
+		]);
+	}, 120_000);
+});

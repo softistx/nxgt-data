@@ -93,6 +93,36 @@ describe('localRepository', () => {
 		}
 	});
 
+	test('a delete removes the folders it leaves empty, never the root', async () => {
+		const repository = localRepository({ path: join(tmp.path, 'repo') });
+		const source = join(tmp.path, 'source');
+		await writeFile(source, 'x');
+		await repository.put('app/id/0.age', source);
+		await repository.put('app/other/0.age', source);
+		await repository.delete('app/id/0.age');
+		expect(await readdir(join(tmp.path, 'repo', 'app'))).toEqual(['other']);
+		await repository.delete('app/other/0.age');
+		expect(await readdir(join(tmp.path, 'repo'))).toEqual([]);
+	});
+
+	test('a put racing a delete of its folder still lands', async () => {
+		const repository = localRepository({ path: join(tmp.path, 'repo') });
+		const source = join(tmp.path, 'source');
+		await writeFile(source, 'x');
+		for (let round = 0; round < 50; round++) {
+			await Promise.all([
+				repository.put(`app/locks/${round}-a.json`, source),
+				repository.put(`app/locks/${round}-b.json`, source),
+				repository.delete(`app/locks/${round - 1}-a.json`),
+				repository.delete(`app/locks/${round - 1}-b.json`),
+			]);
+		}
+		expect(await keys(repository, 'app/locks/')).toEqual([
+			'app/locks/49-a.json',
+			'app/locks/49-b.json',
+		]);
+	});
+
 	test('a relative path is refused', () => {
 		expect(() => localRepository({ path: 'backups' })).toThrow(
 			'localRepository: path must be an absolute path',

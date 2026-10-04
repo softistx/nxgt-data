@@ -1,5 +1,6 @@
 import { BackupError } from '../errors/backup-error';
 import { isBackupId } from '../format/ids';
+import { heldIds } from '../rotation/holds';
 import { type BackupContext, repositoryOf } from './context';
 import { type At, fetchManifest, MANIFEST } from './read';
 
@@ -17,6 +18,8 @@ export interface BackupInfo {
 	entries: number;
 	/** The bytes the repository holds for it, manifest apart. */
 	storedSize: number;
+	/** Whether it is under a legal hold: `prune` never removes it. */
+	held: boolean;
 }
 
 /** What `list` found: the backups, oldest first, and the ids it could not read. */
@@ -48,6 +51,7 @@ export async function listBackups(
 		if (file === MANIFEST && rest.length === 0 && isBackupId(id)) ids.push(id);
 	}
 	ids.sort();
+	const held = await heldIds(ctx, repository);
 	const backups: BackupInfo[] = [];
 	const unreadable: string[] = [];
 	for (const id of ids) {
@@ -63,6 +67,7 @@ export async function listBackups(
 					(sum, o) => sum + o.size,
 					0,
 				),
+				held: held.has(id),
 			});
 		} catch (error) {
 			if (!(error instanceof BackupError)) throw error;

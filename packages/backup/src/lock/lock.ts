@@ -53,7 +53,7 @@ export function readLock(text: string): LockRecord | undefined {
 	return {
 		format: LOCK_FORMAT,
 		id: record['id'] as string,
-		operation: record['operation'],
+		operation: record['operation'] as LockRecord['operation'],
 		expiresAt,
 	};
 }
@@ -154,7 +154,7 @@ async function refuseOthers(
 		if (key === own || !key.endsWith('.json')) continue;
 		if (await stillHeld(ctx, repository, key, now)) {
 			throw new BackupError(
-				`${call} on "${ctx.backup}": another create or prune holds the lock ` +
+				`${call} on "${ctx.backup}": another create, prune or hold has the lock ` +
 					`(repository "${repository.name}")`,
 				{ code: 'LOCKED', backup: ctx.backup, repository: repository.name },
 			);

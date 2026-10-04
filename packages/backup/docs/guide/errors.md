@@ -54,14 +54,14 @@ log.
 
 | Code | Thrown by | Means | Fields |
 | --- | --- | --- | --- |
-| `NOT_FOUND` | `verify`, `restore` | no backup with that id in that repository — or one whose manifest was never written, which is the same thing. From `restore`, also a name in `only` that the backup does not hold | `id`, `repository` |
-| `INTEGRITY` | `verify`, `restore` | what the repository holds is not what was written: an object missing, or differing in size or SHA-256 from the manifest; a manifest or catalog that does not read; an entry whose plain bytes differ from the catalog. A mismatch against the manifest stops before a byte is decrypted; a mismatch against the catalog fails the entry's stream at its end, so a target that stages, like `directoryTarget`, lands nothing, while one that streams has already seen the bytes | `id`, `repository`, and `cause` when age or zstd refused the bytes |
+| `NOT_FOUND` | `verify`, `restore`, `hold` | no backup with that id in that repository — or one whose manifest was never written, which is the same thing. From `restore`, also a name in `only` that the backup does not hold. From `hold`, no repository asked has the backup: `hold on "uploads": no repository holds that backup` | `id`, `repository` (not from `hold`) |
+| `INTEGRITY` | `verify`, `restore`, `hold` | what the repository holds is not what was written: an object missing, or differing in size or SHA-256 from the manifest; a manifest or catalog that does not read; an entry whose plain bytes differ from the catalog. A mismatch against the manifest stops before a byte is decrypted; a mismatch against the catalog fails the entry's stream at its end, so a target that stages, like `directoryTarget`, lands nothing, while one that streams has already seen the bytes | `id`, `repository`, and `cause` when age or zstd refused the bytes |
 | `DECRYPT` | `verify` with identities, `restore` | none of the identities given opens the backup. The object matched its manifest, so the bytes are fine; the key is not | `id`, `repository`, `cause` (age's error) |
-| `SIGNATURE` | `verify`, `restore` | `trusted` keys are set — given, or derived from `signing` — and the manifest has no `manifest.sig` (`the manifest is not signed`), or one none of them made (`no trusted key signed the manifest`). Checked on the manifest's bytes before they are parsed: nothing else of the backup was read, and nothing reached the target — [signing](signing.md) | `id`, `repository` |
+| `SIGNATURE` | `verify`, `restore`, `hold` | `trusted` keys are set — given, or derived from `signing` — and the manifest has no `manifest.sig` (`the manifest is not signed`), or one none of them made (`no trusted key signed the manifest`). Checked on the manifest's bytes before they are parsed: nothing else of the backup was read, and nothing reached the target — [signing](signing.md) | `id`, `repository` |
 | `PARTIAL` | `create` | stored in some repositories and not others. The stored copies are complete | `id`, `outcomes` |
 | `NOT_STORED` | `create` | stored nowhere | `id`, `outcomes`, each with its error |
-| `LOCKED` | `create`, as one repository's `outcomes[].error` — never as the rejection itself | another `create` (or, once rotation ships, `prune`) of the same definition holds that repository's lock: `another create or prune holds the lock`. None of the backup was written there. The other repositories go on; when every one is `LOCKED`, the source is never opened. Retry later — [locking](locking.md) | `repository` |
-| `LEASE_LOST` | `create`, as one repository's `outcomes[].error` — never as the rejection itself | this run held that repository's lock and could not renew it in time — the store out of reach for the lock's writes, or the process paused longer than the lease: `the lock's lease ran out before it was done`. It started nothing more there, and that repository has no manifest for the id; a `put` already under way may still have landed. The other repositories go on. Worth an alert, not just a retry — [locking](locking.md#when-it-refuses-and-when-its-lease-runs-out) | `id`, `repository` |
+| `LOCKED` | `create`, as one repository's `outcomes[].error` — never as its rejection; `prune`, `hold` and `unhold`, as their rejection | another `create`, `prune` or `hold` of the same definition has that repository's lock: `another create, prune or hold has the lock`. Nothing was written or removed there; a `hold` or `unhold` keeps what it did in the repositories before. For `create`, the other repositories go on, and when every one is `LOCKED` the source is never opened. Retry later — [locking](locking.md) | `repository` |
+| `LEASE_LOST` | `create`, as one repository's `outcomes[].error` — never as its rejection; `prune`, `hold` and `unhold`, as their rejection | this run held that repository's lock and could not renew it in time — the store out of reach for the lock's writes, or the process paused longer than the lease: `the lock's lease ran out before it was done`. It started nothing more there. For `create`, that repository has no manifest for the id, a `put` already under way may still have landed, and the other repositories go on; for `prune`, what was removed is gone and the rest stays — [rotation](rotation.md#the-lock-and-lease_lost). Worth an alert, not just a retry — [locking](locking.md#when-it-refuses-and-when-its-lease-runs-out) | `id` (for `prune`, the backup it was removing), `repository` |
 
 `list` throws none of them for a bad manifest: an id whose manifest does not
 read, or — with `trusted` keys — is not signed by one of them, goes into
@@ -86,14 +86,17 @@ up the first time the code runs.
 | `localRepository`, `directorySource`, `directoryTarget` | a relative `path` |
 | `s3Repository` | a `prefix` that is not a relative path of plain segments; a `partSize` under 5 MiB or not an integer. Neither quotes what was given |
 | an `s3Repository`'s `get`, `put`, `delete`, `list` | a key (or a `list` prefix, less its trailing `/`) that is not a relative path of plain segments — only when you call the repository yourself, since the package builds its keys |
-| `list`, `verify`, `restore` | a `from` that names no repository given to `bindBackup` |
-| `verify`, `restore` | an id that is not a backup id; no identity, or one age refuses |
+| `list`, `verify`, `restore`, `prune`, `hold`, `unhold` | a `from` that names no repository given to `bindBackup` |
+| `verify`, `restore`, `hold`, `unhold` | an id that is not a backup id |
+| `verify`, `restore` | no identity, or one age refuses |
+| `prune` | a `keep` that names no rule (`prune on "uploads": keep must name at least one rule`), or a rule that is not a whole number, 1 or more (`prune on "uploads": keep.daily must be a whole number, 1 or more`); an `incompleteAfter` that is not a whole number of milliseconds, or is under two lock leases (`prune on "uploads": incompleteAfter must be a whole number of milliseconds, two lock leases at least`); a `now` that is not a valid `Date` (`prune on "uploads": now must be a valid Date`) — [rotation](rotation.md#errors) |
 | `restore` | a target whose `write` resolved before its stream ended: nothing it was given was checked |
 | `create` | an entry name your source gave that is empty, over 4096 characters, holds a NUL, or was given twice |
 | `directoryTarget`, during `restore` | an entry name that is not a relative path inside the folder, or whose folder is a link or a file there; a file already there without `overwrite` |
 
-The calls are `async`: a `TypeError` from `list`, `verify`, `restore` or
-`create` is a rejection, not a synchronous throw.
+The calls are `async`: a `TypeError` from `list`, `verify`, `restore`,
+`create`, `prune`, `hold` or `unhold` is a rejection, not a synchronous
+throw.
 
 ## What passes through
 
@@ -102,8 +105,9 @@ Errors this package did not raise come back as they are:
 - from **your source** — `create` rejects with what it threw or its stream
   errored with, and the backup gets no manifest;
 - from **your target** — `restore` rejects with it, and stops;
-- from **a repository's `get` or `list`** — `list`, `verify` and `restore`
-  reject with it: for `s3Repository`, Bun's `S3Error`, such as
+- from **a repository's `get`, `list` or `delete`** — `list`, `verify`,
+  `restore`, `prune`, `hold` and `unhold` reject with it (`prune` releases its
+  lock first): for `s3Repository`, Bun's `S3Error`, such as
   `AccessDenied`, or `s3 repository: a listing page was cut short with no way
   to go on` when the store pages without a token. A failed `put` is caught, and lands in `outcomes` — for
   `s3Repository`, an `S3Error` or `s3 repository: an object was not stored
@@ -124,7 +128,7 @@ import { BackupError } from '@nxgt/backup';
 
 type Verdict = 'ok' | 'skipped' | 'degraded' | 'retry' | 'alert' | 'bug';
 
-/** Every repository refused because another run of the definition holds its lock. */
+/** Every repository refused because another run of the definition has its lock. */
 function allLocked(error: BackupError): boolean {
 	return error.outcomes.every(
 		(outcome) =>
@@ -154,9 +158,9 @@ export function verdictOf(error: unknown): Verdict {
 				if (leaseLost(error)) return 'alert'; // a store dropped out for a whole lease, or the process stalled
 				return 'retry'; // nowhere took it: a mount, the network, a full disk
 			case 'LOCKED':
-				return 'retry'; // only ever inside outcomes; here for an exhaustive switch
+				return 'skipped'; // a prune or a hold refused: another run has the lock
 			case 'LEASE_LOST':
-				return 'alert'; // only ever inside outcomes; here for an exhaustive switch
+				return 'alert'; // a prune stopped part-way: the store or the host needs a look
 			case 'INTEGRITY':
 				return 'alert'; // a repository holds what was not written: damage, or tampering
 			case 'DECRYPT':

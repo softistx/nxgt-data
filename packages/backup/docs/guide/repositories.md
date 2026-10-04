@@ -54,7 +54,12 @@ Each `put` is crash-safe:
 4. syncs the folder, so the rename itself survives a power cut.
 
 A crash leaves the old bytes or the new ones, never part of them, and a
-failed `put` removes its partial file. A file whose name holds `.partial-` is
+failed `put` removes its partial file.
+
+A `delete` removes the file, then each folder it leaves empty, up to the
+repository's root — never the root itself — so a backup `prune` removed
+leaves no folder behind. A `put` whose folder such a delete removed under
+it makes the folder again and retries, up to three times. A file whose name holds `.partial-` is
 never listed nor read, which is why `defineBackup` refuses a name holding
 `.partial-`.
 
@@ -222,9 +227,11 @@ backup whose every object is that size or smaller leaves none.
 The host that runs `create` needs `s3:PutObject` (one `PUT` and multipart
 uploads alike), `s3:GetObject` (to read the size back, and for its own
 `list`, `verify` and `restore`), `s3:ListBucket`, and `s3:DeleteObject` (to
-remove a failed large upload, and for rotation when it comes). The
-[lock](locking.md) uses the same four: put, list and read under
-`<backup>/locks/`, then delete. A host that only lists, verifies or restores
+remove a failed large upload). The [lock](locking.md) uses the same four:
+put, list and read under `<backup>/locks/`, then delete. A host that runs
+[`prune`](rotation.md), `hold` or `unhold` needs the same four too:
+`s3:DeleteObject` removes backups, `s3:PutObject` writes the lock and the
+hold. A host that only lists, verifies, restores or runs a dry-run prune
 takes no lock, and needs `s3:GetObject` and `s3:ListBucket`.
 
 ```json
@@ -394,8 +401,8 @@ interface Repository {
 | `name` | how it is named in outcomes, errors and `from`: `local`, `s3`, or what you choose. **Never a credential, nor a URL that holds one** — it is in every error message |
 | `put(key, file)` | stores the local file at `file` under `key`, **whole or not at all**: a key is never visible holding part of its bytes, and once it resolves the bytes are as durable as the store makes them. Overwrites. The file is removed once every repository has resolved, so read it **before** resolving |
 | `get(key)` | the bytes under `key`, or `undefined` when there are none. `undefined` for the manifest is `NOT_FOUND`; for `manifest.sig`, when `trusted` keys are set, `SIGNATURE`; for an object, `INTEGRITY`. The package reads no more than 65 bytes of `manifest.sig` and 64 MiB and one byte of a manifest, and stops reading an object as soon as it runs past the size its manifest gives — so a repository that sends more cannot fill `tmpDir`. It cancels the rest of the stream |
-| `list(prefix)` | every key that starts with `prefix`, in any order, keys of writes in progress left out — and **every key whose `put` has resolved**, from that moment on: the [lock](locking.md#how-it-works) is safe only on a store that does this, and a listing that lags behind writes would let two writers in. A local folder and AWS S3 do; SeaweedFS's S3 gateway is covered by the package's own spec. The package lists `<backup>/` and keeps the keys that end in `/manifest.json`, and `<backup>/locks/` for the lock |
-| `delete(key)` | removes `key`; one that is not there is not an error. From 0.4, `create` calls it to remove its lock, and a stale one; rotation and clean-up will too. One that throws does not fail the run: the lock it left goes stale on its own |
+| `list(prefix)` | every key that starts with `prefix`, in any order, keys of writes in progress left out — and **every key whose `put` has resolved**, from that moment on: the [lock](locking.md#how-it-works) is safe only on a store that does this, and a listing that lags behind writes would let two writers in. A local folder and AWS S3 do; SeaweedFS's S3 gateway is covered by the package's own spec. The package lists `<backup>/` and keeps the keys that end in `/manifest.json` — `prune` keeps every key under a backup id — `<backup>/locks/` for the lock, and `<backup>/holds/` for the holds |
+| `delete(key)` | removes `key`; one that is not there is not an error. `create` calls it to remove its lock, and a stale one; one that throws there does not fail the run, since the lock goes stale on its own. From 0.5, `prune` calls it for every key of each backup it removes, the manifest first, and `unhold` for a hold: one that throws there rejects that call |
 
 Whole-or-nothing is the one rule that matters: the manifest is how a backup
 comes to exist, so a manifest visible half-written would be a backup that

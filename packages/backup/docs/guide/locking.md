@@ -1,8 +1,9 @@
 # Locking
 
 This page covers the single-writer lock `create` takes in every repository
-it writes to: what it refuses, how long it lasts, what it leaves behind when
-a process dies, and how to clear it by hand.
+it writes to, and `prune`, `hold` and `unhold` in the one they change: what
+it refuses, how long it lasts, what it leaves behind when a process dies, and
+how to clear it by hand.
 
 ```ts
 import {
@@ -38,23 +39,32 @@ try {
 }
 ```
 
-There is nothing to turn on: from 0.4.0, every `create` takes the lock.
+There is nothing to turn on: from 0.4.0, every `create` takes the lock, and
+from 0.5.0 every `prune` (but a dry run), `hold` and `unhold` too.
 `lock.lease` only tunes it.
 
 ## What it guards
 
-**Two `create`s of the same definition never write to the same repository at
-once.** The second one is refused there with `LOCKED`, before it reads a
-byte of its source for that repository. The lock is also what will keep
-rotation — `prune`, next on the [roadmap](../roadmap.md) — from deleting a
-backup that is still being written; the lock file already has room for it
-(`operation: 'prune'`), and a `create` refuses a lock a `prune` holds.
+**No two writers of the same definition ever change the same repository at
+once.** A writer is a `create`, a `prune`, a `hold` or an `unhold`; the
+second one is refused there with `LOCKED`, before it reads a byte of its
+source for that repository, or removes anything. That is what keeps
+[`prune`](rotation.md) from deleting a backup that is still being written,
+and a `hold` from landing between a prune's reading of the holds and its
+deletes.
+
+| Call | Lock | `operation` |
+| --- | --- | --- |
+| `create` | in every repository it writes to; one refused fails alone, in `outcomes` | `create` |
+| `prune` | in the one repository it prunes; refused, it rejects | `prune` |
+| `prune` with `dryRun` | none | — |
+| `hold`, `unhold` | in every repository — or `from` alone — one at a time; refused, they reject | `prune`, so a 0.4 reader expires it like any lock |
 
 What it does not guard:
 
-- **Reads take no lock.** `list`, `verify` and `restore` run while a `create`
-  does, and need no write permission. A backup being written has no manifest
-  yet, so they do not see it.
+- **Reads take no lock.** `list`, `verify`, `restore` and a dry-run `prune`
+  run while a `create` does, and need no write permission. A backup being
+  written has no manifest yet, so they do not see it.
 - **Two definitions do not block each other**, even in one repository: the
   lock is per definition — `uploads/locks/`, `database/locks/`.
 - **A lock is per repository.** With several repositories, a `create` takes
@@ -63,14 +73,17 @@ What it does not guard:
 
 ## When it refuses, and when its lease runs out
 
-Two codes come from the lock, and neither is ever what `create` rejects
-with: each is one repository's **outcome**, inside the `PARTIAL` or
-`NOT_STORED` that `create` rejects with, as any other repository failure is.
-The other repositories go on.
+Two codes come from the lock. From `create`, neither is ever what it
+rejects with: each is one repository's **outcome**, inside the `PARTIAL` or
+`NOT_STORED` that `create` rejects with, as any other repository failure is,
+and the other repositories go on. `prune`, `hold` and `unhold` work on one
+repository at a time, and **reject** with the code itself —
+`prune on "uploads": …`, `hold on "uploads": …`, `unhold on "uploads": …` —
+[rotation](rotation.md#the-lock-and-lease_lost).
 
 | Code | Message | Means | Do |
 | --- | --- | --- | --- |
-| `LOCKED` | `create on "uploads": another create or prune holds the lock (repository "nas")` | another writer's live lock was there when this one looked. None of the backup was written to that repository; its own lock file was put, then removed | skip, and try later |
+| `LOCKED` | `create on "uploads": another create, prune or hold has the lock (repository "nas")` | another writer's live lock was there when this one looked. None of the backup was written to that repository; its own lock file was put, then removed | skip, and try later |
 | `LEASE_LOST` | `create on "uploads": the lock's lease ran out before it was done (repository "local")` | this run held the lock, then could not renew it in time — the store out of reach for the lock's own writes, or the process paused longer than the lease. It started nothing more there; that repository has no manifest for this id, so it holds no backup | alert: retrying will not help until the store or the host is fixed |
 
 Each `outcome.error` is a `BackupError` with that `code`, `backup` and
@@ -110,7 +123,8 @@ next run is not held off.
 
 ## How it works
 
-For each repository, at the start of `create`:
+For each repository, at the start of `create` — and of `prune`, `hold` or
+`unhold`, in their one repository:
 
 1. **Write its own lock first**: `<backup>/locks/<lock-id>.json`.
 2. **Then list `<backup>/locks/`**. Any other lock still live → delete its
@@ -118,8 +132,9 @@ For each repository, at the start of `create`:
 3. Otherwise, go on, and **renew** the lock every third of the lease by
    writing it again with a later `expiresAt`.
 4. **Before every `put`** — each object, the catalog, the signature, the
-   manifest — check that the lease is still held. Once it has run out, start
-   nothing more in that repository, which fails with `LEASE_LOST`, and start
+   manifest — and, for `prune`, `hold` and `unhold`, before every delete and
+   before the hold is written, check that the lease is still held. Once it has run out, start nothing more in that repository,
+   which fails with `LEASE_LOST`, and start
    no new renewal — though one already under way may still land, and the lock
    is deleted at the end. A `put` already under way when the lease runs out
    is not cut short, and may land after it.
@@ -196,7 +211,7 @@ at a time; lower it in specs, as the package's own do (`lock: { lease: 1000 }`).
 /mnt/backups/
   uploads/
     locks/
-      20261004T221500123Z-1a2b3c4d.json   ← one per running create
+      20261004T221500123Z-1a2b3c4d.json   ← one per running create, prune or hold
     20261003T221500123Z-9f3a61c0/
       …
 ```
@@ -209,7 +224,7 @@ at a time; lower it in specs, as the package's own do (`lock: { lease: 1000 }`).
 | --- | --- |
 | `format` | `nxgt-backup-lock/1` |
 | `id` | the lock's own id, shaped like a backup id, and its file name. Not the id of the backup being made |
-| `operation` | `create`, or `prune` once rotation ships |
+| `operation` | `create` or `prune`; a `hold` or `unhold` records `prune` |
 | `expiresAt` | when the lease ends unless renewed, as an ISO date, by the holder's clock |
 
 **A lock file that does not read as one counts as held, forever**: an empty
@@ -222,13 +237,16 @@ manifest. See the [format](format.md) for the rest of the layout.
 
 A run that is killed — `SIGKILL`, the host lost, the container stopped —
 cannot delete its lock. Nothing is damaged: the backup it was making has no
-manifest, so it does not exist. But **that repository refuses every `create`
-of the definition until the lock goes stale**: `expiresAt` plus one lease,
-so at most two leases after the crash — 10 minutes with the default. The
-first `create` after that deletes it and goes on.
+manifest, so it does not exist; a killed `prune` leaves at worst a backup
+without its manifest, which the next one cleans up. But **that repository
+refuses every `create`, `prune` and `hold` of the definition until the lock
+goes stale**: `expiresAt` plus one lease, so at most two leases after the
+crash — 10 minutes with the default. The first writer after that deletes it
+and goes on.
 
 To go on sooner, delete the lock yourself — **only once you are sure no
-`create` of that definition is running**, or two writers will:
+`create`, `prune` or `hold` of that definition is running**, or two writers
+will:
 
 ```sh
 # a local folder
@@ -296,6 +314,11 @@ try {
 	process.exit(2);
 }
 ```
+
+A `prune` in the same job goes after the `create`, and holds the lock only
+while it runs. Its `LOCKED` is the rejection itself, not an outcome: treat
+it the same way — the next run prunes —
+[rotation](rotation.md#the-lock-and-lease_lost).
 
 Next: [errors](errors.md), for `LOCKED` and `LEASE_LOST` beside the other
 codes.

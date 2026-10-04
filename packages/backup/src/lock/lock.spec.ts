@@ -117,7 +117,7 @@ describe('the lock', () => {
 		expect(errorOf(busy)).toHaveProperty('code', 'LOCKED');
 		expect(errorOf(busy)).toHaveProperty(
 			'message',
-			'create on "app": another create or prune holds the lock (repository "busy")',
+			'create on "app": another create, prune or hold has the lock (repository "busy")',
 		);
 		expect(await locksIn('busy')).toEqual([`${other}.json`]);
 		expect((await backups.list({ from: 'busy' })).backups).toEqual([]);

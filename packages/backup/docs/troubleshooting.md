@@ -10,7 +10,8 @@ target, a repository or the file system come back as they are.
 **No message quotes a key, an entry's name or a value.** The headings below
 use `app` for the definition's name and `local` for the repository's, and
 the call that failed in front: the same refusal from another call names that
-call instead — `verify on "app": …` or `restore on "app": …`.
+call instead — `verify on "app": …`, `restore on "app": …`, `prune on "app": …`
+or `hold on "app": …`.
 
 - **Install and run**
   - [`ReferenceError: Bun is not defined`](#referenceerror-bun-is-not-defined)
@@ -47,7 +48,7 @@ call instead — `verify on "app": …` or `restore on "app": …`.
 - **Creating**
   - [`create on "app": stored in 1 of 2 repositories`](#create-on-app-stored-in-1-of-2-repositories)
   - [`create on "app": stored in 0 of 1 repositories`](#create-on-app-stored-in-0-of-1-repositories)
-  - [`create on "app": another create or prune holds the lock (repository "local")`](#create-on-app-another-create-or-prune-holds-the-lock-repository-local)
+  - [`create on "app": another create, prune or hold has the lock (repository "local")`](#create-on-app-another-create-prune-or-hold-has-the-lock-repository-local)
   - [`create on "app": the lock's lease ran out before it was done (repository "local")`](#create-on-app-the-locks-lease-ran-out-before-it-was-done-repository-local)
   - [`create on "app": the manifest would be larger than 64 MiB; split the source into several backups`](#create-on-app-the-manifest-would-be-larger-than-64-mib-split-the-source-into-several-backups)
   - [`local repository: a key is not a relative path`](#local-repository-a-key-is-not-a-relative-path)
@@ -73,12 +74,24 @@ call instead — `verify on "app": …` or `restore on "app": …`.
   - [`restore on "app": the catalog does not decrypt (repository "local")`](#restore-on-app-the-catalog-does-not-decrypt-repository-local)
   - [`restore on "app": an entry differs from what its source gave (repository "local")`](#restore-on-app-an-entry-differs-from-what-its-source-gave-repository-local)
   - [`restore on "app": an entry does not decrypt (repository "local")`](#restore-on-app-an-entry-does-not-decrypt-repository-local)
+- **Pruning**
+  - [`prune on "app": keep must name at least one rule`](#prune-on-app-keep-must-name-at-least-one-rule)
+  - [`prune on "app": keep.daily must be a whole number, 1 or more`](#prune-on-app-keepdaily-must-be-a-whole-number-1-or-more)
+  - [`prune on "app": incompleteAfter must be a whole number of milliseconds, two lock leases at least`](#prune-on-app-incompleteafter-must-be-a-whole-number-of-milliseconds-two-lock-leases-at-least)
+  - [`prune on "app": now must be a valid Date`](#prune-on-app-now-must-be-a-valid-date)
+  - [`hold on "app": the id is not a backup id`](#hold-on-app-the-id-is-not-a-backup-id)
+  - [`hold on "app": no repository holds that backup`](#hold-on-app-no-repository-holds-that-backup)
+  - [`prune on "app": another create, prune or hold has the lock (repository "local")`](#prune-on-app-another-create-prune-or-hold-has-the-lock-repository-local)
+  - [`hold on "app": another create, prune or hold has the lock (repository "local")`](#hold-on-app-another-create-prune-or-hold-has-the-lock-repository-local)
+  - [`prune on "app": the lock's lease ran out before it was done (repository "local")`](#prune-on-app-the-locks-lease-ran-out-before-it-was-done-repository-local)
 - **Symptoms without a message**
   - [A backup is missing from `list`](#a-backup-is-missing-from-list)
   - [`list` shows fewer backups than a moment ago](#list-shows-fewer-backups-than-a-moment-ago)
   - [An id is in `unreadable`](#an-id-is-in-unreadable)
   - [Every backup made before signing is in `unreadable`](#every-backup-made-before-signing-is-in-unreadable)
   - [A backup that failed left objects in the repository](#a-backup-that-failed-left-objects-in-the-repository)
+  - [`prune` kept more than expected](#prune-kept-more-than-expected)
+  - [`overSize` is `true`](#oversize-is-true)
   - [A backup or a restore fails for lack of room](#a-backup-or-a-restore-fails-for-lack-of-room)
   - [The bucket bills for storage that `list` does not show](#the-bucket-bills-for-storage-that-list-does-not-show)
 
@@ -379,8 +392,8 @@ nothing was read or written.
 
 ### `list on "app": no repository has that name`
 
-**When:** `list`, `verify` or `restore` with a `from` that is not the name of
-a repository given to `bindBackup`.
+**When:** `list`, `verify`, `restore`, `prune`, `hold` or `unhold` with a
+`from` that is not the name of a repository given to `bindBackup`.
 **Why:** reads go to one repository, picked by name; there is no fallback.
 **Fix:** use a name from `backups.repositories`.
 
@@ -576,7 +589,7 @@ for (const outcome of error.outcomes) {
 }
 ```
 
-### `create on "app": another create or prune holds the lock (repository "local")`
+### `create on "app": another create, prune or hold has the lock (repository "local")`
 
 **Code:** `LOCKED`, in that repository's outcome — so `create` rejects with
 `PARTIAL` if another repository took the backup, `NOT_STORED` if none did.
@@ -587,7 +600,8 @@ that repository; its own lock file is put, then removed.
 is there. That lock is one of:
 
 - **another run, still going** — a scheduled job that started again before
-  the last one finished, or the same backup run from two machines;
+  the last one finished, or the same backup run from two machines — or a
+  `prune`, a `hold` or an `unhold` of the same definition;
 - **a run that crashed, and whose lock is not stale yet** — a lock is
   respected until its `expiresAt` plus one whole lease, for clocks that
   disagree: up to two leases after the crash, 10 minutes by default;
@@ -622,7 +636,7 @@ If it persists with no run going, look at the locks. In a local folder:
 
 ```sh
 ls /mnt/backups/app/locks/
-cat /mnt/backups/app/locks/*.json # format, id, operation, expiresAt
+cat /mnt/backups/app/locks/*.json # format, id, operation (create, or prune — also for a hold), expiresAt
 ```
 
 In an S3 bucket, under the repository's `prefix`:
@@ -754,7 +768,7 @@ await backups.verify(id, { from: 's3' });
 `s3Repository`, when the store answers a page of keys marked as truncated
 and gives no continuation token to ask for the next one.
 **Why:** stopping there would return a listing that looks whole and is
-not: backups missing from `list`, and later from rotation. The store, or a
+not: backups missing from `list`, and from `prune`'s plan. The store, or a
 proxy in front of it, broke S3's paging contract.
 **Fix:** nothing in your code. Check the endpoint is an S3 API and not a
 cache or a gateway that rewrites listings, then retry; on a store that does
@@ -808,8 +822,8 @@ deleted); a reader reads and lists.
 
 | Binding | Actions |
 | --- | --- |
-| a writer (`create`) | `s3:PutObject`, `s3:GetObject`, `s3:ListBucket`, `s3:DeleteObject` |
-| a reader (`list`, `verify`, `restore`) | `s3:GetObject`, `s3:ListBucket` |
+| a writer (`create`, `prune`, `hold`, `unhold`) | `s3:PutObject`, `s3:GetObject`, `s3:ListBucket`, `s3:DeleteObject` |
+| a reader (`list`, `verify`, `restore`, `prune` with `dryRun`) | `s3:GetObject`, `s3:ListBucket` |
 
 ```json
 {
@@ -885,8 +899,8 @@ backup exists once its manifest does.
 
 ```ts
 for (const name of backups.repositories) {
-	const { backups: held } = await backups.list({ from: name });
-	console.log(name, held.some((b) => b.id === id));
+	const { backups: listed } = await backups.list({ from: name });
+	console.log(name, listed.some((b) => b.id === id));
 }
 ```
 
@@ -1111,13 +1125,191 @@ catalog's own checks make them unreachable: `the catalog names an object the
 manifest lacks` and `the catalog misses an entry`. Treat either as the
 entries above.
 
+## Pruning
+
+`prune`, `hold` and `unhold` work on one repository — the first, or `from` —
+and reject with what stopped them: a `TypeError` before anything is read, or
+a `BackupError` with the code itself, never inside `outcomes`.
+
+### `prune on "app": keep must name at least one rule`
+
+**When:** `prune`, with `keep: {}`, a `keep` left out, or one whose rules are
+all `undefined` — often a policy read from configuration that came out
+empty. Nothing is read.
+**Why:** a policy with no rule would keep nothing and remove every backup.
+"Remove everything" is not something `prune` will guess.
+**Fix:** name at least one rule.
+
+```ts
+await backups.prune({ keep: { last: 7, daily: 14 } });
+```
+
+### `prune on "app": keep.daily must be a whole number, 1 or more`
+
+**When:** `prune`, with a rule that is `0`, negative, fractional or `NaN`.
+The message names the rule: `keep.last`, `keep.hourly`, `keep.weekly`,
+`keep.monthly`, `keep.yearly`, `keep.within` or `keep.maxTotalSize` alike.
+Nothing is read.
+**Why:** every rule is a count, a number of milliseconds or a number of
+bytes, and `0` would mean "this rule keeps nothing" — leave the rule out
+instead. `NaN` is usually `Number(process.env.KEEP_DAILY)` with the
+variable unset. The types refuse a string (`daily: '7'`).
+**Fix:**
+
+```ts
+const daily = Number.parseInt(process.env.KEEP_DAILY ?? '14', 10);
+await backups.prune({ keep: { last: 7, daily } });
+```
+
+### `prune on "app": incompleteAfter must be a whole number of milliseconds, two lock leases at least`
+
+**When:** `prune`, with an `incompleteAfter` that is not an integer, or is
+under twice `lock.lease` — often seconds given where milliseconds are meant.
+Also with **no** `incompleteAfter` and a `lock.lease` over 12 hours: the
+default, one day, is then less than two leases. Nothing is read.
+**Why:** a backup still being written has no manifest, like one that failed;
+`incompleteAfter` is how old one must be before `prune` takes it for failed,
+counted from when its `create` started — the time in its id — by this
+machine's clock, not by `now`. A `put` under way when its run's lease ran
+out may still land, and another writer respects a lock for one lease past
+its end — so anything under two leases could remove a backup that is still
+arriving. A value under your longest `create` is not refused, and would be
+just as wrong.
+**Fix:** a duration in milliseconds, longer than your slowest `create` plus
+two leases.
+
+```ts
+await backups.prune({ keep: { last: 7 }, incompleteAfter: 6 * 60 * 60 * 1000 }); // 6 hours
+```
+
+### `prune on "app": now must be a valid Date`
+
+**When:** `prune`, with a `now` that is not a `Date` — a string, a number —
+or is an Invalid Date: `new Date('tomorrow')`, `new Date(undefined as never)`.
+Nothing is read.
+**Why:** every rule measures from `now`; an Invalid Date would compare false
+with everything and keep or remove at random.
+**Fix:** a real `Date`, or leave `now` out for the current time.
+
+```ts
+const nextWeek = new Date(Date.now() + 7 * 86_400_000);
+await backups.prune({ keep: { daily: 14 }, dryRun: true, now: nextWeek });
+```
+
+### `hold on "app": the id is not a backup id`
+
+**When:** `hold` — or `unhold`, as `unhold on "app": …` — with something
+that is not an id: `'latest'`, an empty string, a path. Nothing is read.
+**Why:** an id has one shape, `20261003T221500123Z-9f3a61c0`, and becomes a
+key; anything else is refused before the repository is asked.
+**Fix:** take the id from `list`, `create` or a prune's `kept`.
+
+```ts
+const latest = (await backups.list()).backups.at(-1);
+if (latest) await backups.hold(latest.id);
+```
+
+### `hold on "app": no repository holds that backup`
+
+**Code:** `NOT_FOUND`, with `id` and no `repository`.
+**When:** `hold`, once every repository asked — all of them, or `from` —
+was looked at under its lock. Nothing was written.
+**Why:** none of them has a manifest for that id: the backup never
+finished, was already removed — by a prune, or by hand — or, with `from`,
+is in another repository. `hold` skips a repository without the backup and
+fails only when none has it. It reads the manifest as `verify` does, so a
+backup whose manifest does not read rejects with `INTEGRITY`, and one no
+`trusted` key signed with `SIGNATURE`.
+**Fix:** check where the backup is, and leave `from` out to hold it
+everywhere it is.
+
+```ts
+for (const name of backups.repositories) {
+	const { backups: listed } = await backups.list({ from: name });
+	console.log(name, listed.some((b) => b.id === id));
+}
+const { repositories } = await backups.hold(id); // where the hold landed
+```
+
+`unhold` never rejects with this: lifting a hold that is not there, or on a
+backup that is gone, is not an error.
+
+### `prune on "app": another create, prune or hold has the lock (repository "local")`
+
+**Code:** `LOCKED`, as `prune`'s own rejection.
+**When:** `prune` (but a dry run, which takes no lock), at the start.
+Nothing was read nor removed.
+**Why:** another writer of the same definition has that repository's lock:
+a `create` still running — a backup taking longer than usual —, another
+prune, a hold, or a lock left by a run that crashed and is not stale yet.
+The causes are those of
+[`create`'s `LOCKED`](#create-on-app-another-create-prune-or-hold-has-the-lock-repository-local).
+**Fix:** treat it as "skipped": the next run prunes.
+
+```ts
+import { BackupError } from '@nxgt/backup';
+
+try {
+	await backups.prune({ keep: { last: 7, daily: 14 } });
+} catch (error) {
+	if (!(error instanceof BackupError) || error.code !== 'LOCKED') throw error;
+	console.warn(error.message); // skipped
+}
+```
+
+### `hold on "app": another create, prune or hold has the lock (repository "local")`
+
+**Code:** `LOCKED`, as `hold`'s own rejection — `unhold on "app": …` for
+`unhold`.
+**When:** `hold` or `unhold`, in the first repository whose lock another
+writer has. **A hold waits for no one**: a `create` running there — a
+nightly backup under way — refuses it. The repositories before that one keep
+the hold, or its removal; the ones after were not reached.
+**Why:** the hold is put under the lock, so that a prune that already read
+the holds cannot remove the backup after.
+**Fix:** retry once the run ends; holding or lifting again is harmless.
+
+```ts
+import { BackupError } from '@nxgt/backup';
+
+for (let attempt = 1; ; attempt++) {
+	try {
+		await backups.hold(id);
+		break;
+	} catch (error) {
+		if (!(error instanceof BackupError) || error.code !== 'LOCKED' || attempt === 10) throw error;
+		await Bun.sleep(60_000); // a backup is running
+	}
+}
+```
+
+### `prune on "app": the lock's lease ran out before it was done (repository "local")`
+
+**Code:** `LEASE_LOST`, as `prune`'s own rejection. `error.id` is the backup
+it was removing. `hold on "app": …` and `unhold on "app": …` give it too,
+when the lease ran out before the hold was written or deleted: retry them.
+**When:** `prune`, part-way through its deletes.
+**Why:** the lease is checked before every delete; it ran out because the
+lock's renewals failed — the store unreachable — or the process was paused
+longer than the lease. Past it, another writer may have taken the lock, so
+the prune stopped. What it removed is gone; the rest stays. The backup it
+was removing may have lost its manifest and kept some objects: it no longer
+exists, and the next prune removes what is left of it as `incomplete`.
+**Fix:** as for [`create`](#create-on-app-the-locks-lease-ran-out-before-it-was-done-repository-local):
+find out why the store dropped out or the process stalled, then prune again.
+A longer lease rides out a store that drops for minutes:
+
+```ts
+bindBackup(definition, { repositories, recipients, lock: { lease: 30 * 60 * 1000 } });
+```
+
 ## Symptoms without a message
 
 ### A backup is missing from `list`
 
 **Why:** it has no manifest in that repository — still running, failed, left
-out of a `PARTIAL`, or its manifest deleted — or it is in another
-repository. `list` reads one repository: the first, or `from`.
+out of a `PARTIAL`, removed by a `prune` (its `removed` lists it, with why),
+or its manifest deleted — or it is in another repository. `list` reads one repository: the first, or `from`.
 **Fix:**
 
 ```ts
@@ -1127,7 +1319,7 @@ for (const name of backups.repositories) console.log(name, (await backups.list({
 ### `list` shows fewer backups than a moment ago
 
 **When:** `list`, while backups of the same definition are being removed —
-by a prune (rotation, [on the roadmap](roadmap.md#next)) or by hand.
+by a [`prune`](guide/rotation.md) or by hand.
 **Why:** a backup whose manifest disappears between `list`'s listing of the
 repository and its read of that manifest was removed meanwhile; `list` leaves
 it out rather than failing, with no error and nothing in `unreadable`.
@@ -1186,17 +1378,78 @@ for (const id of unreadable) await unsigned.verify(id); // reads them, without a
 ### A backup that failed left objects in the repository
 
 **When:** after a `create` that rejected — a source that threw, the process
-killed, a lease that ran out, `PARTIAL` for the repository that failed.
+killed, a lease that ran out, `PARTIAL` for the repository that failed — or a
+`prune` cut short.
 **Why:** objects go first and the manifest last, so a run that stopped holds
-objects under `<backup>/<id>/` and no `manifest.json`. No call sees them, and
-this version does not remove them.
-**Fix:** cleaning up incomplete backups is [on the roadmap](roadmap.md#next).
-Until then, a folder `<backup>/<id>/` — named like a backup id,
-`20261003T221500123Z-9f3a61c0` — with no `manifest.json` and older than your
-longest run can be removed by hand. **Never `<backup>/locks/`**: it holds no
-manifest either, and removing it while a `create` runs lets a second writer
-in. A single stale lock file is removed as
+objects under `<backup>/<id>/` and no `manifest.json`. No call but `prune`
+sees them.
+**Fix:** run `prune`. It removes every backup id with no manifest once the
+id is older than `incompleteAfter` — a day by default, and never less than
+two lock leases, since a backup still being written has no manifest either —
+and lists them in `incomplete`
+([incomplete backups](guide/rotation.md#incomplete-backups)):
+
+```ts
+const { incomplete } = await backups.prune({ keep: { last: 7, daily: 14 } });
+console.log('removed what failed runs left:', incomplete);
+```
+
+Do not remove such a folder by hand while a `create` may be running.
+**Never `<backup>/locks/` nor `<backup>/holds/`**: they hold no manifest
+either; removing `locks/` while a writer runs lets a second one in, and
+removing `holds/` lifts every hold. A single stale lock file is removed as
 [locking](guide/locking.md#after-a-crash) says.
+
+### `prune` kept more than expected
+
+**When:** a real or dry-run `prune` lists in `kept` backups you expected in
+`removed`.
+**Why:** each kept backup says why in its `reasons`. Besides the rules you
+gave:
+
+- `held` — a legal hold in that repository; `list` shows `held: true`;
+- `parent of <id>` — a kept backup builds on it;
+- `newer than now` — its `createdAt` is after `now`: the host's clock is
+  behind the one that made the backup, or `now` was given in the past. It
+  takes no place from a real backup in `last` or a calendar rule;
+- `the newest, under maxTotalSize` — with `maxTotalSize` and no `last`, the
+  newest backup is always kept; see [`overSize` is `true`](#oversize-is-true).
+
+The rules also add up: `last: 7` and `daily: 14` keep up to 21 backups, not
+14, and a calendar rule counts days that have a backup, so after a pause
+`daily: 14` reaches back past fourteen calendar days. Every period is UTC.
+
+A backup in `unreadable` is not in `kept`, and is never removed either —
+for a binding with `trusted` keys, that is every unsigned backup.
+**Fix:** read the reasons.
+
+```ts
+const plan = await backups.prune({ keep: { last: 7, daily: 14 }, dryRun: true });
+for (const decision of plan.kept) console.log(decision.id, decision.reasons.join(', '));
+console.log('unreadable, left alone:', plan.unreadable);
+```
+
+Lift a hold you no longer need with `unhold(id)`;
+[rotation](guide/rotation.md#the-rules) has every rule's exact meaning.
+
+### `overSize` is `true`
+
+**When:** `prune` with `keep.maxTotalSize`.
+**Why:** what is kept is still larger than `maxTotalSize`. It removes the
+oldest kept backups until the rest fit, and never removes the floor — the
+newest `last` backups made at or before `now`, or the newest one without
+`last` —, a held backup, one newer than `now`, or one a kept backup builds
+on. Those alone are over the cap. Nothing throws:
+the flag is the only sign.
+**Fix:** lower `last`, lift holds, add room — or alert on it.
+
+```ts
+const pruned = await backups.prune({ keep: { last: 3, daily: 30, maxTotalSize: 50 * 1024 ** 3 } });
+if (pruned.overSize) {
+	const held = pruned.kept.filter((d) => d.reasons.includes('held')).map((d) => d.id);
+	console.warn('over maxTotalSize; held:', held);
+}
+```
 
 ### A backup or a restore fails for lack of room
 
