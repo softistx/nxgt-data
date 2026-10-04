@@ -1,5 +1,13 @@
 # @nxgt/redis
 
+## 0.4.0
+
+### Minor Changes
+
+- [#172](https://github.com/softistx/nxgt-data/pull/172) [`afec9ae`](https://github.com/softistx/nxgt-data/commit/afec9ae19ab4d0fbb9af66134895c23f87425433) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The Redis wiring of `@nxgt/redis-kit` is now in this package. New exports: `defineRedis`, which checks a configuration of one or several Redis instances and freezes it without connecting to anything, and `openRedis`, which opens the clients and gives back a `Redis` whose `cache` and `channels` scopes carry every definition typed under the key it is exported as — `redis.cache.users.remember(…)`, `redis.channels.created.publish(…)` — with the deployment's `prefix` in front of every key, channel and lock, plus `lock`, `ping`, `clients` and a `close()` that closes the subscriptions nobody closed before the clients it opened. The types come with them: `Redis`, `RedisOf`, `RedisConfig`, `RedisConfigInput`, `RedisLockOptions`, `InstanceConfig`, `InstanceName`, `InstancesOf`, `CachesIn`, `CachesOf`, `ChannelsIn`, `ChannelsOf`, `BoundChannel`, `CacheScope`, `ChannelScope`, `InstanceScope`, `PayloadOf`, `SoleCache`, `SoleChannels` and `SoleInstance`.
+  
+  It is what `@nxgt/redis-kit` shipped, renamed: `connectKit` is `openRedis`, `defineConfig` is `defineRedis`, `RedisKit` is `Redis`, `KitOf` is `RedisOf`, `KitConfig` and `KitConfigInput` are `RedisConfig` and `RedisConfigInput`, `KitLockOptions` is `RedisLockOptions`. The messages follow: they begin `defineRedis:` and `openRedis:`, and the two that named a call read `cache: this Redis holds 2 Redis instances, …` and `lock: this Redis has no instance named "…"`. Nothing existing changes.
+
 ## 0.3.2
 
 ### Patch Changes

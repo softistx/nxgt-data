@@ -1,5 +1,20 @@
 # @nxgt/redis-kit
 
+## 0.3.0
+
+### Minor Changes
+
+- [#172](https://github.com/softistx/nxgt-data/pull/172) [`afec9ae`](https://github.com/softistx/nxgt-data/commit/afec9ae19ab4d0fbb9af66134895c23f87425433) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `@nxgt/redis-kit` is deprecated: its API moved into `@nxgt/redis`, and this package now only re-exports it. `@nxgt/redis` is its one peer besides `typescript` (`zod` comes with it), and the docs are gone from the package — they live in `@nxgt/redis`.
+  
+  Every renamed name keeps its old spelling as a `@deprecated` alias: `connectKit` is `openRedis`, `defineConfig` is `defineRedis`, and `RedisKit`, `KitOf`, `KitConfig`, `KitConfigInput` and `KitLockOptions` are `Redis`, `RedisOf`, `RedisConfig`, `RedisConfigInput` and `RedisLockOptions`; the names that did not change are re-exported as they were.
+  
+  **What changes for a caller:** the messages and the `name`s follow `@nxgt/redis`. A refusal begins `defineRedis:` or `openRedis:` instead of `defineConfig:` or `connectKit:`; `kit.cache: this kit holds 2 Redis instances, …` is now `cache: this Redis holds 2 Redis instances, …`, and `kit.lock: this kit has no instance named …` is `lock: this Redis has no instance named …`. A test that matches one of those has to change. Move to `@nxgt/redis` when you can: `bun add @nxgt/redis`, then rename as above.
+
+### Patch Changes
+
+- Updated dependencies [[`afec9ae`](https://github.com/softistx/nxgt-data/commit/afec9ae19ab4d0fbb9af66134895c23f87425433)]:
+  - @nxgt/redis@0.4.0
+
 ## 0.2.1
 
 ### Patch Changes
