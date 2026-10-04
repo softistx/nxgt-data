@@ -3,7 +3,7 @@ import { bindIndex } from '@nxgt/meilisearch';
 import { getCollection } from '@nxgt/mongo';
 import { Meilisearch } from 'meilisearch';
 import { MongoClient } from 'mongodb';
-import { articleIndex, articles, toHit } from '../test/fixtures';
+import { articleIndex, articles, toHit } from '../../test/fixtures';
 import { createSearchSync } from './create-search-sync';
 import { keyOf } from './documents';
 import { failed, SearchSyncError } from './errors';

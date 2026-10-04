@@ -1,7 +1,7 @@
 import type { AnyIndexDefinition } from '@nxgt/meilisearch';
 import type { AnyCollectionDefinition } from '@nxgt/mongo';
+import { reindex } from '../run/reindex';
 import { createContext } from './context';
-import { reindex } from './reindex';
 import { start } from './start';
 import { readState } from './state';
 import type { SearchSync, SearchSyncOptions } from './types';

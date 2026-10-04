@@ -5,13 +5,13 @@ import type {
 	CloseReason,
 	ResumeToken,
 } from '@nxgt/mongo';
-import { send } from './batch';
-import type { Doc, SyncContext } from './context';
-import { type Entry, entryOf } from './documents';
-import { failed, type SearchSyncError } from './errors';
+import { send } from '../sync/batch';
+import type { Doc, SyncContext } from '../sync/context';
+import { type Entry, entryOf } from '../sync/documents';
+import { failed, type SearchSyncError } from '../sync/errors';
+import { clearState, saveState } from '../sync/state';
+import type { RunningSearchSync } from '../sync/types';
 import { type HeldLease, keepLease, leaseLost, release } from './lease';
-import { clearState, saveState } from './state';
-import type { RunningSearchSync } from './types';
 
 const noop = () => undefined;
 

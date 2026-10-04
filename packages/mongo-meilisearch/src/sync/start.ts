@@ -1,15 +1,15 @@
 import type { ResumeToken } from '@nxgt/mongo';
-import type { SyncContext } from './context';
-import { failed, SearchSyncError } from './errors';
-import { open } from './follow';
+import { open } from '../run/follow';
 import {
 	acquire,
 	confirmLease,
 	type HeldLease,
 	keepLease,
 	release,
-} from './lease';
-import { reindexHeld } from './reindex';
+} from '../run/lease';
+import { reindexHeld } from '../run/reindex';
+import type { SyncContext } from './context';
+import { failed, SearchSyncError } from './errors';
 import { checkIdle } from './running';
 import { readState } from './state';
 import type { RunningSearchSync } from './types';

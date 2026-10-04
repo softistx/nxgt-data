@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { bindIndex, defineIndex } from '@nxgt/meilisearch';
 import { defineCollection, getCollection } from '@nxgt/mongo';
 import { z } from 'zod';
-import { byId, useServers } from '../test/fixtures';
-import { createSearchSync } from './create-search-sync';
-import { SearchSyncError } from './errors';
+import { byId, useServers } from '../../test/fixtures';
+import { createSearchSync } from '../sync/create-search-sync';
+import { SearchSyncError } from '../sync/errors';
 
 const { servers, collection, index, sync, indexed } = useServers('reindex');
 

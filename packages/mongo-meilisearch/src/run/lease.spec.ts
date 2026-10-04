@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { eventually, toHit, useServers } from '../test/fixtures';
-import { SearchSyncError } from './errors';
+import { eventually, toHit, useServers } from '../../test/fixtures';
+import { SearchSyncError } from '../sync/errors';
 
 const { servers, collection, index, sync, start, track, indexed } =
 	useServers('lease');
