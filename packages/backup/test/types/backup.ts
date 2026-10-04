@@ -6,6 +6,7 @@ import {
 	defineBackup,
 	directorySource,
 	directoryTarget,
+	generateSigningKeys,
 	localRepository,
 } from '../../src/index';
 
@@ -59,6 +60,38 @@ void backups.restore('id', target, {
 backups.verify('id', { identities: 'AGE-SECRET-KEY-1…' });
 void backups.verify('id');
 void backups.verify('id', { from: undefined, identities: undefined });
+
+const signing = generateSigningKeys();
+bindBackup(app, {
+	repositories: [repository],
+	recipients: [recipient],
+	// @ts-expect-error — signing takes the key under `key`, not the key itself
+	signing: signing.privateKey,
+});
+bindBackup(app, {
+	repositories: [repository],
+	recipients: [recipient],
+	// @ts-expect-error — signing needs its key
+	signing: {},
+});
+bindBackup(app, {
+	repositories: [repository],
+	recipients: [recipient],
+	// @ts-expect-error — at least one trusted key, when trusted is given
+	trusted: [],
+});
+bindBackup(app, {
+	repositories: [repository],
+	recipients: [recipient],
+	// @ts-expect-error — trusted is a list, not one key
+	trusted: signing.publicKey,
+});
+bindBackup(app, {
+	repositories: [repository],
+	recipients: [recipient],
+	signing: { key: signing.privateKey },
+	trusted: [signing.publicKey],
+});
 
 // The name is kept as a literal.
 const named: 'app' = backups.definition.name;

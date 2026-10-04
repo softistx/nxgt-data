@@ -1,6 +1,8 @@
+import { createPublicKey, type KeyObject } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { isAbsolute } from 'node:path';
 import { checkRecipients } from '../crypto/keys';
+import { signerOf, trustedOf } from '../crypto/signing';
 import {
 	type BackupDefinition,
 	isBackupName,
@@ -22,14 +24,33 @@ export interface BindBackupOptions {
 	 * as soon as it is done. The system's temporary folder by default.
 	 */
 	tmpDir?: string | undefined;
+	/**
+	 * Signs every manifest `create` writes: an Ed25519 private key, PEM
+	 * (PKCS#8). Give it only where backups are made.
+	 */
+	signing?: { key: string } | undefined;
+	/**
+	 * The Ed25519 public keys (PEM, SPKI) a manifest must be signed by for
+	 * `list`, `verify` and `restore` to read it. The public half of
+	 * `signing.key` by default; without either, manifests are neither
+	 * signed nor checked.
+	 */
+	trusted?: readonly [string, ...string[]] | undefined;
 }
 
-/** What every operation reads: resolved once, plain data. */
+/**
+ * What every operation reads: resolved once, plain data — the keys as
+ * Node's `KeyObject`s, which print and serialise without their material.
+ */
 export interface BackupContext {
 	backup: string;
 	repositories: readonly Repository[];
 	recipients: readonly string[];
 	tmpDir: string;
+	/** The key `create` signs with, if any. */
+	signer: KeyObject | undefined;
+	/** The keys a manifest must be signed by; empty: none is checked. */
+	trusted: readonly KeyObject[];
 }
 
 export function createContext(
@@ -60,7 +81,29 @@ export function createContext(
 		repositories: [...repositories],
 		recipients: checkRecipients(options.recipients, 'bindBackup'),
 		tmpDir,
+		...signingOf(options),
 	};
+}
+
+function signingOf(
+	options: BindBackupOptions,
+): Pick<BackupContext, 'signer' | 'trusted'> {
+	const signer =
+		options.signing === undefined
+			? undefined
+			: signerOf(options.signing?.key, 'bindBackup');
+	const own = signer && createPublicKey(signer);
+	if (options.trusted === undefined) {
+		return { signer, trusted: own ? [own] : [] };
+	}
+	const trusted = trustedOf(options.trusted, 'bindBackup');
+	if (own && !trusted.some((key) => key.equals(own))) {
+		throw new TypeError(
+			'bindBackup: trusted does not hold the public key of signing.key, ' +
+				'so this backup could not read what it writes',
+		);
+	}
+	return { signer, trusted };
 }
 
 /** The repository a read uses: the one named `from`, or the first. */

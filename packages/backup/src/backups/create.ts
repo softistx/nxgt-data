@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { sealToFile } from '../crypto/seal';
+import { signBytes } from '../crypto/signing';
 import { BackupError, type RepositoryOutcome } from '../errors/backup-error';
 import {
 	CATALOG_FORMAT,
@@ -11,12 +12,13 @@ import {
 import { newBackupId } from '../format/ids';
 import {
 	MANIFEST_FORMAT,
+	MANIFEST_MAX_BYTES,
 	type Manifest,
 	type StoredObject,
 } from '../format/manifest';
 import type { BackupSource } from '../source/types';
 import { type BackupContext, keyOf } from './context';
-import { MANIFEST } from './read';
+import { MANIFEST, SIGNATURE } from './read';
 
 /** What `create` stored. */
 export interface Created {
@@ -28,6 +30,8 @@ export interface Created {
 	size: number;
 	/** The bytes each repository holds for it, manifest apart. */
 	storedSize: number;
+	/** Whether its manifest was signed: `signing` was given to `bindBackup`. */
+	signed: boolean;
 	/** Every repository's outcome: all `stored: true`, or `create` threw. */
 	outcomes: RepositoryOutcome[];
 }
@@ -127,6 +131,31 @@ function settle(run: Run, created: Created): Created {
 }
 
 /**
+ * Puts the manifest, preceded by its signature when there is a signing
+ * key: the signature is over the exact bytes written, and goes first so
+ * that a manifest — which makes a backup exist — never stands unsigned.
+ */
+async function putManifest(run: Run, manifest: Manifest): Promise<void> {
+	const bytes = new TextEncoder().encode(
+		`${JSON.stringify(manifest, null, '\t')}\n`,
+	);
+	if (bytes.length > MANIFEST_MAX_BYTES) {
+		throw new TypeError(
+			`create on "${run.ctx.backup}": the manifest would be larger than 64 MiB; ` +
+				'split the source into several backups',
+		);
+	}
+	const manifestFile = join(run.folder, MANIFEST);
+	await Bun.write(manifestFile, bytes);
+	if (run.ctx.signer) {
+		const signatureFile = join(run.folder, SIGNATURE);
+		await Bun.write(signatureFile, signBytes(run.ctx.signer, bytes));
+		await putAll(run, SIGNATURE, signatureFile);
+	}
+	await putAll(run, MANIFEST, manifestFile);
+}
+
+/**
  * Reads every entry of `source`, and stores the backup in every repository:
  * each entry sealed and put in turn, then the catalog, then the manifest —
  * **last**, and only into a repository that took everything before it. A
@@ -136,6 +165,12 @@ export async function createBackup(
 	ctx: BackupContext,
 	source: BackupSource,
 ): Promise<Created> {
+	if (ctx.trusted.length > 0 && !ctx.signer) {
+		throw new TypeError(
+			`create on "${ctx.backup}": trusted keys are set but no signing key, ` +
+				'so this backup could not read what it writes',
+		);
+	}
 	const createdAt = new Date();
 	const folder = await mkdtemp(join(ctx.tmpDir, 'nxgt-backup-'));
 	const run: Run = {
@@ -153,6 +188,7 @@ export async function createBackup(
 				entries: entries.length,
 				size: 0,
 				storedSize: 0,
+				signed: false,
 				outcomes: outcomesOf(run),
 			});
 		}
@@ -178,9 +214,7 @@ export async function createBackup(
 			catalog: catalogObject,
 			objects,
 		};
-		const manifestFile = join(folder, MANIFEST);
-		await Bun.write(manifestFile, `${JSON.stringify(manifest, null, '\t')}\n`);
-		await putAll(run, MANIFEST, manifestFile);
+		await putManifest(run, manifest);
 		return settle(run, {
 			id: run.id,
 			createdAt,
@@ -190,6 +224,7 @@ export async function createBackup(
 				(sum, o) => sum + o.size,
 				0,
 			),
+			signed: ctx.signer !== undefined,
 			outcomes: outcomesOf(run),
 		});
 	} finally {

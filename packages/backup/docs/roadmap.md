@@ -5,23 +5,14 @@ item shipped in is the only number on this page.
 
 ## Now
 
-- **Full, encrypted, verifiable backups** — 0.1.0, the first release:
-  `defineBackup` and `bindBackup` with `create`, `list`, `verify` and
-  `restore`; each entry compressed with zstd, then encrypted with age to one
-  or more recipients, X25519 or hybrid post-quantum; an encrypted catalog,
-  and a clear manifest written last that pins every object; a restore that
-  checks each object before decrypting it and each entry as it streams;
-  several repositories at once with an outcome for each; `localRepository`,
-  `directorySource` and `directoryTarget`; `BackupError` with `NOT_FOUND`,
-  `INTEGRITY`, `DECRYPT`, `PARTIAL` and `NOT_STORED`.
+- **Signed manifests** — an Ed25519 signature over each manifest, checked
+  against your `trusted` public keys by `list`, `verify` and `restore` before
+  anything else is read, so a backup proves it was written by you and not by
+  someone who can write to the repository — every manifest holds the public
+  age keys in the clear — [how to sign and check](guide/signing.md).
 
 ## Next
 
-- **Signed manifests** — an ed25519 signature over each manifest, checked by
-  `list`, `verify` and `restore`, so a backup proves it was written by you
-  and not by someone who can write to the repository — every manifest holds
-  the public keys in the clear —
-  [what that closes](guide/encryption.md#what-it-proves-and-what-it-does-not).
 - **An S3 repository** — backups kept in any S3-compatible object store,
   beside or instead of a local folder.
 - **A single-writer lock** — one `create`, rotation or clean-up at a time per
@@ -69,4 +60,12 @@ item shipped in is the only number on this page.
 
 ## Shipped
 
-_Nothing before 0.1.0: see Now._
+- **Full, encrypted, verifiable backups** — 0.1.0, the first release: a
+  format in which each entry is compressed with zstd, then encrypted with age
+  to one or more recipients, behind an encrypted catalog and a clear manifest
+  written last that pins every object; a local repository; writing to
+  several repositories at once, with an outcome for each; `verify`, with or
+  without a key; `restore`, with `only` for chosen entries; and
+  `directorySource` and `directoryTarget`.
+
+The full history is in [CHANGELOG.md](../CHANGELOG.md).

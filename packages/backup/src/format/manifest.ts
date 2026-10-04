@@ -3,6 +3,13 @@ import { isBackupId } from './ids';
 
 export const MANIFEST_FORMAT = 'nxgt-backup/1';
 
+/**
+ * The largest manifest read or written: about half a million entries at
+ * some 130 bytes each. A repository is not trusted with the size, so a
+ * read stops here; `create` refuses to write one it could not read back.
+ */
+export const MANIFEST_MAX_BYTES = 64 * 1024 * 1024;
+
 /** An object of a backup, as the repository holds it: encrypted bytes. */
 export interface StoredObject {
 	/** Its key, relative to the backup's folder: `0.age`, `catalog.age`. */

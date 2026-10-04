@@ -80,9 +80,10 @@ once:
   staged once in `tmpDir`, whatever the number of repositories.
 - **A repository that fails is left out from then on**: the others go on, and
   it is sent nothing more.
-- **The manifest goes only where everything landed.** A repository that
-  missed one object never gets a manifest, so it holds no backup — only
-  objects nobody lists.
+- **The manifest goes only where everything landed** — and, with `signing`,
+  its signature just before it, the same way. A repository that missed one
+  object, or the signature, never gets a manifest, so it holds no backup —
+  only objects nobody lists.
 - **When every repository has failed, the source is not read further**: there
   is nowhere left to put it.
 
@@ -152,9 +153,9 @@ interface Repository {
 | --- | --- |
 | `name` | how it is named in outcomes, errors and `from`: `local`, `s3`, or what you choose. **Never a credential, nor a URL that holds one** — it is in every error message |
 | `put(key, file)` | stores the local file at `file` under `key`, **whole or not at all**: a key is never visible holding part of its bytes, and once it resolves the bytes are as durable as the store makes them. Overwrites. The file is removed once every repository has resolved, so read it **before** resolving |
-| `get(key)` | the bytes under `key`, or `undefined` when there are none. `undefined` for the manifest is `NOT_FOUND`; for an object, `INTEGRITY` |
+| `get(key)` | the bytes under `key`, or `undefined` when there are none. `undefined` for the manifest is `NOT_FOUND`; for `manifest.sig`, when `trusted` keys are set, `SIGNATURE`; for an object, `INTEGRITY`. The package reads no more than 65 bytes of `manifest.sig` and 64 MiB and one byte of a manifest, and cancels the rest of the stream |
 | `list(prefix)` | every key that starts with `prefix`, in any order, keys of writes in progress left out. The package lists `<backup>/` and keeps the keys that end in `/manifest.json` |
-| `delete(key)` | removes `key`; one that is not there is not an error. 0.1.0 never calls it — rotation and clean-up will |
+| `delete(key)` | removes `key`; one that is not there is not an error. 0.1 and 0.2 never call it — rotation and clean-up will |
 
 Whole-or-nothing is the one rule that matters: the manifest is how a backup
 comes to exist, so a manifest visible half-written would be a backup that

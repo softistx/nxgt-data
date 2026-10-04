@@ -3,6 +3,7 @@ export type BackupErrorCode =
 	| 'NOT_FOUND'
 	| 'INTEGRITY'
 	| 'DECRYPT'
+	| 'SIGNATURE'
 	| 'PARTIAL'
 	| 'NOT_STORED';
 
@@ -17,7 +18,7 @@ export interface BackupErrorOptions {
 	backup: string;
 	/** The backup's id, once there is one. */
 	id?: string | undefined;
-	/** The repository the error is about, for `NOT_FOUND`, `INTEGRITY`, `DECRYPT`. */
+	/** The repository the error is about, for `NOT_FOUND`, `INTEGRITY`, `DECRYPT`, `SIGNATURE`. */
 	repository?: string | undefined;
 	/** Every repository's outcome, for `PARTIAL` and `NOT_STORED`. */
 	outcomes?: readonly RepositoryOutcome[] | undefined;
@@ -36,6 +37,8 @@ export interface BackupErrorOptions {
  *   before a byte is decrypted; a catalog mismatch fails the entry's stream
  *   at its end, so a target that streams has already seen those bytes.
  * - `DECRYPT`: none of the identities given opens the backup.
+ * - `SIGNATURE`: trusted keys are set, and the manifest is not signed, or
+ *   not by any of them. Nothing else of the backup was read.
  * - `PARTIAL`: `create` stored the backup in some repositories and not in
  *   others; `outcomes` says which. The copies that were stored are complete
  *   and stay.
