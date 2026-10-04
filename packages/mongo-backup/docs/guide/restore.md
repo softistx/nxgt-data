@@ -140,6 +140,7 @@ With `replace: true`:
 | --- | --- |
 | a collection the backup holds | the restored one is built apart and **replaces it at the rename**: until then the old one is untouched |
 | a view the backup holds | it is dropped, then created again from its metadata |
+| a view where the backup holds a collection | it is dropped once the restored collection is built, just before the rename — the server renames over a collection, never over a view |
 | a collection a `create` change makes | it is dropped, then created with the recorded options |
 | a collection a recorded rename lands on | it is replaced by the renamed one |
 | a collection the backup does not hold | it is left alone — unless a change drops it, or renames over it |

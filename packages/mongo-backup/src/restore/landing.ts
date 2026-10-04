@@ -1,7 +1,7 @@
 import type { Db, IndexDescription } from 'mongodb';
 import { MongoBackupError, serverCode } from '../errors';
 import type { Described } from '../source/catalog';
-import { dropIfThere, exists } from '../target/collection';
+import { dropIfThere, exists, isView } from '../target/collection';
 import type { DocumentSelection } from './options';
 
 /** The server refused a name already taken. */
@@ -11,13 +11,6 @@ const NAMESPACE_EXISTS = 48;
 export interface Chosen {
 	described: Described;
 	as: string;
-}
-
-async function isView(db: Db, name: string): Promise<boolean> {
-	const [found] = await db
-		.listCollections({ name }, { nameOnly: true })
-		.toArray();
-	return found?.type === 'view';
 }
 
 export function taken(): MongoBackupError {
