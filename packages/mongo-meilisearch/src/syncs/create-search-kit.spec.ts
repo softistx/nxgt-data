@@ -1,17 +1,17 @@
 import { describe, expect, test } from 'bun:test';
+import { defineMongo, openMongo } from '@nxgt/mongo';
 import { defineBucket } from '@nxgt/mongo/gridfs';
-import { createKit, defineConfig } from '@nxgt/mongo-kit';
-import type { SearchSync } from '@nxgt/mongo-meilisearch';
 import {
 	type Article,
 	articles,
 	authors,
 	eventually,
-	toArticleHit,
 	toAuthorHit,
+	toHit,
 	useServers,
 } from '../../test/fixtures';
 import { rejection, rejectionMessage } from '../../test/rejection';
+import type { SearchSync } from '../sync/types';
 import { createSearchKit } from './create-search-kit';
 
 const { servers, indexes, indexedArticles, indexedAuthors } =
@@ -23,7 +23,7 @@ const both = () => {
 	return {
 		articles: {
 			index: bound.articles,
-			transform: toArticleHit,
+			transform: toHit,
 			flushIntervalMs: 20,
 		},
 		authors: {
@@ -40,7 +40,7 @@ const held = () => {
 	return {
 		articles: {
 			index: bound.articles,
-			transform: toArticleHit,
+			transform: toHit,
 			flushIntervalMs: 60_000,
 		},
 		authors: {
@@ -61,14 +61,14 @@ const throwsOn = (bad: string) => (article: Article) =>
 
 describe('a search kit', () => {
 	test('builds one sync per entry, under the config’s own keys', () => {
-		const search = createSearchKit(servers.kit, both());
+		const search = createSearchKit(servers.wired, both());
 		expect(Object.keys(search.syncs)).toEqual(['articles', 'authors']);
 		expect(search.syncs.articles.name).toBe('articles:articles');
 		expect(search.syncs.authors.name).toBe('authors:authors');
 	});
 
 	test('syncs every index, reports each under its key, and a second run sends nothing', async () => {
-		const search = createSearchKit(servers.kit, both());
+		const search = createSearchKit(servers.wired, both());
 
 		const dry = await search.syncIndexes({ dryRun: true });
 		expect(Object.keys(dry)).toEqual(['articles', 'authors']);
@@ -95,7 +95,7 @@ describe('a search kit', () => {
 		await servers.meili.client
 			.createIndex('articles', { primaryKey: 'slug' })
 			.waitTask();
-		const held = createSearchKit(servers.kit, both())
+		const held = createSearchKit(servers.wired, both())
 			.syncIndexes()
 			.then(
 				() => {
@@ -111,11 +111,11 @@ describe('a search kit', () => {
 	});
 
 	test('reindexes every collection, and reports each under its key', async () => {
-		await servers.kit.db.articles.create({ title: 'one' });
-		await servers.kit.db.articles.create({ title: 'two', draft: true });
-		await servers.kit.db.authors.create({ name: 'ada' });
+		await servers.wired.db.articles.create({ title: 'one' });
+		await servers.wired.db.articles.create({ title: 'two', draft: true });
+		await servers.wired.db.authors.create({ name: 'ada' });
 
-		const reports = await createSearchKit(servers.kit, both()).reindexAll();
+		const reports = await createSearchKit(servers.wired, both()).reindexAll();
 
 		expect(reports.articles).toMatchObject({ indexed: 1, skipped: 1 });
 		expect(reports.authors).toMatchObject({ indexed: 1, skipped: 0 });
@@ -124,13 +124,13 @@ describe('a search kit', () => {
 	});
 
 	test('follows both collections at once, from one start', async () => {
-		const search = createSearchKit(servers.kit, both());
+		const search = createSearchKit(servers.wired, both());
 		await search.reindexAll();
 		await using running = await search.start();
 		running.failed.catch(() => undefined);
 
-		await servers.kit.db.articles.create({ title: 'written' });
-		await servers.kit.db.authors.create({ name: 'grace' });
+		await servers.wired.db.articles.create({ title: 'written' });
+		await servers.wired.db.authors.create({ name: 'grace' });
 
 		await eventually(
 			async () => Object.values(await indexedArticles()),
@@ -143,7 +143,7 @@ describe('a search kit', () => {
 	});
 
 	test('answers where each sync stands', async () => {
-		const search = createSearchKit(servers.kit, both());
+		const search = createSearchKit(servers.wired, both());
 		expect(await search.state()).toEqual({
 			articles: undefined,
 			authors: undefined,
@@ -155,7 +155,7 @@ describe('a search kit', () => {
 	});
 
 	test('closes what it started when a later sync will not start', async () => {
-		const search = createSearchKit(servers.kit, both());
+		const search = createSearchKit(servers.wired, both());
 		await search.reindexAll();
 		// The second entry is already following, so starting it again is
 		// refused — and the first must not be left running.
@@ -165,7 +165,7 @@ describe('a search kit', () => {
 			expect(await rejection(search.start())).toBeInstanceOf(Error);
 			// The articles sync was started first; nothing of this kit is left
 			// following, so a fresh kit may start it.
-			const again = createSearchKit(servers.kit, {
+			const again = createSearchKit(servers.wired, {
 				articles: both().articles,
 			});
 			await using running = await again.start();
@@ -177,7 +177,7 @@ describe('a search kit', () => {
 	});
 
 	test('closing twice is closing once', async () => {
-		const search = createSearchKit(servers.kit, both());
+		const search = createSearchKit(servers.wired, both());
 		await search.reindexAll();
 		const running = await search.start();
 		running.failed.catch(() => undefined);
@@ -188,7 +188,7 @@ describe('a search kit', () => {
 
 	test('failed rejects with the sync that fell over', async () => {
 		const bound = indexes();
-		const search = createSearchKit(servers.kit, {
+		const search = createSearchKit(servers.wired, {
 			articles: {
 				index: bound.articles,
 				flushIntervalMs: 20,
@@ -206,7 +206,7 @@ describe('a search kit', () => {
 		await search.reindexAll();
 		const running = await search.start();
 		try {
-			await servers.kit.db.articles.create({ title: 'bad' });
+			await servers.wired.db.articles.create({ title: 'bad' });
 			const error = (await running.failed.catch(
 				(reason: unknown) => reason,
 			)) as {
@@ -225,7 +225,7 @@ describe('a search kit', () => {
 	});
 
 	test('failed does not settle when the kit is closed cleanly', async () => {
-		const search = createSearchKit(servers.kit, both());
+		const search = createSearchKit(servers.wired, both());
 		await search.reindexAll();
 		const running = await search.start();
 		running.failed.catch(() => undefined);
@@ -242,13 +242,13 @@ describe('a search kit', () => {
 	});
 
 	test('flushes every sync, not just the ones before a failure', async () => {
-		const search = createSearchKit(servers.kit, held());
+		const search = createSearchKit(servers.wired, held());
 		await search.reindexAll();
 		await using running = await search.start();
 		running.failed.catch(() => undefined);
 
-		await servers.kit.db.articles.create({ title: 'held' });
-		await servers.kit.db.authors.create({ name: 'kept' });
+		await servers.wired.db.articles.create({ title: 'held' });
+		await servers.wired.db.authors.create({ name: 'kept' });
 		// Nothing has been sent: the interval is a minute away.
 		await Bun.sleep(200);
 		expect(Object.values(await indexedArticles())).toEqual([]);
@@ -265,7 +265,7 @@ describe('a search kit', () => {
 		// to reject with nobody listening, which ends the process — so this
 		// spec fails by killing the run, not by an assertion.
 		const bound = indexes();
-		const search = createSearchKit(servers.kit, {
+		const search = createSearchKit(servers.wired, {
 			articles: {
 				index: bound.articles,
 				flushIntervalMs: 20,
@@ -285,7 +285,7 @@ describe('a search kit', () => {
 		(search.syncs as Record<string, SearchSync>)['authors'] = {
 			...real,
 			start: async () => {
-				await servers.kit.db.articles.create({ title: 'bad' });
+				await servers.wired.db.articles.create({ title: 'bad' });
 				await Bun.sleep(400);
 				return real.start();
 			},
@@ -298,7 +298,7 @@ describe('a search kit', () => {
 
 	test('close throws a failure that failed could no longer carry', async () => {
 		const bound = indexes();
-		const search = createSearchKit(servers.kit, {
+		const search = createSearchKit(servers.wired, {
 			articles: {
 				index: bound.articles,
 				flushIntervalMs: 20,
@@ -319,7 +319,7 @@ describe('a search kit', () => {
 		const running = await search.start();
 
 		// The first failure is the one `failed` reports.
-		await servers.kit.db.articles.create({ title: 'bad' });
+		await servers.wired.db.articles.create({ title: 'bad' });
 		const first = (await running.failed.catch((reason: unknown) => reason)) as {
 			sync?: string;
 		};
@@ -327,7 +327,7 @@ describe('a search kit', () => {
 
 		// The second settles nothing: `failed` is spent. `close` is what is
 		// left to say it, so it must not swallow this one too.
-		await servers.kit.db.authors.create({ name: 'worse' });
+		await servers.wired.db.authors.create({ name: 'worse' });
 		await eventually(
 			async () =>
 				running.running.authors.closed.then(
@@ -341,18 +341,18 @@ describe('a search kit', () => {
 
 	test('refuses a key the kit wires no collection for', () => {
 		expect(() =>
-			createSearchKit(servers.kit, {
+			createSearchKit(servers.wired, {
 				// @ts-expect-error the kit wires no `comments`
-				comments: { index: indexes().articles, transform: toArticleHit },
+				comments: { index: indexes().articles, transform: toHit },
 			}),
 		).toThrow('wires no collection called "comments"');
 	});
 
 	test('refuses a key that is a member of the driver’s Db', () => {
 		expect(() =>
-			createSearchKit(servers.kit, {
+			createSearchKit(servers.wired, {
 				// @ts-expect-error `command` is the driver's, not a collection
-				command: { index: indexes().articles, transform: toArticleHit },
+				command: { index: indexes().articles, transform: toHit },
 			}),
 		).toThrow('wires no collection called "command"');
 	});
@@ -361,8 +361,8 @@ describe('a search kit', () => {
 		// A bucket is on the scope beside the collections, and carries a
 		// `definition` of its own: without the check on its shape it reached
 		// `createSearchSync` and failed there, on something unrelated.
-		const withFiles = await createKit(
-			defineConfig({
+		const withFiles = await openMongo(
+			defineMongo({
 				uri: servers.mongo.uri,
 				collections: { articles },
 				buckets: { uploads: defineBucket({ name: 'uploads' }) },
@@ -372,7 +372,7 @@ describe('a search kit', () => {
 			expect(() =>
 				createSearchKit(withFiles, {
 					// @ts-expect-error `uploads` is a bucket, not a collection
-					uploads: { index: indexes().articles, transform: toArticleHit },
+					uploads: { index: indexes().articles, transform: toHit },
 				}),
 			).toThrow('wires no collection called "uploads"');
 		} finally {
@@ -381,8 +381,8 @@ describe('a search kit', () => {
 	});
 
 	test('refuses a kit that holds more than one database', async () => {
-		const many = await createKit(
-			defineConfig({
+		const many = await openMongo(
+			defineMongo({
 				databases: {
 					main: { uri: servers.mongo.uri, collections: { articles } },
 					other: {

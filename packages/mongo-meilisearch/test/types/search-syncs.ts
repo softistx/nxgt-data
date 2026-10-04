@@ -12,12 +12,12 @@ import {
 	type Article,
 	articleIndex,
 	authorIndex,
-	type Kit,
-	toArticleHit,
 	toAuthorHit,
+	toHit,
+	type Wired,
 } from '../fixtures';
 
-declare const kit: Kit;
+declare const kit: Wired;
 const meili = new Meilisearch({ host: 'http://127.0.0.1:1' });
 const articles = bindIndex(meili, articleIndex);
 const authors = bindIndex(meili, authorIndex);
@@ -77,12 +77,12 @@ createSearchKit(kit, {
 createSearchKit(kit, { articles: { index: articles } });
 
 // @ts-expect-error `index` is not optional
-createSearchKit(kit, { articles: { transform: toArticleHit } });
+createSearchKit(kit, { articles: { transform: toHit } });
 
 createSearchKit(kit, {
 	articles: {
 		index: articles,
-		transform: toArticleHit,
+		transform: toHit,
 		// @ts-expect-error the option is `batchSize`
 		batchSizes: 10,
 	},
@@ -109,18 +109,18 @@ createSearchKit(kit, {
 // A key the kit wires no collection for.
 createSearchKit(kit, {
 	// @ts-expect-error the kit wires no `comments`
-	comments: { index: articles, transform: toArticleHit },
+	comments: { index: articles, transform: toHit },
 });
 
 // A key that is a member of the driver's `Db`.
 createSearchKit(kit, {
 	// @ts-expect-error `command` is the driver's, not a collection
-	command: { index: articles, transform: toArticleHit },
+	command: { index: articles, transform: toHit },
 });
 
 // `syncIndexes` reports under the config's keys, and takes the index's options.
 const search = createSearchKit(kit, {
-	articles: { index: articles, transform: toArticleHit },
+	articles: { index: articles, transform: toHit },
 });
 void search.syncIndexes({ dryRun: true }).then((reports) => {
 	const uid: string = reports.articles.uid;

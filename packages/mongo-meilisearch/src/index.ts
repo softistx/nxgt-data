@@ -13,3 +13,13 @@ export type {
 	ToIndexId,
 	Transform,
 } from './sync/types';
+export { createSearchKit } from './syncs/create-search-kit';
+export type {
+	ByKey,
+	IndexMap,
+	RunningSearchKit,
+	SearchConfig,
+	SearchEntry,
+	SearchKit,
+	SoleCollections,
+} from './syncs/types';

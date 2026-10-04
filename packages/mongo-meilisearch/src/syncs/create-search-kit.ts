@@ -1,18 +1,26 @@
 import type { SyncReport, TypedIndex } from '@nxgt/meilisearch';
-import type { AnyCollectionDefinition, TypedCollection } from '@nxgt/mongo';
-import type { MongoKit } from '@nxgt/mongo-kit';
-import {
-	createSearchSync,
-	type ReindexReport,
-	type RunningSearchSync,
-	type SearchSync,
-	type SearchSyncState,
-} from '@nxgt/mongo-meilisearch';
-import type { IndexMap, SearchConfig } from '../config/types';
-import type { ByKey, RunningSearchKit, SearchKit } from './types';
+import type {
+	AnyCollectionDefinition,
+	Mongo,
+	TypedCollection,
+} from '@nxgt/mongo';
+import { createSearchSync } from '../sync/create-search-sync';
+import type {
+	ReindexReport,
+	RunningSearchSync,
+	SearchSync,
+	SearchSyncState,
+} from '../sync/types';
+import type {
+	ByKey,
+	IndexMap,
+	RunningSearchKit,
+	SearchConfig,
+	SearchKit,
+} from './types';
 
 /** The kit's sole scope, or a refusal naming what to do instead. */
-function soleScope(kit: MongoKit<unknown>): Record<string, unknown> {
+function soleScope(kit: Mongo<unknown>): Record<string, unknown> {
 	const names = Object.keys(kit.databases);
 	if (names.length !== 1) {
 		throw new TypeError(
@@ -61,10 +69,10 @@ function collectionAt(
  * collections, the client and the database are the Mongo kit's.
  */
 export function createSearchKit<C, const I extends IndexMap<I>>(
-	kit: MongoKit<C>,
+	kit: Mongo<C>,
 	config: SearchConfig<C, I>,
 ): SearchKit<I> {
-	const scope = soleScope(kit as MongoKit<unknown>);
+	const scope = soleScope(kit as Mongo<unknown>);
 	const keys = Object.keys(config) as (keyof I & string)[];
 
 	const syncs = {} as Record<keyof I & string, SearchSync>;

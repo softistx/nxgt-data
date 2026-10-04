@@ -1,12 +1,11 @@
-// A search kit over `@nxgt/mongo-kit`: one config naming an index and a
-// transform per collection, and one `syncIndexes`, `reindexAll`, `start` and
-// `close` for all of them. Each collection's sync is `@nxgt/mongo-meilisearch`'s, unchanged.
-
-export type {
-	IndexMap,
-	SearchConfig,
-	SearchEntry,
-	SoleCollections,
-} from './config/types';
-export { createSearchKit } from './kit/create-search-kit';
-export type { ByKey, RunningSearchKit, SearchKit } from './kit/types';
+// The search kit moved into `@nxgt/mongo-meilisearch`; this is its old surface.
+export {
+	type ByKey,
+	createSearchKit,
+	type IndexMap,
+	type RunningSearchKit,
+	type SearchConfig,
+	type SearchEntry,
+	type SearchKit,
+	type SoleCollections,
+} from '@nxgt/mongo-meilisearch';
