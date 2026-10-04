@@ -1,5 +1,6 @@
-import type { CacheDefinition, ChannelDefinition } from '@nxgt/redis';
 import type { z } from 'zod';
+import type { CacheDefinition } from '../../cache/types';
+import type { ChannelDefinition } from '../../channel/define-channel';
 import type { InstanceConfig } from './types';
 
 /**
@@ -60,12 +61,12 @@ export function wiredOf<T>(
  * the closer neighbour in size, carries no error class either.
  */
 export function checkInstance(
-	call: 'defineConfig' | 'connectKit',
+	call: 'defineRedis' | 'openRedis',
 	name: string,
 	instance: InstanceConfig<object, object>,
 ): void {
-	// The call that raised it, not always `defineConfig`: the same checks run
-	// again in `connectKit`, and a message naming a function the application
+	// The call that raised it, not always `defineRedis`: the same checks run
+	// again in `openRedis`, and a message naming a function the application
 	// did not call sends a reader to the wrong file.
 	const where = `${call}: instance "${name}"`;
 	if (instance.uri === undefined && instance.client === undefined) {
@@ -110,8 +111,8 @@ function checkNothingWired(
  * Refuses one definition wired twice, under two keys.
  *
  * Two keys pointing at the same definition write the same Redis keys, so one
- * of them is silently dead: `kit.cache.a.delete(p)` empties what
- * `kit.cache.b.set(p, v)` wrote. It is a copy-paste in the module that
+ * of them is silently dead: `redis.cache.a.delete(p)` empties what
+ * `redis.cache.b.set(p, v)` wrote. It is a copy-paste in the module that
  * exports them, and nothing downstream can see it.
  */
 function checkNoClash(

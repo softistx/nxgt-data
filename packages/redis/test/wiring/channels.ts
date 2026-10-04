@@ -1,5 +1,5 @@
-import { defineChannel } from '@nxgt/redis';
 import { z } from 'zod';
+import { defineChannel } from '../../src/channel/define-channel';
 import { userSchema } from './caches';
 
 export const created = defineChannel({

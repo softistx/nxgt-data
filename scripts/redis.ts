@@ -30,11 +30,10 @@
  * this and passes the path it prints to the specs as `$REDIS_BIN`, so its
  * `test/redis.ts` only starts the binary it is given.
  *
- * Raise the version in `packages/redis/test/server.ts` **and in its two
- * copies, `packages/redis-kit/test/server.ts` and
- * `packages/redis-guard/test/server.ts`**: the three pin the same
- * `REDIS_VERSION`, and CI keys its cache on the hash of all three files and
- * this one. A version raised in one copy alone is a second compile.
+ * Raise the version in `packages/redis/test/server.ts` **and in its
+ * copy, `packages/redis-guard/test/server.ts`**: the two pin the same
+ * `REDIS_VERSION`, and CI keys its cache on the hash of both files and this
+ * one. A version raised in one copy alone is a second compile.
  */
 
 import { redisBinary } from '../packages/redis/test/server';

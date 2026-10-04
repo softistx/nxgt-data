@@ -1,5 +1,5 @@
-import { defineCache } from '@nxgt/redis';
 import { z } from 'zod';
+import { defineCache } from '../../src/cache/define-cache';
 
 export const userSchema = z.object({
 	id: z.string(),

@@ -18,9 +18,9 @@ registry:
 | `@nxgt/mongo-meilisearch` | keeps a Meilisearch index in step with a MongoDB collection: `createSearchSync` with a `transform` typed by both definitions, `reindex`, and `start`, which follows the collection's changes in batches from a resume point kept in MongoDB. Its one error is `SearchSyncError` |
 | `@nxgt/mongo-kit` | an application's MongoDB wiring in one object: `defineConfig` checking a configuration of one or several databases, and `createKit` giving a `db` that is the driver's `Db` with every `@nxgt/mongo` collection typed on it — and every `@nxgt/mongo/gridfs` bucket the config's `buckets` wires, beside them, in the kit's session so a file write joins a transaction — plus the actor, the session, transactions, `sync`, `syncBuckets` (bucket indexes, which `sync` leaves alone), `ping` and `close`. `discoverCollections` reads definitions from a glob, for scripts |
 | `@nxgt/mongo-search-kit` | a search kit over the wiring kit: `createSearchKit(kit, config)` takes one entry per collection — an index and a transform, under the key the kit wires that collection under — and gives one `reindexAll`, one `start` and one `close` for all of them. Each entry's sync is `@nxgt/mongo-meilisearch`'s, unchanged |
-| `@nxgt/redis` | Redis on Bun's own `RedisClient`, with no third-party driver: `connectRedis`/`closeRedis` sharing one client per URI, `defineCache`/`bindCache` with the key built by a typed function and the value checked by its schema both ways, `withLock` over `SET NX PX` released by a compare-and-delete script, and `defineChannel`/`publish`/`subscribe` typed the same way. Its one error is `RedisError` |
+| `@nxgt/redis` | Redis on Bun's own `RedisClient`, with no third-party driver: `connectRedis`/`closeRedis` sharing one client per URI, `defineCache`/`bindCache` with the key built by a typed function and the value checked by its schema both ways, `withLock` over `SET NX PX` released by a compare-and-delete script, and `defineChannel`/`publish`/`subscribe` typed the same way — and, since 0.4.0, **the wiring folded in from `@nxgt/redis-kit`** (`src/wiring/`): `defineRedis` checking a configuration of one or several Redis instances, and `openRedis` opening the clients and giving `redis.cache.<key>` and `redis.channels.<key>` — every cache and channel typed under the key it is exported as, renamed under the instance's prefix — plus the subscriptions it tracks and closes, `lock`, `ping` and `close`. The wiring has no error of its own: its refusals are bare `TypeError`s (`defineRedis: …`, `openRedis: …`), and what a caller catches at run time is `RedisError` |
 | `@nxgt/redis-guard` | guards on Bun's own `RedisClient`, each step a single Lua script on the server: `defineRateLimit`/`bindRateLimit`, GCRA in **exact integers**, over one key holding `"<base> <ahead>"` — the latest server `TIME` in µs the bucket has seen (it only moves forward, so a clock that goes back never refills, and two servers whose clocks alternate cannot count one stretch twice — **while they are at most one full refill apart**: beyond that the stored `base` fails the parse, so alternating clocks allow a full burst at each switch and a single jump back allows one extra burst; the `PX` is counted from `now` plus how far `base` is ahead of it), and the TAT's offset beyond it in ticks of 1/limit µs, where one request is exactly `per × 1000` — timed by the server's clock and never the host's, with `consume`, `enforce`, `peek` and `reset`, a `cost` per call, and results as delays in milliseconds (`resetAfter`, `retryAfter`) rather than dates. A denial and a `peek` write nothing, and the key's `PX` ends when the bucket is full again. Scripts go through `src/scripts/run-script.ts`: `EVALSHA` by a SHA-1 computed once, `EVAL` on `NOSCRIPT`. Its one error is `GuardError` (`RATE_LIMITED`, `COST`, and idempotency's `IN_PROGRESS`, `MISMATCH`, `INVALID`, `LEASE_LOST`), which names the definition and never the key, the params, a fingerprint or a value; a definition that could never work is a bare `TypeError`, including a `burst × per × 1000` above `Number.MAX_SAFE_INTEGER`, the one bound exactness needs. **Three float versions came before and each drifted**: a TAT in float µs near 1.8e15 cannot hold `cost × interval` exactly, and rounding it to nearest let 21 per 10 s with a burst of 1000 allow 1049 at one instant, rounding it up made a full burst unreachable at 3 per second with a burst of 2, and 7 per second under-reported `remaining`. Do not bring a float back into the state; `fixed-now.spec.ts` is what catches it. The earlier bound of 500 requests a millisecond went with the floats: in ticks every rate is exact. A stored value is used only if the script could have written it — two digit strings of at most 16 digits, each at most 2^53 − 1, `ahead` at most the tolerance, `base` at most a full refill ahead of `now` — and any other string reads as a full bucket (a key of another type fails with Redis's `WRONGTYPE`): an out-of-range value once made a division's estimate miss by more than one and its correction loop spin, holding the server BUSY. The corrections are now one bounded step each way, which is exact only under that precondition. **Idempotency** (`src/idempotency/`, 0.2.0; heartbeat and `wait` 0.3.0): `defineIdempotency`/`bindIdempotency` with `run(params, work, { fingerprint, wait })` and `forget`, over one hash per key in exactly two three-field shapes — running (`state`, a 32-hex `token`, `fp`; `PEXPIRE lease` ms) and done (`state`, `fp`, `value` as JSON; `EXPIRE ttl` s) — and four scripts: `BEGIN` takes the key or reports what holds it, checking the fingerprint (a SHA-256, or `''` for none) whether the holder is done or still running; `RENEW` is a compare-and-renew on the run's own token, touching only a running record that carries it; `COMPLETE` stores only under that token; `RELEASE` is a compare-and-delete on it. `BEGIN` trusts a record only if `run` could have written it — `HLEN` of 3 read first, so no loop — and anything else is `INVALID`, kept, with `work` not called: never a free key, which would repeat the side effect, and never `MISMATCH`, which would blame the client. A result is parsed (z.input → z.output), stored as JSON **and parsed back** before it is stored, so the first caller gets what every replay gets and a result that cannot replay is refused while the key can still be released; a stored result the schema now refuses is `INVALID`, not a miss. A thrown error is never stored: the key is released and the error passes through as the same object. **The lease is renewed** every third of it while `work` runs (`lease/heartbeat.ts`, `keepLease`, after `@nxgt/mongo-meilisearch`'s): a renewal that finds the key gone or another run's marks the lease lost and stops the beat, and `run` then rejects with `LEASE_LOST` without calling `COMPLETE`; one that fails to reach Redis is tried again at the next beat; the timer is stopped in a `finally`, and a renewal in flight at the stop reports nothing. So `lease` bounds a **crashed** run's hold, `retryAfter` is when a running key lapses *unless renewed*, and `LEASE_LOST` means the key was taken — `forget`, or no renewal reached Redis for a whole lease, which a synchronous `work` blocking the event loop causes too. **`wait`** (`lease/wait.ts`) polls `BEGIN` again, 25 ms doubling to 250 ms and never past `retryAfter` or the deadline, until done (replay), free (run `work`) or spent (`IN_PROGRESS`); `MISMATCH` and `INVALID` end it at once; a `wait` that is not a safe integer ≥ 0 is a bare `TypeError` quoting no value. The host's clock only paces the sleeps and the deadline — every decision is `BEGIN`'s. `INVALID` messages carry zod's issue **codes** only: measured on zod 4.6.5, `unrecognized_keys` quotes the stray key and a `z.record`'s keys go into the path |
-| `@nxgt/redis-kit` | an application's Redis wiring in one object: `defineConfig` checking a configuration of one or several Redis instances, and `connectKit` opening the clients and giving `kit.cache.<key>` and `kit.channels.<key>` — every `@nxgt/redis` cache and channel typed under the key it is exported as, renamed under the instance's prefix — plus the subscriptions it tracks and closes, `lock`, `ping` and `close`. It has no error of its own: its refusals are bare `TypeError`s, and what a caller catches at run time is `@nxgt/redis`'s `RedisError` |
+| `@nxgt/redis-kit` | **deprecated, a thin re-export of `@nxgt/redis`**: its API moved into `@nxgt/redis` and was renamed (`connectKit` → `openRedis`, `defineConfig` → `defineRedis`, `RedisKit` → `Redis`, `KitOf` → `RedisOf`, `KitConfig`/`KitConfigInput` → `RedisConfig`/`RedisConfigInput`, `KitLockOptions` → `RedisLockOptions`). `src/index.ts` re-exports with `@deprecated` aliases for the old names, `src/index.spec.ts` asserts `connectKit === openRedis` and `defineConfig === defineRedis`, and there are no docs and no Redis in its specs. It holds no logic: change `@nxgt/redis`, never this |
 | `@nxgt/s3` | S3 on Bun's own `S3Client`, with no AWS SDK: `defineBucket` naming the bucket, the key-building function, the content types and the maximum size, and `bindBucket` giving `put`/`bytes`/`text`/`exists`/`stat`/`delete`, a `list` in this repository's cursor shape, and `presignGet`/`presignPut`/`presignPost` from the same definition. The content type and the size are refused **before** the request goes out; `presignPost` signs an S3 POST policy itself (SigV4, `node:crypto` — Bun has no POST presigning), so the **service** holds a browser upload to a size range and a content type. Its error class for refusals is `S3Error`; it also throws a `TypeError` from `defineBucket` for a definition that could never work and from `presignPost` when its secret is not Bun's, and a plain `Error` from `presignPost` when the URL Bun signed cannot be read |
 
 `examples/` holds applications, not packages: they are `private`, unscoped,
@@ -44,8 +44,8 @@ them changes there for a reason that applies here, change it here too.
 ## Layering
 
 Every package is **standalone**: it depends on no sibling, only on the
-library it wraps, as a peer — except the two bridges and the three kits
-below, which peer on the siblings they join or wire. A package that would use a sibling declares it
+library it wraps, as a peer — except the two bridges, the two kits and the
+deprecated `@nxgt/redis-kit` below, which peer on the siblings they join or wire. A package that would use a sibling declares it
 by `workspace:^` and imports it by its published name, as in nxgt-http; there
 is no tsconfig `paths` to a sibling and no relative import into one.
 
@@ -81,18 +81,24 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   `mongodb-memory-server-core` is a devDependency, and it depends on
   `mongodb ^7.2.0`: keep the pin inside that range, or the tree carries two
   drivers and two `ObjectId` classes, which no `instanceof` survives.
-- **Three kits are built on siblings**, and all three are the same
+- **Two kits are built on siblings**, and both are the same
   shape: a package over siblings is a package of its own, never an import
   from one into another. `@nxgt/mongo-kit` has `@nxgt/mongo` as a required
   peer, by `workspace:^`, and as a devDependency the same way; `mongodb` is a
   peer with the sibling's range and pin. `@nxgt/mongo` knows nothing of it.
   Its buckets come from the `@nxgt/mongo/gridfs` subpath of that same peer,
   so they added no dependency; the build keeps the subpath external like the
-  root.
-  `@nxgt/redis-kit` is the same over `@nxgt/redis`, and carries `zod` with
-  the sibling's range and pin instead of a driver — `@nxgt/redis` has no
-  driver peer to carry. `@nxgt/mongo-search-kit` peers on four siblings at
-  once and none of them knows it either.
+  root. `@nxgt/mongo-search-kit` peers on four siblings at once and none of
+  them knows it either.
+- **`@nxgt/redis`'s wiring is not a kit any more: it is part of the package.**
+  It lived in `@nxgt/redis-kit`, a package over `@nxgt/redis`, and was folded
+  in at 0.4.0 because it was never useful without it. It sits in
+  `packages/redis/src/wiring/` and **imports the package's own modules by
+  relative path, never `@nxgt/redis`**: that name resolves to `dist/` and
+  would give a second copy of every class. `@nxgt/redis-kit` is now a
+  deprecated re-export whose peers are `@nxgt/redis` (by `workspace:^`) and
+  `typescript` — `zod` comes with `@nxgt/redis` — and `@nxgt/redis` knows
+  nothing of it.
 - **Two packages are bridges**, and both are the same shape.
   `@nxgt/mongo-meilisearch` has `@nxgt/mongo` and `@nxgt/meilisearch` as
   required peers, by `workspace:^`, and as devDependencies, the same way;
@@ -132,8 +138,9 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   no sibling, not even as a devDependency: a caller on both hands it
   `connection.client`. Its keys are `<name>:<key(params)>`, joined as
   `bindCache` joins them, so the two naming schemes agree without sharing a
-  line of code. Wiring its limits into `@nxgt/redis-kit` is on its roadmap,
-  and would be the kit's peer on it, never the other way round.
+  line of code. Wiring its limits beside `openRedis` is on its roadmap; it
+  would be a new package peering on both, since `@nxgt/redis` stays
+  standalone — never `@nxgt/redis` on it, nor the other way round.
 
 **There are no cycles and there must not be one**, devDependencies included.
 
@@ -308,7 +315,7 @@ under all of them; a package's `tsconfig.json` turns no check on or off.
   so a caller under `exactOptionalPropertyTypes` can pass it as it is. So far:
   `page`, `pageSize`, `withDeleted`, a collection's and a bucket's `session`,
   `startAfter`, a file listing's `after`, a bucket's `contentType`, a
-  presigned URL's `expiresIn`, a Redis kit's `prefix`, `@nxgt/meilisearch`'s
+  presigned URL's `expiresIn`, `@nxgt/redis`'s wiring `prefix`, `@nxgt/meilisearch`'s
   `settings`, `dryRun` and `wait`, a patch's fields in `@nxgt/mongo`, and the
   key in `@nxgt/drizzle`'s patch, which is dropped. The other options are
   still `?: T`, stricter than the run time; widen one when it is met. One the
@@ -423,11 +430,10 @@ under all of them; a package's `tsconfig.json` turns no check on or off.
   not belong inside a test's timeout. The script holds no logic of its own —
   `redisBinary` lives beside the server that starts it — and
   `scripts/redis.spec.ts` covers its `$REDIS_BIN` branch. The root `test` script runs it
-  once **before** the parallel suites: three packages start a Redis, and on a
-  cold cache their three builds into one directory broke each other on CI. `$REDIS_BIN` names a `redis-server` to
-  use instead. CI caches `.cache/redis`, keyed on **all three** copies of
-  `test/server.ts` — `@nxgt/redis`'s, `@nxgt/redis-kit`'s and
-  `@nxgt/redis-guard`'s — and the script. `examples/hono-api` starts a Redis
+  once **before** the parallel suites: two packages start a Redis (three before `@nxgt/redis-kit` was folded in), and on a
+  cold cache their builds into one directory broke each other on CI. `$REDIS_BIN` names a `redis-server` to
+  use instead. CI caches `.cache/redis`, keyed on **both** copies of
+  `test/server.ts` — `@nxgt/redis`'s and `@nxgt/redis-guard`'s — and the script. `examples/hono-api` starts a Redis
   too, but carries **no copy**: its `test` script runs `scripts/redis.ts` and
   passes the path it prints as `$REDIS_BIN`, and its `test/redis.ts` only
   starts that binary (refusing to run without it), so it pins no
@@ -611,7 +617,7 @@ under all of them; a package's `tsconfig.json` turns no check on or off.
     which also rethrows anything but a `SearchSyncError` and narrows the
     type, so the package needs no `test/rejection.ts` copy. The other
     packages' specs (`drizzle`, `drizzle-meilisearch`, `mongo-kit`,
-    `mongo-search-kit`, `redis`, `redis-kit`, `s3`) and
+    `mongo-search-kit`, `redis`, `s3`) and
     `examples/hono-api` still use `.rejects` and are open to it;
     `grep -rn "\.rejects" packages/*/src packages/*/test examples/*/src`
     lists them, and should end up listing only the comments in the
@@ -691,9 +697,8 @@ publishes to npm.
 | `pagination/page.ts` and `pagination/cursor.ts`, in `@nxgt/drizzle` and `@nxgt/mongo` | every package is standalone, and a shared `@nxgt/pagination` would make one depend on a sibling for four exported shapes. `page.ts` is the closest of the two — 104 and 109 lines, fifteen of them different — so **a fix in one is a fix to make in the other**. `errors/data-error.ts` looks like a third copy and is not: the classes differ. `@nxgt/s3`'s `ObjectPage` is **not** a copy either — four lines agreeing with `CursorPage`'s shape so a caller pages the same way, with no logic to keep in step |
 | `checkKeep` in `@nxgt/mongo-backup`'s `src/backups/options.ts`, and `checkPolicy` in `@nxgt/backup`'s `src/rotation/policy.ts` | the rule list and its "a whole number, 1 or more", copied so `mongoBackups()` refuses a bad `keep` when it is called rather than in `prune` after every backup is stored; exporting `checkPolicy` would be a minor of `@nxgt/backup` and a peer range moved for one check. `RULES` is `satisfies readonly (keyof KeepPolicy)[]`, and `RULES_COVER_KEEP` fails the typecheck when `KeepPolicy` gains a rule the copy lacks. What differs: the copy's one message names no rule (`mongoBackups: keep must be false, or name rules each a whole number, 1 or more`) and accepts `false`; `prune` still runs `checkPolicy`, so the original stays the authority |
 | `connection/connect.ts`, in `@nxgt/mongo` and `@nxgt/redis` | reference-counted client sharing per URI, copied rather than factored: a shared `@nxgt/connection` would make both depend on a sibling for one function, and layering comes first. **107 of 167 lines are identical**, comments included — closer than `page.ts` — so **a fix in one is a fix to make in the other**, and a spec added to one belongs in the other. What deliberately differs: `@nxgt/redis` has no `db`, holds the `RedisClient` itself rather than a `Promise<MongoClient>`, closes synchronously, closes sequentially in `closeRedis` where `closeMongo` uses `Promise.all`, and compares options with `Bun.deepEquals` in place of a hand-written `sameValue`. Since the error-code work, a sixth: `@nxgt/redis`'s `ping` races the command against a timer of its own and reports `PING_TIMEOUT` on the result, while `@nxgt/mongo`'s leaves the deadline to the driver's `timeoutMS` and reports whatever it produced. Both connection failures are a class with a code now, and **neither carries the URI** — a connection string holds the password, and a spec in each asserts its absence |
-| `pingClient` in `@nxgt/redis-kit`, and `ping` in `@nxgt/redis`'s `connection/connect.ts` | a client the *configuration* handed in carries no `ping` — that one belongs to what `connectRedis` returned — so the kit has its own copy, down to the `PING_TIMEOUT` code and the message, and a health route reads the same answer either way. **A fix in one is a fix to make in the other.** The sibling exports no standalone `ping` to call instead; if it ever does, this copy goes |
-| `pingDb` in `@nxgt/mongo-kit`'s `kit/ping.ts`, and `ping` in `@nxgt/mongo`'s `connection/connect.ts` | the same reason as the Redis pair: a database the configuration handed a `client` has no `MongoConnection`, so no `ping`, and a health route should read one answer for both. **A fix in one is a fix to make in the other.** The kit calls the copy **only** for a handed-over `client`; a database it opened goes through its `MongoConnection.ping`, the original — as `@nxgt/redis-kit` does. What deliberately differs: the copy races a timer of its own, because — measured on mongodb 7.6.0 — `timeoutMS` does not bound the connect a never-connected client makes on its first command (it waits `serverSelectionTimeoutMS`); a timer with the same deadline on a connected client always fires first and hides the driver's `MongoOperationTimeoutError`, measured 5/5, which is why the original has none. The deadline error is a bare `Error` with no code, unlike Redis's `PING_TIMEOUT`: `ping` reports rather than refuses, and `@nxgt/mongo`'s own reports whatever the driver produced. If `@nxgt/mongo` ever exports a standalone `ping`, this copy goes |
-| `test/server.ts` of `@nxgt/redis`, copied into `@nxgt/redis-kit` and `@nxgt/redis-guard` | the same rule: a package reaches no sibling's tests, and a kit over a sibling is a package like any other. Keep `REDIS_VERSION` equal in all three copies — `redis-memory-server` **compiles** the source, so two versions is two builds and two caches, and CI keys the redis cache on the hash of the three files and `scripts/redis.ts`. Neither copy adds anything to the server itself; what differs is each `test/fixtures.ts` — `@nxgt/redis-kit`'s also closes the kits a spec opened, and `@nxgt/redis-guard`'s calls no `closeRedis()`, since it never connects through `@nxgt/redis`. `examples/hono-api/test/redis.ts` is **not** a copy: it starts the binary `$REDIS_BIN` names, which the example's `test` script takes from `scripts/redis.ts`, and pins nothing |
+| `pingDb` in `@nxgt/mongo-kit`'s `kit/ping.ts`, and `ping` in `@nxgt/mongo`'s `connection/connect.ts` | the same reason as the Redis pair: a database the configuration handed a `client` has no `MongoConnection`, so no `ping`, and a health route should read one answer for both. **A fix in one is a fix to make in the other.** The kit calls the copy **only** for a handed-over `client`; a database it opened goes through its `MongoConnection.ping`, the original — as `@nxgt/redis`'s wiring does. What deliberately differs: the copy races a timer of its own, because — measured on mongodb 7.6.0 — `timeoutMS` does not bound the connect a never-connected client makes on its first command (it waits `serverSelectionTimeoutMS`); a timer with the same deadline on a connected client always fires first and hides the driver's `MongoOperationTimeoutError`, measured 5/5, which is why the original has none. The deadline error is a bare `Error` with no code, unlike Redis's `PING_TIMEOUT`: `ping` reports rather than refuses, and `@nxgt/mongo`'s own reports whatever the driver produced. If `@nxgt/mongo` ever exports a standalone `ping`, this copy goes |
+| `test/server.ts` of `@nxgt/redis`, copied into `@nxgt/redis-guard` | the same rule: a package reaches no sibling's tests. Keep `REDIS_VERSION` equal in both copies — `redis-memory-server` **compiles** the source, so two versions is two builds and two caches, and CI keys the redis cache on the hash of the two files and `scripts/redis.ts`. (There were three copies until `@nxgt/redis-kit` was folded into `@nxgt/redis`.) Neither copy adds anything to the server itself; what differs is each `test/fixtures.ts` — `@nxgt/redis`'s `useRedis` also closes the Redis objects a spec opened with `track`, and `@nxgt/redis-guard`'s calls no `closeRedis()`, since it never connects through `@nxgt/redis`. `examples/hono-api/test/redis.ts` is **not** a copy: it starts the binary `$REDIS_BIN` names, which the example's `test` script takes from `scripts/redis.ts`, and pins nothing |
 | `idempotency/result.ts` in `@nxgt/redis-guard`, after `bindCache`'s `checked`/`get` in `@nxgt/redis`, and `RELEASE` in its `idempotency/scripts.ts`, after `withLock`'s | not code — no line is shared, and the layering forbids an import — but the same behaviour on purpose: a value parsed with the caller's schema on the way in (z.input → z.output) and on the way out, the stored form being what the schema gave back, and a lock-like key released only by a compare-and-delete on the holder's own token. **A rule changed in one is a rule to consider in the other.** What deliberately differs: a stored value the schema refuses is a **miss** for a cache and `INVALID` for an idempotent result, which stands for work already done; `run` parses its result back from JSON before storing it, where `remember` does not; the idempotency token lives in a hash field beside the state, not as the key's value; and `INVALID` names zod's issue **codes** only, where `bindCache`'s message joins zod's messages — which on zod 4.6.5 can quote a stray key |
 | `test/server.ts` of `@nxgt/s3`, copied into `@nxgt/backup` as `test/s3-server.ts` | the SeaweedFS test server, byte for byte below a three-line header saying so; both run `scripts/seaweedfs.ts` first. **A fix in one is a fix in the other** |
 | `test/rejection.ts` of `@nxgt/mongo`, copied into `@nxgt/drizzle`, `@nxgt/redis-guard`, `@nxgt/backup` and `@nxgt/mongo-backup` | the helper that holds an expected rejection with `.then` where the promise is made — see Tests. `@nxgt/redis-guard`'s is the full copy, `rejectionMessage` included, and `@nxgt/backup`'s and `@nxgt/mongo-backup`'s are `@nxgt/redis-guard`'s byte for byte; `@nxgt/drizzle`'s is an earlier, shorter one with `rejection` alone and a shorter comment. **A fix in one is a fix to make in the others** |
@@ -917,15 +922,15 @@ the file.
 
 ## Known state
 
-`bun run test` is **1764 pass, 0 fail**, computed: the 1498 below,
-`@nxgt/backup`'s 196, `@nxgt/mongo-backup`'s 68 and `mongo-backup-job-example`'s 2, each measured with its
-own `bun run test` on 2026-10-04, not by a full run. Before it, a full run on 2026-09-27 measured
-1501 — drizzle 152, meilisearch 130, mongo 565, drizzle-meilisearch 42,
-mongo-meilisearch 58, mongo-kit 101, mongo-search-kit 17, redis 46,
-redis-guard 124, redis-kit 55, s3 104, hono-api-example 43, scripts 64 — and
-3 of those 64 were `redis-guard`'s `run-script.spec.ts` run a second time.
-The scripts' 61 are the 41 before and the 20 of
-`scripts/check-nxgt-versions.spec.ts`. It runs one process per package, then
+`bun run test` is **1813 pass, 0 fail**, measured by a full run on
+2026-10-04 (after `@nxgt/redis-kit` was folded into `@nxgt/redis`): drizzle
+167, meilisearch 130, mongo 565, drizzle-meilisearch 42, mongo-meilisearch 58,
+mongo-kit 101, mongo-search-kit 17, redis 101 (46 before the fold, plus the
+55 that came from `redis-kit`), redis-guard 124, redis-kit 2 (its
+`index.spec.ts`), s3 104, backup 196, mongo-backup 68,
+`mongo-backup-job-example` 2, hono-api-example 43 and the scripts' 93. The
+scripts' count once held 3 of `redis-guard`'s `run-script.spec.ts` run a
+second time. It runs one process per package, then
 the scripts' specs through `bun test ./scripts/`. The leading `./` matters: a
 bare `bun test scripts` is a substring filter, and on 2026-09-28 it ran 64
 tests across 11 files,
