@@ -376,6 +376,10 @@ bare `TypeError`s quote none. Every message is in
 - [docs/guide/format.md](docs/guide/format.md) — the entries, their names
   and bytes, the position and the collections it records, and reading a
   backup with `bsondump`.
+- [docs/guide/operations.md](docs/guide/operations.md) — the job on a
+  schedule: where each key lives, a full backup weekly and incrementals in
+  between, `HISTORY_LOST`, verify and rotation, alerting, restore drills,
+  and what to run the day you need a backup back.
 - [docs/guide/errors.md](docs/guide/errors.md) — `MongoBackupError`, every
   code and message, and a handler for a scheduled job.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — every error, by the
