@@ -23,6 +23,9 @@ export { localRepository } from './repository/local';
 export type { S3RepositoryOptions } from './repository/s3';
 export { s3Repository } from './repository/s3';
 export type { Repository } from './repository/types';
+export type { HoldOptions, HoldResult } from './rotation/holds';
+export type { Decision, KeepPolicy } from './rotation/policy';
+export type { Pruned, PruneOptions } from './rotation/prune';
 export type {
 	DirectoryOptions,
 	DirectoryTargetOptions,

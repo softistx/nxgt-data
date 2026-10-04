@@ -1,7 +1,8 @@
 # Getting started
 
 This page takes a folder through a first backup and back: describe it, bind
-it to a repository and a public key, create, list, verify and restore.
+it to a repository and a public key, create, list, verify and restore — then
+keep the repository tidy with `prune`.
 
 ```ts
 import {
@@ -100,6 +101,9 @@ interface BoundBackup<Name extends string = string> {
 	list(options?: ListOptions): Promise<Listing>;
 	verify(id: string, options?: VerifyOptions): Promise<Verified>;
 	restore(id: string, target: RestoreTarget, options: RestoreOptions): Promise<Restored>;
+	prune(options: PruneOptions): Promise<Pruned>;
+	hold(id: string, options?: HoldOptions): Promise<HoldResult>;   // every repository, or from
+	unhold(id: string, options?: HoldOptions): Promise<HoldResult>;
 }
 ```
 
@@ -145,13 +149,14 @@ does, each with `outcomes` — where a repository whose lock was held is
 
 An error from the source itself — a folder that is not there, a stream that
 fails — rejects `create` with that error, as it is. The objects stored before
-it stay in the repository without a manifest: no call sees them, and cleaning
-them up is [on the roadmap](../roadmap.md).
+it stay in the repository without a manifest: no call sees them, and
+[`prune`](rotation.md#incomplete-backups) removes them once they are a day
+old.
 
 ## Listing
 
 ```ts
-const { repository, backups: held, unreadable } = await backups.list();
+const { repository, backups: listed, unreadable } = await backups.list();
 const fromNas = await backups.list({ from: 'nas' });
 ```
 
@@ -172,6 +177,7 @@ interface BackupInfo {
 	kind: 'full';
 	entries: number;
 	storedSize: number; // the bytes the repository holds for it, manifest apart
+	held: boolean;      // under a legal hold: prune never removes it
 }
 ```
 
@@ -283,10 +289,32 @@ await backups.restore(id, directoryTarget({ path: staging }), {
 await rename(staging, '/srv/restore'); // reached only when every entry checked out
 ```
 
+## Keeping it tidy
+
+Backups pile up until something removes them. `prune` keeps what a policy
+names and removes the rest, in one repository; try it with `dryRun` first:
+
+```ts
+const policy = { last: 7, daily: 14, weekly: 8, monthly: 12 };
+
+const plan = await backups.prune({ keep: policy, dryRun: true });
+for (const decision of plan.removed) console.log('would remove', decision.id, decision.reasons);
+
+const pruned = await backups.prune({ keep: policy });
+// { repository: 'local', dryRun: false, kept: […], removed: […], incomplete: […], unreadable: [], overSize: false }
+```
+
+It needs no key, takes the repository's lock, and also removes what failed
+runs left behind. `hold(id)` keeps one backup, in every repository, whatever
+the policy says —
+[rotation](rotation.md) has every rule, holds, and a policy per repository.
+
 ## A nightly job
 
 A script for cron or a systemd timer: back up, verify what landed without a
-key, and exit non-zero when anything is short, so the scheduler reports it.
+key, prune each repository, and exit non-zero when anything is short, so the
+scheduler reports it. A `PARTIAL` skips the prune: nothing is removed on a
+night the backup did not land everywhere.
 
 ```ts
 // backup.ts — bun run backup.ts
@@ -314,6 +342,9 @@ try {
 		await backups.verify(created.id, { from: repository });
 	}
 	console.log(`backup ${created.id}: ${created.entries} entries, ${created.storedSize} bytes`);
+	for (const repository of backups.repositories) {
+		await backups.prune({ from: repository, keep: { last: 7, daily: 14, weekly: 8, monthly: 12 } });
+	}
 } catch (error) {
 	if (error instanceof BackupError && error.code === 'PARTIAL') {
 		const failed = error.outcomes.filter((outcome) => !outcome.stored);

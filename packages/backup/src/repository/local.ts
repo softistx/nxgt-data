@@ -1,5 +1,5 @@
-import { copyFile, rename, rm } from 'node:fs/promises';
-import { dirname, isAbsolute, join } from 'node:path';
+import { access, copyFile, rename, rm, rmdir } from 'node:fs/promises';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { makeFolders, syncPath, walkFiles } from '../files/files';
 import { isKeyPath } from './keys';
 import type { Repository } from './types';
@@ -38,21 +38,25 @@ export function localRepository(options: LocalRepositoryOptions): Repository {
 	if (typeof options.path !== 'string' || !isAbsolute(options.path)) {
 		throw new TypeError('localRepository: path must be an absolute path');
 	}
-	const root = options.path;
+	const root = resolve(options.path);
 	return {
 		name: options.name ?? 'local',
 		async put(key, file) {
 			const target = fileOf(root, key);
-			await makeFolders(dirname(target));
-			const random = crypto.getRandomValues(new Uint8Array(6));
-			const partial = `${target}${PARTIAL}${Buffer.from(random).toString('hex')}`;
-			try {
-				await copyFile(file, partial);
-				await syncPath(partial);
-				await rename(partial, target);
-			} catch (error) {
-				await rm(partial, { force: true });
-				throw error;
+			// A delete empties and removes folders; one racing this put can take
+			// the folder from under it between its creation and the copy. Made
+			// again, a few times, rather than failing a lock or a backup on it.
+			// Asked of the folder, not of the error: measured on macOS, a copy
+			// into a folder removed meanwhile fails EINVAL, not ENOENT.
+			for (let attempt = 1; ; attempt++) {
+				try {
+					await makeFolders(dirname(target));
+					await land(file, target);
+					break;
+				} catch (error) {
+					const gone = !(await exists(dirname(target)));
+					if (!gone || attempt === 3) throw error;
+				}
 			}
 			await syncPath(dirname(target));
 		},
@@ -71,7 +75,47 @@ export function localRepository(options: LocalRepositoryOptions): Repository {
 			})();
 		},
 		async delete(key) {
-			await rm(fileOf(root, key), { force: true });
+			const file = fileOf(root, key);
+			await rm(file, { force: true });
+			await removeEmptyFolders(root, dirname(file));
 		},
 	};
+}
+
+function exists(path: string): Promise<boolean> {
+	return access(path).then(
+		() => true,
+		() => false,
+	);
+}
+
+/** Copies `file` to `target` through a partial file, synced, then renamed. */
+async function land(file: string, target: string): Promise<void> {
+	const random = crypto.getRandomValues(new Uint8Array(6));
+	const partial = `${target}${PARTIAL}${Buffer.from(random).toString('hex')}`;
+	try {
+		await copyFile(file, partial);
+		await syncPath(partial);
+		await rename(partial, target);
+	} catch (error) {
+		await rm(partial, { force: true });
+		throw error;
+	}
+}
+
+/**
+ * Removes `folder` and its parents up to `root`, while they are empty: a
+ * pruned backup leaves no folder behind. The first that is not empty — or
+ * already gone — stops it.
+ */
+async function removeEmptyFolders(root: string, folder: string): Promise<void> {
+	let current = folder;
+	while (current !== root && current.startsWith(`${root}/`)) {
+		try {
+			await rmdir(current);
+		} catch {
+			return;
+		}
+		current = dirname(current);
+	}
 }

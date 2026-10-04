@@ -3,31 +3,12 @@
 Where `@nxgt/backup` is going. A direction, not a commitment: the version an
 item shipped in is the only number on this page.
 
-## Now
-
-- **The single-writer lock** — `create` takes a lock in every repository it
-  writes to, renewed while it runs, so two runs of the same backup never write
-  at once and rotation can never remove a backup still being made; a
-  repository whose lock is held elsewhere fails with the code `LOCKED`, one
-  whose lease could not be renewed in time with `LEASE_LOST`, while the others
-  go on; `bindBackup` takes `lock: { lease }`, and `list`, `verify` and
-  `restore` take no lock —
-  [locking](guide/locking.md).
-
 ## Next
 
-- **Rotation** — keep what a policy says and remove the rest:
-  `keepLast`, `keepHourly`, `keepDaily`, `keepWeekly`, `keepMonthly`,
-  `keepYearly`, `keepWithin`, and a `maxTotalSize` that never goes below a
-  `keepLast` floor; set **per repository**, aware of incremental chains so a
-  base is never removed while a backup needs it; a **dry run** that lists what
-  would go and why; a **legal hold** that keeps a backup whatever the policy
-  says; and **clean-up of incomplete backups** — the objects a failed run left
-  without a manifest — under the single-writer lock. Rotation reads manifests
-  only, so it needs no key.
 - **Incremental and differential chains** — a backup that stores only what
   changed since a full one, or since the previous one, with the manifest's
-  `kind` and `parent` describing the chain.
+  `kind` and `parent` describing the chain. Rotation already keeps a chain's
+  base for as long as a kept backup needs it.
 - **`@nxgt/mongo-backup`** — a source for MongoDB collections, and a target to
   restore them, as a separate package peering on `@nxgt/backup`.
 - **Granular restore** — part of a database backup — one collection, say —
@@ -59,6 +40,23 @@ item shipped in is the only number on this page.
 
 ## Shipped
 
+- **Rotation** — 0.5.0: keep what a retention policy names and remove the rest, one
+  repository at a time, under the single-writer lock: `last`, `hourly`,
+  `daily`, `weekly`, `monthly`, `yearly`, `within`, and a `maxTotalSize` that
+  never goes below the newest `last`; every decision with the rules that
+  made it; a **dry run** that says what would go and why; **legal holds**
+  that keep a backup whatever the policy says; **clean-up of incomplete
+  backups** — what a failed run left without a manifest; and a kept backup
+  keeping the backups it builds on. It reads manifests only, so it needs no
+  key — [rotation](guide/rotation.md).
+
+- **The single-writer lock** — 0.4.0: `create` takes a lock in every
+  repository it writes to, renewed while it runs, so two runs of the same
+  backup never write at once and rotation never removes a backup still being
+  made; a repository whose lock is held elsewhere fails with `LOCKED`, one
+  whose lease could not be renewed in time with `LEASE_LOST`, while the
+  others go on; `bindBackup` takes `lock: { lease }`, and reads take no
+  lock — [locking](guide/locking.md).
 - **An S3 repository** — 0.3.0: backups kept in any S3-compatible object
   store, beside or instead of a local folder, through your own Bun `S3Client`
   (`s3Repository`): one PUT up to 64 MiB, so an object is visible whole or

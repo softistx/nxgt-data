@@ -1,5 +1,8 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { BackupContext } from '../backups/context';
 import { BackupError } from '../errors/backup-error';
+import type { Repository } from '../repository/types';
 import { acquireLock, type Lease, type LockRecord } from './lock';
 
 /**
@@ -48,4 +51,28 @@ export function leaseLost(
 			`(repository "${repository}")`,
 		{ code: 'LEASE_LOST', backup: ctx.backup, id, repository },
 	);
+}
+
+/**
+ * Runs `work` holding the lock in one repository, and releases it after,
+ * whatever `work` did. The lock's staging folder is removed with it.
+ */
+export async function withLock<T>(
+	ctx: BackupContext,
+	repository: Repository,
+	operation: LockRecord['operation'],
+	call: string,
+	work: (lease: Lease) => Promise<T>,
+): Promise<T> {
+	const folder = await mkdtemp(join(ctx.tmpDir, 'nxgt-backup-lock-'));
+	try {
+		const lease = await acquireLock(ctx, repository, operation, folder, call);
+		try {
+			return await work(lease);
+		} finally {
+			await lease.release();
+		}
+	} finally {
+		await rm(folder, { recursive: true, force: true });
+	}
 }

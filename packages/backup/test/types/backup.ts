@@ -112,3 +112,12 @@ bindBackup(app, {
 // The name is kept as a literal.
 const named: 'app' = backups.definition.name;
 void named;
+
+// @ts-expect-error — prune needs a policy
+backups.prune({});
+// @ts-expect-error — a count is a number, not a duration string
+backups.prune({ keep: { daily: '7' } });
+backups.prune({
+	keep: { last: 3, daily: 7, within: 86_400_000 },
+	dryRun: true,
+});
