@@ -6,7 +6,7 @@ import {
 	type Repository,
 	type Restored,
 } from '@nxgt/backup';
-import { MongoBackupError } from '../errors';
+import { MongoBackupError, renamed } from '../errors';
 import type { RestoredCollections } from '../restore/options';
 import { restoreSome } from '../restore/restore-collections';
 import { mongoSource } from '../source/mongo-source';
@@ -58,24 +58,13 @@ export interface Context {
 const named = (ctx: Context, call: string) =>
 	`${call} on "${ctx.definition.name}"`;
 
-const BEHIND = /^mongo(Source|Target): /;
-
-/**
- * `p`, its `mongoSource:` and `mongoTarget:` refusals told as the call the
- * consumer wrote — same class, same code, the original as `cause`.
- */
+/** `p`'s lower-level refusals told as `<call> on "<backup>"`. */
 export function asCalled<T>(
 	p: Promise<T>,
 	ctx: Context,
 	call: string,
 ): Promise<T> {
-	return p.catch((error: unknown) => {
-		if (!(error instanceof Error) || !BEHIND.test(error.message)) throw error;
-		const message = error.message.replace(BEHIND, `${named(ctx, call)}: `);
-		throw error instanceof MongoBackupError
-			? new MongoBackupError(message, error.code, { cause: error })
-			: new TypeError(message, { cause: error });
-	});
+	return renamed(p, named(ctx, call));
 }
 
 /** The binding, the key file read on first use, and again after a failed read. */

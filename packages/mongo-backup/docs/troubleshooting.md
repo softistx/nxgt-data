@@ -108,8 +108,11 @@ quoted as the function throws it when you call it directly. `run`,
 backup's name — `restore on "shop": a collection or view the backup holds
 is already in the database; …` for the `mongoTarget:` one. The class and
 the `code` are the same; a `mongoSource:` or `mongoTarget:` one keeps the
-original as its `cause`, a `restoreCollections:` one is thrown under the
-call's prefix directly and has none. Search for the part after the colon.
+original as its `cause`; `restoreCollections`'s own refusals are thrown
+under the call's prefix directly and have none. Search for the part after the colon.
+`restoreCollections` called directly does the same for the `mongoTarget:`
+refusals of the restore it runs into its scratch database: they read
+`restoreCollections: …`, the original as `cause`.
 
 ## Install and run
 

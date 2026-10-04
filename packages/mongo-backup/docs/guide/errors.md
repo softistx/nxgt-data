@@ -101,7 +101,9 @@ Search for the part after the colon: every message on this page, and on
 [troubleshooting](../troubleshooting.md), is quoted with its direct prefix.
 A partial `restore` throws `restoreCollections:`'s messages under its own
 prefix at once, so those have no `cause`. An error
-from the driver or from `@nxgt/backup` is not renamed.
+from the driver or from `@nxgt/backup` is not renamed. `restoreCollections` called directly does the same for the `mongoTarget:`
+refusals of the restore it runs into its scratch database: they read
+`restoreCollections: …`, the original as `cause`.
 
 ### `SNAPSHOT_TOO_OLD`
 

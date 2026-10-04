@@ -47,6 +47,28 @@ describe('restoreCollections refuses', () => {
 		}
 	});
 
+	test('under its own name what the target behind it refuses', async () => {
+		const never = {
+			restore: () => Promise.reject(new Error('the backup was read')),
+		};
+		const error = await rejection(
+			restoreCollections(never, 'id', {
+				identities: [],
+				db: restored(),
+				tmpDir: 'relative',
+			}),
+		);
+		expect(error).toBeInstanceOf(TypeError);
+		expect(error).toHaveProperty(
+			'message',
+			'restoreCollections: tmpDir must be an absolute path',
+		);
+		expect((error as Error).cause).toHaveProperty(
+			'message',
+			'mongoTarget: tmpDir must be an absolute path',
+		);
+	});
+
 	test('a collection the backup lacks, and a scratch database not empty', async () => {
 		const id = await chain(server.db, h);
 		const missing = await rejection(
