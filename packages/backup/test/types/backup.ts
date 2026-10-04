@@ -97,6 +97,17 @@ bindBackup(app, {
 	signing: { key: signing.privateKey },
 	trusted: [signing.publicKey],
 });
+bindBackup(app, {
+	repositories: [repository],
+	recipients: [recipient],
+	lock: { lease: 60_000 },
+});
+bindBackup(app, {
+	repositories: [repository],
+	recipients: [recipient],
+	// @ts-expect-error — a lease is milliseconds, not a duration string
+	lock: { lease: '5m' },
+});
 
 // The name is kept as a literal.
 const named: 'app' = backups.definition.name;

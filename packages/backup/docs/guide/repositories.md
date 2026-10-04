@@ -222,8 +222,10 @@ backup whose every object is that size or smaller leaves none.
 The host that runs `create` needs `s3:PutObject` (one `PUT` and multipart
 uploads alike), `s3:GetObject` (to read the size back, and for its own
 `list`, `verify` and `restore`), `s3:ListBucket`, and `s3:DeleteObject` (to
-remove a failed large upload, and for rotation when it comes). A host that
-only lists, verifies or restores needs `s3:GetObject` and `s3:ListBucket`.
+remove a failed large upload, and for rotation when it comes). The
+[lock](locking.md) uses the same four: put, list and read under
+`<backup>/locks/`, then delete. A host that only lists, verifies or restores
+takes no lock, and needs `s3:GetObject` and `s3:ListBucket`.
 
 ```json
 {
@@ -317,6 +319,11 @@ once:
   only objects nobody lists.
 - **When every repository has failed, the source is not read further**: there
   is nowhere left to put it.
+- **Each repository has its own [lock](locking.md)**: one whose lock another
+  `create` holds fails at the start with `LOCKED` in its outcome, and the
+  others go on. When all of them are locked, the source is not opened. One
+  whose lease runs out part-way fails with `LEASE_LOST`, and is sent nothing
+  more from then on.
 
 `create` resolves only when every repository holds the backup. Otherwise:
 
@@ -387,8 +394,8 @@ interface Repository {
 | `name` | how it is named in outcomes, errors and `from`: `local`, `s3`, or what you choose. **Never a credential, nor a URL that holds one** — it is in every error message |
 | `put(key, file)` | stores the local file at `file` under `key`, **whole or not at all**: a key is never visible holding part of its bytes, and once it resolves the bytes are as durable as the store makes them. Overwrites. The file is removed once every repository has resolved, so read it **before** resolving |
 | `get(key)` | the bytes under `key`, or `undefined` when there are none. `undefined` for the manifest is `NOT_FOUND`; for `manifest.sig`, when `trusted` keys are set, `SIGNATURE`; for an object, `INTEGRITY`. The package reads no more than 65 bytes of `manifest.sig` and 64 MiB and one byte of a manifest, and stops reading an object as soon as it runs past the size its manifest gives — so a repository that sends more cannot fill `tmpDir`. It cancels the rest of the stream |
-| `list(prefix)` | every key that starts with `prefix`, in any order, keys of writes in progress left out. The package lists `<backup>/` and keeps the keys that end in `/manifest.json` |
-| `delete(key)` | removes `key`; one that is not there is not an error. 0.1 to 0.3 never call it — rotation and clean-up will |
+| `list(prefix)` | every key that starts with `prefix`, in any order, keys of writes in progress left out — and **every key whose `put` has resolved**, from that moment on: the [lock](locking.md#how-it-works) is safe only on a store that does this, and a listing that lags behind writes would let two writers in. A local folder and AWS S3 do; SeaweedFS's S3 gateway is covered by the package's own spec. The package lists `<backup>/` and keeps the keys that end in `/manifest.json`, and `<backup>/locks/` for the lock |
+| `delete(key)` | removes `key`; one that is not there is not an error. From 0.4, `create` calls it to remove its lock, and a stale one; rotation and clean-up will too. One that throws does not fail the run: the lock it left goes stale on its own |
 
 Whole-or-nothing is the one rule that matters: the manifest is how a backup
 comes to exist, so a manifest visible half-written would be a backup that
@@ -428,7 +435,9 @@ export function memoryRepository(name = 'memory'): Repository & { keys: () => st
 ```
 
 Wrapping a repository is how to test what happens when one fails — this one
-fails every `put` after the first `failFrom`, as the package's own spec does:
+fails every `put` of a backup after the first `failFrom`, as the package's
+own spec does. Lock files pass through, so the failure lands on an object
+rather than on the [lock](locking.md):
 
 ```ts
 import type { Repository } from '@nxgt/backup';
@@ -438,6 +447,7 @@ export function failing(inner: Repository, failFrom: number): Repository {
 	return {
 		name: inner.name,
 		async put(key, file) {
+			if (key.split('/')[1] === 'locks') return inner.put(key, file); // <backup>/locks/…
 			if (puts >= failFrom) throw new Error('the store is unreachable');
 			puts += 1;
 			await inner.put(key, file);

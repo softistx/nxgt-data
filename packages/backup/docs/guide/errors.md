@@ -27,7 +27,7 @@ class BackupError extends Error {
 	readonly code: BackupErrorCode;
 	readonly backup: string;                  // the definition's name
 	readonly id: string | undefined;          // the backup's id, once there is one
-	readonly repository: string | undefined;  // for NOT_FOUND, INTEGRITY, DECRYPT, SIGNATURE
+	readonly repository: string | undefined;  // for NOT_FOUND, INTEGRITY, DECRYPT, SIGNATURE, LOCKED, LEASE_LOST
 	readonly outcomes: readonly RepositoryOutcome[]; // for PARTIAL and NOT_STORED; [] otherwise
 	readonly cause?: unknown;                 // age's or zstd's error, where there is one
 }
@@ -38,7 +38,9 @@ type BackupErrorCode =
 	| 'DECRYPT'
 	| 'SIGNATURE'
 	| 'PARTIAL'
-	| 'NOT_STORED';
+	| 'NOT_STORED'
+	| 'LOCKED'
+	| 'LEASE_LOST';
 
 type RepositoryOutcome =
 	| { repository: string; stored: true }
@@ -58,11 +60,15 @@ log.
 | `SIGNATURE` | `verify`, `restore` | `trusted` keys are set — given, or derived from `signing` — and the manifest has no `manifest.sig` (`the manifest is not signed`), or one none of them made (`no trusted key signed the manifest`). Checked on the manifest's bytes before they are parsed: nothing else of the backup was read, and nothing reached the target — [signing](signing.md) | `id`, `repository` |
 | `PARTIAL` | `create` | stored in some repositories and not others. The stored copies are complete | `id`, `outcomes` |
 | `NOT_STORED` | `create` | stored nowhere | `id`, `outcomes`, each with its error |
+| `LOCKED` | `create`, as one repository's `outcomes[].error` — never as the rejection itself | another `create` (or, once rotation ships, `prune`) of the same definition holds that repository's lock: `another create or prune holds the lock`. None of the backup was written there. The other repositories go on; when every one is `LOCKED`, the source is never opened. Retry later — [locking](locking.md) | `repository` |
+| `LEASE_LOST` | `create`, as one repository's `outcomes[].error` — never as the rejection itself | this run held that repository's lock and could not renew it in time — the store out of reach for the lock's writes, or the process paused longer than the lease: `the lock's lease ran out before it was done`. It started nothing more there, and that repository has no manifest for the id; a `put` already under way may still have landed. The other repositories go on. Worth an alert, not just a retry — [locking](locking.md#when-it-refuses-and-when-its-lease-runs-out) | `id`, `repository` |
 
 `list` throws none of them for a bad manifest: an id whose manifest does not
 read, or — with `trusted` keys — is not signed by one of them, goes into
 `unreadable` instead, and `verify` on it gives the `INTEGRITY` or the
-`SIGNATURE` with its reason.
+`SIGNATURE` with its reason. A backup removed between `list`'s listing and
+its read of the manifest is skipped silently — neither in `backups` nor in
+`unreadable`, and no error.
 
 Every message, with what causes it and what to do, is in
 [troubleshooting](../troubleshooting.md).
@@ -76,7 +82,7 @@ up the first time the code runs.
 | Thrown by | When |
 | --- | --- |
 | `defineBackup` | a name that could not be a path segment |
-| `bindBackup` | a definition not from `defineBackup`, no repository, two repositories with one name, no recipient or one age refuses, a relative `tmpDir`; a `signing.key` that is not an Ed25519 private key, a `trusted` list that is empty, holds a private key or a key that is not an Ed25519 public key, or leaves out `signing.key`'s public half — [signing](signing.md#checked-at-bind-time). These never quote the key and carry no `cause` |
+| `bindBackup` | a definition not from `defineBackup`, no repository, two repositories with one name, no recipient or one age refuses, a relative `tmpDir`; a `lock.lease` that is not a whole number of milliseconds from 1 second to 1 day (`bindBackup: lock.lease must be a whole number of milliseconds, from 1 second to 1 day`); a `signing.key` that is not an Ed25519 private key, a `trusted` list that is empty, holds a private key or a key that is not an Ed25519 public key, or leaves out `signing.key`'s public half — [signing](signing.md#checked-at-bind-time). These never quote the key and carry no `cause` |
 | `localRepository`, `directorySource`, `directoryTarget` | a relative `path` |
 | `s3Repository` | a `prefix` that is not a relative path of plain segments; a `partSize` under 5 MiB or not an integer. Neither quotes what was given |
 | an `s3Repository`'s `get`, `put`, `delete`, `list` | a key (or a `list` prefix, less its trailing `/`) that is not a relative path of plain segments — only when you call the repository yourself, since the package builds its keys |
@@ -116,15 +122,41 @@ to look at, and a bug:
 ```ts
 import { BackupError } from '@nxgt/backup';
 
-type Verdict = 'ok' | 'degraded' | 'retry' | 'alert' | 'bug';
+type Verdict = 'ok' | 'skipped' | 'degraded' | 'retry' | 'alert' | 'bug';
+
+/** Every repository refused because another run of the definition holds its lock. */
+function allLocked(error: BackupError): boolean {
+	return error.outcomes.every(
+		(outcome) =>
+			!outcome.stored &&
+			outcome.error instanceof BackupError &&
+			outcome.error.code === 'LOCKED',
+	);
+}
+
+/** Some repository lost this run's own lock part-way: the store or the host needs a look. */
+function leaseLost(error: BackupError): boolean {
+	return error.outcomes.some(
+		(outcome) =>
+			!outcome.stored &&
+			outcome.error instanceof BackupError &&
+			outcome.error.code === 'LEASE_LOST',
+	);
+}
 
 export function verdictOf(error: unknown): Verdict {
 	if (error instanceof BackupError) {
 		switch (error.code) {
 			case 'PARTIAL':
-				return 'degraded'; // the backup exists somewhere; fix the repository that failed
+				return leaseLost(error) ? 'alert' : 'degraded'; // the backup exists somewhere; fix the repository that failed
 			case 'NOT_STORED':
+				if (allLocked(error)) return 'skipped'; // another run holds every lock
+				if (leaseLost(error)) return 'alert'; // a store dropped out for a whole lease, or the process stalled
 				return 'retry'; // nowhere took it: a mount, the network, a full disk
+			case 'LOCKED':
+				return 'retry'; // only ever inside outcomes; here for an exhaustive switch
+			case 'LEASE_LOST':
+				return 'alert'; // only ever inside outcomes; here for an exhaustive switch
 			case 'INTEGRITY':
 				return 'alert'; // a repository holds what was not written: damage, or tampering
 			case 'DECRYPT':

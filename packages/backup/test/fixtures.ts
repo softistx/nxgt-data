@@ -87,8 +87,9 @@ export function memoryTarget(): RestoreTarget & {
 }
 
 /**
- * A repository over another one that records every key put, and fails
- * every put once `failFrom` puts have gone through.
+ * A repository over another one that records every key of a backup put,
+ * and fails every such put once `failFrom` have gone through. Lock files
+ * pass through unrecorded: they are the lock's business, not the backup's.
  */
 export function recording(
 	inner: Repository,
@@ -99,6 +100,7 @@ export function recording(
 		name: options.name ?? inner.name,
 		puts,
 		async put(key, file) {
+			if (key.split('/')[1] === 'locks') return inner.put(key, file);
 			if (options.failFrom !== undefined && puts.length >= options.failFrom) {
 				throw new Error('the store is unreachable');
 			}

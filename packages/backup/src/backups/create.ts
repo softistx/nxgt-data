@@ -16,9 +16,11 @@ import {
 	type Manifest,
 	type StoredObject,
 } from '../format/manifest';
+import { lockAll, releaseAll } from '../lock/run-locks';
 import type { BackupSource } from '../source/types';
-import { type BackupContext, keyOf } from './context';
+import type { BackupContext } from './context';
 import { MANIFEST, SIGNATURE } from './read';
+import { putAll, type Run } from './run';
 
 /** What `create` stored. */
 export interface Created {
@@ -34,29 +36,6 @@ export interface Created {
 	signed: boolean;
 	/** Every repository's outcome: all `stored: true`, or `create` threw. */
 	outcomes: RepositoryOutcome[];
-}
-
-/** One backup being written: the repositories that have not failed yet. */
-interface Run {
-	ctx: BackupContext;
-	id: string;
-	folder: string;
-	failed: Map<string, unknown>;
-}
-
-/** Puts one staged file into every repository still in the run. */
-async function putAll(run: Run, key: string, file: string): Promise<void> {
-	await Promise.all(
-		run.ctx.repositories
-			.filter((repository) => !run.failed.has(repository.name))
-			.map(async (repository) => {
-				try {
-					await repository.put(keyOf(run.ctx, run.id, key), file);
-				} catch (error) {
-					run.failed.set(repository.name, error);
-				}
-			}),
-	);
 }
 
 /** Seals one stream into the staging folder, stores it, and removes it. */
@@ -178,9 +157,13 @@ export async function createBackup(
 		id: newBackupId(createdAt),
 		folder,
 		failed: new Map(),
+		leases: new Map(),
 	};
 	try {
-		const { entries, objects } = await storeEntries(run, source);
+		run.leases = await lockAll(ctx, 'create', folder, run.failed);
+		const { entries, objects } = nowhereLeft(run)
+			? { entries: [], objects: [] }
+			: await storeEntries(run, source);
 		if (nowhereLeft(run)) {
 			return settle(run, {
 				id: run.id,
@@ -228,6 +211,7 @@ export async function createBackup(
 			outcomes: outcomesOf(run),
 		});
 	} finally {
+		await releaseAll(run.leases);
 		await rm(folder, { recursive: true, force: true });
 	}
 }

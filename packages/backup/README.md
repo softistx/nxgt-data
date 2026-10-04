@@ -42,8 +42,8 @@ await backups.restore(created.id, directoryTarget({ path: '/srv/restore' }), {
 });
 ```
 
-> **0.x.** Full backups, local and S3 repositories, checked restores and
-> signed manifests are here; rotation is next — see the
+> **0.x.** Full backups, local and S3 repositories, checked restores,
+> signed manifests and a single-writer lock are here; rotation is next — see the
 > [roadmap](docs/roadmap.md).
 
 ## Install
@@ -262,6 +262,52 @@ outcome at backup time. The writer needs `s3:PutObject`, `s3:GetObject`,
 `s3:ListBucket` and `s3:DeleteObject`; a reader, `s3:GetObject` and
 `s3:ListBucket` — [repositories](docs/guide/repositories.md#s3repository).
 
+## Concurrent runs: the lock
+
+```ts
+import {
+	BackupError,
+	bindBackup,
+	defineBackup,
+	directorySource,
+	localRepository,
+} from '@nxgt/backup';
+
+const backups = bindBackup(defineBackup({ name: 'uploads' }), {
+	repositories: [localRepository({ path: '/mnt/backups' })],
+	recipients: [process.env.BACKUP_RECIPIENT as string],
+	lock: { lease: 5 * 60 * 1000 }, // the default; renewed every third of it
+});
+
+try {
+	await backups.create(directorySource({ path: '/srv/uploads' }));
+} catch (error) {
+	if (!(error instanceof BackupError)) throw error;
+	// LOCKED is a repository's outcome, inside PARTIAL or NOT_STORED.
+	const locked = error.outcomes.filter(
+		(outcome) =>
+			!outcome.stored &&
+			outcome.error instanceof BackupError &&
+			outcome.error.code === 'LOCKED',
+	);
+	if (error.code === 'NOT_STORED' && locked.length === error.outcomes.length) {
+		console.warn('the previous run is still going: skipped');
+	} else {
+		throw error;
+	}
+}
+```
+
+Every `create` takes a lock in each repository it writes to —
+`<backup>/locks/<id>.json`, written before it looks for others, renewed
+while it runs, deleted when it ends — so two runs of one definition never
+write to one repository at once. A repository whose lock is held elsewhere
+fails alone with `LOCKED`, and the others go on; when all of them refuse,
+the source is not opened. A run that cannot renew its own lock in time
+starts nothing more in that repository, which fails with `LEASE_LOST` —
+worth an alert, unlike `LOCKED`. `list`, `verify` and `restore` take no
+lock — [locking](docs/guide/locking.md).
+
 ## Your own source, target or repository
 
 A source is a `kind` and an async iterable of `{ name, open }`:
@@ -293,7 +339,7 @@ const settings: BackupSource = {
 | Function | |
 | --- | --- |
 | `defineBackup({ name })` | describes a backup; touches nothing. Frozen. A name that could not be a path segment is a bare `TypeError` |
-| `bindBackup(definition, { repositories, recipients, tmpDir?, signing?, trusted? })` | binds it to where it is kept, who can read it, and who signs it. No I/O; a list or a key that could never work is a bare `TypeError` |
+| `bindBackup(definition, { repositories, recipients, tmpDir?, signing?, trusted?, lock? })` | binds it to where it is kept, who can read it, and who signs it. `lock: { lease }` is the lock's lease in milliseconds: 5 minutes by default, 1 second to 1 day. No I/O; a list, a key or a lease that could never work is a bare `TypeError` |
 | `generateSigningKeys()` | a new Ed25519 key pair for `signing` and `trusted`: `{ privateKey, publicKey }`, PEM |
 | `localRepository({ path, name? })` | a repository in a local folder — a disk, a mounted volume, a share. `name` is `local` by default |
 | `s3Repository({ client, prefix?, name?, partSize? })` | a repository in an S3 bucket, AWS or compatible, through your own Bun `S3Client`. `name` is `s3` by default; `partSize` 16 MiB, 5 MiB at least. A `prefix` or `partSize` that could never work is a bare `TypeError` |
@@ -303,7 +349,7 @@ const settings: BackupSource = {
 | `BoundBackup<Name>` | |
 | --- | --- |
 | `definition`, `repositories` | the definition, and the repository names in the order given |
-| `create(source)` | reads every entry and stores a full backup in every repository. Resolves to `Created` once each holds it; rejects with `PARTIAL` or `NOT_STORED` otherwise |
+| `create(source)` | takes the lock in every repository, reads every entry and stores a full backup in each. Resolves to `Created` once each holds it; rejects with `PARTIAL` or `NOT_STORED` otherwise — a repository whose lock was held is `LOCKED` in `outcomes`, one whose lease ran out `LEASE_LOST` |
 | `list({ from? })` | the backups one repository holds, oldest first, and the ids whose manifest does not read. No key |
 | `verify(id, { from?, identities? })` | reads a backup back and checks it — objects against the manifest without `identities`, entries against the catalog with them |
 | `restore(id, target, { identities, from?, only? })` | writes the entries, or those `only` picks, to `target` |
@@ -336,11 +382,13 @@ source**.
 | `SIGNATURE` | `trusted` keys are set and the manifest has no signature, or none by a trusted key. Nothing else of the backup was read. `list` puts the id in `unreadable` instead | `restore on "uploads": no trusted key signed the manifest (repository "local")` |
 | `PARTIAL` | `create` stored it in some repositories and not others; `outcomes` says which. The stored copies are complete | `create on "uploads": stored in 1 of 2 repositories` |
 | `NOT_STORED` | `create` stored it nowhere; `outcomes` holds each repository's error | `create on "uploads": stored in 0 of 1 repositories` |
+| `LOCKED` | another `create` (or, later, `prune`) of the definition holds that repository's lock: try later. Never thrown by `create` itself: it is one repository's `outcomes[].error`, and the others go on | `create on "uploads": another create or prune holds the lock (repository "nas")` |
+| `LEASE_LOST` | this run held that repository's lock and could not renew it in time — the store out of reach, or the process paused longer than the lease — so it started nothing more there: worth an alert. Like `LOCKED`, only ever one repository's `outcomes[].error` | `create on "uploads": the lock's lease ran out before it was done (repository "local")` |
 
 **Wiring is a bare `TypeError`**: a bad name, an empty repository list, two
 repositories with one name, a key age refuses, a signing or trusted key that
 is not an Ed25519 key of the right half, a relative path, an S3 `prefix` or
-`partSize` that could never work, an unknown `from`,
+`partSize` that could never work, a `lock.lease` out of range, an unknown `from`,
 a malformed id. None quotes a key. An error from your source, your target or
 a repository passes through as it is. Every message is in
 [troubleshooting](docs/troubleshooting.md); a handler is in
@@ -353,7 +401,8 @@ Each is a `@ts-expect-error` case in [`test/types/backup.ts`](https://github.com
 - `defineBackup` without a name, or with a name that is not a string.
 - `bindBackup` with no repository, no recipient, or a recipient that is not
   a string; with `signing` given the key itself instead of `{ key }`; with
-  `trusted: []`, or one key instead of a list.
+  `trusted: []`, or one key instead of a list; with a `lock.lease` that is
+  not a number (`'5m'`).
 - `create` given a path instead of a source.
 - `restore` without `identities`, with one key instead of a list, or with an
   `only` that is neither a list of names nor a test on a name; `verify` with
@@ -394,6 +443,17 @@ Each is a `@ts-expect-error` case in [`test/types/backup.ts`](https://github.com
   [restore](docs/guide/getting-started.md#restore).
 - **A source that throws mid-backup leaves objects without a manifest**:
   not listed, not restorable, and not cleaned up yet — [more](docs/troubleshooting.md#a-backup-that-failed-left-objects-in-the-repository).
+- **Overlapping runs no longer both run**: from 0.4, a `create` started while
+  another of the same definition is still writing fails `LOCKED` in every
+  repository and reads nothing. Treat that outcome as "skipped" in a cron
+  job — [locking](docs/guide/locking.md#scheduling).
+- **A killed run blocks that repository for up to two leases** (10 minutes
+  by default): its lock stays until `expiresAt` plus one lease. Delete
+  `<backup>/locks/<id>.json` by hand once nothing runs —
+  [after a crash](docs/guide/locking.md#after-a-crash).
+- **A lock file that does not parse blocks every `create` until removed**:
+  nothing in it says when it ends. `rm /mnt/backups/uploads/locks/<id>.json`
+  — [locking](docs/guide/locking.md#what-a-lock-file-looks-like).
 - **Check `instanceof BackupError` before `code`**: Node's file errors carry
   a `code` too (`ENOENT`) — [errors](docs/guide/errors.md#a-handler).
 
@@ -410,6 +470,9 @@ Each is a `@ts-expect-error` case in [`test/types/backup.ts`](https://github.com
 - [docs/guide/signing.md](docs/guide/signing.md) — signed manifests:
   `signing`, `trusted`, `generateSigningKeys`, `SIGNATURE`, changing the key,
   and checking a signature with `openssl`.
+- [docs/guide/locking.md](docs/guide/locking.md) — the single-writer lock
+  `create` takes: `LOCKED`, `LEASE_LOST`, `lock.lease`, the lock file, and
+  clearing one after a crash.
 - [docs/guide/repositories.md](docs/guide/repositories.md) —
   `localRepository`, `s3Repository` and the bucket it needs, several
   repositories, and writing your own.

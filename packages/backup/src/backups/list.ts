@@ -65,11 +65,11 @@ export async function listBackups(
 				),
 			});
 		} catch (error) {
-			if (
-				!(error instanceof BackupError) ||
-				(error.code !== 'INTEGRITY' && error.code !== 'SIGNATURE')
-			)
-				throw error;
+			if (!(error instanceof BackupError)) throw error;
+			// Gone between the listing and the read — pruned meanwhile: a
+			// backup that no longer exists is not listed, nor an error.
+			if (error.code === 'NOT_FOUND') continue;
+			if (error.code !== 'INTEGRITY' && error.code !== 'SIGNATURE') throw error;
 			unreadable.push(id);
 		}
 	}
