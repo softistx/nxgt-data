@@ -177,6 +177,11 @@ export {
 	ValidationError,
 	type ValidationIssue,
 } from './errors/data-error';
+export {
+	KitError,
+	type KitErrorCode,
+	type KitErrorOptions,
+} from './errors/kit-error';
 export { toDataError } from './errors/to-data-error';
 export {
 	type CursorPayload,
@@ -230,3 +235,33 @@ export {
 	type TransactionHost,
 	withTransaction,
 } from './transaction/with-transaction';
+export { defineConfig } from './wiring/config/define-config';
+export type {
+	BucketsIn,
+	BucketsOf,
+	CollectionsIn,
+	CollectionsOf,
+	DatabaseConfig,
+	DbName,
+	KitBucketOptions,
+	KitCollectionOptions,
+	KitConfig,
+	KitConfigInput,
+	NoBucketCollision,
+	NoBucketsToOption,
+	NoCollision,
+	NoOwnedBucketOption,
+	ReservedName,
+	Unwired,
+} from './wiring/config/types';
+export { createKit } from './wiring/create-kit';
+export { type DiscoverOptions, discoverCollections } from './wiring/discover';
+export type {
+	BucketSyncReport,
+	DbScope,
+	KitActor,
+	KitOf,
+	KitTransactionOptions,
+	MongoKit,
+	SoleScope,
+} from './wiring/types';
