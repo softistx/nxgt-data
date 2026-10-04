@@ -23,7 +23,10 @@ every function, class and type it exports in its **API** section.
 
 `examples/` holds applications built on them, which are not published:
 [`examples/hono-api`](examples/hono-api) is a Hono API on `@nxgt/mongo-kit`
-whose routes come from an OpenAPI spec.
+whose routes come from an OpenAPI spec, and
+[`examples/mongo-backup-job`](examples/mongo-backup-job) a scheduled MongoDB
+backup on `@nxgt/backup` and `@nxgt/mongo-backup`: a full backup weekly,
+incrementals in between, each verified, the rotation, and a restore drill.
 
 ## Development
 
