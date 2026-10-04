@@ -82,7 +82,8 @@ function share(uri: string, options: RedisOptions): Shared {
 	return shared;
 }
 
-async function ping(
+/** `PING` within `timeoutMs`; never throws. Also the wiring's, for a client handed in. */
+export async function ping(
 	client: RedisClient,
 	timeoutMs = 2_000,
 ): Promise<PingResult> {

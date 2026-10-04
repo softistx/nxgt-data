@@ -1,5 +1,4 @@
-import type { PingResult } from '../connection/connect';
-import { RedisError } from '../errors/redis-error';
+import { type PingResult, ping } from '../connection/connect';
 import type { LockOptions } from '../lock/with-lock';
 import { withLock } from '../lock/with-lock';
 import {
@@ -73,42 +72,12 @@ interface LooseInstanceScope {
 	ping(options?: { timeoutMs?: number }): Promise<PingResult>;
 }
 
-/**
- * `PING` on a client the application opened, which carries no `ping` of its
- * own — `RedisConnection.ping` belongs to what `connectRedis` returned.
- *
- * A copy of `@nxgt/redis`'s own `ping` (`connection/connect.ts`), down to the
- * message and the `PING_TIMEOUT` code: a health route reads the same answer
- * whether the Redis opened the client or the configuration handed one in. It is
- * a row in `AGENTS.md`'s duplication table — a fix in one is a fix to make in
- * the other. It answers within `timeoutMs` either way and never throws.
- */
-async function pingClient(
+/** `PING` on a client the application opened, which has no `ping` of its own. */
+function pingClient(
 	instance: InstanceContext,
 	options: { timeoutMs?: number } = {},
 ): Promise<PingResult> {
-	const timeoutMs = options.timeoutMs ?? 2_000;
-	const started = performance.now();
-	try {
-		const answer = instance.client.send('PING', []);
-		const timer = new Promise<never>((_, reject) => {
-			setTimeout(
-				() =>
-					reject(
-						new RedisError(
-							'PING_TIMEOUT',
-							'',
-							`ping: no answer in ${timeoutMs}ms`,
-						),
-					),
-				timeoutMs,
-			).unref?.();
-		});
-		await Promise.race([answer, timer]);
-		return { ok: true, latencyMs: performance.now() - started };
-	} catch (error) {
-		return { ok: false, error };
-	}
+	return ping(instance.client, options.timeoutMs);
 }
 
 /**
