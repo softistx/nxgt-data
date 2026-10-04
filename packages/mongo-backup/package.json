@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/mongo-backup",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "MongoDB for @nxgt/backup: a full backup read at one cluster time, incremental ones from the change stream, and a restore that lands each collection whole or not at all",
 	"license": "MIT",
 	"type": "module",
