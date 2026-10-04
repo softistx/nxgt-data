@@ -2,8 +2,8 @@
 
 This package throws one error of its own, `MongoBackupError`, told apart by
 its `code`: `SNAPSHOT_TOO_OLD`, `CHANGING`, `HISTORY_LOST`, `UNSUPPORTED`,
-`EXISTS` or `MALFORMED`. A refusal of the way `mongoSource` or `mongoTarget` was called
-is a plain `TypeError`. Errors from the driver or the server come back as
+`EXISTS`, `MALFORMED` or `NOT_FOUND`. A refusal of the way `mongoSource`,
+`mongoTarget` or `restoreCollections` was called is a plain `TypeError`. Errors from the driver or the server come back as
 they are; when one is the cause of a `MongoBackupError`, it is its `cause`.
 
 **No message of `MongoBackupError` or of those `TypeError`s quotes a value,
@@ -59,6 +59,19 @@ use `app` for the definition's name and `local` for the repository's.
   - [`mongoTarget: a metadata entry is larger than 16 MiB`](#mongotarget-a-metadata-entry-is-larger-than-16-mib)
   - [`mongoTarget: an entry is not a sequence of BSON documents`](#mongotarget-an-entry-is-not-a-sequence-of-bson-documents)
   - [`mongoTarget: a change is not one this version wrote`](#mongotarget-a-change-is-not-one-this-version-wrote)
+- **Restoring some collections**
+  - [`restoreCollections: db must be a MongoDB Db`](#restorecollections-db-must-be-a-mongodb-db)
+  - [`restoreCollections: scratch must be a MongoDB Db`](#restorecollections-scratch-must-be-a-mongodb-db)
+  - [`restoreCollections: scratch must be on db's client`](#restorecollections-scratch-must-be-on-dbs-client)
+  - [`restoreCollections: scratch must be another database`](#restorecollections-scratch-must-be-another-database)
+  - [`restoreCollections: documents must be { filter, existing: 'replace' | 'keep' }`](#restorecollections-documents-must-be--filter-existing-replace--keep-)
+  - [`restoreCollections: replace is for whole collections; documents says what happens to those there`](#restorecollections-replace-is-for-whole-collections-documents-says-what-happens-to-those-there)
+  - [`restoreCollections: the scratch database holds collections; give an empty one`](#restorecollections-the-scratch-database-holds-collections-give-an-empty-one)
+  - [`restoreCollections: a collection named in collections is not in the backup`](#restorecollections-a-collection-named-in-collections-is-not-in-the-backup)
+  - [`restoreCollections: as must give a collection name`](#restorecollections-as-must-give-a-collection-name)
+  - [`restoreCollections: as gives two collections one name`](#restorecollections-as-gives-two-collections-one-name)
+  - [`restoreCollections: as names a collection not restored`](#restorecollections-as-names-a-collection-not-restored)
+  - [`restoreCollections: a collection or view to restore is already in the database; restore it under another name, or pass replace: true`](#restorecollections-a-collection-or-view-to-restore-is-already-in-the-database-restore-it-under-another-name-or-pass-replace-true)
 
 ## Install and run
 
@@ -407,8 +420,10 @@ await backups.create(mongoSource({ db }));
 **When:** an incremental or differential `create`, when a collection the
 chain does not follow was renamed to a name the filter takes — a collection
 left out by `collections`, one a wider filter would take only from the next
-full backup, or the `nxgt-restore-<uuid>` collections of a restore into the
-database backed up.
+full backup, the `nxgt-restore-<uuid>` collections of a restore into the
+database backed up, or the `tmpXXXXX.renameCollection` collection through
+which the server moves one a whole `restoreCollections` lands there, when
+the chain's filter does not take that name — a list never does.
 **Why:** the documents of a collection not followed were never read, so the
 change stream cannot give them, and a restore could not bring them back. A rename the other way — out of those backed up — is recorded as a
 drop, and a rename between two names taken is replayed.
@@ -559,4 +574,221 @@ version of this package.
 
 ```sh
 bun add @nxgt/mongo-backup@latest
+```
+
+## Restoring some collections
+
+`restoreCollections(backups, id, options)` rebuilds the backup, chain
+included, in a scratch database, takes from it what `collections` names,
+moves it into `db` — whole, or only the documents `documents` selects —
+then drops the scratch database, failed or not — save one you passed that
+was not empty, which is refused and left as it was. Of the errors below,
+only the last one may leave something in `db`.
+
+### `restoreCollections: db must be a MongoDB Db`
+
+**Code:** none — a `TypeError`; nothing was read.
+**When:** `restoreCollections` with a `db` that is not a driver `Db` — a
+`MongoClient`, a database name, or `undefined`.
+**Why:** the collections are moved into one database, and the scratch one
+is made on its client.
+**Fix:** give the database, not the client.
+
+```ts
+import { restoreCollections } from '@nxgt/mongo-backup';
+
+await restoreCollections(backups, id, { identities, db: client.db('shop') });
+```
+
+### `restoreCollections: scratch must be a MongoDB Db`
+
+**Code:** none — a `TypeError`; nothing was read.
+**When:** `restoreCollections` with a `scratch` that is not a driver `Db`,
+such as a database name.
+**Why:** `scratch` is where the backup is rebuilt, and it is dropped
+afterwards; it must be a database on `db`'s client.
+**Fix:** pass a `Db` — or leave `scratch` out for a fresh
+`nxgt-restore-<uuid>` on `db`'s client.
+
+```ts
+await restoreCollections(backups, id, { identities, db, scratch: client.db('restore-scratch') });
+```
+
+### `restoreCollections: scratch must be on db's client`
+
+**Code:** none — a `TypeError`; nothing was read.
+**When:** `restoreCollections` with a `scratch` from another `MongoClient`
+than `db`'s — even one connected to the same deployment.
+**Why:** collections move out of the scratch database with a rename across
+databases, and documents with a `$merge`; both run on the scratch's client
+and name `db` there. From another server, documents would land in a
+database of that name on the wrong cluster, and the restore would look
+like it worked.
+**Fix:** take both from one client — or leave `scratch` out.
+
+```ts
+await restoreCollections(backups, id, { identities, db: client.db('shop'), scratch: client.db('shop-scratch') });
+```
+
+### `restoreCollections: scratch must be another database`
+
+**Code:** none — a `TypeError`; nothing was read.
+**When:** `restoreCollections` with a `scratch` whose name is `db`'s.
+**Why:** the scratch database is dropped when the restore ends, so it can
+never be the database restored into.
+**Fix:** a database of its own, or none.
+
+```ts
+await restoreCollections(backups, id, { identities, db: client.db('shop'), scratch: client.db('shop-scratch') });
+```
+
+### `restoreCollections: documents must be { filter, existing: 'replace' | 'keep' }`
+
+**Code:** none — a `TypeError`; nothing was read.
+**When:** `restoreCollections` with a `documents` whose `filter` is not a
+query object — an array, a string — or whose `existing` is neither
+`'replace'` nor `'keep'`, or is left out.
+**Why:** a document of the backup whose `_id` is already in the collection
+either replaces it or is dropped, and the restore does not pick for you.
+**Fix:**
+
+```ts
+await restoreCollections(backups, id, {
+	identities,
+	db,
+	collections: ['orders'],
+	documents: { filter: { customer: customerId }, existing: 'keep' },
+});
+```
+
+### `restoreCollections: replace is for whole collections; documents says what happens to those there`
+
+**Code:** none — a `TypeError`; nothing was read.
+**When:** `restoreCollections` with both `documents` and `replace`.
+**Why:** with `documents`, the selected documents are merged into the
+collection there, and `documents.existing` already says what happens to
+one with the same `_id`; `replace` drops and moves whole collections.
+**Fix:** one or the other.
+
+```ts
+await restoreCollections(backups, id, { identities, db, documents: { filter: {}, existing: 'replace' } });
+await restoreCollections(backups, id, { identities, db, replace: true });
+```
+
+### `restoreCollections: the scratch database holds collections; give an empty one`
+
+**Code:** `EXISTS`; nothing was read, and the scratch database was left as
+it was.
+**When:** `restoreCollections` with a `scratch` that holds a collection or
+view — a database in use, or the scratch of an earlier run that was killed
+before it could drop it.
+**Why:** the scratch database is dropped when the restore ends; a database
+holding something might be one that should not be.
+**Fix:** check what it holds, drop it if it is only a leftover, or give
+another — or leave `scratch` out.
+
+```ts
+const scratch = client.db('restore-scratch');
+await scratch.dropDatabase(); // only once you know nothing in it is needed
+await restoreCollections(backups, id, { identities, db, scratch });
+```
+
+### `restoreCollections: a collection named in collections is not in the backup`
+
+**Code:** `NOT_FOUND`; nothing landed in `db`.
+**When:** `restoreCollections` with `collections: [...]` listing a name the
+backup does not hold, once the backup has been rebuilt in the scratch
+database: a typo, a collection created after the backup, or one left out
+of it by `mongoSource`'s `collections`.
+**Why:** names are the backup's, as they were at the time of the backup
+`id` — after every rename the chain's incremental backups recorded. A
+collection renamed since the full backup is named by its new name; one
+renamed after the backup `id`, by its old one. Restoring nothing for a
+name, without saying so, would look like success.
+**Fix:** name collections as they were at the backup's time — or pass a
+function, which takes what it matches and refuses nothing.
+
+```ts
+await restoreCollections(backups, id, {
+	identities,
+	db,
+	collections: (name) => ['orders', 'customers'].includes(name),
+});
+```
+
+### `restoreCollections: as must give a collection name`
+
+**Code:** none — a `TypeError`; nothing landed in `db`.
+**When:** `restoreCollections` with an `as` that gives, for one of the
+collections restored, something other than a string, an empty string, a
+name holding `$` or a NUL character, or a name starting with `system.`.
+An `as` map is checked before the backup is read; a function, once the
+backup has been rebuilt in the scratch database and the names are known.
+**Why:** MongoDB refuses those names, or keeps them for itself.
+**Fix:** a map keyed by names restored — one it does not list keeps its
+own — or a function that returns a name for every one.
+
+```ts
+await restoreCollections(backups, id, { identities, db, as: { orders: 'orders-restored' } });
+await restoreCollections(backups, id, { identities, db, as: (name) => `${name}-restored` });
+```
+
+### `restoreCollections: as gives two collections one name`
+
+**Code:** none — a `TypeError`; nothing landed in `db`.
+**When:** `restoreCollections` with an `as` that sends two of the
+collections or views restored to the same name — a function returning a
+constant, or a map naming one collection after another that keeps its own.
+Two keys of an `as` map given one name are refused before the backup is
+read; a clash with a collection that keeps its own name, and anything a
+function gives, once the backup has been rebuilt in the scratch database.
+**Why:** one would land over the other.
+**Fix:** a name per collection; a suffix or a prefix keeps them apart.
+
+```ts
+await restoreCollections(backups, id, { identities, db, as: (name) => `${name}-restored` });
+```
+
+### `restoreCollections: as names a collection not restored`
+
+**Code:** none — a `TypeError`; nothing landed in `db`.
+**When:** `restoreCollections` with an `as` map whose key names no
+collection or view restored — a typo, a name `collections` leaves out, a
+name the backup does not hold at its time, or a view when `documents` is
+given (views hold no documents, so none is restored). It is checked once
+the backup has been rebuilt in the scratch database.
+**Why:** a key that names nothing would leave the collection meant under
+its own name — so with `documents` and `existing: 'replace'`, or with
+`replace: true`, over the live one.
+**Fix:** key the map by the names the backup holds at its time, after
+any rename its chain recorded.
+
+```ts
+await restoreCollections(backups, id, { identities, db, collections: ['orders'], as: { orders: 'orders-restored' } });
+```
+
+### `restoreCollections: a collection or view to restore is already in the database; restore it under another name, or pass replace: true`
+
+**Code:** `EXISTS`.
+**When:** a whole restore — without `documents` — when a collection or
+view restored lands on a name `db` already holds: its own name, or the one
+`as` gives it.
+**Why:** a restore never writes over data without being asked to. Every
+name is checked before anything moves, so in the common case nothing
+landed. A collection created under one of those names between the check
+and the move is refused as well, and left untouched; the collections moved
+before it stay restored.
+**Fix:** restore under another name, replace what is there — each
+collection or view restored is dropped and moved anew, the others are left
+as they are — or merge documents into it instead.
+
+```ts
+await restoreCollections(backups, id, { identities, db, collections: ['orders'], as: { orders: 'orders-then' } });
+await restoreCollections(backups, id, { identities, db, collections: ['orders'], replace: true });
+await restoreCollections(backups, id, {
+	identities,
+	db,
+	collections: ['orders'],
+	documents: { filter: {}, existing: 'keep' },
+});
 ```

@@ -10,7 +10,9 @@ export type MongoBackupErrorCode =
 	/** A collection or view the restore would write is already there. */
 	| 'EXISTS'
 	/** An entry is not one this version wrote. */
-	| 'MALFORMED';
+	| 'MALFORMED'
+	/** A collection a restore names is not in the backup. */
+	| 'NOT_FOUND';
 
 /**
  * What `@nxgt/mongo-backup` throws, told apart by `code`. Its message says

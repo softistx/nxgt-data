@@ -42,7 +42,8 @@ await backups.restore(next.id, mongoTarget({ db: client.db('shop-restored') }), 
 ```
 
 > **0.x.** Full, incremental and differential backups of one database, and
-> restores into it or another, are here. What comes next — and what was
+> restores into it or another — whole, or some collections or documents —
+> are here. What comes next — and what was
 > ruled out — is in the [roadmap](docs/roadmap.md).
 
 ## Install
@@ -204,19 +205,76 @@ if (latest) {
 [Restore](docs/guide/restore.md) has the order, `replace`, restoring one
 collection with `only`, and what a failure leaves.
 
+## Restore part of a backup
+
+```ts
+import { bindBackup, defineBackup, localRepository } from '@nxgt/backup';
+import { restoreCollections } from '@nxgt/mongo-backup';
+import { MongoClient } from 'mongodb';
+
+const client = await MongoClient.connect(process.env.MONGO_URL as string);
+const backups = bindBackup(defineBackup({ name: 'shop-db' }), {
+	repositories: [localRepository({ path: '/mnt/backups' })],
+	recipients: [process.env.BACKUP_RECIPIENT as string],
+});
+const identities = [process.env.BACKUP_IDENTITY as string];
+const latest = (await backups.list()).backups.at(-1);
+
+if (latest) {
+	// orders as it was at the backup, beside today's
+	await restoreCollections(backups, latest.id, {
+		identities,
+		db: client.db('shop'),
+		collections: ['orders'], // names at the backup's time; all by default
+		as: { orders: 'orders-before' }, // or (name) => …; its own name by default
+	});
+
+	// one deleted customer, merged back into the live collection
+	await restoreCollections(backups, latest.id, {
+		identities,
+		db: client.db('shop'),
+		collections: ['customers'],
+		documents: { filter: { _id: 'c-42' }, existing: 'keep' }, // or 'replace'
+	});
+}
+```
+
+- **The whole backup is rebuilt first**, chain included, in a scratch
+  database — `nxgt-restore-<uuid>` on `db`'s client, or the empty one given
+  as `scratch` — then dropped, failed or not. Getting one document costs a
+  full restore, and the user needs the right to create that database.
+- **Whole** (no `documents`): each collection moves into `db` with its
+  options and indexes, and views are made again on their collection's new
+  name. A name already taken is `EXISTS` before anything moves, unless
+  `replace: true`.
+- **Documents**: what `filter` matches is merged on `_id`; `existing` says
+  whether a document already there is replaced or kept. A missing
+  collection is made with the backup's options and indexes; views hold no
+  documents and are left out. A key of an `as` map that names nothing
+  restored is a `TypeError`, so a typo never lands a collection over the
+  live one under its own name.
+- A name in `collections` the backup lacks is `NOT_FOUND`. A sharded
+  collection cannot be restored whole, and a `$lookup` inside a view is not
+  renamed —
+  [restoring part of a backup](docs/guide/restore.md#restoring-part-of-a-backup).
+
 ## API
 
 | Export | |
 | --- | --- |
 | `mongoSource({ db, collections? })` | a `BackupSource` of `kind: 'mongo'` for one database. `collections` is a list of names or a test on each name; every collection and view but `system.*` by default |
 | `mongoTarget({ db, replace?, tmpDir? })` | a `RestoreTarget` for one database, the one backed up or another. `replace` is `false` by default; `tmpDir` must be absolute |
+| `restoreCollections(backups, id, options)` | some collections and views of a backup, chain included, into `db`: whole, or the documents a filter takes. `backups` is anything with `restore`, such as a `bindBackup` binding; resolves to `RestoredCollections` |
 | `MongoBackupError` | what this package throws, with a `code` |
 
 | Type | |
 | --- | --- |
 | `MongoSourceOptions`, `MongoTargetOptions` | what `mongoSource` and `mongoTarget` take |
+| `RestoreCollectionsOptions`, `DocumentSelection` | what `restoreCollections` takes, and its `documents: { filter, existing }` |
+| `RestoredCollections` | `Restored` plus `collections: { name, as, documents? }[]` |
+| `Restorer` | what `restoreCollections` needs of `backups`: its `restore` |
 | `CollectionFilter` | `readonly string[] \| ((name: string) => boolean)` |
-| `MongoBackupErrorCode` | `'SNAPSHOT_TOO_OLD' \| 'CHANGING' \| 'HISTORY_LOST' \| 'UNSUPPORTED' \| 'EXISTS' \| 'MALFORMED'` |
+| `MongoBackupErrorCode` | `'SNAPSHOT_TOO_OLD' \| 'CHANGING' \| 'HISTORY_LOST' \| 'UNSUPPORTED' \| 'EXISTS' \| 'MALFORMED' \| 'NOT_FOUND'` |
 
 Everything else — `bindBackup`, `create`, `restore`, `verify`, `prune`,
 keys, repositories — is `@nxgt/backup`'s.
@@ -234,13 +292,21 @@ ends up in logs. The server's error, when there is one, is its `cause`.
 | `HISTORY_LOST` | the oplog no longer reaches back to where the last backup stopped | `mongoSource: the change stream cannot resume where the last backup stopped: the oplog no longer reaches back there; make a full backup` |
 | `UNSUPPORTED` | a time-series collection; an update to a dotted or numeric field name without post-images; a rename into the collections the chain follows; more collections created, renamed or dropped since the full backup than a position records; a server that is not a replica set or a sharded cluster | `mongoSource: a collection was renamed into those backed up, with documents an incremental backup never read; make a full backup` |
 | `EXISTS` | a collection or view the restore would write is already in the target database — a recorded rename's new name included, when it replaced nothing at the source | `mongoTarget: a collection or view the backup holds is already in the database; restore into another one, or pass replace: true` |
+| `EXISTS` | `restoreCollections`, whole, without `replace`: a name it would land under is taken | `restoreCollections: a collection or view to restore is already in the database; restore it under another name, or pass replace: true` |
+| `EXISTS` | the `scratch` given to `restoreCollections` is not empty | `restoreCollections: the scratch database holds collections; give an empty one` |
 | `MALFORMED` | an entry, a change or a recorded position is not one this version wrote | `mongoTarget: a metadata entry is not one this version wrote` |
+| `NOT_FOUND` | a name in `restoreCollections`' `collections` list is not in the backup | `restoreCollections: a collection named in collections is not in the backup` |
 
 Wiring is a bare `TypeError`: `mongoSource: db must be a MongoDB Db`,
 `mongoSource: collections must be a list of names or a function`,
 `mongoSource: a collection named in collections is not in the database`,
 `mongoTarget: db must be a MongoDB Db`,
-`mongoTarget: tmpDir must be an absolute path`. Every `@nxgt/backup` error
+`mongoTarget: tmpDir must be an absolute path`, and `restoreCollections`'
+own — `db` or `scratch` not a `Db`, `scratch` the same database as `db`
+or on another client, a malformed `documents`, `replace` with `documents`,
+an `as` that gives a name MongoDB refuses or one name twice, or whose key
+names nothing restored — listed in
+[errors](docs/guide/errors.md#the-bare-typeerrors). Every `@nxgt/backup` error
 passes through as it is, and so does an error from the driver — an
 `E11000` duplicate key during a restore, a server error — **whose message
 may quote collection names and values**: only `MongoBackupError` and the
@@ -305,7 +371,8 @@ bare `TypeError`s quote none. Every message is in
 - [docs/guide/restore.md](docs/guide/restore.md) — `mongoTarget`'s options,
   the order, staging, `EXISTS` and `replace`, changes and renames, one
   collection with `only`, another database, what a failure leaves, and
-  restoring into the database you back up.
+  restoring into the database you back up, and restoring part of a backup
+  with `restoreCollections`.
 - [docs/guide/format.md](docs/guide/format.md) — the entries, their names
   and bytes, the position and the collections it records, and reading a
   backup with `bsondump`.
