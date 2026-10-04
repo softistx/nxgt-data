@@ -106,6 +106,11 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`defineMongo: database "main" has neither a uri nor a client`](#definemongo-database-main-has-neither-a-uri-nor-a-client)
   - [`defineMongo: database "main" has both a uri and a client: pass the one it should use`](#definemongo-database-main-has-both-a-uri-and-a-client-pass-the-one-it-should-use)
   - [`defineMongo: database "main" has client options beside a client it did not open: pass them where the client is made`](#definemongo-database-main-has-client-options-beside-a-client-it-did-not-open-pass-them-where-the-client-is-made)
+  - [`defineMongo: database "main" is not a configuration object`](#definemongo-database-main-is-not-a-configuration-object)
+  - [`defineMongo: database "main" has a uri that is not a string`](#definemongo-database-main-has-a-uri-that-is-not-a-string)
+  - [`defineMongo: database "main" has a client that is not a MongoClient`](#definemongo-database-main-has-a-client-that-is-not-a-mongoclient)
+  - [`defineMongo: database "main" has an empty database name`](#definemongo-database-main-has-an-empty-database-name)
+  - [`defineMongo: database "main" has no collections object`](#definemongo-database-main-has-no-collections-object)
   - [`` defineMongo: database "main" has a collections object with no definition in it: pass the module, as in `import * as collections` ``](#-definemongo-database-main-has-a-collections-object-with-no-definition-in-it-pass-the-module-as-in-import--as-collections-)
   - [`defineMongo: database "main" wires "users" and "people" to the same collection, "users"`](#definemongo-database-main-wires-users-and-people-to-the-same-collection-users)
   - [`defineMongo: database "main" has "session" in options, which the wiring decides: …`](#definemongo-database-main-has-session-in-options-which-the-wiring-decides-)
@@ -1646,6 +1651,88 @@ ignored.
 ```ts
 const client = new MongoClient(uri, { maxPoolSize: 50 }); // here
 defineMongo({ client, collections });
+```
+
+### `defineMongo: database "main" is not a configuration object`
+
+**When:** calling `defineMongo({ databases: { main: … } })` with a database whose
+value is not an object: `null`, a string, or a URI written where the config
+belongs (`main: process.env.MONGO_URI`).
+
+**Why:** each database is a configuration — `uri` or `client`, and
+`collections` — not the connection string itself.
+
+**Fix:**
+
+```ts
+defineMongo({ databases: { main: { uri, collections } } });
+```
+
+### `defineMongo: database "main" has a uri that is not a string`
+
+**When:** calling `defineMongo` with a `uri` that is a number, a `URL`, or an
+empty string.
+
+**Why:** the driver takes a connection string, so the `uri` is checked as one
+before anything connects. An environment variable that is set but empty gives
+`''`, which is refused the same way (a variable that is not set at all is
+[neither a uri nor a client](#definemongo-database-main-has-neither-a-uri-nor-a-client)).
+
+**Fix:**
+
+```ts
+const uri = process.env.MONGO_URI;
+if (!uri) throw new Error('MONGO_URI is not set');
+defineMongo({ uri, collections }); // a non-empty string, or a URL's .href
+```
+
+### `defineMongo: database "main" has a client that is not a MongoClient`
+
+**When:** calling `defineMongo` with a `client` that is not a driver
+`MongoClient`: a `Db`, a `Promise` of one, or the connection string.
+
+**Why:** the client is told by its `db()` method, which the wiring calls to
+reach each database. A `Db`, or the promise from `MongoClient.connect()` that was
+not awaited, has none.
+
+**Fix:**
+
+```ts
+import { MongoClient } from 'mongodb';
+
+const client = await new MongoClient(uri).connect(); // the client, not a promise
+defineMongo({ client, database: 'main', collections });
+```
+
+### `defineMongo: database "main" has an empty database name`
+
+**When:** calling `defineMongo` with `database: ''`.
+
+**Why:** `database` is the name on the server and is read as given. An empty
+string is usually a variable that was set but left empty; leaving `database` out
+is allowed and takes the name the `uri` carries, or `test`.
+
+**Fix:**
+
+```ts
+defineMongo({ uri, database: process.env.MONGO_DB || undefined, collections });
+```
+
+### `defineMongo: database "main" has no collections object`
+
+**When:** calling `defineMongo` with no `collections`, or one that is not an
+object: `undefined`, `null`, a string.
+
+**Why:** the collections are read from a module object, and nothing else says
+what the database holds. `undefined` is most often a module that was not
+imported as a namespace, or a path that resolved to nothing.
+
+**Fix:**
+
+```ts
+import * as collections from './models';
+
+defineMongo({ uri, collections });
 ```
 
 ### `` defineMongo: database "main" has a collections object with no definition in it: pass the module, as in `import * as collections` ``
