@@ -1,17 +1,17 @@
 import { NotFoundError, type ReadDocumentOf } from '@nxgt/mongo';
 import type { ObjectId } from 'mongodb';
-import type { Kit } from '../../db';
+import type { AppMongo } from '../../db';
 import type { NewUser, UserPatch } from '../../generated/types';
 import type { users } from './users.model';
 
 export type User = ReadDocumentOf<typeof users>;
 
 /**
- * The users' work, over one kit.
+ * The users' work, over one Mongo.
  *
- * The kit is the **constructor's**, and it is the kit of whatever asked —
+ * The Mongo is the **constructor's**, and it is the Mongo of whatever asked —
  * a request, a script, a test. When it comes from a request it is
- * `kit.as(actor)`, so every write here stamps that user without a method
+ * `mongo.as(actor)`, so every write here stamps that user without a method
  * having to say so.
  *
  * `create` takes `NewUser`, the body the spec describes and the router has
@@ -20,10 +20,10 @@ export type User = ReadDocumentOf<typeof users>;
  * handler: it is the collection's default or the transaction's doing.
  */
 export class UserService {
-	constructor(private readonly kit: Kit) {}
+	constructor(private readonly mongo: AppMongo) {}
 
 	create(values: NewUser): Promise<User> {
-		return this.kit.db.users.create(values);
+		return this.mongo.db.users.create(values);
 	}
 
 	/**
@@ -36,7 +36,7 @@ export class UserService {
 	 * wanted anyway. A caller that already holds the `ObjectId` passes that.
 	 */
 	find(id: ObjectId | string): Promise<User | undefined> {
-		return this.kit.db.users.findById(id);
+		return this.mongo.db.users.findById(id);
 	}
 
 	/**
@@ -52,7 +52,7 @@ export class UserService {
 		values: UserPatch,
 	): Promise<User | undefined> {
 		try {
-			return await this.kit.db.users.update(id, values);
+			return await this.mongo.db.users.update(id, values);
 		} catch (error) {
 			if (error instanceof NotFoundError) return undefined;
 			throw error;

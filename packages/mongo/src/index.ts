@@ -179,6 +179,11 @@ export {
 } from './errors/data-error';
 export { toDataError } from './errors/to-data-error';
 export {
+	WiringError,
+	type WiringErrorCode,
+	type WiringErrorOptions,
+} from './errors/wiring-error';
+export {
 	type CursorPayload,
 	decodeCursor,
 	encodeCursor,
@@ -230,3 +235,33 @@ export {
 	type TransactionHost,
 	withTransaction,
 } from './transaction/with-transaction';
+export { defineMongo } from './wiring/config/define-mongo';
+export type {
+	BucketsIn,
+	BucketsOf,
+	CollectionsIn,
+	CollectionsOf,
+	DatabaseConfig,
+	DbMemberName,
+	DbName,
+	MongoConfig,
+	MongoConfigInput,
+	NoBucketCollision,
+	NoBucketsToOption,
+	NoCollision,
+	NoOwnedBucketOption,
+	Unwired,
+	WiredBucketOptions,
+	WiredCollectionOptions,
+} from './wiring/config/types';
+export { type DiscoverOptions, discoverCollections } from './wiring/discover';
+export { openMongo } from './wiring/open-mongo';
+export type {
+	BucketSyncReport,
+	DbScope,
+	Mongo,
+	MongoActor,
+	MongoOf,
+	MongoTransactionOptions,
+	SoleScope,
+} from './wiring/types';

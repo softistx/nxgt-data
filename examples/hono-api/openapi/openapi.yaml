@@ -2,8 +2,8 @@ openapi: 3.1.0
 info:
   title: Blog
   description: |
-    A small blog API, written to show what `@nxgt/mongo-kit` wires: one
-    configuration, a kit per request carrying the author, and the
+    A small blog API, written to show what `@nxgt/mongo` wires: one
+    configuration, a Mongo per request carrying the author, and the
     collections typed on the driver's own `Db`.
   version: 1.0.0
   license:
@@ -28,7 +28,7 @@ components:
       description: |
         Who is asking, as a user's `_id`. The example keeps it a bare header
         so that the wiring stays the subject; a real application puts its
-        session behind this, and the kit takes the actor from there just the
+        session behind this, and the Mongo takes the actor from there just the
         same.
 paths:
   /users:

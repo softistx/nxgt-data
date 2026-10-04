@@ -19,8 +19,19 @@ the errors, and the second example.
 | [Connecting](guide/connecting.md) | opening the client, health checks, shutting down, and running tests against a real MongoDB |
 | [Migrations](guide/migrations.md) | documents have to be rewritten, in order, once, and recorded |
 | [Files (GridFS)](guide/gridfs.md) | files live in MongoDB: uploading, serving ranges, storing the same bytes once |
+| [Wiring: configuration](guide/wiring/configuration.md) | you describe an application's databases and collections once, with `defineMongo`, one database or several |
+| [Wiring: the `db` scope](guide/wiring/db-scope.md) | you read `mongo.db.users`, reach for what only the driver's `Db` has, or build a `Mongo` per request |
+| [Wiring: the actor, sessions and transactions](guide/wiring/actor-and-transactions.md) | a write has to be stamped with who made it, or several writes across collections and buckets commit together |
+| [Wiring: syncing](guide/wiring/sync.md) | `mongo.sync()` has to put every wired collection on the server, as a deployment step |
+| [Wiring: files](guide/wiring/files.md) | GridFS buckets are wired beside the collections, in the same transactions, with `syncBuckets()` |
+| [Wiring: health](guide/wiring/health.md) | a health endpoint has to say whether each database answers, and how fast |
+| [Wiring: `discoverCollections`](guide/wiring/discover-collections.md) | a script has to find a repository's definitions without importing each one (Bun only) |
 | [Troubleshooting](troubleshooting.md) | you have an error message, or a warning in the log, and want the fix |
 | [Roadmap](roadmap.md) | you want to know what is coming, and what will not |
+
+The wiring pages are the long form of the README's quick start: `defineMongo`
+and `openMongo` over everything the other pages describe. Their refusals,
+`WiringError`, are in [Errors](guide/errors.md#wiring-errors).
 
 Every example is TypeScript, imports from `@nxgt/mongo` — or
 `@nxgt/mongo/migrations`, `@nxgt/mongo/gridfs` — and assumes a `db` from

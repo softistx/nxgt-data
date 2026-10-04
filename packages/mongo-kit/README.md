@@ -1,30 +1,74 @@
 # @nxgt/mongo-kit
 
-An application's MongoDB in one object: a configuration checked once, the
-clients it needs opened from it, and every collection of
-[`@nxgt/mongo`](https://www.npmjs.com/package/@nxgt/mongo) typed on the
-database it lives in — with its GridFS files beside them, in the same
-transactions.
+> **Deprecated.** This package moved into
+> [`@nxgt/mongo`](https://www.npmjs.com/package/@nxgt/mongo), which now holds
+> the whole API under shorter names. `@nxgt/mongo-kit` only re-exports it, with
+> the old names marked `@deprecated`, and will not grow.
+
+## What was renamed
+
+| `@nxgt/mongo-kit` | `@nxgt/mongo` |
+| --- | --- |
+| `createKit` | `openMongo` |
+| `defineConfig` | `defineMongo` |
+| `KitError` | `WiringError` |
+| `KitErrorCode` / `KitErrorOptions` | `WiringErrorCode` / `WiringErrorOptions` |
+| `MongoKit<C>` | `Mongo<C>` |
+| `KitOf` | `MongoOf` |
+| `KitConfig` / `KitConfigInput` | `MongoConfig` / `MongoConfigInput` |
+| `KitActor` | `MongoActor` |
+| `KitTransactionOptions` | `MongoTransactionOptions` |
+| `KitBucketOptions` / `KitCollectionOptions` | `WiredBucketOptions` / `WiredCollectionOptions` |
+| `ReservedName` | `DbMemberName` |
+
+Everything else keeps its name: `discoverCollections`, `DiscoverOptions`,
+`DbScope`, `SoleScope`, `DbName`, `DatabaseConfig`, `CollectionsIn`,
+`CollectionsOf`, `BucketsIn`, `BucketsOf`, `BucketSyncReport`, `NoCollision`,
+`NoBucketCollision`, `NoOwnedBucketOption`, `NoBucketsToOption` and `Unwired`.
+
+**What else changed in the move:** the error's `name` is `'WiringError'`
+instead of `'KitError'`, and the messages begin `defineMongo:` and
+`openMongo:` instead of `defineConfig:` and `createKit:`. The ones that named
+the object changed too:
+
+| was | is |
+| --- | --- |
+| `kit.db: this kit has several databases. …` | `db: this Mongo has several databases. …` |
+| `This kit has no database "…": …` | `No database "…" in this Mongo: …` |
+| `close: this kit came from … Close the kit createKit returned …` | `close: this Mongo came from … Close the one openMongo returned …` |
+| `transaction: this kit …` | `transaction: this Mongo …` |
+| `… which the kit decides` | `… which the wiring decides` |
+
+A test that matches one of those messages, or the `name`, has to change with
+them, whichever package it imports from. `error instanceof KitError` still
+works: the alias is the same class.
+
+## Moving over
 
 ```ts
+// before
 import { createKit, defineConfig } from '@nxgt/mongo-kit';
-import * as collections from './models';   // every `defineCollection` of the app
 
 export const kit = await createKit(
 	defineConfig({ uri: process.env.MONGO_URI!, collections }),
 );
-
-const user = await kit.db.users.create({ email: 'ada@example.com' });
-const posts = await kit.db.posts.findMany({ filter: { authorId: user._id } });
-await kit.db.command({ ping: 1 });         // the driver's Db, untouched
+await kit.db.users.create({ email: 'ada@example.com' });
 ```
 
-`kit.db` is the driver's `Db` with the collections on it: `db.users` is the
-typed collection `getCollection(db, users)` gives, and everything a `Db`
-answers to is still there. Nothing else has to be wired: no `getCollection`
-at each call site, no client to pass around, no session to thread by hand.
+```ts
+// after
+import { defineMongo, openMongo } from '@nxgt/mongo';
 
-> **0.x, on `@nxgt/mongo`.** The API is still settling.
+export const mongo = await openMongo(
+	defineMongo({ uri: process.env.MONGO_URI!, collections }),
+);
+await mongo.db.users.create({ email: 'ada@example.com' });
+```
+
+The configuration, the scopes, `as`, `withSession`, `transaction`, `sync`,
+`syncBuckets`, `ping` and `close()` are unchanged; only the names above
+differ. The guides are in
+[`@nxgt/mongo`](https://github.com/softistx/nxgt-data/tree/develop/packages/mongo/docs/guide/wiring).
 
 ## Install
 
@@ -32,366 +76,8 @@ at each call site, no client to pass around, no session to thread by hand.
 bun add @nxgt/mongo-kit @nxgt/mongo mongodb zod
 ```
 
-- `@nxgt/mongo` `^0.17.0`: required peer. The collections, the buckets, their
-  options and their behaviour are its; this package wires them. The kit
-  imports its `./gridfs` subpath, so a copy older than 0.14 fails at the first
-  import with `Cannot find module '@nxgt/mongo/gridfs'`.
-- `mongodb` `>=7.0.0 <8`: required peer, as `@nxgt/mongo` needs it. `zod` is
-  `@nxgt/mongo`'s.
-- `typescript` 6: required peer, the version every `@nxgt` package pins.
-- Tested against MongoDB 8.2. A **replica set** only for transactions, which
-  is MongoDB's own rule.
-
-## The collections
-
-They come from a module object — one import, and every type follows:
-
-```ts
-// src/models/index.ts
-export * from './users.model';
-export * from './posts.model';
-
-// src/db.ts
-import * as collections from './models';
-```
-
-Each export that is a `defineCollection` becomes a key on the scope, under
-the name it is exported by; anything else in the module — a function, a
-constant, a type — is left where it is. The key is the name the application
-reads (`db.users`), and the collection's own `name` is the one on the server,
-so `export const users = defineCollection({ name: 'app_users', … })` is
-`db.users` here and `app_users` there. Two exports on one server collection
-are refused: two keys writing to the same place is a mistake, not a feature.
-
-For a **script** — a sync or a migration run from the repository — the files
-can be read from disk instead:
-
-```ts
-import { syncCollections } from '@nxgt/mongo';
-import { discoverCollections } from '@nxgt/mongo-kit';
-
-const definitions = await discoverCollections({ glob: 'src/**/*.model.ts' });
-await syncCollections(db, definitions);     // `db` from connectMongo, say
-```
-
-It gives `@nxgt/mongo`'s `AnyCollectionDefinition[]`, **with no types**: a
-glob is read at run time, so a bundler cannot follow it and the compiler sees
-nothing. It **runs under Bun** — the glob is `Bun.Glob` — and it imports each
-file it finds, so their top level runs. It is for scripts, never for the
-wiring of an application.
-
-## Several databases
-
-They name themselves, and `kit.databases` reads them:
-
-```ts
-export const kit = await createKit(
-	defineConfig({
-		databases: {
-			main: { uri: process.env.MONGO_URI!, collections },
-			analytics: { uri: process.env.ANALYTICS_URI!, collections: events },
-		},
-	}),
-);
-
-await kit.databases.main.users.create({ email: 'ada@example.com' });
-await kit.databases.analytics.events.create({ kind: 'signup' });
-```
-
-`kit.db` is then `never`: with two databases there is no “the” database, and
-the name is what says which — and reading it anyway, from JavaScript or
-across an `any`, throws. A single database is named `default`, so
-`kit.databases.default` and `kit.clients.default` are the long way of writing
-the same thing, and `sync()` reports under that key.
-
-Two databases on one URI share one client, which is what `connectMongo`
-already does; their `clientOptions` must then be identical, since the second
-hold on a client opened with other options is refused.
-
-## The actor and the session
-
-```ts
-await kit.as(userId).db.posts.create({ title: 'a' });   // stamps createdBy
-
-await kit.as(userId).transaction(async (tx) => {
-	const team = await tx.db.teams.create({ name: 'Core' });
-	await tx.db.users.update(userId, { teamId: team._id });
-});
-```
-
-`as` and `withSession` give back **another kit** over the same clients: the
-one they came from is unchanged, so a request's kit never leaks into the
-next. The collections are built on the first read and kept, so a request
-pays for the collections it touches and no others.
-
-`transaction` runs the body with a kit whose collections and
-[buckets](#files) are all in the session — nothing has to be passed. **The driver retries the body from the
-start** on a transient error, so it must be safe to run twice: keep side
-effects that are not MongoDB's out of it. A transaction inside a transaction
-**joins** the outer one, and takes no `{ on }`, since the session already
-decided; MongoDB has no savepoints, so an inner failure takes the whole
-transaction with it.
-
-With several clients, `{ on: 'main' }` says whose, since a transaction lives
-on one client — and inside that body only the databases on that client can be
-used: an operation on another one carries a session its client does not own,
-and the driver refuses it.
-
-The actor's type is the one the collections agree on: a kit whose collections
-stamp an `ObjectId` takes an `ObjectId`, and one whose collections stamp
-nothing has no `as` to call.
-
-## Files
-
-GridFS buckets from
-[`@nxgt/mongo/gridfs`](https://www.npmjs.com/package/@nxgt/mongo) are wired
-the same way, from a module of `defineBucket`s, and reached beside the
-collections in the kit's session — so a file joins a transaction:
-
-```ts
-import * as buckets from './files';        // every `defineBucket` of the app
-
-export const kit = await createKit(
-	defineConfig({ uri: process.env.MONGO_URI!, collections, buckets }),
-);
-await kit.syncBuckets();                   // their indexes; `sync()` does not
-
-await kit.transaction(async (tx) => {
-	const user = await tx.db.users.create({ email: 'ada@example.com' });
-	await tx.db.avatars.put(Bun.file('ada.png'), {
-		metadata: { userId: user._id },    // typed by the bucket's schema
-	});
-});                                        // a throw takes the file with the user
-```
-
-`kit.db.avatars` is the `TypedBucket` `getFiles(db, avatars)` gives, built on
-first read and kept. `bucketOptions` (`validate`, `coerce`, `hash`) applies
-to every bucket of a database; the session and `autoSync` are the kit's. A
-bucket has no actor. [Files](docs/guide/files.md) has the details.
-
-## Sync
-
-```ts
-const reports = await kit.sync();          // { main: [ … ], analytics: [ … ] }
-await kit.sync({ dryRun: true });          // what it would change
-```
-
-The first database that throws stops the rest, which is what `dryRun` is for:
-it reports everything at once. It syncs exactly the collections the kit
-wires, database by database —
-`@nxgt/mongo`'s `syncAll` cannot, since its registry knows no database. It is
-a **deployment step**: `collMod` needs the `dbAdmin` role, and an index build
-runs outside any transaction. For tests and development, `autoSync: true` in
-the config syncs each collection before its first operation instead.
-
-## Health
-
-```ts
-const health = await kit.ping({ timeoutMS: 1_000 });
-// { main: { ok: true, latencyMs: 3.1 }, analytics: { ok: false, error } }
-const up = Object.values(health).every((result) => result.ok);
-```
-
-[Health](docs/guide/health.md) has the details, including the handed-over
-client that has to be connected first.
-
-## Closing
-
-```ts
-await kit.close();                         // or `await using kit = await createKit(…)`
-```
-
-It gives back the clients it opened, and leaves alone a `client` the config
-gave it: what it did not open is not its to close. Only the kit `createKit`
-returned can be closed — one from `as`, `withSession` or a transaction shares
-those clients and refuses.
-
-## API
-
-### `defineConfig(config)`
-
-Checks the configuration and freezes it. It connects to nothing and reads no
-environment variable: the application writes `uri: process.env.MONGO_URI!`,
-and what is wrong throws here, where the application starts.
-
-| Key | Default | |
-| --- | --- | --- |
-| `uri` | — | One of `uri` and `client`, never both. |
-| `client` | — | A client the application opened. Never closed by the kit. |
-| `clientOptions` | `{}` | Passed to the driver with `uri`. Refused with `client`. |
-| `database` | the URI's, else `test` | The database's name. |
-| `collections` | — | `import * as collections from './models'`. |
-| `options` | `{}` | `@nxgt/mongo`'s collection options, for every collection. |
-| `optionsFor` | `{}` | The same, per key, merged over `options`. |
-| `autoSync` | `false` | Sync each collection before its first operation, and create each bucket's indexes before its first call. A bucket's first call inside a transaction then makes the driver run the body twice: call `syncBuckets()` at start-up instead. |
-| `buckets` | — | `import * as buckets from './files'`: `@nxgt/mongo/gridfs` buckets, on the scope beside the collections. |
-| `bucketOptions` | `{}` | `validate`, `coerce`, `hash`, for every bucket. Not `session` or `autoSync`, and not without `buckets`. |
-
-`db`, `session`, `actor` and `autoSync` are not collection options here: the
-kit decides them, and one of them under `options` does not compile, while one
-under `optionsFor` is refused by `defineConfig` — the types cannot see that
-deep. Several databases go under `databases: { main: …, … }`, each one taking
-the same keys; a lone database is named `default`.
-
-### `createKit(config)`
-
-Opens what the configuration describes, and gives a `MongoKit`:
-
-| Member | |
-| --- | --- |
-| `db` | The only database's scope; `never` with several, and it throws if read anyway. |
-| `databases` | Every scope, under its name — `default` when the config named none. |
-| `clients` | The `MongoClient` of each database, under the same names. |
-| `actor`, `session` | What this kit stamps and runs in, if anything. |
-| `as(actor)` | The same kit, stamping that actor. |
-| `withSession(session)` | The same kit, in that session; `undefined` takes it away. |
-| `transaction(fn, options?)` | `fn` with a kit in a transaction. May run twice. |
-| `sync(options?)` | `SyncReport[]` per database, under its name. Collections only. |
-| `syncBuckets()` | Creates each bucket's four indexes: `BucketIndexReport[]` per bucket key, per database. |
-| `ping(options?)` | `PingResult` (`import type { PingResult } from '@nxgt/mongo'`) per database, under its name. Never throws; `timeoutMS`, 2 s by default. |
-| `close()` | Gives back what it opened. Idempotent. |
-
-`KitOf<typeof config>` is that kit's type, for an application that declares
-it — a service holding the kit, say — rather than reading it off `await
-createKit(…)`.
-
-### `discoverCollections({ glob, cwd?, export? })`
-
-The definitions of the files a glob matches, read at run time and untyped.
-`cwd` is where the glob starts, `process.cwd()` by default. `export` reads
-one export by name in each file, and throws for a matched file that has no
-definition under it; without `export`, every export that is a definition is
-taken. Two files defining the same server collection are refused. It needs
-the Bun runtime, and it is for scripts.
-
-## Errors
-
-`KitError` is what this package refuses: a configuration, a name or a call
-that cannot work. It carries a `code`, and the `database` and `key` it is
-about — never a URI, which may hold a password.
-
-```ts
-import { KitError } from '@nxgt/mongo-kit';
-
-if (error instanceof KitError && error.code === 'CONFIG') {
-	console.error(`mongo: "${error.database}" is misconfigured`, error.message);
-}
-```
-
-| `KitErrorCode` | |
-| --- | --- |
-| `CONFIG` | `defineConfig` refused the configuration |
-| `COLLISION` | a collection or a bucket is wired under a name the driver's `Db` has |
-| `NO_DATABASE` | `transaction(fn, { on })` named a database this kit does not hold |
-| `SEVERAL_DATABASES` | `kit.db` was read on a kit that holds more than one |
-| `TRANSACTION` | no client named where one is needed, or `{ on }` inside a session |
-| `DERIVED` | `close()` on a kit `as`, `withSession` or a transaction derived |
-| `DISCOVERY` | `discoverCollections` could not make a set of definitions |
-
-It extends **`TypeError`**, not `Error`: each of these is a call or a
-configuration written wrong, and this package threw bare `TypeError`s before
-the class existed, so a `catch` that tests for `TypeError` still matches.
-
-The collections are `@nxgt/mongo`'s, so what a *query* throws is its
-`DataError` and its subclasses, unchanged. MongoDB's own refusal to connect
-reaches the caller from `createKit` as the driver's error. Every code, with
-the call that raises it, is in
-[docs/guide/errors.md](docs/guide/errors.md).
-
-## What does not compile
-
-Each is a `@ts-expect-error` case in this package's type tests.
-
-- A collection wired under a name the driver's `Db` already has
-  (`command`, `watch`, `collection`, …): it would be unreachable.
-- `db.usrs`, or a field no schema has in a `create`.
-- `kit.db` when the kit holds several databases, `kit.databases.nowhere`,
-  or `{ on: 'nowhere' }`.
-- `optionsFor` under a key no collection is wired under.
-- `session`, `db`, `actor` or `autoSync` under `options`. Under
-  `optionsFor`, the same four are refused by `defineConfig` instead.
-- `as` with an actor of the wrong type, and `as` at all when the
-  collections stamp none or disagree.
-- A bucket under a key the driver's `Db` has, or one a collection of the
-  same database already holds; metadata the bucket's schema does not
-  describe; `session` or `autoSync` in `bucketOptions`, and `bucketOptions`
-  on a database with no `buckets`.
-
-## Traps
-
-- **A key the driver's `Db` has is refused twice**: by the types where the
-  config is written, and by `createKit` against the object itself — which is
-  what catches a member a later driver release adds.
-- **The scope is a `Db` underneath.** `Object.keys(kit.db)` lists the
-  collections, not the driver's members; a driver method read off it is
-  bound, so `const { command } = kit.db` works.
-- **`createKit` connects.** `defineConfig` does not, so a wrong URI throws
-  where the kit is created, and a database that fails gives back every
-  connection opened before it.
-- **A client the config gave is never closed**, including by `await using`.
-  Close it where it was opened.
-- **`autoSync` is for tests and development.** In production `sync()` is a
-  deployment step: it needs `dbAdmin`, and an index build is not in a
-  transaction.
-- **A kit from `as` or `withSession` cannot be closed**, and `close()` on it
-  throws `KitError` with the code `DERIVED`: the clients are the root kit's.
-- **`discoverCollections` runs under Bun**, has no types, and does not
-  survive bundling. It is for scripts run from the repository; a Node script
-  calling it gets `Bun is not defined`.
-- **Two collections that stamp actors of different types** leave `as`
-  uncallable: one call could not stamp both.
-- **`{ on }` is required at run time, not by the types**, and cannot be: two
-  databases on one URI share a client and need none, so what decides is the
-  number of *clients*. Without it, a kit holding two throws `TRANSACTION`.
-- **A transaction body may run twice.** The driver retries it from the start
-  on a transient error, so it must hold nothing that MongoDB would not roll
-  back.
-- **A transaction reaches one client's databases.** With `{ on: 'main' }`,
-  an operation on a database of another client carries a session that client
-  does not own, and the driver refuses it.
-- **A client handed over unconnected dies on a failed first connect.** Its
-  implicit connect waits `serverSelectionTimeoutMS`, not `timeoutMS` —
-  `ping` keeps its deadline with a timer of its own — and if it fails, the
-  driver closes the client: every later command throws
-  `MongoTopologyClosedError`. Pass `await new MongoClient(uri).connect()`.
-- **Bucket indexes are not created by `sync()`.** It syncs collection
-  definitions, and a bucket is not one: call `syncBuckets()` beside it.
-  Until one of them has run — or a database's `autoSync` has — every read of
-  a file scans the whole chunks collection, and `@nxgt/mongo/gridfs` says so
-  once with an `NxgtGridFSMissingIndex` process warning.
-- **With `autoSync`, a bucket's first upload inside a transaction runs the
-  body twice.** The indexes `autoSync` creates outside the session create the
-  chunks collection after the transaction's snapshot, the commit fails
-  (112), and the driver retries. A stream source is spent by then, and
-  `@nxgt/mongo/gridfs` refuses it with a `TypeError`
-  (`put on "uploads": this stream was already read, …`), so the transaction
-  commits nothing — it used to be stored as an empty file. Call
-  `syncBuckets()` at start-up, before any transactional upload, and the body
-  runs once; read a stream into bytes before the transaction, since any
-  transient error runs it twice.
-- **`kit.db` throws `SEVERAL_DATABASES` on a kit with several databases**,
-  where its type is already `never`: the message names the databases to read
-  instead.
-
-## Documentation
-
-- [Guide index](docs/README.md) — every page, and when to read it.
-- [Configuration](docs/guide/configuration.md) — the databases, the
-  collections, and the options each is built with.
-- [The `db` scope](docs/guide/db-scope.md) — the collections on the driver's
-  `Db`, and the kit in a request.
-- [The actor, sessions and transactions](docs/guide/actor-and-transactions.md)
-  — `as`, `withSession` and `transaction`.
-- [Syncing](docs/guide/sync.md) — the deployment step, and `dryRun`.
-- [Files](docs/guide/files.md) — GridFS buckets on the kit, in its
-  transactions, and `syncBuckets()`.
-- [Health](docs/guide/health.md) — `ping()`, for a health endpoint.
-- [Errors](docs/guide/errors.md) — `KitError`, its codes, and what each one
-  is thrown by.
-- [`discoverCollections`](docs/guide/discover-collections.md) — definitions
-  from a glob, for scripts.
-- [Troubleshooting](docs/troubleshooting.md) — the errors, by their message.
-- [Roadmap](docs/roadmap.md) — what is next, and what is not planned.
+`@nxgt/mongo` is a required peer, and so are `mongodb`, `zod` and
+`typescript` through it.
 
 ## License
 

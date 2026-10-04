@@ -1,14 +1,13 @@
 {
 	"name": "@nxgt/mongo-kit",
 	"version": "0.4.3",
-	"description": "An application's MongoDB wiring in one object: a validated config, the clients it opens from it, and every collection typed on the database it lives in, and its GridFS files beside them in the same transactions",
+	"description": "Deprecated: moved into @nxgt/mongo. Re-exports it under the old names",
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
 	"files": [
 		"dist",
-		"docs",
 		"README.md",
 		"package.json",
 		"LICENSE"
@@ -23,11 +22,7 @@
 	},
 	"keywords": [
 		"mongodb",
-		"typescript",
-		"collections",
-		"gridfs",
-		"configuration",
-		"transactions"
+		"deprecated"
 	],
 	"repository": {
 		"type": "git",
@@ -50,14 +45,10 @@
 	},
 	"devDependencies": {
 		"@nxgt/mongo": "workspace:^",
-		"@types/bun": "^1.4.0",
-		"mongodb": "7.6.0",
-		"mongodb-memory-server-core": "11.2.0",
-		"zod": "4.6.5"
+		"@types/bun": "^1.4.0"
 	},
 	"peerDependencies": {
 		"@nxgt/mongo": "workspace:^",
-		"mongodb": ">=7.0.0 <8",
 		"typescript": "^6.0.3"
 	}
 }

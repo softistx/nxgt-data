@@ -1,0 +1,241 @@
+import type { Db, MongoClient, MongoClientOptions } from 'mongodb';
+import type { CollectionOptions } from '../../collection/types';
+import type { AnyCollectionDefinition } from '../../definition/define-collection';
+import type { BucketDefinition, BucketOptions } from '../../gridfs';
+
+/**
+ * The collections of a module, as `import * as collections` gives them: its
+ * other exports — types are gone already, and a function or a constant is no
+ * definition — are left out of the scope rather than refused.
+ */
+export type CollectionsOf<C> = {
+	[K in keyof C as C[K] extends AnyCollectionDefinition ? K : never]: C[K];
+};
+
+/**
+ * The buckets of a module, as `import * as buckets` gives them: what is not a
+ * bucket definition is left out, as `CollectionsOf` leaves out what is not a
+ * collection.
+ */
+export type BucketsOf<B> = {
+	[K in keyof B as B[K] extends BucketDefinition ? K : never]: B[K];
+};
+
+/**
+ * The options of every bucket of a database, minus what the wiring decides: the
+ * session a derived Mongo or a transaction carries, and the database's
+ * `autoSync`.
+ */
+export type WiredBucketOptions = Omit<BucketOptions, 'session' | 'autoSync'>;
+
+/**
+ * A name the driver's `Db` already uses. The scope carries the collections
+ * over a `Db`, so a collection under one of these names would be unreachable
+ * — and `db.watch` would answer something other than what a caller expects.
+ *
+ * Read from the driver's own type, never from a list of ours: a member the
+ * driver adds is covered the day the pin moves. At run time the same question
+ * is asked of the object itself, with `in`.
+ */
+export type DbMemberName = keyof Db;
+
+/** The keys of `C` that a `Db` already answers to. */
+export type Collides<C> = Extract<keyof CollectionsOf<C>, DbMemberName>;
+
+/**
+ * Makes a colliding key unassignable, and says why where the developer is
+ * looking: under that key, the value would have to be a string no definition
+ * is.
+ */
+export type NoCollision<C> = [Collides<C>] extends [never]
+	? unknown
+	: {
+			[K in Collides<C>]: `"${K & string}" is a member of the driver's Db: wire this collection under another key`;
+		};
+
+/** The bucket keys of `B` that a `Db` already answers to. */
+export type BucketCollides<B> = Extract<keyof BucketsOf<B>, DbMemberName>;
+
+/** The keys under which a database wires both a collection and a bucket. */
+export type BothWired<Cols, B> = Extract<
+	keyof BucketsOf<B>,
+	keyof CollectionsOf<Cols>
+>;
+
+/**
+ * Makes a bucket key unassignable when the scope could not reach it — a
+ * member of the driver's `Db`, or a key a collection already holds — and
+ * says which, the way `NoCollision` does for a collection.
+ */
+export type NoBucketCollision<Cols, B> = ([BucketCollides<B>] extends [never]
+	? unknown
+	: {
+			[K in BucketCollides<B>]: `"${K & string}" is a member of the driver's Db: wire this bucket under another key`;
+		}) &
+	([BothWired<Cols, B>] extends [never]
+		? unknown
+		: {
+				[K in BothWired<
+					Cols,
+					B
+				>]: `"${K & string}" is also a collection of this database: wire this bucket under another key`;
+			});
+
+/** The bucket options the wiring decides, which `bucketOptions` may not name. */
+type OwnedBucketOption = 'session' | 'autoSync';
+
+/** Makes `session` or `autoSync` in `bucketOptions` unassignable, and says why. */
+export type NoOwnedBucketOption<BO> = [
+	Extract<keyof BO, OwnedBucketOption>,
+] extends [never]
+	? unknown
+	: {
+			[K in Extract<
+				keyof BO,
+				OwnedBucketOption
+			>]: `"${K & string}" is the wiring's to decide: withSession and transactions carry the session, and autoSync is the database's`;
+		};
+
+/**
+ * Makes options written for a key no collection is wired under unassignable,
+ * and says so under that key — the same shape as `NoCollision`.
+ */
+export type Unwired<Cols, OF> = [
+	Exclude<keyof OF, keyof CollectionsOf<Cols>>,
+] extends [never]
+	? unknown
+	: {
+			[K in Exclude<
+				keyof OF,
+				keyof CollectionsOf<Cols>
+			>]: `"${K & string}" is not wired by this database: there are no options for it`;
+		};
+
+/** The options of one collection, minus what the wiring decides itself. */
+export type WiredCollectionOptions<Def> = Omit<
+	CollectionOptions<Def>,
+	'db' | 'session' | 'actor' | 'autoSync'
+>;
+
+/** One database: where it is, and what it holds. */
+export interface DatabaseConfig<C, B = object> {
+	/**
+	 * Where to connect. One of `uri` and `client`, never both. Databases on
+	 * one URI share a client, which the Mongo closes with its last holder.
+	 */
+	uri?: string;
+	/**
+	 * A client the application opened. The Mongo uses it and **never closes
+	 * it**: what it did not open is not its to close.
+	 */
+	client?: MongoClient;
+	/** Passed to the driver with `uri`. Refused with `client`, which has its own. */
+	clientOptions?: MongoClientOptions;
+	/** The database's name. Default: the one the URI names, or `test`. */
+	database?: string;
+	/** `import * as collections from './models'`, passed as it is. */
+	collections: C;
+	/** For every collection of this database. */
+	options?: WiredCollectionOptions<AnyCollectionDefinition>;
+	/** For one collection, merged over `options`. */
+	optionsFor?: {
+		[K in keyof CollectionsOf<C>]?: WiredCollectionOptions<CollectionsOf<C>[K]>;
+	};
+	/**
+	 * Sync each collection before its first operation, once per database:
+	 * `@nxgt/mongo`'s `autoSync`. For tests and development, never for
+	 * production, where `sync()` is a deployment step.
+	 */
+	autoSync?: boolean;
+	/**
+	 * `import * as buckets from './files'`, passed as it is: every
+	 * `@nxgt/mongo/gridfs` bucket in it is reached on the scope under the key
+	 * it is exported by, as a collection is.
+	 */
+	buckets?: B;
+	/** For every bucket of this database. */
+	bucketOptions?: WiredBucketOptions;
+}
+
+/** One database, or several under their names. */
+export type MongoConfigInput =
+	| DatabaseConfig<object>
+	| { databases: Record<string, DatabaseConfig<object>> };
+
+/**
+ * The config with every key it has to refuse — one the driver's `Db` already
+ * answers to, or options for a collection that is not wired — turned into the
+ * message above. `defineMongo` takes its argument as `C & Checked<C>`, and a
+ * constraint written that way is what makes the refusal land on the key the
+ * application wrote, rather than on the whole object.
+ */
+export type Checked<C> = C extends { databases: infer D }
+	? {
+			databases: {
+				[N in keyof D]: CheckedDatabase<D[N]>;
+			};
+		}
+	: CheckedDatabase<C>;
+
+/** One database's collections and buckets, and the options written for them. */
+type CheckedDatabase<D> = D extends { collections: infer Cols }
+	? { collections: Cols & NoCollision<Cols> } & (D extends {
+			optionsFor: infer OF;
+		}
+			? { optionsFor: OF & Unwired<Cols, OF> }
+			: unknown) &
+			(D extends { buckets: infer B }
+				? { buckets: B & NoBucketCollision<Cols, B> }
+				: unknown) &
+			(D extends { bucketOptions: infer BO }
+				? {
+						bucketOptions: BO &
+							NoOwnedBucketOption<BO> &
+							(D extends { buckets: unknown } ? unknown : NoBucketsToOption);
+					}
+				: unknown)
+	: D;
+
+/**
+ * What `bucketOptions` becomes on a database that wires no buckets: a string
+ * no options object is, so the refusal lands on `bucketOptions` and says why,
+ * as `Unwired` does for `optionsFor`.
+ */
+export type NoBucketsToOption =
+	'this database wires no buckets: there are no bucket options to give';
+
+/** The databases of a config, whichever of the two shapes it was written in. */
+export type DatabasesOf<C> = C extends { databases: infer D }
+	? D
+	: { default: C };
+
+/** The name of every database. */
+export type DbName<C> = keyof DatabasesOf<C> & string;
+
+/** The collections of one database, as they were passed. */
+export type CollectionsIn<C, N extends DbName<C>> = DatabasesOf<C>[N] extends {
+	collections: infer Cols;
+}
+	? Cols
+	: never;
+
+/** The buckets of one database, as they were passed; none when it has none. */
+export type BucketsIn<C, N extends DbName<C>> = DatabasesOf<C>[N] extends {
+	buckets: infer B;
+}
+	? B
+	: Record<never, never>;
+
+/**
+ * What `defineMongo` gives back: the databases under their names, checked
+ * and frozen, carrying the shape it was written in — which is what decides
+ * whether the Mongo has a `db` of its own.
+ */
+export interface MongoConfig<C> {
+	readonly databases: {
+		readonly [N in DbName<C>]: DatabaseConfig<
+			CollectionsIn<C, N>,
+			BucketsIn<C, N>
+		>;
+	};
+}

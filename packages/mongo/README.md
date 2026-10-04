@@ -1,5 +1,31 @@
 # @nxgt/mongo
 
+An application's MongoDB in one object: a configuration checked once, the
+clients it needs opened from it, and every collection typed on the database it
+lives in — with its GridFS files beside them, in the same transactions.
+
+```ts
+import { defineMongo, openMongo } from '@nxgt/mongo';
+import * as collections from './models';   // every `defineCollection` of the app
+
+export const mongo = await openMongo(
+	defineMongo({ uri: process.env.MONGO_URI!, collections }),
+);
+
+const user = await mongo.db.users.create({ email: 'ada@example.com' });
+const posts = await mongo.db.posts.findMany({ filter: { authorId: user._id } });
+await mongo.db.command({ ping: 1 });         // the driver's Db, untouched
+```
+
+`mongo.db` is the driver's `Db` with the collections on it: `db.users` is the
+typed collection `getCollection(db, users)` gives, and everything a `Db`
+answers to is still there. Nothing else has to be wired: no `getCollection` at
+each call site, no client to pass around, no session to thread by hand. The
+[Wiring](#wiring) section below has the rest; the pieces `defineMongo` and
+`openMongo` are made of are the rest of this page.
+
+## The collections underneath
+
 A typed MongoDB collection, from one Zod schema: the schema types every read
 and write, and the same schema becomes the collection's `$jsonSchema`
 validator, applied idempotently. On top of it, a collection with pagination,
@@ -50,7 +76,7 @@ const db = client.db('app');
 
 | import | what it holds |
 | --- | --- |
-| `@nxgt/mongo` | the collections: definitions, `getCollection`, the queries, change streams and the errors. Not migrations, and not files — those are the two subpaths below |
+| `@nxgt/mongo` | the collections: definitions, `getCollection`, the queries, change streams and the errors, and the [wiring](#wiring): `defineMongo`, `openMongo` and `discoverCollections`. Not migrations, and not files — those are the two subpaths below |
 | `@nxgt/mongo/migrations` | [migrations](#migrations): `defineMigration`, `migrate`, `rollback`, `migrationStatus`, `MigrationError`, `MigrationLockedError` |
 | `@nxgt/mongo/gridfs` | [files](#files): `defineBucket`, `getFiles`, `FileHandle`, `parseRange`, `resetBucketSync`, the option types `TypedPutOptions` and `PutOnceOptions`, and the errors it raises |
 
@@ -801,6 +827,9 @@ application never reads a numeric code:
 | `ConnectionError` | `CONNECTION` | `closeMongo()` closed every client while this `connectMongo` was still connecting. It carries no URI: a connection string holds the password |
 | `DataError` | `DATABASE` | any other server error, with its `serverCode` (match on that: `serverCodeName` is `undefined` on a write error, see [the errors guide](docs/guide/errors.md#what-they-carry)) — and the one answer MongoDB should never give: an `upsert` answered with no document, which says so and asks for a report |
 
+The wiring's refusals are not among these: they are a `WiringError`, a
+`TypeError` with a `code`, described under [Wiring](#wiring).
+
 `ConflictError` carries `index`, `keys` and, when the server gives them,
 `values`. `ValidationError` carries `issues`, MongoDB's `errInfo` flattened
 into `{ path, reason, specifiedAs, consideredValue }`. Anything that is not a
@@ -1235,6 +1264,166 @@ const withRelations = await members.populate(await members.findMany(), {
 - A bad measure, `sort` or `limit` rejects with a `TypeError`, as every
   method here rejects rather than throws.
 
+## Wiring
+
+`defineMongo` checks a configuration and freezes it; `openMongo` opens what it
+describes and gives a `Mongo`. Each export of a module that is a
+`defineCollection` becomes a key on `mongo.db`, under the name it is
+**exported** by; the definition's own `name` is the one on the server. Two
+exports on one server collection are refused, and so is a key the driver's
+`Db` already answers to (`command`, `watch`, `collection`, …).
+
+```ts
+// several databases, and GridFS buckets beside the collections
+import * as buckets from './files';        // every `defineBucket` of the app
+
+export const mongo = await openMongo(
+	defineMongo({
+		databases: {
+			main: { uri: process.env.MONGO_URI!, collections, buckets },
+			analytics: { uri: process.env.ANALYTICS_URI!, collections: events },
+		},
+	}),
+);
+
+await mongo.databases.main.users.create({ email: 'ada@example.com' });
+await mongo.syncBuckets();                 // their indexes; `sync()` does not
+
+await mongo.as(userId).transaction(async (tx) => {   // stamps createdBy
+	const user = await tx.db.users.create({ email: 'ada@example.com' });
+	await tx.db.avatars.put(Bun.file('ada.png'), {
+		metadata: { userId: user._id },    // typed by the bucket's schema
+	});
+});                                        // a throw takes the file with the user
+```
+
+`mongo.db` is `never` once there are several databases: the name says which.
+A single database is named `default`.
+
+| Key of `defineMongo` | Default | |
+| --- | --- | --- |
+| `uri` | — | One of `uri` and `client`, never both. |
+| `client` | — | A client the application opened. Never closed by the `Mongo`. |
+| `clientOptions` | `{}` | Passed to the driver with `uri`. Refused with `client`. |
+| `database` | the URI's, else `test` | The database's name. |
+| `collections` | — | `import * as collections from './models'`. |
+| `options` | `{}` | The collection options of this package, for every collection. |
+| `optionsFor` | `{}` | The same, per key, merged over `options`. |
+| `autoSync` | `false` | Sync each collection before its first operation, and create each bucket's indexes before its first call. A bucket's first call inside a transaction then makes the driver run the body twice: call `syncBuckets()` at start-up instead. |
+| `buckets` | — | `import * as buckets from './files'`: `@nxgt/mongo/gridfs` buckets, on the scope beside the collections. |
+| `bucketOptions` | `{}` | `validate`, `coerce`, `hash`, for every bucket. Not `session` or `autoSync`, and not without `buckets`. |
+
+`db`, `session`, `actor` and `autoSync` are not collection options here: the
+wiring decides them, and one of them under `options` does not compile, while
+one under `optionsFor` is refused by `defineMongo` — the types cannot see that
+deep.
+
+| Member of a `Mongo` | |
+| --- | --- |
+| `db` | The only database's scope; `never` with several, and it throws if read anyway. |
+| `databases`, `clients` | Every scope and every `MongoClient`, under the database's name. |
+| `actor`, `session` | What this `Mongo` stamps and runs in, if anything. |
+| `as(actor)`, `withSession(session)` | **Another** `Mongo` over the same clients; the one it came from is unchanged. |
+| `transaction(fn, options?)` | `fn` with a `Mongo` whose collections and buckets are all in the transaction. May run twice. |
+| `sync(options?)` | `SyncReport[]` per database, collections only. A deployment step. |
+| `syncBuckets()` | Creates each bucket's four indexes, per database and bucket key. |
+| `ping(options?)` | `PingResult` per database. Never throws; `timeoutMS`, 2 s by default. |
+| `close()` | Gives back what it opened. Idempotent; only the `Mongo` `openMongo` returned. |
+
+`MongoOf<typeof config>` is that `Mongo`'s type, for a service that declares
+it rather than reading it off `await openMongo(…)`. `await using mongo = await
+openMongo(…)` closes it at the end of the block.
+
+For a **script** — a sync or a migration run from the repository — the
+definitions can be read from disk instead:
+
+```ts
+import { connectMongo, discoverCollections, syncCollections } from '@nxgt/mongo';
+
+const mongo = await connectMongo(process.env.MONGO_URI!);
+const definitions = await discoverCollections({ glob: 'src/**/*.model.ts' });
+await syncCollections(mongo.db, definitions);
+```
+
+It gives `AnyCollectionDefinition[]` **with no types**: a glob is read at run
+time, so a bundler cannot follow it and the compiler sees nothing. It **runs
+under Bun** — the glob is `Bun.Glob` — and it imports each file it finds, so
+their top level runs. It is for scripts, never for the wiring of an
+application.
+
+`WiringError` is what the wiring refuses — a configuration, a name or a call
+that cannot work. It carries a `code` (`CONFIG`, `COLLISION`, `NO_DATABASE`,
+`SEVERAL_DATABASES`, `TRANSACTION`, `DERIVED`, `DISCOVERY`) and the `database`
+and `key` it is about, never a URI. It extends **`TypeError`**, so a `catch`
+for one still matches. What a *query* throws is the `DataError` of
+[Errors](#errors), unchanged. Every code, with the call that raises it, is in
+[docs/guide/errors.md](docs/guide/errors.md#wiring-errors).
+
+**What does not compile** — each a `@ts-expect-error` case in
+`test/types/wiring.ts` and `test/types/wiring-buckets.ts`: a collection or a
+bucket wired under a name the driver's `Db` has; `db.usrs`, or a field no
+schema has in a `create`; `mongo.db` with several databases,
+`mongo.databases.nowhere`, or `{ on: 'nowhere' }`; `optionsFor` under a key no
+collection is wired under; `session`, `db`, `actor` or `autoSync` under
+`options`; `as` with an actor of the wrong type, and `as` at all when the
+collections stamp none or disagree; a bucket under a key a collection of the
+same database already holds; metadata a bucket's schema does not describe;
+`session` or `autoSync` in `bucketOptions`, and `bucketOptions` on a database
+with no `buckets`.
+
+**Wiring traps:**
+
+- **A key the driver's `Db` has is refused twice**: by the types where the
+  config is written, and by `openMongo` against the object itself — which is
+  what catches a member a later driver release adds.
+- **The scope is a `Db` underneath.** `Object.keys(mongo.db)` lists the
+  collections, not the driver's members; a driver method read off it is
+  bound, so `const { command } = mongo.db` works.
+- **`openMongo` connects.** `defineMongo` does not, so a wrong URI throws
+  where the `Mongo` is created, and a database that fails gives back every
+  connection opened before it.
+- **A client the config gave is never closed**, including by `await using`.
+  Close it where it was opened.
+- **`autoSync` is for tests and development.** In production `sync()` is a
+  deployment step: it needs `dbAdmin`, and an index build is not in a
+  transaction.
+- **A `Mongo` from `as` or `withSession` cannot be closed**, and `close()` on
+  it throws `WiringError` with the code `DERIVED`: the clients are the root's.
+- **`discoverCollections` runs under Bun** (`Bun.Glob`), has no types, and
+  does not survive bundling; a Node script calling it gets `Bun is not
+  defined`.
+- **Two collections that stamp actors of different types** leave `as`
+  uncallable: one call could not stamp both.
+- **`{ on }` is required at run time, not by the types**: two databases on
+  one URI share a client and need none, so what decides is the number of
+  *clients*. Without it, a `Mongo` holding two throws `TRANSACTION`.
+- **A transaction body may run twice**, and reaches **one client's** databases:
+  an operation on a database of another client carries a session that client
+  does not own, and the driver refuses it.
+- **A client handed over unconnected dies on a failed first connect.** Its
+  implicit connect waits `serverSelectionTimeoutMS`, not `timeoutMS` — `ping`
+  keeps its deadline with a timer of its own — and if it fails, the driver
+  closes the client: every later command throws `MongoTopologyClosedError`.
+  Pass `await new MongoClient(uri).connect()`.
+- **Bucket indexes are not created by `sync()`.** Call `syncBuckets()` beside
+  it. Until one of them has run — or a database's `autoSync` has — every read
+  of a file scans the whole chunks collection, and `@nxgt/mongo/gridfs` says
+  so once with an `NxgtGridFSMissingIndex` process warning.
+- **With `autoSync`, a bucket's first upload inside a transaction runs the
+  body twice**, and a stream source is spent by then: `@nxgt/mongo/gridfs`
+  refuses it with a `TypeError` and the transaction commits nothing. Call
+  `syncBuckets()` at start-up, before any transactional upload.
+- **`mongo.db` throws `SEVERAL_DATABASES` with several databases**, where its
+  type is already `never`: the message names the databases to read instead.
+
+The [wiring guides](docs/guide/wiring/configuration.md) have the details of
+each: [configuration](docs/guide/wiring/configuration.md), the
+[`db` scope](docs/guide/wiring/db-scope.md), the
+[actor and transactions](docs/guide/wiring/actor-and-transactions.md),
+[syncing](docs/guide/wiring/sync.md), [files](docs/guide/wiring/files.md),
+[health](docs/guide/wiring/health.md) and
+[`discoverCollections`](docs/guide/wiring/discover-collections.md).
+
 ## Not included
 
 - **No aggregation pipeline builder.** The helpers above cover the common
@@ -1266,6 +1455,10 @@ const withRelations = await members.populate(await members.findMany(), {
 | `toMongoJsonSchema(schema)` | a Zod schema as a MongoDB `$jsonSchema` |
 | `encodeCursor`, `decodeCursor`, `pageWindow`, `cursorLimit`, `toPage` | the pagination pieces, for a list this package does not produce. The three that refuse — `decodeCursor`, `pageWindow`, `cursorLimit` — take an optional last argument naming the call, which they put in the message |
 | `DataError` and its subclasses, `toDataError` | the errors |
+| `defineMongo(config)`, `openMongo(config)`, `Mongo`, `MongoOf`, `MongoConfig`, `MongoConfigInput`, `MongoActor`, `MongoTransactionOptions`, `WiredCollectionOptions`, `WiredBucketOptions` | the [wiring](#wiring): a checked configuration, and the object it opens |
+| `WiringError`, `WiringErrorCode`, `WiringErrorOptions` | what the wiring refuses, a `TypeError` with a `code` |
+| `discoverCollections(options)`, `DiscoverOptions` | definitions read from a glob, for scripts, under Bun |
+| `DbScope`, `SoleScope`, `DbName`, `DbMemberName`, `DatabaseConfig`, `CollectionsIn`, `CollectionsOf`, `BucketsIn`, `BucketsOf`, `BucketSyncReport`, `NoCollision`, `NoBucketCollision`, `NoOwnedBucketOption`, `NoBucketsToOption`, `Unwired` | the types the wiring is written with |
 | `defineMigration`, `migrate`, `rollback`, `migrationStatus`, `MigrationError`, `MigrationLockedError` | from `@nxgt/mongo/migrations`: migrations, in code |
 | `defineBucket`, `getFiles` | from `@nxgt/mongo/gridfs`: a bucket, described once and bound to a database |
 | `TypedBucket`, `TypedPutOptions`, `PutOnceOptions` | what a bound bucket is, and what its writes take. `PutOnceOptions` is the same without `id` |
@@ -1672,6 +1865,9 @@ test suite.
   it happens, and the line that prevents it.
 - [docs/roadmap.md](docs/roadmap.md) — what is next, what shipped, and what
   is not planned.
+- [Wiring guides](docs/guide/wiring/configuration.md) — the configuration,
+  `mongo.db`, the actor, sessions and transactions, syncing, files, health
+  and `discoverCollections`.
 
 The guide pages, each with its own examples:
 [collections](docs/guide/collections.md),
@@ -1683,7 +1879,7 @@ The guide pages, each with its own examples:
 [transactions and locking](docs/guide/transactions.md),
 [change subscriptions](docs/guide/changes.md),
 [aggregation](docs/guide/aggregation.md),
-[errors](docs/guide/errors.md),
+[errors](docs/guide/errors.md) (`WiringError` included),
 [connecting](docs/guide/connecting.md),
 [migrations](docs/guide/migrations.md),
 [files (GridFS)](docs/guide/gridfs.md).

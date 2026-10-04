@@ -1,4 +1,4 @@
-import { defineConfig, type KitOf } from '@nxgt/mongo-kit';
+import { defineMongo, type MongoOf } from '@nxgt/mongo';
 import * as collections from './collections';
 import { env } from './env';
 
@@ -7,11 +7,11 @@ import { env } from './env';
  * reads no variable of its own: `env.MONGO_URI` was parsed and defaulted
  * before this module was evaluated.
  */
-export const config = defineConfig({
+export const config = defineMongo({
 	uri: env.MONGO_URI,
 	collections,
 	options: { maxPageSize: 50 },
 });
 
-/** This application's kit, read from the configuration rather than written twice. */
-export type Kit = KitOf<typeof config>;
+/** This application's mongo, read from the configuration rather than written twice. */
+export type AppMongo = MongoOf<typeof config>;

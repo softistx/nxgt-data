@@ -85,7 +85,8 @@ function share(uri: string, options: MongoClientOptions): Shared {
 	return shared;
 }
 
-async function ping(db: Db, timeoutMS = 2_000): Promise<PingResult> {
+/** `ping` within `timeoutMS`; never throws. Also the wiring's, for a client handed in. */
+export async function ping(db: Db, timeoutMS = 2_000): Promise<PingResult> {
 	const started = performance.now();
 	try {
 		await db.command({ ping: 1 }, { timeoutMS });

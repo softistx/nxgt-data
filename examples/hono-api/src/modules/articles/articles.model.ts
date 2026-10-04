@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 /**
  * An article. It is soft-deleted, so `delete` writes `deletedAt` and every
- * read leaves it out on its own; `createdBy` is stamped from the kit's
+ * read leaves it out on its own; `createdBy` is stamped from the Mongo's
  * actor, which is why no handler passes an author.
  */
 export const articles = defineCollection({

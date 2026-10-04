@@ -1,6 +1,6 @@
 import type { RedisClient } from 'bun';
 import { api } from '../../src/api';
-import type { Kit } from '../../src/db';
+import type { AppMongo } from '../../src/db';
 import { ArticleGuards } from '../../src/modules/articles/articles.guards';
 import { ArticleService } from '../../src/modules/articles/articles.service';
 import { router } from '../../src/modules/users';
@@ -21,8 +21,8 @@ routes.get('/articles', (c) => c.json({ message: 'errors.not-found' }, 404));
  * and `write` take the body the spec declares, already validated, so a field
  * the API does not offer cannot reach a write from a handler.
  */
-const users = new UserService({} as Kit);
-const articles = new ArticleService({} as Kit);
+const users = new UserService({} as AppMongo);
+const articles = new ArticleService({} as AppMongo);
 
 users.create({
 	email: 'ada@example.com',
@@ -36,12 +36,12 @@ users.create({ name: 'Ada' });
 articles.write({
 	title: 'a',
 	body: 'b',
-	// @ts-expect-error the author is stamped from the kit, never passed
+	// @ts-expect-error the author is stamped from the mongo, never passed
 	createdBy: 'someone',
 });
 
-// @ts-expect-error the kit is the constructor's; a method never takes one
-void articles.list({} as Kit);
+// @ts-expect-error the Mongo is the constructor's; a method never takes one
+void articles.list({} as AppMongo);
 
 // A patch is the API's too, and an id goes in either form — what the
 // collection takes.
@@ -54,7 +54,7 @@ users.change('68ca1f0f2b1c4d5e6f7a8b90', {
 });
 
 articles.edit('68ca1f0f2b1c4d5e6f7a8b90', {
-	// @ts-expect-error `updatedBy` is stamped from the kit's actor
+	// @ts-expect-error `updatedBy` is stamped from the Mongo's actor
 	updatedBy: 'someone',
 });
 

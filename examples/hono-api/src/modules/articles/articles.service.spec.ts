@@ -1,50 +1,50 @@
 import { describe, expect, test } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { useKit } from '../../../test/kit';
+import { useMongo } from '../../../test/mongo';
 import { UserService } from '../users/users.service';
 import { ArticleService } from './articles.service';
 
 /**
- * A service is built on a kit, so it is built here as a script or a job
+ * A service is built on a mongo, so it is built here as a script or a job
  * would build it — no HTTP, no Hono, no spec. That is what the layer buys.
  *
  * It is the one spec that reaches into another module: an article needs an
  * author, and creating one through the users module is what the application
  * does too.
  */
-const state = useKit('blog-articles');
+const state = useMongo('blog-articles');
 
-/** A kit that writes as a real user, the way the middleware builds one. */
+/** A Mongo that writes as a real user, the way the middleware builds one. */
 async function asNewUser() {
-	const author = await new UserService(state.kit).create({
+	const author = await new UserService(state.mongo).create({
 		email: 'ada@example.com',
 	});
-	const kit = state.kit.as(author._id);
-	return { author, kit, articles: new ArticleService(kit) };
+	const mongo = state.mongo.as(author._id);
+	return { author, mongo, articles: new ArticleService(mongo) };
 }
 
 describe('the article service', () => {
-	test('stamps the kit`s user and raises their count, in one transaction', async () => {
-		const { author, kit, articles } = await asNewUser();
+	test('stamps the Mongo`s user and raises their count, in one transaction', async () => {
+		const { author, mongo, articles } = await asNewUser();
 		const article = await articles.write({ title: 'a', body: 'b' });
 		expect(article?.createdBy).toEqual(author._id);
-		expect(await new UserService(kit).find(author.id)).toMatchObject({
+		expect(await new UserService(mongo).find(author.id)).toMatchObject({
 			articles: 1,
 		});
 	});
 
 	test('writes nothing at all when the author is gone', async () => {
-		const kit = state.kit.as(new ObjectId());
+		const mongo = state.mongo.as(new ObjectId());
 		expect(
-			await new ArticleService(kit).write({ title: 'a', body: 'b' }),
+			await new ArticleService(mongo).write({ title: 'a', body: 'b' }),
 		).toBeUndefined();
-		expect(await state.kit.db.articles.count()).toBe(0);
+		expect(await state.mongo.db.articles.count()).toBe(0);
 	});
 
-	test('refuses a kit that stamps nobody', async () => {
-		// The root kit has no actor, so there is no author to write as.
+	test('refuses a Mongo that stamps nobody', async () => {
+		// The root Mongo has no actor, so there is no author to write as.
 		await expect(
-			new ArticleService(state.kit).write({ title: 'a', body: 'b' }),
+			new ArticleService(state.mongo).write({ title: 'a', body: 'b' }),
 		).rejects.toThrow('stamps nobody');
 	});
 
@@ -78,7 +78,7 @@ describe('the article service', () => {
 		expect(await articles.remove(article.id)).toBe(true);
 		expect(await articles.list()).toMatchObject({ total: 0 });
 		// Soft delete: the document is still there, with the time it went.
-		expect(await state.kit.db.articles.raw.countDocuments()).toBe(1);
+		expect(await state.mongo.db.articles.raw.countDocuments()).toBe(1);
 	});
 
 	test('answers false for an article that is not there', async () => {
