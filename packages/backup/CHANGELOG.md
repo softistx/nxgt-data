@@ -1,5 +1,13 @@
 # @nxgt/backup
 
+## 0.6.1
+
+### Patch Changes
+
+- [#158](https://github.com/softistx/nxgt-data/pull/158) [`af141a3`](https://github.com/softistx/nxgt-data/commit/af141a3f067efdbf1f222e8227b6a9f2b44c5d66) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Docs: the MongoDB source and target have shipped, as the separate package `@nxgt/mongo-backup`. The README's 0.x note, the docs index and the roadmap now say so.
+
+- [#160](https://github.com/softistx/nxgt-data/pull/160) [`33d6306`](https://github.com/softistx/nxgt-data/commit/33d63062dc350f3d724aca127e52c5c75f53280d) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `localRepository`: a `put` racing a `delete` of its folder retries on `ENOENT` anywhere on the way, and up to five times. Before, it retried only when the folder was gone at the moment of the check, so a race lost while another `put` had made the folder again failed the write.
+
 ## 0.6.0
 
 ### Minor Changes
