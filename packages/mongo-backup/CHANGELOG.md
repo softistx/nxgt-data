@@ -1,5 +1,11 @@
 # @nxgt/mongo-backup
 
+## 0.3.1
+
+### Patch Changes
+
+- [#168](https://github.com/softistx/nxgt-data/pull/168) [`8721915`](https://github.com/softistx/nxgt-data/commit/8721915eda66cac8455d0d14d5d6cc0a11ca2ee0) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `restoreCollections`, called directly, now names itself in what the restore into its scratch database refuses: a `mongoTarget:` message reaches you as `restoreCollections: …`, with the same class and code, the original as `cause` — as `mongoBackups`'s `run`, `restore` and `drill` already did.
+
 ## 0.3.0
 
 ### Minor Changes
