@@ -7,9 +7,9 @@ import {
 } from '../channel/pubsub';
 import {
 	type InstanceContext,
-	type KitContext,
 	prefixed,
 	type Wired,
+	type WiringContext,
 } from './context';
 import type { AnyCache, AnyChannel, BoundChannel } from './types';
 
@@ -17,7 +17,7 @@ import type { AnyCache, AnyChannel, BoundChannel } from './types';
  * A definition with this instance's prefix in its name.
  *
  * A copy, never a mutation: the definition came from the application's own
- * module and is shared by every kit that wires it — two kits with two
+ * module and is shared by every Redis that wires it — two Redis objects with two
  * prefixes on one definition is an ordinary thing to want in a test.
  */
 function underPrefix<D extends { name: string }>(
@@ -27,9 +27,9 @@ function underPrefix<D extends { name: string }>(
 	return { ...definition, name: prefixed(instance, definition.name) };
 }
 
-/** One bound channel: publish, and a subscribe the kit keeps track of. */
+/** One bound channel: publish, and a subscribe the Redis keeps track of. */
 function channelOf(
-	ctx: KitContext,
+	ctx: WiringContext,
 	instance: InstanceContext,
 	definition: AnyChannel,
 ): BoundChannel<AnyChannel> {
@@ -48,7 +48,7 @@ function channelOf(
 				handler as (payload: unknown) => void | Promise<void>,
 				options,
 			);
-			// Recorded so `kit.close()` closes the ones nobody did. Closing it
+			// Recorded so `redis.close()` closes the ones nobody did. Closing it
 			// twice is safe: `@nxgt/redis` memoises its `close`.
 			ctx.subscriptions.add(subscription);
 			const forget = async () => {
@@ -122,7 +122,7 @@ function scopeOf<D>(
 }
 
 export function cacheScopeOf(
-	ctx: KitContext,
+	ctx: WiringContext,
 	instance: InstanceContext,
 ): object {
 	return scopeOf(instance.caches, (key: string, definition: AnyCache) =>
@@ -133,7 +133,7 @@ export function cacheScopeOf(
 }
 
 export function channelScopeOf(
-	ctx: KitContext,
+	ctx: WiringContext,
 	instance: InstanceContext,
 ): object {
 	return scopeOf(instance.channels, (key: string, definition: AnyChannel) =>

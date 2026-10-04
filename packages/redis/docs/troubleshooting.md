@@ -7,8 +7,9 @@ key or channel it happened on as `key` — never the value. `CONNECTION` and
 the empty string; it is never the URI, because a connection string holds the
 password. Everything else comes from Bun's `RedisClient` as it is.
 
-`defineCache` and `defineChannel` check their arguments before anything
-connects, and a URI already connected with other options is a plain
+`defineCache`, `defineChannel`, `defineRedis` and `openRedis` check their
+arguments before anything connects (the last two are
+[their own part](#wiring-defineredis-and-openredis) of this page), and a URI already connected with other options is a plain
 `TypeError` still: those are mistakes in the code, not something a running
 application can handle.
 
@@ -33,6 +34,22 @@ application can handle.
   - [`This message does not match the schema "orders" carries:`](#this-message-does-not-match-the-schema-orders-carries)
   - [`A message on "orders" does not match its schema:`](#a-message-on-orders-does-not-match-its-schema)
   - [A published message never arrives](#a-published-message-never-arrives)
+- **Wiring** (`defineRedis` and `openRedis`)
+  - [`Property 'users' does not exist on type 'never'.`](#property-users-does-not-exist-on-type-never)
+  - [`Property 'users' does not exist on type 'CacheScope<Record<never, never>>'.`](#property-users-does-not-exist-on-type-cachescoperecordnever-never)
+  - [`defineRedis: instance "default" has neither uri nor client. Give it one.`](#defineredis-instance-default-has-neither-uri-nor-client-give-it-one)
+  - [`defineRedis: instance "default" has both uri and client. Pass the URI to connect to, or the client you already opened.`](#defineredis-instance-default-has-both-uri-and-client-pass-the-uri-to-connect-to-or-the-client-you-already-opened)
+  - [`defineRedis: instance "default" has clientOptions beside a client. The client was opened with its own; pass a uri, or drop the options.`](#defineredis-instance-default-has-clientoptions-beside-a-client-the-client-was-opened-with-its-own-pass-a-uri-or-drop-the-options)
+  - [`defineRedis: instance "default" has an empty prefix. Leave it out, or give it a name.`](#defineredis-instance-default-has-an-empty-prefix-leave-it-out-or-give-it-a-name)
+  - [`defineRedis: instance "default" wires no cache and no channel. Pass the module that exports them, or drop the instance.`](#defineredis-instance-default-wires-no-cache-and-no-channel-pass-the-module-that-exports-them-or-drop-the-instance)
+  - [`defineRedis: instance "default" wires the cache named "user" twice, under "users" and "people". They would share every key in Redis. Export one of them, or give it a name of its own.`](#defineredis-instance-default-wires-the-cache-named-user-twice-under-users-and-people-they-would-share-every-key-in-redis-export-one-of-them-or-give-it-a-name-of-its-own)
+  - [``defineRedis: `instances` is empty. Give it one, or write the single instance as the configuration itself.``](#defineredis-instances-is-empty-give-it-one-or-write-the-single-instance-as-the-configuration-itself)
+  - [`openRedis: instance "main" has neither uri nor client. Give it one.`](#openredis-instance-main-has-neither-uri-nor-client-give-it-one)
+  - [`cache: this Redis holds 2 Redis instances, and this call lives on one. Name it, as { on: 'cache' }.`](#cache-this-redis-holds-2-redis-instances-and-this-call-lives-on-one-name-it-as--on-cache-)
+  - [`lock: this Redis has no instance named "events". It wires "cache", "pubsub".`](#lock-this-redis-has-no-instance-named-events-it-wires-cache-pubsub)
+  - [A key, a channel or a lock is not where you expect it in `redis-cli`](#a-key-a-channel-or-a-lock-is-not-where-you-expect-it-in-redis-cli)
+  - [The process does not exit, or the connection count climbs](#the-process-does-not-exit-or-the-connection-count-climbs)
+  - [A client the configuration handed in is still open after `redis.close()`](#a-client-the-configuration-handed-in-is-still-open-after-redisclose)
 
 ## Install and import
 
@@ -385,4 +402,314 @@ not connected at that instant never sees it, and nothing is replayed.
 ```ts
 const delivered = await publish(client, orders, payload);
 if (delivered === 0) await queue.add(payload); // a stream or a queue, where it must not be lost
+```
+
+## Wiring: `defineRedis` and `openRedis`
+
+Everything in this part is a bare `TypeError` raised at **wiring time**, or a type error on the object `openRedis` gives back; the sentence names the instance and what to do, and no request produces one. What a *call* on a wired cache, channel or lock throws is the `RedisError` described above, with the instance's prefix in the key it names: a value refused by `redis.cache.users.set` reads `This value does not match the schema "myapp:prod:user" stores:`, a lock `The lock "myapp:import" is held by somebody else …`, a message `A message on "myapp:prod:user.created" does not match its schema:`.
+
+`redis.ping()` never throws: it answers `{ ok: false, error }`, and that `error` is the same `RedisError`, `code: 'PING_TIMEOUT'`, message `ping: no answer in 2000ms`, whether `openRedis` opened the client or the configuration handed one in.
+
+### Wiring types
+
+#### `Property 'users' does not exist on type 'never'.`
+
+**When:** compiling `redis.cache.users` — or `redis.channels.created` — on an object
+whose configuration names more than one instance. The whole line is a
+`TS2339`.
+**Why:** `redis.cache` and `redis.channels` are the shortcut to the **sole**
+instance, and an object that holds several has no sole one: their type is
+`never`, measured both ways in this package's type tests, so every key read
+off them is this error. It is the compile-time half of
+[the refusal below](#cache-this-redis-holds-2-redis-instances-and-this-call-lives-on-one-name-it-as--on-cache-),
+which is what a JavaScript call site gets instead.
+**Fix:** say which Redis:
+
+```ts
+await redis.instances.cache.cache.users.get(id);
+await redis.instances.pubsub.channels.created.publish(user);
+```
+
+#### `Property 'users' does not exist on type 'CacheScope<Record<never, never>>'.`
+
+**When:** compiling a cache read off an instance that wires **only channels**
+— `redis.instances.pubsub.cache.users`. A channel read off a cache-only
+instance is the mirror image, and reads
+`Property 'created' does not exist on type 'ChannelScope<Record<never, never>>'.`
+**Why:** every instance is typed by the modules *it* was given, so an
+instance configured with `channels` alone has an empty cache scope —
+`Record<never, never>` is that empty module — and no key on it. Usually the
+wrong instance named, or a definition exported from the module the other
+instance wires.
+**Fix:** read it off the instance that wires it:
+
+```ts
+const config = defineRedis({
+	instances: {
+		cache: { uri, prefix: 'myapp', caches },
+		pubsub: { uri, prefix: 'myapp', channels },
+	},
+});
+
+await redis.instances.cache.cache.users.get(id);              // the caches live here
+await redis.instances.pubsub.channels.created.publish(user);  // the channels there
+```
+
+`RedisOf<typeof config>` is the type of that object, for a function that takes it
+as a parameter; it carries the same keys, so the two errors above are what it
+refuses too.
+
+### Wiring configuration
+
+Everything below is a bare `TypeError` from `defineRedis`, thrown where the
+configuration is written — it connects to nothing, so a wrong URI is not one
+of them.
+
+The same checks run again in `openRedis`, on the same configuration: a config
+is often built in one file and connected in another, and the second is where
+the stack trace is useful. **The sentence names the call it came from**, so
+the same mistake reads `defineRedis: instance "main" …` from one and
+`openRedis: instance "main" …` from the other; every heading below has that
+second form, word for word after the colon.
+
+#### `defineRedis: instance "default" has neither uri nor client. Give it one.`
+
+**When:** calling `defineRedis`. A single instance names itself `default`;
+with `instances: { … }` the name is the key you wrote.
+**Why:** an instance says where its Redis is exactly once. This is nearly
+always an environment variable that was not read — `process.env.REDIS_URL` is
+`undefined`, so the property is absent.
+**Fix:** read it where the application reads its other settings, and fail
+there:
+
+```ts
+const uri = process.env.REDIS_URL;
+if (!uri) throw new Error('REDIS_URL is not set');
+
+export const config = defineRedis({ uri, prefix: 'myapp:prod', caches, channels });
+```
+
+#### `defineRedis: instance "default" has both uri and client. Pass the URI to connect to, or the client you already opened.`
+
+**When:** calling `defineRedis` with `uri` **and** `client`.
+**Why:** the two differ in who closes what: with a `uri` `openRedis` opens the
+client and `close()` gives it back, with a `client` it uses yours and never
+closes it. It will not guess which you meant.
+**Fix:**
+
+```ts
+defineRedis({ client: connection.client, caches, channels });  // yours to close
+```
+
+#### `defineRedis: instance "default" has clientOptions beside a client. The client was opened with its own; pass a uri, or drop the options.`
+
+**When:** calling `defineRedis` with `client` and `clientOptions`.
+**Why:** `clientOptions` is what `openRedis` hands the driver **when it opens** a
+client. A client that is already open cannot take them, so they would be
+silently ignored.
+**Fix:** give them where the client is made:
+
+```ts
+const connection = await connectRedis(uri, { autoReconnect: false });
+defineRedis({ client: connection.client, caches, channels });
+```
+
+#### `defineRedis: instance "default" has an empty prefix. Leave it out, or give it a name.`
+
+**When:** calling `defineRedis` with `prefix: ''`, or a prefix of spaces —
+usually a deployment name read from an environment variable that is unset.
+**Why:** an empty prefix would write `:user:ada`, a keyspace that belongs to
+no deployment and matches nobody's `SCAN`. No prefix at all is a supported
+choice; an empty one is a mistake.
+**Fix:**
+
+```ts
+defineRedis({ uri, prefix: process.env.REDIS_PREFIX ?? 'myapp:dev', caches });
+```
+
+#### `defineRedis: instance "default" wires no cache and no channel. Pass the module that exports them, or drop the instance.`
+
+**When:** calling `defineRedis` with no `caches` and no `channels`, or with
+objects that hold no definition in them.
+**Why:** definitions are recognised **by shape** — a cache has a `name`, a
+`key` function, a numeric `ttl` and a `schema`; a channel has a `name` and a
+`schema` and no `ttl`. An object that holds none of those is usually a module
+of types only, a default export read as a namespace, or a barrel that
+re-exports builders rather than definitions.
+**Fix:** pass the module as it is:
+
+```ts
+// src/redis/caches.ts
+export const users = defineCache({ name: 'user', key: (id: string) => id, ttl: 300, schema });
+
+// src/redis/index.ts
+import * as caches from './caches';
+import * as channels from './channels';
+
+export const config = defineRedis({ uri, caches, channels });
+```
+
+Anything else in those modules — a schema, a type, a constant — is skipped,
+not refused.
+
+#### `defineRedis: instance "default" wires the cache named "user" twice, under "users" and "people". They would share every key in Redis. Export one of them, or give it a name of its own.`
+
+**When:** calling `defineRedis`. The same sentence covers channels, as
+`wires the channel named "user.created" twice`.
+**Why:** two exports point at **one** definition, or at two definitions with
+the same `name`. Both keys would write the same Redis keys, so one of them is
+silently dead: `redis.cache.people.delete(id)` empties what
+`redis.cache.users.set(id, value)` wrote. It is a copy-paste in the module that
+exports them, and nothing downstream can see it.
+**Fix:** one `name` per definition, and one export per definition:
+
+```ts
+export const users = defineCache({ name: 'user', key, ttl: 300, schema });
+export const people = defineCache({ name: 'person', key, ttl: 300, schema });
+```
+
+The **export** name is what the application reads (`redis.cache.users`); the
+definition's `name` is what Redis holds. Two definitions may share an export
+name across two modules, but never a `name` on one instance.
+
+#### ``defineRedis: `instances` is empty. Give it one, or write the single instance as the configuration itself.``
+
+**When:** calling `defineRedis({ instances: {} })` — typically an
+`instances` object built at run time from environment variables that were not
+set.
+**Why:** the multi-instance shape was used and nothing came out of it. A configuration
+with no instance has nothing to wire and nothing to close.
+**Fix:**
+
+```ts
+defineRedis({ uri, caches, channels });                        // one Redis
+defineRedis({ instances: { cache: { uri, caches } } });        // several
+```
+
+### Connecting
+
+#### `openRedis: instance "main" has neither uri nor client. Give it one.`
+
+**When:** `await openRedis(config)`, on a `RedisConfig` that did not come from
+`defineRedis` — a configuration assembled by hand, or one cast through
+`as never`.
+**Why:** the checks run again where the clients are opened, so a
+configuration built in one file and connected in another is refused at the
+call a stack trace points at. **The sentence names the call that raised it**:
+the same wiring mistake reads `defineRedis: …` from `defineRedis` and
+`openRedis: …` from here, rather than always sending a reader to the wrong
+file. Every `defineRedis: …` entry above has this second form.
+**Fix:** build the configuration with `defineRedis`, which is where the
+check belongs:
+
+```ts
+export const config = defineRedis({ uri, caches, channels });
+export const redis = await openRedis(config);
+```
+
+### Wiring runtime
+
+#### `cache: this Redis holds 2 Redis instances, and this call lives on one. Name it, as { on: 'cache' }.`
+
+**When:** reading `redis.cache` on an object built from `instances: { … }` with
+more than one of them. `redis.channels` throws the same sentence under its own
+name, and so does `redis.lock` when no `{ on }` was given.
+**Why:** those three are the shortcut to the **sole** instance. With several
+there is no sole one, and guessing is how a write lands on the wrong Redis —
+so their type is already `never`, and this is what a JavaScript call site, or
+one that went through an `any`, gets at run time.
+**Fix:** name the instance:
+
+```ts
+await redis.instances.cache.cache.users.get(id);
+await redis.instances.pubsub.channels.created.publish(user);
+await redis.lock('import', importEverything, { on: 'cache' });
+```
+
+A single instance is named `default`, so `redis.instances.default.cache`
+and `redis.cache` are the same object.
+
+#### `lock: this Redis has no instance named "events". It wires "cache", "pubsub".`
+
+**When:** `redis.lock(key, work, { on })` with a name the configuration does
+not hold. It comes back as a **rejection**, not a synchronous throw, so one
+`catch` covers it and whatever the work does.
+**Why:** the names are the keys of `instances` in the configuration — not the
+host, not the database number. `{ on: 'events' }` does not compile; this is the
+run-time half of that, for a name that came from a variable or a cast.
+**Fix:**
+
+```ts
+await redis.lock('import', importEverything, { on: 'cache' });  // a key of `instances`
+```
+
+Reading `redis.instances.<name>` for a name that is not there does not throw:
+it does not compile, and gives `undefined` where the types were bypassed.
+
+#### A key, a channel or a lock is not where you expect it in `redis-cli`
+
+**When:** looking for a value the application says it wrote, and getting
+`(nil)`.
+**Why:** the instance's prefix is in front of everything it writes, and a
+cache's key is `<name>:<key>` — a cache wired as `users` with `name: 'user'`
+under `prefix: 'myapp:prod'` writes `myapp:prod:user:ada`, and the channel
+`user.created` is published on `myapp:prod:user.created`. The lock is the one
+that surprises: `withLock` writes `` `lock:${key}` `` itself
+and the wiring hands it the already-prefixed key, so the prefix lands **inside**
+`lock:` — `lock:myapp:prod:import`, never `myapp:prod:lock:import`. Both are
+measured in the specs.
+**Fix:** ask the object for the string rather than spelling it by hand:
+
+```ts
+redis.cache.users.keyFor('ada');       // 'myapp:prod:user:ada'
+redis.channels.created.name;           // 'myapp:prod:user.created'
+redis.instances.default.prefix;        // 'myapp:prod'  — a lock is `lock:${prefix}:${key}`
+```
+
+A definition is never renamed in place: the prefix is applied to a copy, so
+two objects may wire one definition under two prefixes, and a staging process
+and a production one share the module without sharing a keyspace.
+
+### Closing
+
+#### The process does not exit, or the connection count climbs
+
+**When:** after the work is done — a script that hangs instead of exiting, or
+a long-running process whose `CLIENT LIST` on the server keeps growing.
+**Why:** every `subscribe` holds a **connection duplicated from the client**,
+and one nobody closes is a socket nobody gives back. `openRedis` records each
+subscription it starts, so `redis.close()` closes the ones nobody did, then the
+clients it opened — in that order, because unsubscribing on a closed client
+is an error nobody asked for. A subscription started on an object that is never
+closed outlives everything.
+**Fix:** close the subscription where it ends, and the object where the process
+does:
+
+```ts
+await using redis = await openRedis(config);
+
+const running = await redis.channels.created.subscribe((user) => console.log(user.email));
+await running.close();     // or hold it with `await using`, or leave it to `redis.close()`
+```
+
+`close()` is idempotent, on the subscription and on the object, so an early
+close and the object's own close cannot collide.
+
+#### A client the configuration handed in is still open after `redis.close()`
+
+**When:** `await redis.close()`, or the end of an `await using` block, on an
+instance configured with `client:` rather than `uri:`.
+**Why:** deliberate, and measured: `close()` gives back what `openRedis` **opened**. A
+client an application opened itself is usually shared with something else, so
+taking it away at its shutdown would break whatever holds it too. The
+subscriptions it started on that client are still closed — those are
+its.
+**Fix:** close it where it was opened:
+
+```ts
+const connection = await connectRedis(process.env.REDIS_URL!);
+const redis = await openRedis(defineRedis({ client: connection.client, caches, channels }));
+
+await redis.close();          // subscriptions closed, the client untouched
+await connection.close();   // yours, so yours to give back
 ```

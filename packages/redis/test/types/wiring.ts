@@ -8,79 +8,83 @@
 
 import { z } from 'zod';
 import { defineCache } from '../../src/cache/define-cache';
-import { defineConfig } from '../../src/wiring/config/define-config';
-import { connectKit } from '../../src/wiring/connect-kit';
-import type { KitOf } from '../../src/wiring/types';
+import { defineRedis } from '../../src/wiring/config/define-redis';
+import { openRedis } from '../../src/wiring/open-redis';
+import type { RedisOf } from '../../src/wiring/types';
 import * as caches from '../wiring/caches';
 import * as channels from '../wiring/channels';
 
 const uri = 'redis://127.0.0.1:6379';
 
 async function soleInstance() {
-	const kit = await connectKit(defineConfig({ uri, caches, channels }));
+	const redis = await openRedis(defineRedis({ uri, caches, channels }));
 
 	// A cache that is not wired.
 	// @ts-expect-error
-	kit.cache.nope;
+	redis.cache.nope;
 
 	// A channel that is not wired.
 	// @ts-expect-error
-	kit.channels.nope;
+	redis.channels.nope;
 
 	// `users` is keyed by a string id, not an object.
 	// @ts-expect-error
-	await kit.cache.users.get({ id: 'ada' });
+	await redis.cache.users.get({ id: 'ada' });
 
 	// `seats` is keyed by an object, not a string.
 	// @ts-expect-error
-	await kit.cache.seats.get('ada');
+	await redis.cache.seats.get('ada');
 
 	// A field the schema does not have.
-	// @ts-expect-error
-	await kit.cache.users.set('ada', { id: 'ada', email: 'a@b.c', admin: true });
+	await redis.cache.users.set('ada', {
+		id: 'ada',
+		email: 'a@b.c',
+		// @ts-expect-error
+		admin: true,
+	});
 
 	// A missing required field.
 	// @ts-expect-error
-	await kit.cache.users.set('ada', { id: 'ada' });
+	await redis.cache.users.set('ada', { id: 'ada' });
 
 	// `created` carries a user, not an id alone.
 	// @ts-expect-error
-	await kit.channels.created.publish({ id: 'ada' });
+	await redis.channels.created.publish({ id: 'ada' });
 
 	// The handler is given the payload the schema describes.
-	await kit.channels.created.subscribe((payload) => {
+	await redis.channels.created.subscribe((payload) => {
 		// @ts-expect-error
 		payload.admin;
 	});
 
 	// An instance this configuration does not name.
 	// @ts-expect-error
-	kit.instances.pubsub;
+	redis.instances.pubsub;
 
 	// The same, on a lock.
 	// @ts-expect-error
-	await kit.lock('k', () => 1, { on: 'pubsub' });
+	await redis.lock('k', () => 1, { on: 'pubsub' });
 
 	// These are the shapes that must keep compiling.
-	await kit.cache.users.set('ada', { id: 'ada', email: 'a@b.c', seats: 1 });
+	await redis.cache.users.set('ada', { id: 'ada', email: 'a@b.c', seats: 1 });
 	// `seats` has a `.default()`: a write may leave it out, a read has it.
-	await kit.cache.users.set('ada', { id: 'ada', email: 'a@b.c' });
-	const read = await kit.cache.users.remember('ada', () => ({
+	await redis.cache.users.set('ada', { id: 'ada', email: 'a@b.c' });
+	const read = await redis.cache.users.remember('ada', () => ({
 		id: 'ada',
 		email: 'a@b.c',
 	}));
 	const seatCount: number = read.seats;
 	void seatCount;
-	await kit.cache.seats.get({ org: 'acme', user: 'ada' });
-	await kit.channels.created.publish({ id: 'ada', email: 'a@b.c', seats: 1 });
-	await kit.lock('k', () => 1);
-	kit.instances.default.client;
-	await kit.close();
+	await redis.cache.seats.get({ org: 'acme', user: 'ada' });
+	await redis.channels.created.publish({ id: 'ada', email: 'a@b.c', seats: 1 });
+	await redis.lock('k', () => 1);
+	redis.instances.default.client;
+	await redis.close();
 }
 
 async function severalInstances() {
-	const kit = await connectKit(
-		defineConfig({
+	const redis = await openRedis(
+		defineRedis({
 			instances: {
 				cache: { uri, caches },
 				pubsub: { uri, channels },
@@ -88,76 +92,76 @@ async function severalInstances() {
 		}),
 	);
 
-	// `kit.cache` is `never` with more than one instance: naming the Redis is
+	// `redis.cache` is `never` with more than one instance: naming the Redis is
 	// the only way, and the compiler says so before anything runs.
 	// @ts-expect-error
-	kit.cache.users;
+	redis.cache.users;
 
 	// @ts-expect-error
-	kit.channels.created;
+	redis.channels.created;
 
 	// And `never` itself, not merely a scope with no key on it — the two read
 	// the same in an error message and are not the same type.
-	const noCache: never = kit.cache;
-	const noChannels: never = kit.channels;
+	const noCache: never = redis.cache;
+	const noChannels: never = redis.channels;
 	void noCache;
 	void noChannels;
 
 	// `pubsub` wires no cache.
 	// @ts-expect-error
-	kit.instances.pubsub.cache.users;
+	redis.instances.pubsub.cache.users;
 
 	// `cache` wires no channel.
 	// @ts-expect-error
-	kit.instances.cache.channels.created;
+	redis.instances.cache.channels.created;
 
-	// A lock must name which Redis it lives on, and only one this kit has.
+	// A lock must name which Redis it lives on, and only one this Redis has.
 	// @ts-expect-error
-	await kit.lock('k', () => 1, { on: 'nope' });
+	await redis.lock('k', () => 1, { on: 'nope' });
 
 	// These must keep compiling.
-	await kit.instances.cache.cache.users.get('ada');
-	await kit.instances.pubsub.channels.created.publish({
+	await redis.instances.cache.cache.users.get('ada');
+	await redis.instances.pubsub.channels.created.publish({
 		id: 'ada',
 		email: 'a@b.c',
 		seats: 1,
 	});
-	await kit.lock('k', () => 1, { on: 'cache' });
-	const answered = await kit.ping();
+	await redis.lock('k', () => 1, { on: 'cache' });
+	const answered = await redis.ping();
 	answered.cache.ok;
 	answered.pubsub.ok;
-	await kit.close();
+	await redis.close();
 }
 
 /**
- * `KitOf` types a kit from the configuration alone — a service that is handed
- * one, rather than reading `Awaited<ReturnType<typeof connectKit>>` back.
+ * `RedisOf` types a Redis from the configuration alone — a service that is handed
+ * one, rather than reading `Awaited<ReturnType<typeof openRedis>>` back.
  *
- * It is a claim about what `KitConfig` carries: the instances it freezes hold
+ * It is a claim about what `RedisConfig` carries: the instances it freezes hold
  * `caches` as an optional field, so reading the caches back off that shape
  * alone gives an empty scope. These lines fail the build if that regresses.
  */
-function kitFromConfig() {
-	const config = defineConfig({ uri, caches, channels });
-	type Kit = KitOf<typeof config>;
+function redisFromConfig() {
+	const config = defineRedis({ uri, caches, channels });
+	type Wiring = RedisOf<typeof config>;
 
-	return (kit: Kit) => {
+	return (redis: Wiring) => {
 		// A cache this configuration does not wire.
 		// @ts-expect-error
-		kit.cache.nope;
+		redis.cache.nope;
 
 		// These must keep compiling.
-		void kit.cache.users.get('ada');
-		void kit.channels.created.name;
-		void kit.instances.default.client;
+		void redis.cache.users.get('ada');
+		void redis.channels.created.name;
+		void redis.instances.default.client;
 	};
 }
 
 function configRefusals() {
 	// A cache under a key that is not a definition is simply not wired, which
 	// is not an error — but asking for it is.
-	const kit = defineConfig({ uri, caches });
-	kit.instances.default.uri;
+	const redis = defineRedis({ uri, caches });
+	redis.instances.default.uri;
 
 	const orphan = defineCache({
 		name: 'orphan',
@@ -168,16 +172,16 @@ function configRefusals() {
 
 	// An option the config does not have.
 	// @ts-expect-error
-	defineConfig({ uri, caches, nope: true });
+	defineRedis({ uri, caches, nope: true });
 
 	// `prefix` is a string.
 	// @ts-expect-error
-	defineConfig({ uri, caches, prefix: 5 });
+	defineRedis({ uri, caches, prefix: 5 });
 
 	// These must keep compiling.
-	defineConfig({ uri, caches: { orphan } });
-	defineConfig({ uri, prefix: 'myapp', caches, channels });
-	defineConfig({ instances: { a: { uri, caches } } });
+	defineRedis({ uri, caches: { orphan } });
+	defineRedis({ uri, prefix: 'myapp', caches, channels });
+	defineRedis({ instances: { a: { uri, caches } } });
 }
 
 /**
@@ -198,39 +202,39 @@ async function unknownInputs() {
 		ttl: 5,
 		schema: z.preprocess((value) => Number(value), z.number()),
 	});
-	const kit = await connectKit(
-		defineConfig({ uri, caches: { counts, parsed } }),
+	const redis = await openRedis(
+		defineRedis({ uri, caches: { counts, parsed } }),
 	);
 
 	// `n` is still required: `unknown` is its value, not its key.
 	// @ts-expect-error
-	await kit.cache.counts.set('c1', {});
+	await redis.cache.counts.set('c1', {});
 
 	// A loader still gives the object, with its `n`.
 	// @ts-expect-error
-	await kit.cache.counts.remember('c1', () => ({}));
+	await redis.cache.counts.remember('c1', () => ({}));
 
 	// What is read is the number the schema produces, not what was written.
 	// @ts-expect-error
-	const parsedAsString: string | undefined = await kit.cache.parsed.get('p1');
+	const parsedAsString: string | undefined = await redis.cache.parsed.get('p1');
 	void parsedAsString;
 
 	// These must keep compiling.
-	await kit.cache.counts.set('c1', { n: '3' });
-	await kit.cache.counts.set('c1', { n: { not: 'a number' } });
-	await kit.cache.counts.remember('c1', () => ({ n: '3' }));
-	await kit.cache.parsed.set('p1', '3');
-	await kit.cache.parsed.set('p1', { any: 'thing' });
-	await kit.cache.parsed.set('p1', null);
-	await kit.cache.parsed.remember('p1', () => Symbol('anything'));
-	const parsedRead: number | undefined = await kit.cache.parsed.get('p1');
+	await redis.cache.counts.set('c1', { n: '3' });
+	await redis.cache.counts.set('c1', { n: { not: 'a number' } });
+	await redis.cache.counts.remember('c1', () => ({ n: '3' }));
+	await redis.cache.parsed.set('p1', '3');
+	await redis.cache.parsed.set('p1', { any: 'thing' });
+	await redis.cache.parsed.set('p1', null);
+	await redis.cache.parsed.remember('p1', () => Symbol('anything'));
+	const parsedRead: number | undefined = await redis.cache.parsed.get('p1');
 	void parsedRead;
-	await kit.close();
+	await redis.close();
 }
 
 export {
 	configRefusals,
-	kitFromConfig,
+	redisFromConfig,
 	severalInstances,
 	soleInstance,
 	unknownInputs,

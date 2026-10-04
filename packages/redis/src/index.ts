@@ -17,7 +17,7 @@ export type { RedisErrorCode } from './errors/redis-error';
 export { RedisError } from './errors/redis-error';
 export type { LockOptions } from './lock/with-lock';
 export { withLock } from './lock/with-lock';
-export { defineConfig } from './wiring/config/define-config';
+export { defineRedis } from './wiring/config/define-redis';
 export type {
 	CachesIn,
 	CachesOf,
@@ -26,19 +26,19 @@ export type {
 	InstanceConfig,
 	InstanceName,
 	InstancesOf,
-	KitConfig,
-	KitConfigInput,
+	RedisConfig,
+	RedisConfigInput,
 } from './wiring/config/types';
-export { connectKit } from './wiring/connect-kit';
+export { openRedis } from './wiring/open-redis';
 export type {
 	BoundChannel,
 	CacheScope,
 	ChannelScope,
 	InstanceScope,
-	KitLockOptions,
-	KitOf,
 	PayloadOf,
-	RedisKit,
+	Redis,
+	RedisLockOptions,
+	RedisOf,
 	SoleCache,
 	SoleChannels,
 	SoleInstance,

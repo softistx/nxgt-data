@@ -31,18 +31,18 @@ export type ChannelsOf<C> = {
 export interface InstanceConfig<Ca, Ch> {
 	/**
 	 * Where to connect. One of `uri` and `client`, never both. Instances on
-	 * one URI share a client, which the kit closes with its last holder.
+	 * one URI share a client, which the Redis closes with its last holder.
 	 */
 	uri?: string;
 	/**
-	 * A client the application opened. The kit uses it and **never closes
+	 * A client the application opened. The Redis uses it and **never closes
 	 * it**: what it did not open is not its to close.
 	 */
 	client?: RedisClient;
 	/** Passed to the driver with `uri`. Refused with `client`, which has its own. */
 	clientOptions?: RedisOptions;
 	/**
-	 * Put in front of every key this kit writes: cache keys, channel names
+	 * Put in front of every key this Redis writes: cache keys, channel names
 	 * and lock keys alike.
 	 *
 	 * It belongs here and not in a definition. A definition says what a value
@@ -58,7 +58,7 @@ export interface InstanceConfig<Ca, Ch> {
 }
 
 /** One Redis, or several under their names. */
-export type KitConfigInput =
+export type RedisConfigInput =
 	| InstanceConfig<object, object>
 	| { instances: Record<string, InstanceConfig<object, object>> };
 
@@ -85,7 +85,7 @@ export type ChannelsIn<
 /**
  * A key the configuration does not have, turned into a message.
  *
- * `defineConfig` infers its argument, so a plain object literal does not get
+ * `defineRedis` infers its argument, so a plain object literal does not get
  * TypeScript's excess-property check: the literal *is* the inferred type, and
  * nothing is in excess of itself. The constraint is therefore written as
  * `config: C & Checked<C>`, which makes the refusal land on the key the
@@ -113,12 +113,12 @@ export type Checked<C> = C extends { instances: infer I }
 	: CheckedInstance<C>;
 
 /**
- * What `defineConfig` gives back: the same instances, named and frozen.
+ * What `defineRedis` gives back: the same instances, named and frozen.
  *
  * Always keyed, even when the application wrote the single shape — that one
  * is normalised to the name `default`, so everything below has one case.
  */
-export interface KitConfig<C> {
+export interface RedisConfig<C> {
 	readonly instances: {
 		readonly [N in InstanceName<C>]: InstanceConfig<
 			CachesIn<C, N>,

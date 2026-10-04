@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { defineCache } from '../src/cache/define-cache';
 import { defineChannel } from '../src/channel/define-channel';
 import { closeRedis } from '../src/connection/connect';
-import type { RedisKit } from '../src/wiring/types';
+import type { Redis } from '../src/wiring/types';
 import { startRedis, type TestServer } from './server';
 
 export const userSchema = z.object({
@@ -37,17 +37,17 @@ export const userCreated = defineChannel({
 });
 
 /**
- * One Redis per spec file, emptied before each test, and every kit a test
+ * One Redis per spec file, emptied before each test, and every Redis a test
  * opened closed before the server stops.
  *
  * `closeRedis()` runs last: `connectRedis` shares a client per URI, so a
- * connection a test left open would keep one alive past the server. The kits
+ * connection a test left open would keep one alive past the server. The Redis objects
  * are tracked because a subscription holds a connection duplicated from the
  * client, and one nobody closed would keep the server from stopping.
  */
 export function useRedis() {
-	const servers = {} as { redis: TestServer; track: <K>(kit: K) => K };
-	const kits: RedisKit<never>[] = [];
+	const servers = {} as { redis: TestServer; track: <K>(redis: K) => K };
+	const opened: Redis<never>[] = [];
 
 	beforeAll(async () => {
 		servers.redis = await startRedis();
@@ -58,15 +58,16 @@ export function useRedis() {
 	});
 
 	afterAll(async () => {
-		for (const kit of kits.splice(0)) await kit.close().catch(() => undefined);
+		for (const redis of opened.splice(0))
+			await redis.close().catch(() => undefined);
 		await closeRedis();
 		await servers.redis?.stop();
 	});
 
-	/** A kit this file will close for you when it ends. */
-	servers.track = <K>(kit: K): K => {
-		kits.push(kit as unknown as RedisKit<never>);
-		return kit;
+	/** A Redis this file will close for you when it ends. */
+	servers.track = <K>(redis: K): K => {
+		opened.push(redis as unknown as Redis<never>);
+		return redis;
 	};
 
 	return servers;

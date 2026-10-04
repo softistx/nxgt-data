@@ -3,16 +3,16 @@ import { useRedis } from '../../test/fixtures';
 import * as caches from '../../test/wiring/caches';
 import * as channels from '../../test/wiring/channels';
 import { connectRedis } from '../connection/connect';
-import { defineConfig } from './config/define-config';
-import { connectKit } from './connect-kit';
+import { defineRedis } from './config/define-redis';
+import { openRedis } from './open-redis';
 
 const servers = useRedis();
 const { track } = servers;
 
-const one = () => defineConfig({ uri: servers.redis.uri, caches, channels });
+const one = () => defineRedis({ uri: servers.redis.uri, caches, channels });
 
 const two = () =>
-	defineConfig({
+	defineRedis({
 		instances: {
 			cache: { uri: servers.redis.uri, prefix: 'c', caches },
 			pubsub: { uri: servers.redis.uri, prefix: 'p', channels },
@@ -21,69 +21,69 @@ const two = () =>
 
 describe('one Redis', () => {
 	test('cache and channels are the shortcut to the only instance', async () => {
-		const kit = track(await connectKit(one()));
-		expect(kit.cache).toBe(kit.instances.default.cache);
-		expect(kit.channels).toBe(kit.instances.default.channels);
-		expect(kit.clients.default).toBe(kit.instances.default.client);
+		const redis = track(await openRedis(one()));
+		expect(redis.cache).toBe(redis.instances.default.cache);
+		expect(redis.channels).toBe(redis.instances.default.channels);
+		expect(redis.clients.default).toBe(redis.instances.default.client);
 	});
 });
 
 describe('several Redis instances', () => {
 	test('each is reached by its own name', async () => {
-		const kit = track(await connectKit(two()));
-		expect(Object.keys(kit.instances).sort()).toEqual(['cache', 'pubsub']);
-		expect(kit.instances.cache.prefix).toBe('c');
-		expect(kit.instances.pubsub.prefix).toBe('p');
+		const redis = track(await openRedis(two()));
+		expect(Object.keys(redis.instances).sort()).toEqual(['cache', 'pubsub']);
+		expect(redis.instances.cache.prefix).toBe('c');
+		expect(redis.instances.pubsub.prefix).toBe('p');
 	});
 
 	test('each only wires what its own instance was given', async () => {
-		const kit = track(await connectKit(two()));
-		expect(Object.keys(kit.instances.cache.cache).sort()).toEqual([
+		const redis = track(await openRedis(two()));
+		expect(Object.keys(redis.instances.cache.cache).sort()).toEqual([
 			'seats',
 			'users',
 		]);
-		expect(Object.keys(kit.instances.cache.channels)).toEqual([]);
-		expect(Object.keys(kit.instances.pubsub.channels).sort()).toEqual([
+		expect(Object.keys(redis.instances.cache.channels)).toEqual([]);
+		expect(Object.keys(redis.instances.pubsub.channels).sort()).toEqual([
 			'created',
 			'deleted',
 		]);
 	});
 
-	test('kit.cache refuses to guess which one is meant', async () => {
-		const kit = track(await connectKit(two()));
-		expect(() => kit.cache).toThrow(
-			'kit.cache: this kit holds 2 Redis instances, and this call lives on ' +
+	test('redis.cache refuses to guess which one is meant', async () => {
+		const redis = track(await openRedis(two()));
+		expect(() => redis.cache).toThrow(
+			'cache: this Redis holds 2 Redis instances, and this call lives on ' +
 				"one. Name it, as { on: 'cache' }.",
 		);
 	});
 
-	test('kit.channels refuses the same way', async () => {
-		const kit = track(await connectKit(two()));
-		expect(() => kit.channels).toThrow(/kit\.channels: this kit holds 2/);
+	test('redis.channels refuses the same way', async () => {
+		const redis = track(await openRedis(two()));
+		expect(() => redis.channels).toThrow(/channels: this Redis holds 2/);
 	});
 
 	test('two instances on one URI share a client, as connectRedis does', async () => {
 		// `connectRedis` counts holders per URI, so this is one socket, and
 		// `close()` gives it back only when the last holder lets go.
-		const kit = track(await connectKit(two()));
-		expect(kit.clients.cache).toBe(kit.clients.pubsub);
+		const redis = track(await openRedis(two()));
+		expect(redis.clients.cache).toBe(redis.clients.pubsub);
 	});
 });
 
 describe('lock', () => {
 	test('runs the work and gives back what it returned', async () => {
-		const kit = track(await connectKit(one()));
-		expect(await kit.lock('import', () => 'done')).toBe('done');
+		const redis = track(await openRedis(one()));
+		expect(await redis.lock('import', () => 'done')).toBe('done');
 	});
 
 	test('puts the instance prefix in front of the lock key', async () => {
-		const kit = track(
-			await connectKit(
-				defineConfig({ uri: servers.redis.uri, prefix: 'myapp', caches }),
+		const redis = track(
+			await openRedis(
+				defineRedis({ uri: servers.redis.uri, prefix: 'myapp', caches }),
 			),
 		);
 		let held: string | null = null;
-		await kit.lock('import', async () => {
+		await redis.lock('import', async () => {
 			held = await servers.redis.client.get('lock:myapp:import');
 		});
 		expect(held).not.toBeNull();
@@ -96,9 +96,9 @@ describe('lock', () => {
 	});
 
 	test('a second holder is refused while the first has it', async () => {
-		const kit = track(await connectKit(one()));
-		const error = await kit.lock('import', () =>
-			kit
+		const redis = track(await openRedis(one()));
+		const error = await redis.lock('import', () =>
+			redis
 				.lock('import', () => 'never', { wait: 0 })
 				.then(
 					() => undefined,
@@ -108,20 +108,20 @@ describe('lock', () => {
 		expect((error as { code: string }).code).toBe('LOCK_HELD');
 	});
 
-	test('names the instance when the kit holds several', async () => {
-		const kit = track(await connectKit(two()));
-		expect(await kit.lock('import', () => 'ok', { on: 'pubsub' })).toBe('ok');
-		await expect(kit.lock('import', () => 'ok')).rejects.toThrow(
-			/kit\.lock: this kit holds 2 Redis instances/,
+	test('names the instance when the Redis holds several', async () => {
+		const redis = track(await openRedis(two()));
+		expect(await redis.lock('import', () => 'ok', { on: 'pubsub' })).toBe('ok');
+		await expect(redis.lock('import', () => 'ok')).rejects.toThrow(
+			/lock: this Redis holds 2 Redis instances/,
 		);
 	});
 
-	test('an instance this kit does not have is named in the refusal', async () => {
-		const kit = track(await connectKit(two()));
+	test('an instance this Redis does not have is named in the refusal', async () => {
+		const redis = track(await openRedis(two()));
 		await expect(
-			kit.lock('import', () => 'ok', { on: 'nope' as never }),
+			redis.lock('import', () => 'ok', { on: 'nope' as never }),
 		).rejects.toThrow(
-			'kit.lock: this kit has no instance named "nope". It wires "cache", "pubsub".',
+			'lock: this Redis has no instance named "nope". It wires "cache", "pubsub".',
 		);
 	});
 });
@@ -131,7 +131,7 @@ describe('opening', () => {
 		// Nothing listens on this port, and `autoReconnect: false` is what
 		// makes that quick — the sibling's own spec measures the default at
 		// about 31 seconds of retries.
-		const config = defineConfig({
+		const config = defineRedis({
 			instances: {
 				first: { uri: servers.redis.uri, caches },
 				second: {
@@ -141,21 +141,21 @@ describe('opening', () => {
 				},
 			},
 		});
-		await expect(connectKit(config)).rejects.toThrow();
+		await expect(openRedis(config)).rejects.toThrow();
 		// The first instance's hold was given back on the way out: the URI has
 		// no holder left, so this opens a working client rather than the one
-		// the failed kit would have kept.
+		// the failed Redis would have kept.
 		const reopened = await connectRedis(servers.redis.uri);
 		expect((await reopened.ping()).ok).toBe(true);
 		await reopened.close();
 	});
 
 	test('a configuration built by hand, with neither uri nor client, is named', async () => {
-		// `defineConfig` refuses this; `connectKit` takes a `KitConfig`, which
+		// `defineRedis` refuses this; `openRedis` takes a `RedisConfig`, which
 		// a caller can write themselves, and says which instance is wrong.
 		const byHand = { instances: { main: { caches } } } as never;
-		await expect(connectKit(byHand)).rejects.toThrow(
-			'connectKit: instance "main" has neither uri nor client. Give it one.',
+		await expect(openRedis(byHand)).rejects.toThrow(
+			'openRedis: instance "main" has neither uri nor client. Give it one.',
 		);
 	});
 
@@ -163,8 +163,8 @@ describe('opening', () => {
 		const byHand = {
 			instances: { main: { uri: servers.redis.uri } },
 		} as never;
-		await expect(connectKit(byHand)).rejects.toThrow(
-			'connectKit: instance "main" wires no cache and no channel. Pass ' +
+		await expect(openRedis(byHand)).rejects.toThrow(
+			'openRedis: instance "main" wires no cache and no channel. Pass ' +
 				'the module that exports them, or drop the instance.',
 		);
 	});
@@ -172,8 +172,8 @@ describe('opening', () => {
 
 describe('ping', () => {
 	test('answers for every instance, under its name', async () => {
-		const kit = track(await connectKit(two()));
-		const answered = await kit.ping();
+		const redis = track(await openRedis(two()));
+		const answered = await redis.ping();
 		expect(Object.keys(answered).sort()).toEqual(['cache', 'pubsub']);
 		expect(answered.cache.ok).toBe(true);
 		expect(answered.pubsub.ok).toBe(true);
@@ -181,24 +181,24 @@ describe('ping', () => {
 
 	test('answers for a client the configuration handed in', async () => {
 		// That client carries no `ping` of its own — `RedisConnection.ping`
-		// belongs to what `connectRedis` returned — so this is the kit's copy
+		// belongs to what `connectRedis` returned — so this is the Redis's copy
 		// of it, and a health route reads the same answer either way.
 		const held = await connectRedis(servers.redis.uri);
-		const kit = await connectKit(
-			defineConfig({ client: held.client, caches, channels }),
+		const redis = await openRedis(
+			defineRedis({ client: held.client, caches, channels }),
 		);
-		const answered = await kit.ping();
+		const answered = await redis.ping();
 		expect(answered.default.ok).toBe(true);
 		if (answered.default.ok) {
 			expect(answered.default.latencyMs).toBeGreaterThanOrEqual(0);
 		}
-		await kit.close();
+		await redis.close();
 		await held.close();
 	});
 
 	test('reports a latency a health route can show', async () => {
-		const kit = track(await connectKit(one()));
-		const answered = await kit.ping();
+		const redis = track(await openRedis(one()));
+		const answered = await redis.ping();
 		expect(answered.default.ok).toBe(true);
 		if (answered.default.ok) {
 			expect(answered.default.latencyMs).toBeGreaterThanOrEqual(0);
@@ -207,9 +207,9 @@ describe('ping', () => {
 });
 
 describe('close', () => {
-	test('gives back a client the kit opened', async () => {
-		const kit = await connectKit(one());
-		await kit.close();
+	test('gives back a client the Redis opened', async () => {
+		const redis = await openRedis(one());
+		await redis.close();
 		// The URI has no holder left, so the next `connectRedis` opens a new
 		// socket rather than handing back a closed one.
 		const reopened = await connectRedis(servers.redis.uri);
@@ -221,8 +221,8 @@ describe('close', () => {
 		// `connectRedis` counts holders per URI, and `two()` takes two of them
 		// on one socket. A `close()` that gave back only one would leave the
 		// client open with nobody holding it, and nothing else would say so.
-		const kit = await connectKit(two());
-		await kit.close();
+		const redis = await openRedis(two());
+		await redis.close();
 		const reopened = await connectRedis(servers.redis.uri);
 		expect((await reopened.ping()).ok).toBe(true);
 		await reopened.close();
@@ -230,12 +230,12 @@ describe('close', () => {
 
 	test('never closes a client the configuration handed in', async () => {
 		// What it did not open is not its to close: an application that shares
-		// one client with something else keeps it after the kit is gone.
+		// one client with something else keeps it after the Redis is gone.
 		const held = await connectRedis(servers.redis.uri);
-		const kit = await connectKit(
-			defineConfig({ client: held.client, caches, channels }),
+		const redis = await openRedis(
+			defineRedis({ client: held.client, caches, channels }),
 		);
-		await kit.close();
+		await redis.close();
 		await held.client.set('still', 'here');
 		expect(await held.client.get('still')).toBe('here');
 		await held.close();

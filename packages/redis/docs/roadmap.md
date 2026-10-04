@@ -9,7 +9,12 @@ _Nothing in progress._
 
 ## Next
 
-_Nothing queued._
+- **The refusal of an unknown option, in the message it was written for** —
+  an option the configuration does not have is a compile error today, but
+  TypeScript usually reports it as `is not assignable to type 'never'` on
+  every property of the object, and only sometimes as the sentence the
+  constraint carries, `"nope" is not an option here`. The intended message
+  should be the one every case shows.
 
 ## Later
 
@@ -28,11 +33,44 @@ _Nothing queued._
   fails, and what comes back is Redis's own error, as `RedisError`.
 - **A queue** — pub/sub is fire-and-forget. A message published while nobody
   is subscribed is gone, and nothing is stored, acknowledged or replayed.
+- **An actor, or a session** — `@nxgt/mongo-kit` derives its object with
+  `as(actor)` and `withSession`, because MongoDB has something to stamp and
+  something to carry. Redis has neither, so what `openRedis` gives back is the
+  same object for every request, is never derived, and `close()` always
+  belongs to the one you hold.
+- **Invalidating a cache by pattern** — `redis.cache.users.delete(pattern)`
+  needs `SCAN` over the keyspace to find what to delete: O(N) in the number of
+  keys, on a server that runs one command at a time, and racy — a key written
+  while the scan is running is missed. Delete the keys you know
+  (`delete(params)`), or let the `ttl` do it.
+- **One augmented client instead of two scopes** — `redis.cache.<key>` and
+  `redis.channels.<key>` are two scopes rather than a client with names on it.
+  A Redis client answers to a hundred commands, so a cache and a channel of the
+  same name would fight over it, and nothing here needs to fall through to a
+  driver member: `redis.instances.<name>.client` is the driver, untouched.
+- **Closing a client the configuration handed over** — `openRedis` gives back
+  only what it opened, `await using` included. What it did not open is not its
+  to close.
+- **An error class for the wiring** — every refusal `defineRedis` and
+  `openRedis` make is wiring-time, and there are few enough to tell apart by
+  their sentence, each naming the instance and the call. A `RedisError` still
+  reaches a caller from a cache, a channel or a lock, with its `code`.
 - **Closing on a signal** — nothing listens to `SIGTERM` for you. Call
   `close()` on a connection, or `closeRedis()`, where your process shuts down.
 
 ## Shipped
 
+- **The wiring, folded in from `@nxgt/redis-kit`** — `defineRedis` checking a
+  configuration of one or several Redis instances and freezing it without
+  connecting to anything, and `openRedis` opening the clients and giving back
+  a `Redis` whose `cache` and `channels` scopes carry every definition typed
+  under the key it is exported as, with the deployment's `prefix` in front of
+  every key, channel and lock; `lock`, `ping`, `clients`, and a `close()` that
+  closes the subscriptions nobody closed before the clients it opened.
+  `RedisOf<typeof config>` writes the type from the configuration. It is what
+  `@nxgt/redis-kit` shipped, renamed: `connectKit` is `openRedis`,
+  `defineConfig` is `defineRedis` and `RedisKit` is `Redis`; that package now
+  re-exports this one, deprecated — 0.4.0.
 - **A cache value written as the schema *accepts* it** — `set` and a
   `remember` loader take `z.input` of the schema, so a field with a
   `.default()` may be left out where a value is written, and every reader gets

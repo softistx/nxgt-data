@@ -5,22 +5,22 @@ import { withLock } from '../lock/with-lock';
 import {
 	type InstanceContext,
 	instanceAt,
-	type KitContext,
 	prefixed,
+	type WiringContext,
 } from './context';
 import { cacheScopeOf, channelScopeOf } from './scope';
-import type { KitLockOptions, RedisKit } from './types';
+import type { Redis, RedisLockOptions } from './types';
 
 /**
  * One instance's scope, built once.
  *
- * Once, and not per read: `kit.cache` and `kit.instances.<name>.cache` are
+ * Once, and not per read: `redis.cache` and `redis.instances.<name>.cache` are
  * the same object, so an application can hold on to one and compare it. The
  * two scopes inside it are still built on first read, and the bound caches
  * and channels inside those on first read of their key.
  */
 function scopeFor(
-	ctx: KitContext,
+	ctx: WiringContext,
 	instance: InstanceContext,
 ): LooseInstanceScope {
 	let caches: object | undefined;
@@ -79,7 +79,7 @@ interface LooseInstanceScope {
  *
  * A copy of `@nxgt/redis`'s own `ping` (`connection/connect.ts`), down to the
  * message and the `PING_TIMEOUT` code: a health route reads the same answer
- * whether the kit opened the client or the configuration handed one in. It is
+ * whether the Redis opened the client or the configuration handed one in. It is
  * a row in `AGENTS.md`'s duplication table — a fix in one is a fix to make in
  * the other. It answers within `timeoutMs` either way and never throws.
  */
@@ -119,7 +119,7 @@ async function pingClient(
  * error nobody asked for. Idempotent — `@nxgt/redis` memoises both closes,
  * and the set is emptied as it goes.
  */
-async function closeKit(ctx: KitContext): Promise<void> {
+async function closeAll(ctx: WiringContext): Promise<void> {
 	for (const subscription of [...ctx.subscriptions]) {
 		ctx.subscriptions.delete(subscription);
 		await subscription.close();
@@ -129,8 +129,8 @@ async function closeKit(ctx: KitContext): Promise<void> {
 	}
 }
 
-/** The object a kit is. Every method is a plain function over the context. */
-export function kitOf<C>(ctx: KitContext): RedisKit<C> {
+/** The object a Redis is. Every method is a plain function over the context. */
+export function wire<C>(ctx: WiringContext): Redis<C> {
 	const instances: Record<string, LooseInstanceScope> = {};
 	const clients: Record<string, unknown> = {};
 	for (const instance of ctx.instances) {
@@ -140,13 +140,11 @@ export function kitOf<C>(ctx: KitContext): RedisKit<C> {
 
 	/** The sole instance's scope, or the refusal naming the call that asked. */
 	const sole = (what: string) =>
-		instances[
-			instanceAt(ctx, undefined, `kit.${what}`).name
-		] as LooseInstanceScope;
+		instances[instanceAt(ctx, undefined, what).name] as LooseInstanceScope;
 
-	const kit = {
+	const redis = {
 		// A getter, so the refusal lands when the property is read rather than
-		// when the kit is built — the message can then name the call.
+		// when the Redis is built — the message can then name the call.
 		get cache() {
 			return sole('cache').cache;
 		},
@@ -156,17 +154,17 @@ export function kitOf<C>(ctx: KitContext): RedisKit<C> {
 		instances: Object.freeze(instances),
 		clients: Object.freeze(clients),
 
-		// `async`, so naming an instance this kit does not have comes back as a
+		// `async`, so naming an instance this Redis does not have comes back as a
 		// rejection rather than a synchronous throw. A function that returns a
 		// promise and also throws is two error paths for one call, and the one
-		// nobody writes is `try` around `kit.lock(…).catch(…)`.
+		// nobody writes is `try` around `redis.lock(…).catch(…)`.
 		lock: async <T>(
 			key: string,
 			work: () => Promise<T> | T,
-			options: KitLockOptions<C> = {},
+			options: RedisLockOptions<C> = {},
 		) => {
 			const { on, ...rest } = options;
-			const instance = instanceAt(ctx, on as string | undefined, 'kit.lock');
+			const instance = instanceAt(ctx, on as string | undefined, 'lock');
 			return withLock(
 				instance.client,
 				prefixed(instance, key),
@@ -190,8 +188,8 @@ export function kitOf<C>(ctx: KitContext): RedisKit<C> {
 			return Object.fromEntries(entries);
 		},
 
-		close: () => closeKit(ctx),
-		[Symbol.asyncDispose]: () => closeKit(ctx),
+		close: () => closeAll(ctx),
+		[Symbol.asyncDispose]: () => closeAll(ctx),
 	};
-	return kit as unknown as RedisKit<C>;
+	return redis as unknown as Redis<C>;
 }

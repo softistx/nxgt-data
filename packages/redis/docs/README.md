@@ -4,8 +4,18 @@ Redis on Bun's own `RedisClient`. There is no third-party driver to install —
 `RedisClient` is built into Bun — which is also why this package does not run
 on Node. Its only peers are `zod` and `typescript`.
 
+Start with the **wiring** pages if you want the whole thing in one object —
+`defineRedis` and `openRedis`, with every cache and channel typed under the
+name it is exported as — and with the lower-level pages (connections, caches,
+locks, pub/sub) for the pieces it is made of.
+
 | Page | Read it when |
 | --- | --- |
+| [Wiring: configuration](guide/wiring/configuration.md) | you are describing where Redis is and what is wired on it with `defineRedis`, and deciding what the deployment's prefix should be |
+| [Wiring: caches](guide/wiring/caches.md) | you are reading `redis.cache.users`, and want the keys it writes, what `remember` promises, and what the types refuse |
+| [Wiring: channels](guide/wiring/channels.md) | one process publishes an event and another reacts to it, and somebody has to close the subscription |
+| [Wiring: locks and health](guide/wiring/locks-and-health.md) | a job must run once, or a health route has to say whether Redis answers |
+| [Wiring: instances and closing](guide/wiring/instances.md) | an application talks to more than one Redis, or you are deciding who closes which client |
 | [Connections](guide/connections.md) | you are opening a client, sharing it between modules, checking its health, or closing it on shutdown |
 | [Caches](guide/cache.md) | you want a value kept for a while, keyed by what identifies it and checked against a schema both ways |
 | [Locks](guide/locks.md) | one job, one worker: a cron that must not run twice, a migration, anything that must happen once |

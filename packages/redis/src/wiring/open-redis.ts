@@ -1,9 +1,9 @@
 import { connectRedis, type RedisConnection } from '../connection/connect';
 import { checkInstance, isCache, isChannel, wiredOf } from './config/checks';
-import type { InstanceConfig, KitConfig } from './config/types';
-import type { InstanceContext, KitContext } from './context';
-import { kitOf } from './kit-of';
-import type { AnyCache, AnyChannel, RedisKit } from './types';
+import type { InstanceConfig, RedisConfig } from './config/types';
+import type { InstanceContext, WiringContext } from './context';
+import type { AnyCache, AnyChannel, Redis } from './types';
+import { wire } from './wire';
 
 async function open(
 	name: string,
@@ -16,12 +16,12 @@ async function open(
 	const client = connection?.client ?? instance.client;
 	if (!client) {
 		// Unreachable: `checkInstance` runs on every instance in the same loop,
-		// just before this, and refuses one with neither — from `defineConfig`
+		// just before this, and refuses one with neither — from `defineRedis`
 		// or from here, whichever the application called. This is what narrows
 		// `client` for the return below, and the sentence is what a reader
 		// would see if that check ever moved.
 		throw new TypeError(
-			`connectKit: instance "${name}" has neither uri nor client.`,
+			`openRedis: instance "${name}" has neither uri nor client.`,
 		);
 	}
 	return {
@@ -35,33 +35,31 @@ async function open(
 }
 
 /**
- * Opens every client the configuration names, and gives back the kit.
+ * Opens every client the configuration names, and gives back the Redis.
  *
  * ```ts
  * import * as caches from './caches';
  * import * as channels from './channels';
  *
- * export const kit = await connectKit(
- *   defineConfig({ uri: process.env.REDIS_URL!, caches, channels }),
+ * export const redis = await openRedis(
+ *   defineRedis({ uri: process.env.REDIS_URL!, caches, channels }),
  * );
  *
- * await kit.cache.sessions.remember({ userId }, () => load(userId));
- * await kit.channels.users.publish({ id: userId, event: 'created' });
+ * await redis.cache.sessions.remember({ userId }, () => load(userId));
+ * await redis.channels.users.publish({ id: userId, event: 'created' });
  * ```
  *
- * `connectKit`, not `createKit`: `AGENTS.md` reserves `create*` for an
+ * `openRedis`, not `createKit`: `AGENTS.md` reserves `create*` for an
  * assembly that does no I/O, and says in as many words that
  * `@nxgt/mongo-kit`'s `createKit` is the one exception and not a licence for
  * a second. This one opens connections, so it takes the verb that says so.
  *
- * The checks run here as well as in `defineConfig`: a configuration is often
+ * The checks run here as well as in `defineRedis`: a configuration is often
  * built in one file and connected in another, and this is the call a stack
  * trace points at. If one instance fails to open, the ones already open are
  * closed before the error leaves.
  */
-export async function connectKit<C>(
-	config: KitConfig<C>,
-): Promise<RedisKit<C>> {
+export async function openRedis<C>(config: RedisConfig<C>): Promise<Redis<C>> {
 	const entries = Object.entries(config.instances) as [
 		string,
 		InstanceConfig<object, object>,
@@ -69,18 +67,18 @@ export async function connectKit<C>(
 	const instances: InstanceContext[] = [];
 	try {
 		for (const [name, instance] of entries) {
-			checkInstance('connectKit', name, instance);
+			checkInstance('openRedis', name, instance);
 			instances.push(await open(name, instance));
 		}
 	} catch (error) {
 		for (const opened of instances) await opened.connection?.close();
 		throw error;
 	}
-	const ctx: KitContext = {
+	const ctx: WiringContext = {
 		instances,
 		caches: new Map(),
 		channels: new Map(),
 		subscriptions: new Set(),
 	};
-	return kitOf<C>(ctx);
+	return wire<C>(ctx);
 }

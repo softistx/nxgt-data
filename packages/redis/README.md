@@ -5,29 +5,35 @@ per URI, caches and channels described once and typed from their schema, and a
 lock that is safe to release.
 
 ```ts
-import { z } from 'zod';
-import { bindCache, connectRedis, defineCache, withLock } from '@nxgt/redis';
+import { defineRedis, openRedis } from '@nxgt/redis';
+import * as caches from './caches';       // every `defineCache` of the app
+import * as channels from './channels';   // every `defineChannel`
 
-const userCache = defineCache({
-	name: 'user',
-	key: (id: string) => id,
-	ttl: 300,                                   // seconds
-	schema: z.object({ id: z.string(), email: z.string() }),
-});
+export const redis = await openRedis(
+	defineRedis({
+		uri: process.env.REDIS_URL!,
+		prefix: 'myapp:prod',
+		caches,
+		channels,
+	}),
+);
 
-const redis = await connectRedis(process.env.REDIS_URL!);
-const users = bindCache(redis.client, userCache);
-
-const user = await users.remember(id, () => loadUser(id));
-
-await withLock(redis.client, 'invoices:nightly', sendInvoices, {
-	ttl: 60_000,                                // milliseconds — see Traps
-	wait: 5_000,
-});
+const user = await redis.cache.users.remember(id, () => loadUser(id));
+await redis.channels.created.publish(user);
+await redis.lock('import', () => importEverything());
 ```
 
-`redis.client` is Bun's `RedisClient`, untouched: everything this package does
-not wrap is still there.
+`redis.cache.users` is the bound cache `bindCache(client, users)` gives, and
+`redis.channels.created` the same for a channel — each under the key its
+definition is exported by, with the deployment's prefix already in front of
+everything it writes. Nothing else has to be passed around: no client, no
+`bindCache` at a call site, no prefix spelled by hand.
+
+`redis.instances.default.client` is Bun's `RedisClient`, untouched: everything
+this package does not wrap is still there. The pieces `defineRedis` and
+`openRedis` are made of — `connectRedis`, `defineCache` and `bindCache`,
+`withLock`, `defineChannel` — are exported too, and are what the sections
+below describe.
 
 > **0.x, on Bun's `RedisClient`.** The API is still settling.
 
@@ -49,6 +55,32 @@ bun add @nxgt/redis zod typescript @types/bun
   fails with `Cannot find module 'bun'`.
 - Tested against Redis 7.4.
 
+## The pieces underneath
+
+```ts
+import { z } from 'zod';
+import { bindCache, connectRedis, defineCache, withLock } from '@nxgt/redis';
+
+const userCache = defineCache({
+	name: 'user',
+	key: (id: string) => id,
+	ttl: 300,                                   // seconds
+	schema: z.object({ id: z.string(), email: z.string() }),
+});
+
+const redis = await connectRedis(process.env.REDIS_URL!);
+const users = bindCache(redis.client, userCache);
+
+const user = await users.remember(id, () => loadUser(id));
+
+await withLock(redis.client, 'invoices:nightly', sendInvoices, {
+	ttl: 60_000,                                // milliseconds — see Traps
+	wait: 5_000,
+});
+```
+
+`redis.client` is Bun's `RedisClient`, untouched.
+
 ## What it does not do
 
 - **No `multi`/`exec`.** Bun's client has none, and nothing here needs one:
@@ -60,6 +92,64 @@ bun add @nxgt/redis zod typescript @types/bun
   `closeRedis()`.
 
 ## API
+
+### Wiring
+
+```ts
+// src/redis/caches.ts
+import { defineCache } from '@nxgt/redis';
+import { z } from 'zod';
+
+export const users = defineCache({
+	name: 'user',
+	key: (id: string) => id,
+	ttl: 300,                              // seconds
+	schema: z.object({ id: z.string(), email: z.string() }),
+});
+```
+
+Every export that is a `defineCache` becomes a key on `redis.cache`, every
+`defineChannel` a key on `redis.channels`, under the name it is **exported** by;
+a schema, a type or a constant in the same file is left where it is. One
+definition exported under two keys is refused: both would write the same keys.
+`redis.cache` and `redis.channels` are two scopes, not one client with names on
+it: nothing falls through to the driver, and a key wired nowhere is plainly
+`undefined`.
+
+| Key of `defineRedis` | Default | |
+| --- | --- | --- |
+| `uri` | — | Where to connect. One of `uri` and `client`, never both |
+| `client` | — | A client the application opened. **Never closed** by `openRedis` |
+| `clientOptions` | `{}` | Bun's `RedisOptions`, passed with `uri`. Refused beside `client` |
+| `prefix` | — | Put in front of every key, channel and lock this instance writes |
+| `caches`, `channels` | — | `import * as caches from './caches'`, as it is |
+| `instances` | — | Several Redis instances, each taking the keys above. Written *instead* of them |
+
+`defineRedis` **connects to nothing and reads no environment variable**; what
+is wrong with the wiring throws there, where the application starts. A single
+instance is named `default`; with several, `redis.cache` and `redis.channels`
+are `never` and `redis.instances.<name>` says which, as does `{ on: 'cache' }`
+on `redis.lock`.
+
+```ts
+await redis.lock('import', work, { on: 'cache' });   // lock:myapp:import
+const health = await redis.ping();                    // { default: { ok: true, latencyMs } }
+await redis.close();                                  // or `await using redis = await openRedis(…)`
+```
+
+`close()` closes every subscription the wiring started and then the clients it
+opened, in that order; a `client` the configuration handed in is left alone.
+`RedisOf<typeof config>` writes the type of the result from the configuration.
+The wiring raises a bare `TypeError` naming the instance and what to do — all
+at wiring time — and what a call throws is the `RedisError` of the next
+sections. Every message is in
+[docs/troubleshooting.md](docs/troubleshooting.md#wiring-defineredis-and-openredis).
+
+Each of these is a `@ts-expect-error` case in the type tests: `redis.cache.nope`;
+a cache read or written with the wrong params or a field its schema does not
+have; a payload a channel's schema does not describe; `redis.cache` on several
+instances, and `{ on: 'nowhere' }` on `lock`; a cache read off an instance that
+wires only channels; an option the configuration does not have.
 
 ### Connection
 
@@ -281,6 +371,16 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
   with `autoReconnect: false` and an application `connectRedis(url)` is the
   usual way to hit this: give the check its own URI, close it before the
   application connects, or pass the same options everywhere.
+- **The prefix is inside `lock:`** — `redis.lock('import')` under
+  `prefix: 'myapp'` writes `lock:myapp:import`, not `myapp:lock:import`,
+  because `withLock` writes `lock:${key}` itself. A key you read by hand has to
+  be spelled that way.
+- **A subscription costs a connection.** Close it, or let `redis.close()` do
+  it; one that outlives the wiring is a socket nobody gives back.
+- **A client the configuration handed in is never closed**, `await using`
+  included. Close it where it was opened.
+- **Two instances on one URI are one client**, so the second one's
+  `clientOptions` must match the first's, or `connectRedis` refuses them.
 - **`close()` on one connection is not `closeRedis()`.** The first gives back
   one holder; the second takes every client away from everybody.
 - **A connect that `closeRedis()` interrupts rejects, with `CONNECTION`.** At
@@ -291,7 +391,11 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
 ## Documentation
 
 - [docs/README.md](docs/README.md) — the guide index: connections, caches,
-  locks and pub/sub, each with its options and a worked example.
+  locks and pub/sub, each with its options and a worked example, and the
+  wiring pages for `defineRedis` and `openRedis`.
+- [Wiring guides](docs/guide/wiring/configuration.md) — the configuration and
+  its prefix, `redis.cache`, `redis.channels`, `redis.lock` and `redis.ping`,
+  several Redis instances, and who closes what.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — every error this
   package can raise, by the message you will see.
 - [docs/roadmap.md](docs/roadmap.md) — what is coming, and what has been

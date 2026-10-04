@@ -18,8 +18,8 @@ _Nothing planned yet: see Later._
   [HTTP recipe](guide/rate-limits.md#http-headers-for-any-framework): until
   then the recipe is a dozen lines for any framework, and a subpath would be
   one more peer to keep in step.
-- **Wiring in `@nxgt/redis-kit`** — rate limits and idempotent operations
-  bound under the kit's instances and prefixes, as its caches are.
+- **Wiring in `@nxgt/redis`** — rate limits and idempotent operations
+  bound under the instances and prefixes of `openRedis`, as its caches are.
 
 ## Not planned
 

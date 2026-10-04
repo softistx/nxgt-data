@@ -7,7 +7,7 @@ import type { AnyCache, AnyChannel } from './types';
 export type Wired<D> = readonly [key: string, definition: D];
 
 /**
- * One Redis of a kit, resolved once.
+ * One Redis instance, resolved once.
  *
  * **Data only**, like `@nxgt/mongo`'s collection context and
  * `@nxgt/drizzle`'s repository context: every operation is a plain function
@@ -23,39 +23,39 @@ export interface InstanceContext {
 	readonly caches: readonly Wired<AnyCache>[];
 	readonly channels: readonly Wired<AnyChannel>[];
 	/**
-	 * The connection the kit opened, or `undefined` when the configuration
+	 * The connection the Redis opened, or `undefined` when the configuration
 	 * gave a client: what it did not open is not its to close.
 	 */
 	readonly connection: RedisConnection | undefined;
 }
 
 /**
- * What one kit works from.
+ * What one Redis works from.
  *
- * There is no derived kit here — Redis has no actor and no session — so
- * there is one context per kit and `close()` always belongs to it. That is
- * the one place this kit is simpler than `@nxgt/mongo-kit`, which needs a
- * `root` flag to tell the closable kit from the derived ones.
+ * There is no derived redis here — Redis has no actor and no session — so
+ * there is one context per redis and `close()` always belongs to it. That is
+ * the one place this Redis is simpler than `@nxgt/mongo-kit`, which needs a
+ * `root` flag to tell the closable redis from the derived ones.
  */
-export interface KitContext {
+export interface WiringContext {
 	readonly instances: readonly InstanceContext[];
 	/** The bound caches already built, per instance name then per key. */
 	readonly caches: Map<string, Map<string, unknown>>;
 	/** The bound channels already built, per instance name then per key. */
 	readonly channels: Map<string, Map<string, unknown>>;
 	/**
-	 * Every subscription this kit started and nobody has closed.
+	 * Every subscription this Redis started and nobody has closed.
 	 *
 	 * Mutable, and deliberately: a subscription holds a connection duplicated
-	 * from the client, so one nobody closes is a leak that outlives the kit.
+	 * from the client, so one nobody closes is a leak that outlives the Redis.
 	 * `close()` empties this before it closes the clients.
 	 */
 	readonly subscriptions: Set<Subscription>;
 }
 
-/** The instance of a kit under `name`, or the reason there is none. */
+/** The instance of a Redis object under `name`, or the reason there is none. */
 export function instanceAt(
-	ctx: KitContext,
+	ctx: WiringContext,
 	name: string | undefined,
 	where: string,
 ): InstanceContext {
@@ -63,7 +63,7 @@ export function instanceAt(
 		const [sole] = ctx.instances;
 		if (ctx.instances.length !== 1 || !sole) {
 			throw new TypeError(
-				`${where}: this kit holds ${ctx.instances.length} Redis instances, ` +
+				`${where}: this Redis holds ${ctx.instances.length} Redis instances, ` +
 					'and this call lives on one. Name it, as ' +
 					`{ on: '${ctx.instances[0]?.name ?? 'main'}' }.`,
 			);
@@ -73,7 +73,7 @@ export function instanceAt(
 	const found = ctx.instances.find((instance) => instance.name === name);
 	if (!found) {
 		throw new TypeError(
-			`${where}: this kit has no instance named "${name}". It wires ` +
+			`${where}: this Redis has no instance named "${name}". It wires ` +
 				`${ctx.instances.map((i) => `"${i.name}"`).join(', ')}.`,
 		);
 	}
@@ -84,7 +84,7 @@ export function instanceAt(
  * A key with this instance's prefix in front of it.
  *
  * The same function for a cache name, a channel name and a lock key, so a
- * deployment's prefix covers everything the kit writes and there is no third
+ * deployment's prefix covers everything the Redis writes and there is no third
  * place to remember.
  */
 export function prefixed(instance: InstanceContext, name: string): string {

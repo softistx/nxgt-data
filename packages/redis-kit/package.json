@@ -1,14 +1,13 @@
 {
 	"name": "@nxgt/redis-kit",
 	"version": "0.2.1",
-	"description": "An application's Redis wiring in one object: a validated config, the clients it opens from it, and every cache and channel typed under the name it is wired as",
+	"description": "Deprecated: moved into @nxgt/redis. Re-exports it under the old names",
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
 	"files": [
 		"dist",
-		"docs",
 		"README.md",
 		"package.json",
 		"LICENSE"
@@ -23,10 +22,7 @@
 	},
 	"keywords": [
 		"redis",
-		"typescript",
-		"cache",
-		"pubsub",
-		"configuration"
+		"deprecated"
 	],
 	"repository": {
 		"type": "git",
@@ -39,7 +35,7 @@
 	},
 	"scripts": {
 		"build": "bun run ../../build.ts",
-		"test": "bun run ../../scripts/redis.ts && bun test --timeout 30000 src",
+		"test": "bun test src",
 		"typecheck": "tsc --noEmit"
 	},
 	"nxgt": {
@@ -49,13 +45,10 @@
 	},
 	"devDependencies": {
 		"@nxgt/redis": "workspace:^",
-		"@types/bun": "^1.4.0",
-		"redis-memory-server": "0.17.1",
-		"zod": "4.6.5"
+		"@types/bun": "^1.4.0"
 	},
 	"peerDependencies": {
 		"@nxgt/redis": "workspace:^",
-		"typescript": "^6.0.3",
-		"zod": ">=4.6.5 <5"
+		"typescript": "^6.0.3"
 	}
 }
