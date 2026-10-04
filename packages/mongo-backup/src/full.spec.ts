@@ -194,6 +194,9 @@ describe('a restore', () => {
 			.find({}, { projection: { _id: 0 } })
 			.toArray();
 		expect(mine as unknown[]).toEqual([{ mine: true }]);
+		// A view where the collection lands is replaced too.
+		await restored().dropCollection('a');
+		await restored().createCollection('a', { viewOn: 'x', pipeline: [] });
 		await h.backups.restore(
 			created.id,
 			mongoTarget({ db: restored(), replace: true }),

@@ -19,6 +19,14 @@ export function exists(db: Db, name: string): Promise<boolean> {
 		.then((found) => found.length > 0);
 }
 
+/** Whether `name` is a view in `db`. */
+export async function isView(db: Db, name: string): Promise<boolean> {
+	const [found] = await db
+		.listCollections({ name }, { nameOnly: true })
+		.toArray();
+	return found?.type === 'view';
+}
+
 export function taken(): MongoBackupError {
 	return new MongoBackupError(
 		'mongoTarget: a collection or view the backup holds is already in the ' +
@@ -100,6 +108,9 @@ export async function restoreCollection(
 				.collection(staging)
 				.createIndexes(metadata.indexes as IndexDescription[]);
 		}
+		// The server renames over a collection, never over a view: with
+		// `replace`, one there is dropped first — once the documents landed.
+		if (replace && (await isView(db, name))) await dropIfThere(db, name);
 		await db
 			.collection(staging)
 			.rename(name, { dropTarget: replace })
