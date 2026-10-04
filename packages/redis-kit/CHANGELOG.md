@@ -1,5 +1,15 @@
 # @nxgt/redis-kit
 
+## 0.2.1
+
+### Patch Changes
+
+- [#143](https://github.com/softistx/nxgt-data/pull/143) [`85573aa`](https://github.com/softistx/nxgt-data/commit/85573aa3af6ac1863bd87a68f0fc5fda90c000bb) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Build and type-check under a stricter `tsconfig` — `exactOptionalPropertyTypes`, `noPropertyAccessFromIndexSignature`, `noUnusedLocals` and the rest — so the published declarations compile under any of them in an application. One thing the built JavaScript does differently: class fields are defined as JavaScript defines them (`useDefineForClassFields`), so an error's fields are its own properties from construction, listed in the order they are declared. Their values are unchanged, and `GuardError.retryAfter` is still absent when it was not given.
+
+- [#143](https://github.com/softistx/nxgt-data/pull/143) [`85573aa`](https://github.com/softistx/nxgt-data/commit/85573aa3af6ac1863bd87a68f0fc5fda90c000bb) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Compile under `exactOptionalPropertyTypes` and the rest of the stricter `tsconfig` an application may hold: an instance's `prefix` takes `undefined` as left out, so `prefix: process.env.PREFIX` type-checks there. Types only.
+- Updated dependencies [[`85573aa`](https://github.com/softistx/nxgt-data/commit/85573aa3af6ac1863bd87a68f0fc5fda90c000bb)]:
+  - @nxgt/redis@0.3.2
+
 ## 0.2.0
 
 ### Minor Changes
