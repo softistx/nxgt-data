@@ -3,6 +3,7 @@ import { expect } from '../crypto/measure';
 import { zstd } from '../crypto/seal';
 import { signedByAny } from '../crypto/signing';
 import { BackupError } from '../errors/backup-error';
+import { upTo } from '../files/streams';
 import { type Catalog, readCatalog } from '../format/catalog';
 import { isBackupId } from '../format/ids';
 import {
@@ -90,28 +91,6 @@ async function checkSignature(
 	if (!signedByAny(ctx.trusted, manifest, signature)) {
 		throw failure(ctx, at, 'SIGNATURE', 'no trusted key signed the manifest');
 	}
-}
-
-/**
- * At most `limit` bytes of `stream`, the rest cancelled: a repository is not
- * trusted with the size. Holds only what arrived, not `limit` up front.
- */
-async function upTo(
-	stream: ReadableStream<Uint8Array>,
-	limit: number,
-): Promise<Uint8Array> {
-	const reader = stream.getReader();
-	const chunks: Uint8Array[] = [];
-	let length = 0;
-	while (length < limit) {
-		const { done, value } = await reader.read();
-		if (done) return Buffer.concat(chunks, length);
-		const kept = value.subarray(0, limit - length);
-		chunks.push(kept);
-		length += kept.length;
-	}
-	await reader.cancel();
-	return Buffer.concat(chunks, length);
 }
 
 /**

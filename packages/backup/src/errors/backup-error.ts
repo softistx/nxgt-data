@@ -5,7 +5,9 @@ export type BackupErrorCode =
 	| 'DECRYPT'
 	| 'SIGNATURE'
 	| 'PARTIAL'
-	| 'NOT_STORED';
+	| 'NOT_STORED'
+	| 'LOCKED'
+	| 'LEASE_LOST';
 
 /** How one repository took a backup: stored, or the error that stopped it. */
 export type RepositoryOutcome =
@@ -18,7 +20,7 @@ export interface BackupErrorOptions {
 	backup: string;
 	/** The backup's id, once there is one. */
 	id?: string | undefined;
-	/** The repository the error is about, for `NOT_FOUND`, `INTEGRITY`, `DECRYPT`, `SIGNATURE`. */
+	/** The repository the error is about, for `NOT_FOUND`, `INTEGRITY`, `DECRYPT`, `SIGNATURE`, `LOCKED`, `LEASE_LOST`. */
 	repository?: string | undefined;
 	/** Every repository's outcome, for `PARTIAL` and `NOT_STORED`. */
 	outcomes?: readonly RepositoryOutcome[] | undefined;
@@ -43,6 +45,13 @@ export interface BackupErrorOptions {
  *   others; `outcomes` says which. The copies that were stored are complete
  *   and stay.
  * - `NOT_STORED`: `create` stored it nowhere; `outcomes` holds each error.
+ * - `LOCKED`: another `create` or `prune` of the same definition holds the
+ *   repository's lock. Try again later. In `create`, it is a repository's
+ *   outcome, and the others go on.
+ * - `LEASE_LOST`: this run's lock could not be renewed in time — the store
+ *   out of reach, or the process paused longer than the lease — so it
+ *   started nothing more there. Worth an alert, not just a retry. In
+ *   `create`, a repository's outcome, without a manifest there.
  *
  * The message names the call, the definition and the repository, never an
  * entry's name, a key or anything read from a source.

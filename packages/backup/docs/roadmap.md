@@ -5,25 +5,26 @@ item shipped in is the only number on this page.
 
 ## Now
 
-- **An S3 repository** — backups kept in any S3-compatible object store,
-  beside or instead of a local folder, through your own Bun `S3Client`
-  (`s3Repository`): one PUT up to 64 MiB, so an object is visible whole or
-  not at all, parts above it, and the stored size read back after every
-  write before it counts as done — [repositories](guide/repositories.md).
+- **The single-writer lock** — `create` takes a lock in every repository it
+  writes to, renewed while it runs, so two runs of the same backup never write
+  at once and rotation can never remove a backup still being made; a
+  repository whose lock is held elsewhere fails with the code `LOCKED`, one
+  whose lease could not be renewed in time with `LEASE_LOST`, while the others
+  go on; `bindBackup` takes `lock: { lease }`, and `list`, `verify` and
+  `restore` take no lock —
+  [locking](guide/locking.md).
 
 ## Next
 
-- **A single-writer lock** — one `create`, rotation or clean-up at a time per
-  backup and repository, so two jobs started together cannot step on each
-  other.
 - **Rotation** — keep what a policy says and remove the rest:
   `keepLast`, `keepHourly`, `keepDaily`, `keepWeekly`, `keepMonthly`,
-  `keepYearly`, `keepWithin`, and a `maxTotalSize`; set **per repository**,
-  aware of incremental chains so a base is never removed while a backup
-  needs it; a **dry run** that lists what would go; a **legal hold** that
-  keeps a backup whatever the policy says; and **clean-up of incomplete
-  backups** — the objects a failed run left without a manifest. Rotation
-  reads manifests only, so it needs no key.
+  `keepYearly`, `keepWithin`, and a `maxTotalSize` that never goes below a
+  `keepLast` floor; set **per repository**, aware of incremental chains so a
+  base is never removed while a backup needs it; a **dry run** that lists what
+  would go and why; a **legal hold** that keeps a backup whatever the policy
+  says; and **clean-up of incomplete backups** — the objects a failed run left
+  without a manifest — under the single-writer lock. Rotation reads manifests
+  only, so it needs no key.
 - **Incremental and differential chains** — a backup that stores only what
   changed since a full one, or since the previous one, with the manifest's
   `kind` and `parent` describing the chain.
@@ -58,6 +59,11 @@ item shipped in is the only number on this page.
 
 ## Shipped
 
+- **An S3 repository** — 0.3.0: backups kept in any S3-compatible object
+  store, beside or instead of a local folder, through your own Bun `S3Client`
+  (`s3Repository`): one PUT up to 64 MiB, so an object is visible whole or
+  not at all, parts above it, and the stored size read back after every
+  write before it counts as done — [repositories](guide/repositories.md).
 - **Signed manifests** — 0.2.0: an Ed25519 signature over each manifest,
   checked against your `trusted` public keys by `list`, `verify` and
   `restore` before anything else is read, so a backup proves it was written

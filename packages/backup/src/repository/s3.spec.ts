@@ -280,3 +280,26 @@ describe('a backup on S3, beside a local folder', () => {
 		expect(target.written.get('b/c.bin')).toEqual(bytes(200_000));
 	});
 });
+
+describe('the lock on S3', () => {
+	test('two writers at once: never both', async () => {
+		const keys = await keyPair();
+		for (let round = 0; round < 5; round++) {
+			const backups = bindBackup(defineBackup({ name: `race${round}` }), {
+				repositories: [s3Repository({ client })],
+				recipients: [keys.recipient],
+				tmpDir: tmp.path,
+			});
+			const results = await Promise.allSettled([
+				backups.create(memorySource({ a: 'alpha' })),
+				backups.create(memorySource({ b: 'beta' })),
+			]);
+			const stored = results.filter((r) => r.status === 'fulfilled').length;
+			expect(stored).toBeLessThanOrEqual(1);
+			expect((await backups.list()).backups).toHaveLength(stored);
+			expect(
+				(await client.list({ prefix: `race${round}/locks/` })).contents ?? [],
+			).toEqual([]);
+		}
+	}, 120_000);
+});

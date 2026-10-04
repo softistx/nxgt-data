@@ -6,6 +6,8 @@ without a key and what is not, and how to open it without this package.
 ```text
 /mnt/backups/                          ← localRepository({ path: '/mnt/backups' })
   uploads/                             ← the definition's name
+    locks/                             ← the single-writer lock: one file per running create
+      20261004T221500123Z-1a2b3c4d.json
     20261003T221500123Z-9f3a61c0/      ← the backup's id
       0.age                            ← entry 0: zstd, then age
       1.age                            ← entry 1
@@ -25,6 +27,21 @@ under its `prefix` — `nightly/uploads/<id>/manifest.json` with
 `prefix: 'nightly'` — and opening one by hand starts with your store's own
 tool (`aws s3 cp`, say) where a local folder needs none. Several definitions share a repository
 without meeting, since each lives under its own name.
+
+## Locks
+
+`<backup>/locks/` holds one small JSON file per `create` running against
+that repository — written at its start, rewritten every third of the lease,
+deleted at its end:
+
+```json
+{"format":"nxgt-backup-lock/1","id":"20261004T221500123Z-1a2b3c4d","operation":"create","expiresAt":"2026-10-04T22:20:00.123Z"}
+```
+
+Its `id` is the lock's own, not a backup's. The folder holds no manifest, so
+`list` never takes it for a backup, and it is empty whenever nothing runs —
+unless a run was killed, or a file there does not parse.
+[Locking](locking.md) has the protocol, the lease, and clearing one by hand.
 
 ## Objects
 
@@ -98,7 +115,7 @@ key**: `list`, `verify` without identities, and — next — rotation.
 
 **A backup exists once its manifest does.** Every object goes first, then the
 catalog, then — with `signing` — the signature, then the manifest, so a
-backup that stopped half-way — the process killed, the disk full, a source that threw — has no manifest: `list` leaves it out, and
+backup that stopped half-way — the process killed, the disk full, a source that threw, a lock lease that ran out — has no manifest: `list` leaves it out, and
 `verify` and `restore` answer `NOT_FOUND`. With several
 repositories, the manifest goes only into those that took every object before
 it — [repositories](repositories.md#several-repositories).

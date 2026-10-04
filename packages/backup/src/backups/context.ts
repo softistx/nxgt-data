@@ -36,6 +36,14 @@ export interface BindBackupOptions {
 	 * signed nor checked.
 	 */
 	trusted?: readonly [string, ...string[]] | undefined;
+	/**
+	 * The single-writer lock each `create` takes in every repository it
+	 * writes to. `lease`, in milliseconds, is how long a lock lasts unless
+	 * renewed — every third of it, while the writer runs — and how much
+	 * longer a lock past its end is still respected, for clocks that
+	 * disagree. 5 minutes by default; 1 second to 1 day.
+	 */
+	lock?: { lease?: number | undefined } | undefined;
 }
 
 /**
@@ -51,6 +59,8 @@ export interface BackupContext {
 	signer: KeyObject | undefined;
 	/** The keys a manifest must be signed by; empty: none is checked. */
 	trusted: readonly KeyObject[];
+	/** How long a lock lasts unless renewed, in milliseconds. */
+	lease: number;
 }
 
 export function createContext(
@@ -82,7 +92,21 @@ export function createContext(
 		recipients: checkRecipients(options.recipients, 'bindBackup'),
 		tmpDir,
 		...signingOf(options),
+		lease: leaseOf(options),
 	};
+}
+
+const DEFAULT_LEASE = 5 * 60 * 1000;
+
+function leaseOf(options: BindBackupOptions): number {
+	const lease = options.lock?.lease ?? DEFAULT_LEASE;
+	if (!Number.isInteger(lease) || lease < 1000 || lease > 86_400_000) {
+		throw new TypeError(
+			'bindBackup: lock.lease must be a whole number of milliseconds, ' +
+				'from 1 second to 1 day',
+		);
+	}
+	return lease;
 }
 
 function signingOf(

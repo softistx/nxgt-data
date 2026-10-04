@@ -1,9 +1,9 @@
 # Troubleshooting
 
 This package throws one error of its own, `BackupError`, with a `code` —
-`NOT_FOUND`, `INTEGRITY`, `DECRYPT`, `SIGNATURE`, `PARTIAL` or `NOT_STORED` — the `backup`
-it is about, and its `id`, `repository` or `outcomes`
-([errors](guide/errors.md)). A refusal of the way it was called — a name, a
+`NOT_FOUND`, `INTEGRITY`, `DECRYPT`, `SIGNATURE`, `PARTIAL`, `NOT_STORED`,
+`LOCKED` or `LEASE_LOST` — the `backup` it is about, and its `id`,
+`repository` or `outcomes` ([errors](guide/errors.md)). A refusal of the way it was called — a name, a
 path, a key, an id — is a plain `TypeError`. Errors from your source, your
 target, a repository or the file system come back as they are.
 
@@ -27,6 +27,7 @@ call instead — `verify on "app": …` or `restore on "app": …`.
   - [`bindBackup: trusted 0 is not an Ed25519 public key (PEM, SPKI)`](#bindbackup-trusted-0-is-not-an-ed25519-public-key-pem-spki)
   - [`bindBackup: trusted must list at least one public key`](#bindbackup-trusted-must-list-at-least-one-public-key)
   - [`bindBackup: trusted does not hold the public key of signing.key, so this backup could not read what it writes`](#bindbackup-trusted-does-not-hold-the-public-key-of-signingkey-so-this-backup-could-not-read-what-it-writes)
+  - [`bindBackup: lock.lease must be a whole number of milliseconds, from 1 second to 1 day`](#bindbackup-locklease-must-be-a-whole-number-of-milliseconds-from-1-second-to-1-day)
   - [`localRepository: path must be an absolute path`](#localrepository-path-must-be-an-absolute-path)
   - [`s3Repository: prefix must be a relative path of plain segments`](#s3repository-prefix-must-be-a-relative-path-of-plain-segments)
   - [`s3Repository: partSize must be 5 MiB at least`](#s3repository-partsize-must-be-5-mib-at-least)
@@ -46,6 +47,8 @@ call instead — `verify on "app": …` or `restore on "app": …`.
 - **Creating**
   - [`create on "app": stored in 1 of 2 repositories`](#create-on-app-stored-in-1-of-2-repositories)
   - [`create on "app": stored in 0 of 1 repositories`](#create-on-app-stored-in-0-of-1-repositories)
+  - [`create on "app": another create or prune holds the lock (repository "local")`](#create-on-app-another-create-or-prune-holds-the-lock-repository-local)
+  - [`create on "app": the lock's lease ran out before it was done (repository "local")`](#create-on-app-the-locks-lease-ran-out-before-it-was-done-repository-local)
   - [`create on "app": the manifest would be larger than 64 MiB; split the source into several backups`](#create-on-app-the-manifest-would-be-larger-than-64-mib-split-the-source-into-several-backups)
   - [`local repository: a key is not a relative path`](#local-repository-a-key-is-not-a-relative-path)
   - [`s3 repository: a key is not a relative path`](#s3-repository-a-key-is-not-a-relative-path)
@@ -72,6 +75,7 @@ call instead — `verify on "app": …` or `restore on "app": …`.
   - [`restore on "app": an entry does not decrypt (repository "local")`](#restore-on-app-an-entry-does-not-decrypt-repository-local)
 - **Symptoms without a message**
   - [A backup is missing from `list`](#a-backup-is-missing-from-list)
+  - [`list` shows fewer backups than a moment ago](#list-shows-fewer-backups-than-a-moment-ago)
   - [An id is in `unreadable`](#an-id-is-in-unreadable)
   - [Every backup made before signing is in `unreadable`](#every-backup-made-before-signing-is-in-unreadable)
   - [A backup that failed left objects in the repository](#a-backup-that-failed-left-objects-in-the-repository)
@@ -288,6 +292,23 @@ bindBackup(uploads, {
 
 [Changing the signing key](guide/signing.md#changing-the-signing-key) gives
 the order to do it in.
+
+### `bindBackup: lock.lease must be a whole number of milliseconds, from 1 second to 1 day`
+
+**When:** `bindBackup`, with a `lock.lease` under 1000, over 86 400 000, or
+not an integer — often seconds given where milliseconds are expected, or a
+value read from the environment that came out `NaN`.
+**Why:** the lease is how long a lock lasts unless renewed, and how much
+longer another writer still respects it once it is past its end. Under a
+second, renewal could not keep up; over a day, a crashed run would block the
+next ones for two days.
+**Fix:**
+
+```ts
+bindBackup(definition, { repositories, recipients, lock: { lease: 15 * 60 * 1000 } }); // 15 minutes
+```
+
+Leave `lock` out for the default, 5 minutes.
 
 ### `localRepository: path must be an absolute path`
 
@@ -554,6 +575,109 @@ for (const outcome of error.outcomes) {
 	if (!outcome.stored) console.error(outcome.repository, outcome.error);
 }
 ```
+
+### `create on "app": another create or prune holds the lock (repository "local")`
+
+**Code:** `LOCKED`, in that repository's outcome — so `create` rejects with
+`PARTIAL` if another repository took the backup, `NOT_STORED` if none did.
+**When:** `create`, at the start, before any of the backup is written to
+that repository; its own lock file is put, then removed.
+**Why:** `create` takes a lock in every repository it writes to, at
+`<backup>/locks/<id>.json`, and gives a repository up when another live lock
+is there. That lock is one of:
+
+- **another run, still going** — a scheduled job that started again before
+  the last one finished, or the same backup run from two machines;
+- **a run that crashed, and whose lock is not stale yet** — a lock is
+  respected until its `expiresAt` plus one whole lease, for clocks that
+  disagree: up to two leases after the crash, 10 minutes by default;
+- **a file that does not read as a lock** — truncated, edited, or written by
+  something else. Nothing says when it ends, so it is held **for ever**,
+  until removed by hand;
+- **a second run started at the same moment** — each writes its own lock
+  before looking for others, so both can see the other's and both give up.
+  Never both go on.
+
+**Fix:** space the schedule so a run ends before the next starts, and treat
+`LOCKED` as "skipped, try later" rather than as a failure:
+
+```ts
+import { BackupError } from '@nxgt/backup';
+
+try {
+	await backups.create(source);
+} catch (error) {
+	if (!(error instanceof BackupError) || error.outcomes.length === 0) throw error;
+	for (const outcome of error.outcomes) {
+		const locked = outcome.error instanceof BackupError && outcome.error.code === 'LOCKED';
+		if (!outcome.stored) console.error(outcome.repository, locked ? 'locked, retry later' : outcome.error);
+	}
+}
+```
+
+A `LEASE_LOST` is not this: that run held the lock and lost it — see
+[the lock's lease ran out](#create-on-app-the-locks-lease-ran-out-before-it-was-done-repository-local).
+
+If it persists with no run going, look at the locks. In a local folder:
+
+```sh
+ls /mnt/backups/app/locks/
+cat /mnt/backups/app/locks/*.json # format, id, operation, expiresAt
+```
+
+In an S3 bucket, under the repository's `prefix`:
+
+```sh
+aws s3 ls s3://my-backups/nightly/app/locks/
+aws s3 cp s3://my-backups/nightly/app/locks/<id>.json -
+```
+
+A lock with an `expiresAt` in the past clears itself one lease later. One
+that does not parse as JSON with those four fields never does: once you are
+sure no run is going, remove it (`rm`, or `aws s3 rm`).
+
+### `create on "app": the lock's lease ran out before it was done (repository "local")`
+
+**Code:** `LEASE_LOST`, in that repository's outcome — so `create` rejects
+with `PARTIAL` if another repository took the backup, `NOT_STORED` if none
+did. The other repositories go on. `error.id` is the backup's id.
+**When:** `create`, partway through a long run.
+**Why:** the lock is renewed every third of its lease, and before each `put`
+the writer checks the lease has not run out — past it, another writer may
+already have taken the lock. It ran out because the renewals failed — the
+store unreachable for the lock's own writes — or because the process was
+paused longer than the lease: a suspended laptop, a stopped container, a long
+garbage-collection stall. The writer measures that on its own monotonic
+clock, so a wall clock stepped back does not stretch it. From then on it
+started nothing more in that repository and no new renewal; a `put` or a
+renewal already under way may still have landed after. The lock was removed at the
+end, and the repository has no manifest for that id: the backup does not
+exist there.
+**Fix:** unlike `LOCKED`, this is worth an alert, not just a retry: find out
+why the store dropped out or the process stalled. If the store is known to
+drop out for minutes at a time, a longer lease rides it out:
+
+```ts
+import { BackupError } from '@nxgt/backup';
+
+try {
+	await backups.create(source);
+} catch (error) {
+	if (!(error instanceof BackupError)) throw error;
+	for (const outcome of error.outcomes) {
+		if (outcome.stored || !(outcome.error instanceof BackupError)) continue;
+		if (outcome.error.code === 'LEASE_LOST') console.error('lease lost in', outcome.repository); // alert
+	}
+	throw error;
+}
+
+// and, for a store that drops out for minutes:
+bindBackup(definition, { repositories, recipients, lock: { lease: 30 * 60 * 1000 } });
+```
+
+A longer lease also means a crashed run blocks the next ones longer — up to
+two leases. The objects put before the lease ran out stay; see
+[a backup that failed left objects in the repository](#a-backup-that-failed-left-objects-in-the-repository).
 
 ### `create on "app": the manifest would be larger than 64 MiB; split the source into several backups`
 
@@ -1000,6 +1124,26 @@ repository. `list` reads one repository: the first, or `from`.
 for (const name of backups.repositories) console.log(name, (await backups.list({ from: name })).backups.length);
 ```
 
+### `list` shows fewer backups than a moment ago
+
+**When:** `list`, while backups of the same definition are being removed —
+by a prune (rotation, [on the roadmap](roadmap.md#next)) or by hand.
+**Why:** a backup whose manifest disappears between `list`'s listing of the
+repository and its read of that manifest was removed meanwhile; `list` leaves
+it out rather than failing, with no error and nothing in `unreadable`.
+`list` takes no lock, so it never waits for a writer.
+**Fix:** nothing is wrong. An id that went missing was removed; `verify`
+says so:
+
+```ts
+import { BackupError } from '@nxgt/backup';
+
+const removed = await backups.verify(id).then(
+	() => false,
+	(error) => error instanceof BackupError && error.code === 'NOT_FOUND',
+);
+```
+
 ### An id is in `unreadable`
 
 **Why:** its manifest is there and does not read as one this version wrote,
@@ -1042,13 +1186,17 @@ for (const id of unreadable) await unsigned.verify(id); // reads them, without a
 ### A backup that failed left objects in the repository
 
 **When:** after a `create` that rejected — a source that threw, the process
-killed, `PARTIAL` for the repository that failed.
+killed, a lease that ran out, `PARTIAL` for the repository that failed.
 **Why:** objects go first and the manifest last, so a run that stopped holds
 objects under `<backup>/<id>/` and no `manifest.json`. No call sees them, and
 this version does not remove them.
 **Fix:** cleaning up incomplete backups is [on the roadmap](roadmap.md#next).
-Until then, a folder under `<backup>/` with no `manifest.json`, older than
-your longest run, can be removed by hand.
+Until then, a folder `<backup>/<id>/` — named like a backup id,
+`20261003T221500123Z-9f3a61c0` — with no `manifest.json` and older than your
+longest run can be removed by hand. **Never `<backup>/locks/`**: it holds no
+manifest either, and removing it while a `create` runs lets a second writer
+in. A single stale lock file is removed as
+[locking](guide/locking.md#after-a-crash) says.
 
 ### A backup or a restore fails for lack of room
 

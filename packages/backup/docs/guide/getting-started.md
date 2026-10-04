@@ -76,6 +76,7 @@ rather than at the first backup.
 | `tmpDir` | `string` | the system's temporary folder | an absolute path where each object is staged between the source and the repositories, and between a repository and a restore. One object at a time, removed as soon as it is done |
 | `signing` | `{ key: string }` | none | an Ed25519 private key, PEM (PKCS#8). `create` signs every manifest with it. Only where backups are made — [signing](signing.md) |
 | `trusted` | `[string, ...string[]]` | the public half of `signing.key`; none without `signing` | Ed25519 public keys, PEM (SPKI). `list`, `verify` and `restore` read only a manifest one of them signed. **Without `signing` or `trusted`, nothing is signed or checked** — [signing](signing.md) |
+| `lock` | `{ lease?: number }` | `{ lease: 300000 }` | the single-writer lock every `create` takes in each repository. `lease`, in milliseconds, is how long a lock lasts unless renewed — every third of it while `create` runs — and how much longer another writer respects one past its end. A whole number from 1 second to 1 day — [locking](locking.md) |
 
 ```ts
 interface BindBackupOptions {
@@ -84,6 +85,7 @@ interface BindBackupOptions {
 	tmpDir?: string | undefined;
 	signing?: { key: string } | undefined;
 	trusted?: readonly [string, ...string[]] | undefined;
+	lock?: { lease?: number | undefined } | undefined;
 }
 
 function bindBackup<Name extends string>(
@@ -113,7 +115,10 @@ not.
 const created = await backups.create(directorySource({ path: '/srv/uploads' }));
 ```
 
-`create` reads every entry of the source in turn — never two at once, each
+`create` first takes a lock in every repository, so that no other `create`
+of the definition writes there at the same time — one whose lock is held
+elsewhere fails with `LOCKED` and the others go on — [locking](locking.md).
+Then it reads every entry of the source in turn — never two at once, each
 opened once — and for each one compresses it with zstd, encrypts it with age
 to every recipient into `tmpDir`, measures it, and puts it into every
 repository. Then it writes the catalog the same way, then — with `signing` —
@@ -134,7 +139,8 @@ interface Created {
 
 It resolves only when **every** repository holds the backup. Otherwise it
 rejects with a `BackupError`: `PARTIAL` when some do, `NOT_STORED` when none
-does, each with `outcomes` —
+does, each with `outcomes` — where a repository whose lock was held is
+`LOCKED`, and one whose lease ran out part-way `LEASE_LOST` —
 [several repositories](repositories.md#several-repositories).
 
 An error from the source itself — a folder that is not there, a stream that
@@ -169,7 +175,9 @@ interface BackupInfo {
 }
 ```
 
-`list` reads the manifests alone, so it **needs no key**. A backup whose
+`list` reads the manifests alone, so it **needs no key**, and it takes no
+lock: it runs while a `create` does. A backup removed between the listing
+and the read of its manifest is left out, not an error. A backup whose
 manifest was never written — one still being made, one that failed, or a
 repository that `PARTIAL` left out — is not listed: it does not exist. An id
 in `unreadable` has a manifest that is not one this package wrote, that
@@ -315,6 +323,10 @@ try {
 	throw error;
 }
 ```
+
+A run started while the previous one is still writing fails `LOCKED` in
+every repository and rejects with `NOT_STORED`;
+[locking](locking.md#scheduling) has the variant that treats it as skipped.
 
 ## A restore drill in a spec
 
