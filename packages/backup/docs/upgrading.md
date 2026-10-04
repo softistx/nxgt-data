@@ -5,6 +5,147 @@ the next. Each minor is a `0.x` release, so each can ask for something; the
 [changelog](https://github.com/softistx/nxgt-data/blob/develop/packages/backup/CHANGELOG.md)
 has every change, and this page has only what you have to do.
 
+## 0.5 → 0.6
+
+Code that makes full backups runs as before, and a full backup made by 0.6
+still reads in 0.5. What can break is at compile time: `BackupInfo.kind` is
+no longer only `'full'`, and the result types gain fields a hand-built one
+needs. And one thing to do **before** using the new feature: move every
+process that reads or prunes a repository to 0.6 before the first
+incremental backup lands in it. 0.6.0 adds
+[incremental and differential backups](guide/chains.md).
+
+### Upgrade readers and pruners first
+
+0.5 reads full manifests only. An incremental or differential one is, to
+it, `the manifest is unreadable: its kind is not one this version reads`:
+its `list` puts the backup in `unreadable`, its `verify` and `restore` fail
+on it — and its `prune` never removes it, but **does not keep what it
+builds on** either, since it cannot read the `parent`. A 0.5 `prune` can
+remove the full backup a whole week of incrementals needs; each of them
+then fails with
+[a backup it builds on is missing](troubleshooting.md#restore-on-app-a-backup-it-builds-on-is-missing-repository-local).
+
+In this order:
+
+1. every host that runs `list`, `verify`, `restore` or `prune` on the
+   repository — the restore drill, the monitoring, a second site's pruner;
+2. the host that runs `create`;
+3. then the first `create(source, { kind: 'incremental', identities })`.
+
+```sh
+bun add @nxgt/backup@^0.6.0
+```
+
+The first incremental after a full backup made by 0.5 reads every entry —
+0.5 recorded no fingerprints — and stores only those whose bytes changed;
+from then on, `directorySource` skips the files that did not move, save
+those changed within two seconds of the backup, which get no fingerprint.
+
+### `BackupInfo.kind` is a union, and gains `parent`
+
+```ts
+type BackupKind = 'full' | 'incremental' | 'differential'; // exported
+
+interface BackupInfo {
+	kind: BackupKind;      // 0.5: 'full'
+	parent: string | null; // new: the backup it builds on, null for a full one
+	entries: number;       // the entries it stores itself: an incremental one points to the rest
+	// id, createdAt, storedSize, held — unchanged
+}
+```
+
+Code that took `kind` to be `'full'` — assigned it to a `'full'` variable,
+or switched over it exhaustively — stops compiling; a `BackupInfo` built by
+hand, in a spec, needs `parent`:
+
+```ts
+import type { BackupInfo } from '@nxgt/backup';
+
+const info: BackupInfo = {
+	id: '20261003T221500123Z-9f3a61c0',
+	createdAt: new Date('2026-10-03T22:15:00.123Z'),
+	kind: 'full',
+	parent: null, // 0.6.0
+	entries: 3,
+	storedSize: 4096,
+	held: false,
+};
+```
+
+A backup that restores on its own is `kind === 'full'`; the others need
+their chain — [reading a chain back](guide/chains.md#reading-a-chain-back).
+
+### `Created` and `Verified` gain fields
+
+`Created` gains `kind`, `parent` and `reused` — `0` for a full backup — and
+`Verified` gains `chain`, the backups it read, newest first: `[id]` for a
+full one. A `Created` or `Verified` you build by hand needs them:
+
+```ts
+import type { Created, Verified } from '@nxgt/backup';
+
+const created: Created = {
+	id: '20261003T221500123Z-9f3a61c0',
+	createdAt: new Date(),
+	kind: 'full',
+	parent: null,
+	entries: 3,
+	reused: 0,
+	size: 12,
+	storedSize: 4096,
+	signed: false,
+	outcomes: [{ repository: 'local', stored: true }],
+};
+
+const verified: Verified = {
+	id: created.id,
+	repository: 'local',
+	chain: [created.id],
+	objects: 4,
+	storedSize: 4096,
+	decrypted: false,
+	signatureChecked: false,
+};
+```
+
+For an incremental, `Created.entries` and `size` count its whole view —
+what a restore of it writes — while `list`'s `entries` counts the entries it
+stores itself.
+
+### Sources: `entries(since?)`, `fingerprint`, `position`
+
+`BackupSource.entries` now takes an optional `since`, `SourceEntry` an
+optional `fingerprint`, and `BackupSource` an optional `position()`. A
+source written for 0.5 fits as it is, and backs up as before; in an
+incremental, each of its entries is read and stored only if its bytes
+changed. Give it fingerprints to skip the read —
+[writing a source](guide/chains.md#writing-a-source-with-fingerprints-and-a-position).
+
+`directorySource` now gives each file a fingerprint, and leaves out a file
+removed between the listing and its turn, rather than failing on it.
+
+### `create` can need a key
+
+Only an incremental or differential one: `create(source, { kind,
+identities })`. A host that makes them holds a secret key, where a full
+backup needs only the public one —
+[the trade-off](guide/chains.md#it-needs-a-key-where-backups-are-made).
+
+### After changing `recipients`, a full backup first
+
+An incremental refuses a parent encrypted to other recipients than the
+binding's — `the backup it builds on is encrypted to other recipients; make
+a full backup first` — so a key rotation is followed by one full backup —
+[changing recipients](guide/chains.md#changing-recipients).
+
+### `prune` keeps the parent of an unreadable backup
+
+A backup whose manifest does not read was already never removed; 0.6 also
+keeps the backup its raw manifest names as `parent`, with the reason
+`parent of <id>`. A 0.6 `prune` can therefore keep a few more backups than
+0.5 did, around a damaged or unsigned one.
+
 ## 0.4 → 0.5
 
 One thing can break at run time: code that matches the `LOCKED` error by its

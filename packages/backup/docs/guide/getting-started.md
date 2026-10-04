@@ -31,7 +31,9 @@ const restored = await backups.restore(
 ```
 
 You need a key pair first: [encryption](encryption.md#keys) shows how to make
-one. The host that runs `create` needs only the public half.
+one. The host that runs `create` needs only the public half — unless it
+makes [incremental backups](#storing-only-what-changed), which read the
+backup they build on.
 
 ## Describing a backup
 
@@ -97,7 +99,7 @@ function bindBackup<Name extends string>(
 interface BoundBackup<Name extends string = string> {
 	readonly definition: BackupDefinition<Name>;
 	readonly repositories: readonly string[]; // their names, in the order given
-	create(source: BackupSource): Promise<Created>;
+	create(source: BackupSource, options?: CreateOptions): Promise<Created>; // full by default
 	list(options?: ListOptions): Promise<Listing>;
 	verify(id: string, options?: VerifyOptions): Promise<Verified>;
 	restore(id: string, target: RestoreTarget, options: RestoreOptions): Promise<Restored>;
@@ -133,7 +135,10 @@ the manifest's signature, and the manifest **last**. Nothing is held in memory p
 interface Created {
 	id: string;          // '20261003T221500123Z-9f3a61c0'
 	createdAt: Date;     // when it started; the id is that time, in UTC
-	entries: number;     // how many entries the source gave
+	kind: BackupKind;    // 'full', 'incremental' or 'differential'
+	parent: string | null; // the backup it builds on: null for a full one
+	entries: number;     // how many entries it holds: what the source gave
+	reused: number;      // how many point to an older backup's object: 0 for a full one
 	size: number;        // their bytes, as the source gave them
 	storedSize: number;  // the bytes each repository holds for it, manifest apart
 	signed: boolean;     // whether its manifest was signed: `signing` was given
@@ -152,6 +157,29 @@ fails — rejects `create` with that error, as it is. The objects stored before
 it stay in the repository without a manifest: no call sees them, and
 [`prune`](rotation.md#incomplete-backups) removes them once they are a day
 old.
+
+## Storing only what changed
+
+Once a full backup is there, an **incremental** one stores only the entries
+that changed since the newest backup, and points to the others; a
+**differential** one, those that changed since the newest full backup.
+Either needs a secret key, to read what that backup recorded:
+
+```ts
+const identities = [(await Bun.file('/etc/backup/identity.txt').text()).trim()];
+
+const full = await backups.create(directorySource({ path: '/srv/uploads' }));
+const next = await backups.create(directorySource({ path: '/srv/uploads' }), {
+	kind: 'incremental', // or 'differential'
+	identities,
+});
+// { kind: 'incremental', parent: full.id, entries: 1204, reused: 1187, … }
+```
+
+`directorySource` gives each file a fingerprint — its size, times and
+inode — so a file that did not move is not even read. A restore or a verify
+of `next` gives back the whole folder as it was, with no replay —
+[chains](chains.md) has the schedule, the trade-offs and the traps.
 
 ## Listing
 
@@ -174,8 +202,9 @@ interface Listing {
 interface BackupInfo {
 	id: string;
 	createdAt: Date;
-	kind: 'full';
-	entries: number;
+	kind: BackupKind;      // 'full', 'incremental' or 'differential'
+	parent: string | null; // the backup it builds on: null for a full one
+	entries: number;    // the entries it stores itself: an incremental one points to the rest
 	storedSize: number; // the bytes the repository holds for it, manifest apart
 	held: boolean;      // under a legal hold: prune never removes it
 }
@@ -210,6 +239,7 @@ await backups.verify(id, { identities: [process.env.BACKUP_IDENTITY as string] }
 interface Verified {
 	id: string;
 	repository: string;
+	chain: string[];    // this backup, then each one it builds on, newest first: [id] for a full one
 	objects: number;    // objects checked, the catalog included
 	storedSize: number; // their encrypted bytes
 	decrypted: boolean; // whether the entries were decrypted and checked too
@@ -217,8 +247,9 @@ interface Verified {
 }
 ```
 
-`verify` reads the whole backup back, one object at a time through
-`tmpDir`, and writes nowhere else. It rejects at the first problem:
+`verify` reads the whole backup back — with the backups it builds on, for
+an incremental or differential one — one object at a time through `tmpDir`,
+and writes nowhere else. It rejects at the first problem:
 `NOT_FOUND` with no manifest, `INTEGRITY` for one over 64 MiB, `SIGNATURE`
 for a manifest no trusted key
 signed, `INTEGRITY` for an object that differs or a manifest or catalog that

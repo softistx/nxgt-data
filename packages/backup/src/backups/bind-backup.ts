@@ -12,7 +12,7 @@ import {
 } from '../rotation/prune';
 import type { BackupSource, RestoreTarget } from '../source/types';
 import { type BindBackupOptions, createContext } from './context';
-import { type Created, createBackup } from './create';
+import { type Created, type CreateOptions, createBackup } from './create';
 import { type Listing, type ListOptions, listBackups } from './list';
 import { type Restored, type RestoreOptions, restoreBackup } from './restore';
 import { type Verified, type VerifyOptions, verifyBackup } from './verify';
@@ -23,11 +23,12 @@ export interface BoundBackup<Name extends string = string> {
 	/** Repository names, in the order given. */
 	readonly repositories: readonly string[];
 	/**
-	 * Reads every entry of `source` and stores a full backup in every
-	 * repository. Resolves once each one holds it; rejects with `PARTIAL`
-	 * or `NOT_STORED` otherwise, listing each repository's outcome.
+	 * Reads every entry of `source` and stores a backup in every
+	 * repository: a full one, or with `kind`, one that builds on an earlier
+	 * one. Resolves once each one holds it; rejects with `PARTIAL` or
+	 * `NOT_STORED` otherwise, listing each repository's outcome.
 	 */
-	create(source: BackupSource): Promise<Created>;
+	create(source: BackupSource, options?: CreateOptions): Promise<Created>;
 	/** The backups one repository holds. Needs no key. */
 	list(options?: ListOptions): Promise<Listing>;
 	/** Reads one backup back and checks it. Needs a key only to check the entries. */
@@ -66,7 +67,7 @@ export function bindBackup<Name extends string>(
 	return {
 		definition,
 		repositories: ctx.repositories.map((repository) => repository.name),
-		create: (source) => createBackup(ctx, source),
+		create: (source, createOptions) => createBackup(ctx, source, createOptions),
 		list: (listOptions) => listBackups(ctx, listOptions),
 		verify: (id, verifyOptions) => verifyBackup(ctx, id, verifyOptions),
 		restore: (id, target, restoreOptions) =>

@@ -5,8 +5,8 @@ a database dump — is compressed with **zstd**, then encrypted with
 **[age](https://age-encryption.org)** to one or more public keys, and stored
 in one or several repositories at once — a local folder, an S3 bucket:
 
-- the backup host needs **only public keys**; the secret key is needed to
-  restore, nowhere else;
+- the backup host needs **only public keys** for a full backup; the secret
+  key is needed to restore, and to build an incremental one;
 - a clear **manifest**, written **last**, pins the size and SHA-256 of every
   stored object, so `list` and `verify` run without a key, and a backup
   exists once — and only once — its manifest does;
@@ -14,6 +14,8 @@ in one or several repositories at once — a local folder, an S3 bucket:
   byte**, and each entry's bytes against what the source gave as they go;
 - with a **signing key**, each manifest carries an **Ed25519 signature**, and
   a reader given the public key refuses a backup it did not write;
+- **incremental and differential** backups store only what changed, and
+  each one still restores whole, with no replay;
 - the format is age's and zstd's: a backup opens without this package.
 
 ```ts
@@ -42,9 +44,10 @@ await backups.restore(created.id, directoryTarget({ path: '/srv/restore' }), {
 });
 ```
 
-> **0.x.** Full backups, local and S3 repositories, checked restores,
-> signed manifests, a single-writer lock and rotation are here; incremental
-> backups are next — see the [roadmap](docs/roadmap.md).
+> **0.x.** Full, incremental and differential backups, local and S3
+> repositories, checked restores, signed manifests, a single-writer lock and
+> rotation are here; a MongoDB source is next — see the
+> [roadmap](docs/roadmap.md).
 
 ## Install
 
@@ -108,7 +111,7 @@ it when [signing](#signed-manifests). The
 
 ```ts
 const { backups: listed, unreadable } = await backups.list();
-// listed: [{ id, createdAt, kind: 'full', entries, storedSize, held }, …], oldest first
+// listed: [{ id, createdAt, kind: 'full', parent: null, entries, storedSize, held }, …], oldest first
 
 const latest = listed.at(-1);
 if (latest) {
@@ -144,6 +147,38 @@ Each object is copied to `tmpDir` and checked against the manifest before age
 reads it; each entry's bytes are checked against the catalog as they stream,
 and a damaged one fails with `INTEGRITY` — `directoryTarget` lands nothing
 from it.
+
+## Chains
+
+```ts
+import { bindBackup, defineBackup, directorySource, localRepository } from '@nxgt/backup';
+
+const backups = bindBackup(defineBackup({ name: 'uploads' }), {
+	repositories: [localRepository({ path: '/mnt/backups' })],
+	recipients: [process.env.BACKUP_RECIPIENT as string],
+});
+const identities = [(await Bun.file('/etc/backup/identity.txt').text()).trim()]; // chmod 600
+const source = directorySource({ path: '/srv/uploads' });
+
+const full = await backups.create(source); // Sunday
+const next = await backups.create(source, { kind: 'incremental', identities }); // every other day
+// { kind: 'incremental', parent: full.id, entries: 1204, reused: 1187, storedSize: …, … }
+
+await backups.verify(next.id); // { chain: [next.id, full.id], … } — every object of both, no key
+```
+
+An `incremental` backup builds on the newest backup, a `differential` one on
+the newest full one — chosen in `from` (by default the first repository
+still in the run), under the lock, with its whole chain there and the same
+recipients. It stores only the entries that changed and points to the
+others where they are already stored, so `restore` and `verify` of any
+backup give its whole view, with no replay, and a removed file is simply
+absent. An entry whose source `fingerprint` is the recorded one is not even
+read — `directorySource` gives `size:mtimeNs:ctimeNs:ino` — and one whose
+bytes are the recorded ones is not stored again. It needs `identities`, to
+read what the parent recorded: the host that makes it holds a secret key.
+`prune` keeps every parent a kept backup needs —
+[chains](docs/guide/chains.md).
 
 ## Signed manifests
 
@@ -343,7 +378,8 @@ does not read is never removed — [rotation](docs/guide/rotation.md).
 
 ## Your own source, target or repository
 
-A source is a `kind` and an async iterable of `{ name, open }`:
+A source is a `kind` and an async iterable of `{ name, open }` — plus, for
+incremental backups, an optional `fingerprint` per entry and a `position()`:
 
 ```ts
 import type { BackupSource } from '@nxgt/backup';
@@ -365,6 +401,7 @@ const settings: BackupSource = {
 
 `RestoreTarget` and `Repository` are as small —
 [sources and targets](docs/guide/sources-and-targets.md),
+[a source with fingerprints and a position](docs/guide/chains.md#writing-a-source-with-fingerprints-and-a-position),
 [repositories](docs/guide/repositories.md#writing-a-repository).
 
 ## API
@@ -376,16 +413,16 @@ const settings: BackupSource = {
 | `generateSigningKeys()` | a new Ed25519 key pair for `signing` and `trusted`: `{ privateKey, publicKey }`, PEM |
 | `localRepository({ path, name? })` | a repository in a local folder — a disk, a mounted volume, a share. `name` is `local` by default |
 | `s3Repository({ client, prefix?, name?, partSize? })` | a repository in an S3 bucket, AWS or compatible, through your own Bun `S3Client`. `name` is `s3` by default; `partSize` 16 MiB, 5 MiB at least. A `prefix` or `partSize` that could never work is a bare `TypeError` |
-| `directorySource({ path })` | every regular file under a folder, by relative path, sorted. Symbolic links and empty folders are skipped |
+| `directorySource({ path })` | every regular file under a folder, by relative path, sorted, each with a fingerprint, `size:mtimeNs:ctimeNs:ino` — none for a file changed in the last two seconds, which the next backup reads again. Symbolic links and empty folders are skipped |
 | `directoryTarget({ path, overwrite? })` | writes each entry to a file under a folder. Refuses an unsafe name, and an existing file unless `overwrite: true` |
 
 | `BoundBackup<Name>` | |
 | --- | --- |
 | `definition`, `repositories` | the definition, and the repository names in the order given |
-| `create(source)` | takes the lock in every repository, reads every entry and stores a full backup in each. Resolves to `Created` once each holds it; rejects with `PARTIAL` or `NOT_STORED` otherwise — a repository whose lock was held is `LOCKED` in `outcomes`, one whose lease ran out `LEASE_LOST` |
-| `list({ from? })` | the backups one repository holds, oldest first — each with `held`, whether it is under a legal hold — and the ids whose manifest does not read. No key |
-| `verify(id, { from?, identities? })` | reads a backup back and checks it — objects against the manifest without `identities`, entries against the catalog with them |
-| `restore(id, target, { identities, from?, only? })` | writes the entries, or those `only` picks, to `target` |
+| `create(source, { kind?, identities?, from? })` | takes the lock in every repository, reads every entry and stores a backup in each: a full one by default; with `kind: 'incremental'` or `'differential'` and `identities`, one that stores only what changed since the newest backup, or the newest full one, found in `from` — `NOT_FOUND` when there is none, and a repository lacking it is left out with a `NOT_FOUND` outcome. Resolves to `Created` — `kind`, `parent`, `entries` (its whole view), `reused` (the entries pointing to an older backup) — once each holds it; rejects with `PARTIAL` or `NOT_STORED` otherwise — a repository whose lock was held is `LOCKED` in `outcomes`, one whose lease ran out `LEASE_LOST` |
+| `list({ from? })` | the backups one repository holds, oldest first — each with `kind`, `parent` (the backup it builds on, `null` for a full one), `entries` (those it stores itself) and `held`, whether it is under a legal hold — and the ids whose manifest does not read. No key |
+| `verify(id, { from?, identities? })` | reads a backup back and checks it — without `identities`, every object of it and of every backup it builds on against their manifests; with them, every entry of its view against the catalog, wherever stored. `Verified.chain` lists the backups read, newest first |
+| `restore(id, target, { identities, from?, only? })` | writes the entries of its whole view, or those `only` picks, to `target`, each from the backup of its chain that stored it |
 | `prune({ keep, from?, dryRun?, incompleteAfter?, now? })` | applies a retention policy to one repository under its lock, and resolves to `Pruned`: `kept` and `removed`, each `Decision` with its `reasons`, the `incomplete` ids it cleaned, the `unreadable` ones it left, and `overSize`. `dryRun` removes nothing and takes no lock. No key. Rejects with `LOCKED` or `LEASE_LOST` itself |
 | `hold(id, { from? })` | puts a legal hold on a backup in every repository that has it — or in `from` alone — taking each one's lock in turn: `prune` keeps it until `unhold`. Resolves to `HoldResult` (`{ id, repositories }`, where it landed); `NOT_FOUND` when no repository has the backup, `LOCKED` while another `create`, `prune` or `hold` runs there |
 | `unhold(id, { from? })` | lifts it in every repository, or `from`, under each lock; resolves to `HoldResult`. Lifting a hold that is not there is not an error |
@@ -396,10 +433,12 @@ const settings: BackupSource = {
 | `BindBackupOptions`, `BoundBackup<Name>` | what `bindBackup` takes, and gives back |
 | `SigningKeys` | what `generateSigningKeys` gives back |
 | `Created`, `Listing`, `BackupInfo`, `Verified`, `Restored` | what `create`, `list`, `verify` and `restore` resolve to |
-| `ListOptions`, `VerifyOptions`, `RestoreOptions` | their options |
+| `CreateOptions`, `ListOptions`, `VerifyOptions`, `RestoreOptions` | their options |
+| `BackupKind` | `'full' \| 'incremental' \| 'differential'`: `Created.kind`, `BackupInfo.kind` |
 | `KeepPolicy`, `PruneOptions`, `Pruned`, `Decision`, `HoldOptions`, `HoldResult` | what `prune` takes and resolves to, one backup's fate in it, and what `hold` and `unhold` take and resolve to |
 | `Repository`, `LocalRepositoryOptions`, `S3RepositoryOptions` | where backups are kept, the shipped repositories' options, and the contract to write your own |
-| `BackupSource`, `SourceEntry`, `RestoreTarget` | what a backup reads from and a restore writes to |
+| `BackupSource`, `SourceEntry`, `RestoreTarget` | what a backup reads from and a restore writes to. `SourceEntry.fingerprint` and `BackupSource.position()` are optional, for incremental backups |
+| `Since` | what `BackupSource.entries(since)` gets when the backup builds on another: its `id`, its `position`, and its `entries` by name with their `size`, `sha256` and `fingerprint` |
 | `DirectoryOptions`, `DirectoryTargetOptions` | `directorySource`'s and `directoryTarget`'s options |
 | `BackupError`, `BackupErrorCode`, `BackupErrorOptions`, `RepositoryOutcome` | the error, its codes, and each repository's outcome |
 
@@ -413,8 +452,8 @@ source**.
 
 | `BackupErrorCode` | | |
 | --- | --- | --- |
-| `NOT_FOUND` | no backup with that id in that repository — or none with a manifest, which is the same thing — or a name in `only` the backup does not hold | `verify on "uploads": no backup with that id (repository "local")` |
-| `INTEGRITY` | what the repository holds is not what was written: an object missing or differing from the manifest, a manifest or catalog that does not read, an entry whose bytes differ. A mismatch against the manifest stops before a byte is decrypted; a mismatch against the catalog fails the entry's stream at its end, so a target that stages, like `directoryTarget`, lands nothing, while one that streams has already seen the bytes | `verify on "uploads": an object differs from its manifest (repository "local")` |
+| `NOT_FOUND` | no backup with that id in that repository — or none with a manifest, which is the same thing — or a name in `only` the backup does not hold; from an incremental `create`, nothing to build on | `verify on "uploads": no backup with that id (repository "local")` |
+| `INTEGRITY` | what the repository holds is not what was written: an object missing or differing from the manifest, a manifest or catalog that does not read, an entry whose bytes differ, a backup an incremental builds on gone. A mismatch against the manifest stops before a byte is decrypted; a mismatch against the catalog fails the entry's stream at its end, so a target that stages, like `directoryTarget`, lands nothing, while one that streams has already seen the bytes | `verify on "uploads": an object differs from its manifest (repository "local")` |
 | `DECRYPT` | none of the identities given opens the backup | `restore on "uploads": no identity given opens it (repository "local")` |
 | `SIGNATURE` | `trusted` keys are set and the manifest has no signature, or none by a trusted key. Nothing else of the backup was read. `list` puts the id in `unreadable` instead | `restore on "uploads": no trusted key signed the manifest (repository "local")` |
 | `PARTIAL` | `create` stored it in some repositories and not others; `outcomes` says which. The stored copies are complete | `create on "uploads": stored in 1 of 2 repositories` |
@@ -426,8 +465,12 @@ source**.
 repositories with one name, a key age refuses, a signing or trusted key that
 is not an Ed25519 key of the right half, a relative path, an S3 `prefix` or
 `partSize` that could never work, a `lock.lease` out of range, an unknown `from`,
-a malformed id, a `keep` with no rule or a rule under 1, an `incompleteAfter`
-under two lock leases, a `now` that is not a valid `Date`. None quotes a key. An error from your source, your target or
+a malformed id, a `kind` that is not one of the three, empty `identities`,
+a source of another kind than the backup it builds on, a source
+`fingerprint` over 1024 bytes or `position` over 64 KiB, a parent encrypted
+to other recipients, a `keep` with no rule or a rule under 1, an `incompleteAfter`
+under two lock leases, a `now` that is not a valid `Date`. None quotes a key.
+An error from your source, your target or
 a repository passes through as it is. Every message is in
 [troubleshooting](docs/troubleshooting.md); a handler is in
 [errors](docs/guide/errors.md).
@@ -441,7 +484,9 @@ Each is a `@ts-expect-error` case in [`test/types/backup.ts`](https://github.com
   a string; with `signing` given the key itself instead of `{ key }`; with
   `trusted: []`, or one key instead of a list; with a `lock.lease` that is
   not a number (`'5m'`).
-- `create` given a path instead of a source.
+- `create` given a path instead of a source; with `kind: 'incremental'` or
+  `'differential'` and no `identities`; with `identities` on a full backup;
+  with a `kind` that is not one of the three.
 - `restore` without `identities`, with one key instead of a list, or with an
   `only` that is neither a list of names nor a test on a name; `verify` with
   one key instead of a list.
@@ -513,6 +558,26 @@ Each is a `@ts-expect-error` case in [`test/types/backup.ts`](https://github.com
 - **A lock file that does not parse blocks every `create` until removed**:
   nothing in it says when it ends. `rm /mnt/backups/uploads/locks/<id>.json`
   — [locking](docs/guide/locking.md#what-a-lock-file-looks-like).
+- **An incremental `create` needs a secret key on the host that makes it**,
+  to read what its parent recorded; a full one needs only public keys. Keep
+  the key in a file only the job reads — `chmod 600 /etc/backup/identity.txt` —
+  or keep to full backups there —
+  [chains](docs/guide/chains.md#it-needs-a-key-where-backups-are-made).
+- **A 0.5 `prune` does not protect what an incremental builds on**: it
+  cannot read incremental manifests, so it leaves them, and may remove their
+  full backup — they then fail `a backup it builds on is missing`. Upgrade
+  every process that prunes or reads to 0.6 before the first incremental:
+  `bun add @nxgt/backup@^0.6.0` — [upgrading](docs/upgrading.md#05--06).
+- **After changing `recipients`, the next backup must be full**: an
+  incremental refuses a parent encrypted to other recipients —
+  `the backup it builds on is encrypted to other recipients; make a full backup first`.
+  Run `create(source)` once with the new keys —
+  [changing recipients](docs/guide/chains.md#changing-recipients).
+- **A source's `fingerprint` must change whenever its bytes do**: an entry
+  whose fingerprint is the recorded one is not read, and keeps its old
+  bytes. When unsure, give none — the entry is then read, and stored only if
+  it changed —
+  [writing a source](docs/guide/chains.md#writing-a-source-with-fingerprints-and-a-position).
 - **Check `instanceof BackupError` before `code`**: Node's file errors carry
   a `code` too (`ENOENT`) — [errors](docs/guide/errors.md#a-handler).
 
@@ -529,6 +594,9 @@ Each is a `@ts-expect-error` case in [`test/types/backup.ts`](https://github.com
 - [docs/guide/signing.md](docs/guide/signing.md) — signed manifests:
   `signing`, `trusted`, `generateSigningKeys`, `SIGNATURE`, changing the key,
   and checking a signature with `openssl`.
+- [docs/guide/chains.md](docs/guide/chains.md) — incremental and
+  differential backups: what each builds on, the whole-view catalog,
+  fingerprints and positions, a schedule, and the key they need.
 - [docs/guide/rotation.md](docs/guide/rotation.md) — `prune` and its
   retention rules, the reasons, dry runs, a policy per repository, legal
   holds, and the clean-up of incomplete backups.

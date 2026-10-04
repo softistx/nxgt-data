@@ -1,7 +1,7 @@
 export type { BoundBackup } from './backups/bind-backup';
 export { bindBackup } from './backups/bind-backup';
 export type { BindBackupOptions } from './backups/context';
-export type { Created } from './backups/create';
+export type { Created, CreateOptions } from './backups/create';
 export type { BackupInfo, Listing, ListOptions } from './backups/list';
 export type { Restored, RestoreOptions } from './backups/restore';
 export type { Verified, VerifyOptions } from './backups/verify';
@@ -18,6 +18,7 @@ export type {
 	RepositoryOutcome,
 } from './errors/backup-error';
 export { BackupError } from './errors/backup-error';
+export type { BackupKind } from './format/manifest';
 export type { LocalRepositoryOptions } from './repository/local';
 export { localRepository } from './repository/local';
 export type { S3RepositoryOptions } from './repository/s3';
@@ -31,4 +32,9 @@ export type {
 	DirectoryTargetOptions,
 } from './source/directory';
 export { directorySource, directoryTarget } from './source/directory';
-export type { BackupSource, RestoreTarget, SourceEntry } from './source/types';
+export type {
+	BackupSource,
+	RestoreTarget,
+	Since,
+	SourceEntry,
+} from './source/types';

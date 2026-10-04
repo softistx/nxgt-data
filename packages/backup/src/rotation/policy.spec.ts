@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { type Candidate, checkPolicy, periodOf, plan } from './policy';
+import { periodOf } from './periods';
+import { type Candidate, checkPolicy, plan } from './policy';
 
 const NOW = new Date('2026-10-04T12:00:00.000Z');
 
@@ -15,6 +16,7 @@ function backup(
 		storedSize: options.storedSize ?? 100,
 		parent: options.parent ?? null,
 		held: options.held ?? false,
+		...(options.standIn ? { standIn: true } : {}),
 	};
 }
 
@@ -278,6 +280,32 @@ describe('plan, at its edges', () => {
 			NOW,
 		);
 		expect(ids(result.kept)).toEqual(['x2']);
+	});
+});
+
+describe('plan, with a stand-in', () => {
+	test('keeps it and its parent, and gives it no rule', () => {
+		const result = plan(
+			[
+				backup('2026-10-03T00:00:00Z', {
+					id: 'unread',
+					parent: 'base',
+					held: true,
+					standIn: true,
+					storedSize: 0,
+				}),
+				backup('2026-10-02T00:00:00Z', { id: 'real' }),
+				backup('2026-10-01T00:00:00Z', { id: 'base' }),
+			],
+			{ last: 1, maxTotalSize: 150 },
+			NOW,
+		);
+		const why = Object.fromEntries(result.kept.map((d) => [d.id, d.reasons]));
+		expect(why).toEqual({
+			unread: ['held'],
+			real: ['last 1 of 1'],
+			base: ['parent of unread'],
+		});
 	});
 });
 

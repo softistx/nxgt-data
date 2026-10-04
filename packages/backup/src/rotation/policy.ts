@@ -1,3 +1,5 @@
+import { CALENDAR, periodOf } from './periods';
+
 /**
  * Which backups to keep. Rules add up: a backup any rule keeps is kept.
  * Calendar rules count in UTC, newest first, and keep the newest backup of
@@ -32,6 +34,11 @@ export interface Candidate {
 	/** The backup it builds on, if any: kept for as long as it is. */
 	parent: string | null;
 	held: boolean;
+	/**
+	 * It stands in for a backup that does not read: kept, with its parent,
+	 * but no rule counts it, so it takes no backup's place.
+	 */
+	standIn?: boolean | undefined;
 }
 
 /** One backup's fate, and why. */
@@ -49,7 +56,6 @@ export interface Plan {
 	overSize: boolean;
 }
 
-const CALENDAR = ['hourly', 'daily', 'weekly', 'monthly', 'yearly'] as const;
 const RULES = ['last', ...CALENDAR, 'within', 'maxTotalSize'] as const;
 
 /** The policy, checked: at least one rule, each a whole number above 0. */
@@ -72,38 +78,6 @@ export function checkPolicy(policy: KeepPolicy, where: string): KeepPolicy {
 	return policy;
 }
 
-const pad = (n: number, width = 2) => String(n).padStart(width, '0');
-
-/** The ISO week of `date`, in UTC: `2026-W40`. */
-function isoWeek(date: Date): string {
-	const day = new Date(
-		Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
-	);
-	const weekday = day.getUTCDay() || 7;
-	day.setUTCDate(day.getUTCDate() + 4 - weekday);
-	const yearStart = Date.UTC(day.getUTCFullYear(), 0, 1);
-	const week = Math.ceil(((day.getTime() - yearStart) / 86_400_000 + 1) / 7);
-	return `${day.getUTCFullYear()}-W${pad(week)}`;
-}
-
-export function periodOf(rule: (typeof CALENDAR)[number], date: Date): string {
-	const y = date.getUTCFullYear();
-	const m = pad(date.getUTCMonth() + 1);
-	const d = pad(date.getUTCDate());
-	switch (rule) {
-		case 'hourly':
-			return `${y}-${m}-${d}T${pad(date.getUTCHours())}`;
-		case 'daily':
-			return `${y}-${m}-${d}`;
-		case 'weekly':
-			return isoWeek(date);
-		case 'monthly':
-			return `${y}-${m}`;
-		case 'yearly':
-			return `${y}`;
-	}
-}
-
 /**
  * Why each backup is kept, by the rules alone. A backup newer than `now` is
  * kept for that alone, and takes no place in `last`, the calendar or the
@@ -116,7 +90,9 @@ function byRules(
 ): Map<string, string[]> {
 	const reasons = new Map<string, string[]>(newest.map((c) => [c.id, []]));
 	const add = (id: string, why: string) => reasons.get(id)?.push(why);
-	const past = newest.filter((c) => c.createdAt.getTime() <= now.getTime());
+	const past = newest.filter(
+		(c) => !c.standIn && c.createdAt.getTime() <= now.getTime(),
+	);
 	past.slice(0, policy.last ?? 0).forEach((c, i) => {
 		add(c.id, `last ${i + 1} of ${policy.last}`);
 	});
@@ -184,7 +160,9 @@ function droppable(
 	policy: KeepPolicy,
 	now: Date,
 ): Candidate | undefined {
-	const past = newest.filter((c) => c.createdAt.getTime() <= now.getTime());
+	const past = newest.filter(
+		(c) => !c.standIn && c.createdAt.getTime() <= now.getTime(),
+	);
 	const floor = new Set(past.slice(0, policy.last ?? 1).map((c) => c.id));
 	const kept = newest.filter((c) => reasons.get(c.id)?.length);
 	return [...kept]

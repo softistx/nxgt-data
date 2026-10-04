@@ -328,3 +328,28 @@ describe('prune on S3', () => {
 		]);
 	}, 120_000);
 });
+
+describe('incremental on S3', () => {
+	test('stores what changed and restores the whole view', async () => {
+		const keys = await keyPair();
+		const backups = bindBackup(defineBackup({ name: 'inc' }), {
+			repositories: [s3Repository({ client, prefix: 'p' })],
+			recipients: [keys.recipient],
+			tmpDir: tmp.path,
+		});
+		const full = await backups.create(memorySource({ a: 'a', b: 'b' }));
+		const next = await backups.create(memorySource({ a: 'a', b: 'B' }), {
+			kind: 'incremental',
+			identities: [keys.identity],
+		});
+		expect(next).toMatchObject({ parent: full.id, reused: 1 });
+		const target = memoryTarget();
+		await backups.restore(next.id, target, { identities: [keys.identity] });
+		expect(
+			[...target.written].map(([n, v]) => [n, new TextDecoder().decode(v)]),
+		).toEqual([
+			['a', 'a'],
+			['b', 'B'],
+		]);
+	}, 120_000);
+});

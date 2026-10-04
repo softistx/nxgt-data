@@ -1,3 +1,4 @@
+import type { BackupKind } from '../format/manifest';
 import type { Lease } from '../lock/lock';
 import { leaseLost } from '../lock/run-locks';
 import { type BackupContext, keyOf } from './context';
@@ -10,6 +11,8 @@ export interface Run {
 	failed: Map<string, unknown>;
 	/** Each repository's lock, held for the whole run. */
 	leases: Map<string, Lease>;
+	/** What it stores. */
+	kind: BackupKind;
 }
 
 /**

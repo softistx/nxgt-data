@@ -40,6 +40,12 @@ describe('readManifest', () => {
 		expect(read).toEqual(valid as never);
 	});
 
+	test('reads one that builds on another', () => {
+		const parent = '20261002T221500123Z-9f3a61c0';
+		const read = readManifest(edit({ kind: 'incremental', parent }));
+		expect(read).toMatchObject({ kind: 'incremental', parent });
+	});
+
 	test.each([
 		['not JSON', '{', 'it is not JSON'],
 		['an array', '[]', 'it is not a JSON object'],
@@ -61,9 +67,29 @@ describe('readManifest', () => {
 			'its createdAt is not an ISO date',
 		],
 		[
-			'an incremental',
-			edit({ kind: 'incremental' }),
+			'a kind it does not know',
+			edit({ kind: 'snapshot' }),
 			'its kind is not one this version reads',
+		],
+		[
+			'an incremental with no parent',
+			edit({ kind: 'incremental' }),
+			'its parent does not fit its kind',
+		],
+		[
+			'a full one with a parent',
+			edit({ parent: '20261002T221500123Z-9f3a61c0' }),
+			'its parent does not fit its kind',
+		],
+		[
+			'a parent no older than the backup',
+			edit({ kind: 'differential', parent: valid.id }),
+			'its parent does not fit its kind',
+		],
+		[
+			'a parent that is not an id',
+			edit({ kind: 'incremental', parent: '../x' }),
+			'its parent does not fit its kind',
 		],
 		[
 			'no recipients',
@@ -121,7 +147,61 @@ describe('readCatalog', () => {
 		).toEqual(['a', 'b']);
 	});
 
+	test('reads entries stored in an older backup, a fingerprint and a position', () => {
+		const elsewhere = {
+			...entry('old', 7),
+			in: '20261002T221500123Z-9f3a61c0',
+			fingerprint: 'f',
+		};
+		const read = readCatalog(
+			JSON.stringify({
+				format: 'nxgt-backup-catalog/1',
+				source: { kind: 'memory' },
+				entries: [entry('a', 0), elsewhere, entry('b', 1)],
+				position: 'p',
+			}),
+			2,
+		);
+		expect(read).toEqual({
+			format: 'nxgt-backup-catalog/1',
+			source: { kind: 'memory' },
+			entries: [entry('a', 0), elsewhere, entry('b', 1)],
+			position: 'p',
+		});
+	});
+
 	test.each([
+		[
+			'an entry elsewhere with no id',
+			catalog([{ ...entry('a', 0), in: '../x' }]),
+			0,
+			'an entry stored elsewhere does not say where',
+		],
+		[
+			'an entry elsewhere under a bad key',
+			catalog([
+				{ ...entry('a', 0), in: '20261002T221500123Z-9f3a61c0', object: 'x' },
+			]),
+			0,
+			'an entry stored elsewhere does not say where',
+		],
+		[
+			'a fingerprint too long',
+			catalog([{ ...entry('a', 0), fingerprint: 'f'.repeat(1025) }]),
+			1,
+			'an entry fingerprint is not one',
+		],
+		[
+			'a position that is not text',
+			JSON.stringify({
+				format: 'nxgt-backup-catalog/1',
+				source: { kind: 'memory' },
+				entries: [],
+				position: 5,
+			}),
+			0,
+			'its position is not one',
+		],
 		[
 			'a count that differs',
 			catalog([entry('a', 0)]),

@@ -1,17 +1,11 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { Decrypter } from 'age-encryption';
+import { chainOf, openEntry } from '../chain/view';
 import { decrypterFor } from '../crypto/keys';
-import { openFile } from '../crypto/seal';
+import type { Manifest, StoredObject } from '../format/manifest';
 import { type BackupContext, repositoryOf } from './context';
-import {
-	type At,
-	decrypted,
-	failure,
-	fetchCatalog,
-	fetchManifest,
-	guarded,
-	stage,
-} from './read';
+import { type At, fetchCatalog, fetchManifest, stage } from './read';
 
 export interface VerifyOptions {
 	/** The repository to check, by name. The first one by default. */
@@ -29,6 +23,11 @@ export interface VerifyOptions {
 export interface Verified {
 	id: string;
 	repository: string;
+	/**
+	 * The backups it read: this one, then each one it builds on, newest
+	 * first. Just this one for a full backup.
+	 */
+	chain: string[];
 	/** Objects checked, the catalog included. */
 	objects: number;
 	/** Their encrypted bytes. */
@@ -39,9 +38,57 @@ export interface Verified {
 	signatureChecked: boolean;
 }
 
+/** Every object of every backup of the chain, against its manifest. */
+async function stageAll(
+	ctx: BackupContext,
+	at: At,
+	chain: ReadonlyMap<string, Manifest>,
+	file: string,
+): Promise<StoredObject[]> {
+	const checked: StoredObject[] = [];
+	for (const manifest of chain.values()) {
+		for (const object of [manifest.catalog, ...manifest.objects]) {
+			await stage(ctx, { ...at, id: manifest.id }, object, file);
+			checked.push(object);
+		}
+	}
+	return checked;
+}
+
+/** The catalog, then every entry it lists, wherever stored, decrypted. */
+async function openAll(
+	ctx: BackupContext,
+	at: At,
+	chain: ReadonlyMap<string, Manifest>,
+	decrypter: Decrypter,
+	file: string,
+): Promise<StoredObject[]> {
+	const manifest = chain.get(at.id) as Manifest;
+	const catalog = await fetchCatalog(ctx, at, manifest, decrypter, file);
+	const checked: StoredObject[] = [manifest.catalog];
+	for (const entry of catalog.entries) {
+		const { stream, object } = await openEntry(
+			ctx,
+			at,
+			chain,
+			entry,
+			decrypter,
+			file,
+		);
+		for await (const _ of stream) {
+			// Read to the end: the checks run as the bytes go through.
+		}
+		checked.push(object);
+	}
+	return checked;
+}
+
 /**
  * Reads a whole backup back from one repository and checks it, rejecting
- * with `INTEGRITY` at the first object that differs. Nothing is written
+ * with `INTEGRITY` at the first object that differs — with the backups it
+ * builds on: what a restore of it would read. Without a key, every object
+ * of every backup of the chain is checked against its manifest; with one,
+ * every entry the backup lists, wherever it is stored. Nothing is written
  * anywhere but the staging folder.
  */
 export async function verifyBackup(
@@ -59,43 +106,19 @@ export async function verifyBackup(
 			? undefined
 			: decrypterFor(options.identities, 'verify');
 	const manifest = await fetchManifest(ctx, at);
+	const chain = await chainOf(ctx, at, manifest);
 	const folder = await mkdtemp(join(ctx.tmpDir, 'nxgt-verify-'));
 	try {
 		const file = join(folder, 'object.age');
-		if (!decrypter) {
-			for (const object of [manifest.catalog, ...manifest.objects]) {
-				await stage(ctx, at, object, file);
-			}
-		} else {
-			const catalog = await fetchCatalog(ctx, at, manifest, decrypter, file);
-			for (const [index, object] of manifest.objects.entries()) {
-				const entry = catalog.entries[index];
-				if (!entry)
-					throw failure(ctx, at, 'INTEGRITY', 'the catalog misses an entry');
-				await stage(ctx, at, object, file);
-				const stream = await decrypted(ctx, at, () =>
-					openFile(file, decrypter, entry, () =>
-						failure(
-							ctx,
-							at,
-							'INTEGRITY',
-							'an entry differs from what its source gave',
-						),
-					),
-				);
-				for await (const _ of guarded(ctx, at, stream)) {
-					// Read to the end: the checks run as the bytes go through.
-				}
-			}
-		}
+		const checked = decrypter
+			? await openAll(ctx, at, chain, decrypter, file)
+			: await stageAll(ctx, at, chain, file);
 		return {
 			id,
 			repository: at.repository.name,
-			objects: manifest.objects.length + 1,
-			storedSize: [manifest.catalog, ...manifest.objects].reduce(
-				(sum, o) => sum + o.size,
-				0,
-			),
+			chain: [...chain.keys()],
+			objects: checked.length,
+			storedSize: checked.reduce((sum, o) => sum + o.size, 0),
 			decrypted: decrypter !== undefined,
 			signatureChecked: ctx.trusted.length > 0,
 		};
