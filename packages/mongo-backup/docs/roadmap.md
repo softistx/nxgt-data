@@ -3,15 +3,15 @@
 Where `@nxgt/mongo-backup` is going. A direction, not a commitment: the
 version an item shipped in is the only number on this page.
 
-## Next
-
-- **Granular restore** — restore part of a backup instead of the whole
-  database: one collection on its own, only the documents chosen by `_id` or
-  by a filter, and a collection restored under another name beside the one
-  in place.
-
 ## Later
 
+- **Granular restore without the full rebuild** — restore a few collections
+  by reading only their entries, where today `restoreCollections` rebuilds
+  the whole backup, chain included, in a scratch database first.
+- **`$lookup` references renamed in restored views** — a view restored
+  beside collections restored under other names follows them in its
+  `$lookup` and other pipeline stages too, where today only the collection
+  it is defined on is renamed.
 - **Time-series collections** — back up and restore a time-series collection
   with its options, where today it is refused with `UNSUPPORTED`.
 - **Sharded clusters, tested** — the specs run against a replica set only:
@@ -36,6 +36,11 @@ version an item shipped in is the only number on this page.
 
 ## Shipped
 
+- **Granular restore** — 0.2.0: `restoreCollections` restores some
+  collections and views of a backup, chain included, under their own names
+  or others, into the same database or another; each whole, or only the
+  documents a filter takes (by `_id` or any query), merged into what is
+  there with `existing: 'replace' | 'keep'`.
 - **MongoDB as a source and a target for `@nxgt/backup`** — 0.1.0, the first
   release: a full backup of every collection read at one cluster time, with
   each collection's options and indexes, its documents as BSON with no

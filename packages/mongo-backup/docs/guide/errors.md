@@ -1,7 +1,7 @@
 # Errors
 
 This page lists everything `@nxgt/mongo-backup` throws — `MongoBackupError`
-and its six codes, and the bare `TypeError`s — with every message, and a
+and its seven codes, and the bare `TypeError`s — with every message, and a
 handler for a scheduled job.
 
 ```ts
@@ -27,7 +27,8 @@ type MongoBackupErrorCode =
 	| 'HISTORY_LOST'
 	| 'UNSUPPORTED'
 	| 'EXISTS'
-	| 'MALFORMED';
+	| 'MALFORMED'
+	| 'NOT_FOUND';
 
 class MongoBackupError extends Error {
 	readonly name: 'MongoBackupError';
@@ -125,9 +126,11 @@ database — one the backup holds, one a recorded `create` makes, or the new
 name of a recorded rename that replaced nothing at the source. Nothing of
 it was touched — [`EXISTS` and `replace`](restore.md#exists-and-replace).
 
-```text
-mongoTarget: a collection or view the backup holds is already in the database; restore into another one, or pass replace: true
-```
+| Message | When |
+| --- | --- |
+| `mongoTarget: a collection or view the backup holds is already in the database; restore into another one, or pass replace: true` | a `restore` through `mongoTarget`, without `replace` |
+| `restoreCollections: a collection or view to restore is already in the database; restore it under another name, or pass replace: true` | `restoreCollections` in whole mode, without `replace`: a name `as` gives is taken in `db`, checked before anything moves, or taken in the meantime and refused at its rename — [whole collections](restore.md#whole-collections) |
+| `restoreCollections: the scratch database holds collections; give an empty one` | the `scratch` given is not empty; it is left as it was — [the scratch database](restore.md#the-scratch-database) |
 
 ### `MALFORMED`
 
@@ -149,12 +152,32 @@ not read.
 The apostrophe in `collection’s` is a typographic one, `’`: search for
 `documents came before its metadata`.
 
+### `NOT_FOUND`
+
+A name in the list `restoreCollections` was given as `collections` is not
+in the backup — as its collections were named at the backup's time, after
+every rename the chain replays. It comes after the backup was rebuilt, and
+before anything reaches `db` —
+[`collections`](restore.md#collections-names-at-the-backups-time).
+
+```text
+restoreCollections: a collection named in collections is not in the backup
+```
+
+`@nxgt/backup`'s `BackupError` has a `NOT_FOUND` too — a backup id that is
+not there: check `instanceof` before `code`.
+
 ## The bare `TypeError`s
 
 Wiring that could never work is a `TypeError`, not a `MongoBackupError`.
-The first two and the last two are thrown by `mongoSource` and
-`mongoTarget` themselves; the third by `create`, when the full backup lists
-the collections.
+`mongoSource` and `mongoTarget` throw theirs at once, but for
+`mongoSource: a collection named in collections is not in the database`,
+which `create` throws when the full backup lists the collections.
+`restoreCollections` rejects with its own before reading anything, but for
+the three about `as` it can only tell from the backup's names — anything
+a function gives, a map naming a collection after one that keeps its
+own, and a map key naming nothing restored: those come after the rebuild,
+and before anything reaches `db`.
 
 | Message | When |
 | --- | --- |
@@ -163,6 +186,15 @@ the collections.
 | `mongoSource: a collection named in collections is not in the database` | a name in the list that the database lacks |
 | `mongoTarget: db must be a MongoDB Db` | `db` is missing, or is not a driver `Db` |
 | `mongoTarget: tmpDir must be an absolute path` | a relative `tmpDir` |
+| `restoreCollections: db must be a MongoDB Db` | `db` is missing, or is not a driver `Db` |
+| `restoreCollections: scratch must be a MongoDB Db` | `scratch` is given, and is not a driver `Db` |
+| `restoreCollections: scratch must be on db's client` | `scratch` comes from another `MongoClient` |
+| `restoreCollections: scratch must be another database` | `scratch` has `db`'s name |
+| `restoreCollections: documents must be { filter, existing: 'replace' \| 'keep' }` | a `filter` that is not a query object, or an `existing` other than those two |
+| `restoreCollections: replace is for whole collections; documents says what happens to those there` | `replace` given with `documents` |
+| `restoreCollections: as must give a collection name` | `as` gives an empty name, one holding `$` or a NUL, one starting with `system.`, or something not a string |
+| `restoreCollections: as gives two collections one name` | `as` gives two collections or views the same name |
+| `restoreCollections: as names a collection not restored` | a key of an `as` map names no collection or view restored — a typo, or a view when `documents` is given; checked once the backup has been rebuilt |
 
 ## Errors that pass through
 
@@ -218,7 +250,7 @@ function startsOver(error: unknown): boolean {
 		case 'UNSUPPORTED':
 			return true;
 		default:
-			return false; // SNAPSHOT_TOO_OLD and CHANGING come from a full backup; EXISTS from a restore
+			return false; // SNAPSHOT_TOO_OLD and CHANGING come from a full backup; EXISTS and NOT_FOUND from a restore
 	}
 }
 

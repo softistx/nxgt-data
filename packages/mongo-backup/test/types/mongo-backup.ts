@@ -7,6 +7,8 @@ import {
 	type MongoBackupErrorCode,
 	mongoSource,
 	mongoTarget,
+	type Restorer,
+	restoreCollections,
 } from '../../src/index';
 
 declare const db: Db;
@@ -36,3 +38,26 @@ const code: MongoBackupErrorCode = new MongoBackupError('m', 'EXISTS').code;
 new MongoBackupError('m', 'NOPE');
 
 void [source, target, code];
+
+// restoreCollections: replace is for whole collections, and documents says what happens to those there.
+declare const restorer: Restorer;
+restoreCollections(restorer, 'id', {
+	identities: [],
+	db,
+	// @ts-expect-error replace has no meaning with documents: the pair is refused
+	documents: { filter: {}, existing: 'keep' },
+	replace: true,
+});
+restoreCollections(restorer, 'id', {
+	identities: [],
+	db,
+	// @ts-expect-error existing is required: a document already there is replaced or kept, never by default
+	documents: { filter: {} },
+});
+restoreCollections(restorer, 'id', {
+	identities: [],
+	db,
+	// @ts-expect-error existing is 'replace' or 'keep'
+	documents: { filter: {}, existing: 'merge' },
+});
+restoreCollections(restorer, 'id', { identities: [], db, replace: true });

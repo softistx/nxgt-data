@@ -33,7 +33,7 @@ async function indexesOf(db: Db, collection: Listed): Promise<Document[]> {
  * The collections and views the filter takes, each with its options and
  * indexes — or nothing when one went while they were being read.
  */
-async function describe(
+export async function describe(
 	db: Db,
 	filter: CollectionFilter | undefined,
 ): Promise<Described[] | undefined> {
