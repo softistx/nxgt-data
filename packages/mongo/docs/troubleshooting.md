@@ -2008,15 +2008,17 @@ export const mongo = await openMongo(config);   // top level: a bad URI stops th
 ### `ping: no answer in 2000ms`
 
 **When:** the `error` of a `{ ok: false }` that `mongo.ping()` reported, never
-a throw.
+a throw. A health route that used to hang for 30 s right after a failover
+answers with this instead, within `timeoutMS` and a 250 ms grace.
 
-**Why:** a database the configuration handed a `client` did not answer within
-`timeoutMS`. Only such a database reports this: the Mongo races a timer of its
-own for it, because a client that was never connected makes its connect on
-the first command, and that connect waits `serverSelectionTimeoutMS`, not
-`timeoutMS` (measured on mongodb 7.6.0). A database the Mongo opened from a
-`uri` is always connected, and reports the driver's own error instead —
-`MongoOperationTimeoutError` for a server that is too slow.
+**Why:** the database did not answer within `timeoutMS` plus a 250 ms grace,
+and the driver's own `MongoOperationTimeoutError` did not come first. The
+`ping` races a timer of its own because `timeoutMS` does not bound server
+selection, which waits `serverSelectionTimeoutMS` (30 s by default): a client
+handed over unconnected makes its connect on the first command, and a
+connected client that has just lost its server makes its second ping wait the
+same way (measured on mongodb 7.6.0). A server that is merely too slow still
+reports `MongoOperationTimeoutError`.
 
 **Fix:** answer 503 and look at the server. If the database is a `client` you
 handed over, connect it before `openMongo`:

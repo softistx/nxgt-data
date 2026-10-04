@@ -36,7 +36,7 @@ connection's own `ping` answers with —
 | Result | Means |
 | --- | --- |
 | `{ ok: true, latencyMs }` | the server answered `ping`, in that many milliseconds |
-| `{ ok: false, error }` | it did not, within `timeoutMS`; `error` is the driver's — `MongoOperationTimeoutError` for a server too slow, `MongoNetworkError` or `MongoServerSelectionError` for one that is gone — or, for a `client` the configuration handed over, `Error('ping: no answer in 1000ms')` when the deadline passed first |
+| `{ ok: false, error }` | it did not, within `timeoutMS`; `error` is the driver's — `MongoOperationTimeoutError` for a server too slow, `MongoNetworkError` or `MongoServerSelectionError` for one that is gone — or a `ConnectionError`, `ping: no answer in 1000ms`, when the deadline plus a 250 ms grace passed first |
 
 The keys are the database names the configuration gave, `default` when it
 named none, and the types know them: `health.main` on a Mongo with no `main`
@@ -57,14 +57,14 @@ Every Mongo answers — the one `openMongo` returned, one from `as` or
 `withSession`, one inside a transaction — because they share the databases.
 The ping carries no session and no actor.
 
-A database the Mongo opened from a `uri` is pinged through its connection, and
-reports the driver's own errors. A database the configuration gave a `client`
-is pinged too, through the same `ping` raced against a timer of its own. The timer is there
-because of what was measured on mongodb 7.6.0: a client that was **never
-connected** makes its connect on the first command, and that connect waits
-`serverSelectionTimeoutMS` (30 s by default), not the command's `timeoutMS`.
-The timer keeps `ping`'s deadline anyway, and is where the bare
-`ping: no answer in …` error comes from.
+Every database is pinged by the same `ping`, raced against a timer set at
+`timeoutMS` plus a 250 ms grace, so the driver's own
+`MongoOperationTimeoutError` still wins whenever the driver honours the
+deadline. The timer is there because `timeoutMS` does not bound server
+selection (measured on mongodb 7.6.0): a client that was **never connected**
+makes its connect on the first command, and a connected client that has just
+lost its server makes its second ping wait `serverSelectionTimeoutMS` (30 s by
+default). The bare `ping: no answer in …` `ConnectionError` is the timer's.
 
 A failed first connect has a second consequence: the driver **closes the
 client for good**. Every later command throws `MongoTopologyClosedError` at

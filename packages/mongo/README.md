@@ -1327,7 +1327,7 @@ deep.
 | `transaction(fn, options?)` | `fn` with a `Mongo` whose collections and buckets are all in the transaction. May run twice. |
 | `sync(options?)` | `SyncReport[]` per database, collections only. A deployment step. |
 | `syncBuckets()` | Creates each bucket's four indexes, per database and bucket key. |
-| `ping(options?)` | `PingResult` per database. Never throws; `timeoutMS`, 2 s by default. |
+| `ping(options?)` | `PingResult` per database. Never throws; `timeoutMS`, 2 s by default, plus a 250 ms grace. |
 | `close()` | Gives back what it opened. Idempotent; only the `Mongo` `openMongo` returned. |
 
 `MongoOf<typeof config>` is that `Mongo`'s type, for a service that declares
@@ -1402,7 +1402,7 @@ with no `buckets`.
   does not own, and the driver refuses it.
 - **A client handed over unconnected dies on a failed first connect.** Its
   implicit connect waits `serverSelectionTimeoutMS`, not `timeoutMS` — `ping`
-  keeps its deadline with a timer of its own — and if it fails, the driver
+  keeps its deadline with a timer of its own, as it does for every client — and if it fails, the driver
   closes the client: every later command throws `MongoTopologyClosedError`.
   Pass `await new MongoClient(uri).connect()`.
 - **Bucket indexes are not created by `sync()`.** Call `syncBuckets()` beside
