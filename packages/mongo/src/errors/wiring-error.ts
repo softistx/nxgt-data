@@ -24,12 +24,13 @@ export interface WiringErrorOptions {
 }
 
 /**
- * What this package refuses, with a code beside the sentence.
+ * What the wiring — `defineMongo`, `openMongo`, `discoverCollections` —
+ * refuses, with a code beside the sentence.
  *
  * It extends `TypeError` rather than `Error`, unlike `DataError`,
  * `RedisError` and `S3Error`: every one of these is a call or a
- * configuration written wrong, which is what `TypeError` means, and this
- * package threw bare `TypeError`s before it existed. Extending one keeps
+ * configuration written wrong, which is what `TypeError` means, and the
+ * wiring threw bare `TypeError`s before this class existed. Extending one keeps
  * every `catch` that tests for `TypeError` working, and adds a `code` to
  * switch on instead of matching the message text.
  */
