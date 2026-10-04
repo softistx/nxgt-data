@@ -121,7 +121,7 @@
     },
     "packages/mongo-backup": {
       "name": "@nxgt/mongo-backup",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "bin": {
         "nxgt-mongo-backup": "./dist/cli.js",
       },
