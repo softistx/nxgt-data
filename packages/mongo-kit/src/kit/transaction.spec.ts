@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { MongoClient, ObjectId } from 'mongodb';
 import { collections, events, useMongo } from '../../test/fixtures';
+import { rejectionMessage } from '../../test/rejection';
 import { defineConfig } from '../config/define-config';
 import { KitError } from '../errors/kit-error';
 import { createKit } from './create-kit';
@@ -24,12 +25,14 @@ describe('transaction', () => {
 
 	test('rolls back everything when the body throws', async () => {
 		const kit = await plainKit();
-		await expect(
-			kit.transaction(async (tx) => {
-				await tx.db.users.create({ email: 'ada@example.com' });
-				throw new Error('no');
-			}),
-		).rejects.toThrow('no');
+		expect(
+			await rejectionMessage(
+				kit.transaction(async (tx) => {
+					await tx.db.users.create({ email: 'ada@example.com' });
+					throw new Error('no');
+				}),
+			),
+		).toContain('no');
 		expect(await kit.db.users.count()).toBe(0);
 	});
 
@@ -63,17 +66,19 @@ describe('transaction', () => {
 
 	test('joins the transaction it is already in', async () => {
 		const kit = await plainKit();
-		await expect(
-			kit.transaction(async (outer) => {
-				await outer.db.users.create({ email: 'ada@example.com' });
-				await outer.transaction(async (inner) => {
-					expect(inner.session).toBe(outer.session);
-					await inner.db.posts.create({ title: 'a' });
-				});
-				// MongoDB has no savepoints: the outer failure takes both.
-				throw new Error('no');
-			}),
-		).rejects.toThrow('no');
+		expect(
+			await rejectionMessage(
+				kit.transaction(async (outer) => {
+					await outer.db.users.create({ email: 'ada@example.com' });
+					await outer.transaction(async (inner) => {
+						expect(inner.session).toBe(outer.session);
+						await inner.db.posts.create({ title: 'a' });
+					});
+					// MongoDB has no savepoints: the outer failure takes both.
+					throw new Error('no');
+				}),
+			),
+		).toContain('no');
 		expect(await kit.db.users.count()).toBe(0);
 		expect(await kit.db.posts.count()).toBe(0);
 	});
@@ -131,8 +136,10 @@ describe('transaction', () => {
 		test('refuses a database it does not have', async () => {
 			const kit = track(await createKit(twoOnOneClient()));
 			await expect(
-				kit.transaction(async () => undefined, { on: 'nowhere' as never }),
-			).rejects.toThrow('has no database "nowhere"');
+				await rejectionMessage(
+					kit.transaction(async () => undefined, { on: 'nowhere' as never }),
+				),
+			).toContain('has no database "nowhere"');
 			const error = await kit
 				.transaction(async () => undefined, { on: 'nowhere' as never })
 				.then(null, (reason: unknown) => reason);
@@ -159,9 +166,9 @@ describe('transaction', () => {
 				),
 			);
 			try {
-				await expect(kit.transaction(async () => undefined)).rejects.toThrow(
-					'holds more than one client',
-				);
+				await expect(
+					await rejectionMessage(kit.transaction(async () => undefined)),
+				).toContain('holds more than one client');
 				// Named, it runs — on that client's database alone.
 				await kit.transaction(
 					(tx) => tx.databases.main.users.create({ email: 'ada@example.com' }),
@@ -170,11 +177,13 @@ describe('transaction', () => {
 				// The other database is on another client, and the driver refuses
 				// its session: a transaction reaches one client's databases.
 				await expect(
-					kit.transaction(
-						(tx) => tx.databases.analytics.events.create({ kind: 'signup' }),
-						{ on: 'main' },
+					await rejectionMessage(
+						kit.transaction(
+							(tx) => tx.databases.analytics.events.create({ kind: 'signup' }),
+							{ on: 'main' },
+						),
 					),
-				).rejects.toThrow('same MongoClient');
+				).toContain('same MongoClient');
 			} finally {
 				await other.close();
 			}

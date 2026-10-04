@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { clearCollectionRegistry } from '@nxgt/mongo';
+import { rejectionMessage } from '../test/rejection';
 import { discoverCollections } from './discover';
 import { KitError } from './errors/kit-error';
 
@@ -52,18 +53,22 @@ describe('discoverCollections', () => {
 
 	test('refuses two files on one server collection', async () => {
 		await expect(
-			discoverCollections({ glob: 'test/models-clash/*.model.ts', cwd }),
-		).rejects.toThrow('both define the collection "twice"');
+			await rejectionMessage(
+				discoverCollections({ glob: 'test/models-clash/*.model.ts', cwd }),
+			),
+		).toContain('both define the collection "twice"');
 	});
 
 	test('refuses a named export that is no definition', async () => {
 		await expect(
-			discoverCollections({
-				glob: 'test/models-clash/none.ts',
-				cwd,
-				export: 'definition',
-			}),
-		).rejects.toThrow('exports no definition named "definition"');
+			await rejectionMessage(
+				discoverCollections({
+					glob: 'test/models-clash/none.ts',
+					cwd,
+					export: 'definition',
+				}),
+			),
+		).toContain('exports no definition named "definition"');
 	});
 
 	test('refuses an empty glob', async () => {
