@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/backup",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Encrypted, verifiable backups on Bun: zstd then age encryption, a manifest written last that pins every object, and several repositories at once",
 	"license": "MIT",
 	"type": "module",
