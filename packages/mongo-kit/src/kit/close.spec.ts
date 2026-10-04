@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { connectMongo } from '@nxgt/mongo';
 import { collections, events, useMongo } from '../../test/fixtures';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { defineConfig } from '../config/define-config';
 import { KitError } from '../errors/kit-error';
 import { createKit } from './create-kit';
@@ -17,9 +18,9 @@ describe('close', () => {
 		const kit = await createKit(defineConfig({ uri: server.uri, collections }));
 		const client = kit.clients.default;
 		await kit.close();
-		await expect(client.db().command({ ping: 1 })).rejects.toThrow(
-			'Client must be connected',
-		);
+		await expect(
+			await rejectionMessage(client.db().command({ ping: 1 })),
+		).toContain('Client must be connected');
 	});
 
 	test('leaves a client the config gave it alone', async () => {
@@ -37,8 +38,8 @@ describe('close', () => {
 		await Promise.all([kit.close(), kit.close()]);
 		await kit.close();
 		await expect(
-			kit.clients.default.db().command({ ping: 1 }),
-		).rejects.toThrow();
+			await rejection(kit.clients.default.db().command({ ping: 1 })),
+		).toBeInstanceOf(Error);
 	});
 
 	test('is what `await using` calls', async () => {
@@ -50,7 +51,9 @@ describe('close', () => {
 			client = kit.clients.default;
 			await kit.db.users.count();
 		}
-		await expect(client.db().command({ ping: 1 })).rejects.toThrow();
+		await expect(
+			await rejection(client.db().command({ ping: 1 })),
+		).toBeInstanceOf(Error);
 	});
 
 	test('refuses a kit that came from `as` or `withSession`', async () => {
@@ -69,7 +72,7 @@ describe('close', () => {
 				broken: { uri: server.uri, collections: { watch: events } },
 			},
 		} as never);
-		await expect(createKit(config)).rejects.toThrow(
+		await expect(await rejectionMessage(createKit(config))).toContain(
 			'wires a collection under "watch"',
 		);
 		// Nothing holds the shared client any more: this takes the only hold,
@@ -77,6 +80,8 @@ describe('close', () => {
 		const connection = await connectMongo(server.uri);
 		const { client } = connection;
 		await connection.close();
-		await expect(client.db().command({ ping: 1 })).rejects.toThrow();
+		await expect(
+			await rejection(client.db().command({ ping: 1 })),
+		).toBeInstanceOf(Error);
 	});
 });

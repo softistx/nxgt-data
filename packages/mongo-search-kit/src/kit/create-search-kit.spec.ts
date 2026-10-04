@@ -11,6 +11,7 @@ import {
 	toAuthorHit,
 	useServers,
 } from '../../test/fixtures';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { createSearchKit } from './create-search-kit';
 
 const { servers, indexes, indexedArticles, indexedAuthors } =
@@ -161,7 +162,7 @@ describe('a search kit', () => {
 		const held = await search.syncs.authors.start();
 		held.closed.catch(() => undefined);
 		try {
-			await expect(search.start()).rejects.toThrow();
+			expect(await rejection(search.start())).toBeInstanceOf(Error);
 			// The articles sync was started first; nothing of this kit is left
 			// following, so a fresh kit may start it.
 			const again = createSearchKit(servers.kit, {
@@ -335,7 +336,7 @@ describe('a search kit', () => {
 				),
 			'stopped',
 		);
-		await expect(running.close()).rejects.toThrow('worse');
+		expect(await rejectionMessage(running.close())).toContain('worse');
 	});
 
 	test('refuses a key the kit wires no collection for', () => {
