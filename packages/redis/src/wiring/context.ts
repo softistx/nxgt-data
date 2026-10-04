@@ -1,5 +1,6 @@
-import type { RedisConnection, Subscription } from '@nxgt/redis';
 import type { RedisClient } from 'bun';
+import type { Subscription } from '../channel/pubsub';
+import type { RedisConnection } from '../connection/connect';
 import type { AnyCache, AnyChannel } from './types';
 
 /** A definition and the key it is wired under. */

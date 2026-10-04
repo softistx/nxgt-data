@@ -1,10 +1,10 @@
+import { bindCache } from '../cache/bind-cache';
 import {
-	bindCache,
 	publish,
 	type SubscribeOptions,
 	type Subscription,
 	subscribe,
-} from '@nxgt/redis';
+} from '../channel/pubsub';
 import {
 	type InstanceContext,
 	type KitContext,

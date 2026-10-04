@@ -1,6 +1,6 @@
-import { connectRedis, type RedisConnection } from '@nxgt/redis';
-import { checkInstance, isCache, isChannel, wiredOf } from '../config/checks';
-import type { InstanceConfig, KitConfig } from '../config/types';
+import { connectRedis, type RedisConnection } from '../connection/connect';
+import { checkInstance, isCache, isChannel, wiredOf } from './config/checks';
+import type { InstanceConfig, KitConfig } from './config/types';
 import type { InstanceContext, KitContext } from './context';
 import { kitOf } from './kit-of';
 import type { AnyCache, AnyChannel, RedisKit } from './types';

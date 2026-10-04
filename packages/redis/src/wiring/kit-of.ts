@@ -1,5 +1,7 @@
-import type { LockOptions, PingResult } from '@nxgt/redis';
-import { RedisError, withLock } from '@nxgt/redis';
+import type { PingResult } from '../connection/connect';
+import { RedisError } from '../errors/redis-error';
+import type { LockOptions } from '../lock/with-lock';
+import { withLock } from '../lock/with-lock';
 import {
 	type InstanceContext,
 	instanceAt,

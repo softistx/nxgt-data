@@ -1,5 +1,6 @@
-import type { CacheDefinition, ChannelDefinition } from '@nxgt/redis';
 import type { z } from 'zod';
+import type { CacheDefinition } from '../../cache/types';
+import type { ChannelDefinition } from '../../channel/define-channel';
 import type { InstanceConfig } from './types';
 
 /**

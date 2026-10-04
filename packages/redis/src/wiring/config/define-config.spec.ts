@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { defineCache, defineChannel } from '@nxgt/redis';
 import { z } from 'zod';
-import * as caches from '../../test/caches';
-import * as channels from '../../test/channels';
+import * as caches from '../../../test/wiring/caches';
+import * as channels from '../../../test/wiring/channels';
+import { defineCache } from '../../cache/define-cache';
+import { defineChannel } from '../../channel/define-channel';
 import { defineConfig } from './define-config';
 
 const uri = 'redis://127.0.0.1:6379';

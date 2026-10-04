@@ -1,17 +1,16 @@
-import type {
-	BoundCache,
-	CacheDefinition,
-	ChannelDefinition,
-	InputOf,
-	LockOptions,
-	ParamsOf,
-	PingResult,
-	SubscribeOptions,
-	Subscription,
-	ValueOf,
-} from '@nxgt/redis';
 import type { RedisClient } from 'bun';
 import type { z } from 'zod';
+import type { BoundCache } from '../cache/bind-cache';
+import type {
+	CacheDefinition,
+	InputOf,
+	ParamsOf,
+	ValueOf,
+} from '../cache/types';
+import type { ChannelDefinition } from '../channel/define-channel';
+import type { SubscribeOptions, Subscription } from '../channel/pubsub';
+import type { PingResult } from '../connection/connect';
+import type { LockOptions } from '../lock/with-lock';
 import type {
 	CachesIn,
 	CachesOf,
@@ -19,7 +18,7 @@ import type {
 	ChannelsOf,
 	InstanceName,
 	KitConfig,
-} from '../config/types';
+} from './config/types';
 
 /** What a channel carries, read from the schema it was defined with. */
 export type PayloadOf<D> =

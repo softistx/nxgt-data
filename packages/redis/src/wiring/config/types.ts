@@ -1,6 +1,7 @@
-import type { CacheDefinition, ChannelDefinition } from '@nxgt/redis';
 import type { RedisClient, RedisOptions } from 'bun';
 import type { z } from 'zod';
+import type { CacheDefinition } from '../../cache/types';
+import type { ChannelDefinition } from '../../channel/define-channel';
 
 /**
  * The caches of a module object, and nothing else.

@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import * as caches from '../../test/caches';
-import * as channels from '../../test/channels';
 import { useRedis } from '../../test/fixtures';
-import { defineConfig } from '../config/define-config';
+import * as caches from '../../test/wiring/caches';
+import * as channels from '../../test/wiring/channels';
+import { defineConfig } from './config/define-config';
 import { connectKit } from './connect-kit';
 
-const { servers, track } = useRedis();
+const servers = useRedis();
+const { track } = servers;
 
 async function kitOn(prefix?: string) {
 	return track(

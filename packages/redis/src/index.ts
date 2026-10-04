@@ -17,3 +17,29 @@ export type { RedisErrorCode } from './errors/redis-error';
 export { RedisError } from './errors/redis-error';
 export type { LockOptions } from './lock/with-lock';
 export { withLock } from './lock/with-lock';
+export { defineConfig } from './wiring/config/define-config';
+export type {
+	CachesIn,
+	CachesOf,
+	ChannelsIn,
+	ChannelsOf,
+	InstanceConfig,
+	InstanceName,
+	InstancesOf,
+	KitConfig,
+	KitConfigInput,
+} from './wiring/config/types';
+export { connectKit } from './wiring/connect-kit';
+export type {
+	BoundChannel,
+	CacheScope,
+	ChannelScope,
+	InstanceScope,
+	KitLockOptions,
+	KitOf,
+	PayloadOf,
+	RedisKit,
+	SoleCache,
+	SoleChannels,
+	SoleInstance,
+} from './wiring/types';

@@ -6,13 +6,13 @@
  * rejects, not what the README says.
  */
 
-import { defineCache } from '@nxgt/redis';
 import { z } from 'zod';
-import { defineConfig } from '../../src/config/define-config';
-import { connectKit } from '../../src/kit/connect-kit';
-import type { KitOf } from '../../src/kit/types';
-import * as caches from '../caches';
-import * as channels from '../channels';
+import { defineCache } from '../../src/cache/define-cache';
+import { defineConfig } from '../../src/wiring/config/define-config';
+import { connectKit } from '../../src/wiring/connect-kit';
+import type { KitOf } from '../../src/wiring/types';
+import * as caches from '../wiring/caches';
+import * as channels from '../wiring/channels';
 
 const uri = 'redis://127.0.0.1:6379';
 
