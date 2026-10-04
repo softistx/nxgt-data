@@ -107,7 +107,7 @@
     },
     "packages/mongo-backup": {
       "name": "@nxgt/mongo-backup",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@nxgt/backup": "workspace:^",
         "@types/bun": "^1.4.0",

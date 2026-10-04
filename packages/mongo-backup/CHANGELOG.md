@@ -1,5 +1,15 @@
 # @nxgt/mongo-backup
 
+## 0.2.0
+
+### Minor Changes
+
+- [#161](https://github.com/softistx/nxgt-data/pull/161) [`5a3f65b`](https://github.com/softistx/nxgt-data/commit/5a3f65b94439977a7c760b85ef4b186ce3c09e1d) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `restoreCollections`: restore part of a backup, chain included. It restores some collections and views, under other names (`as`), whole or only the documents a filter takes (by `_id` or any query), merged into what is there with `existing: 'replace' | 'keep'`. The backup is rebuilt in a scratch database first, and that database is dropped afterwards. New error code `NOT_FOUND`.
+
+### Patch Changes
+
+- [#163](https://github.com/softistx/nxgt-data/pull/163) [`1c587cf`](https://github.com/softistx/nxgt-data/commit/1c587cf8d6d8091abc4fc0b675101683110f9da3) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `mongoTarget({ replace: true })` now replaces a view standing where the backup holds a collection. The server renames over a collection but never over a view, so the restore used to reject with `EXISTS` and tell the caller to pass the `replace: true` they had already passed.
+
 ## 0.1.0
 
 ### Minor Changes
