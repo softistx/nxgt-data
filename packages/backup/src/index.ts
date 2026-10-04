@@ -5,6 +5,8 @@ export type { Created } from './backups/create';
 export type { BackupInfo, Listing, ListOptions } from './backups/list';
 export type { Restored, RestoreOptions } from './backups/restore';
 export type { Verified, VerifyOptions } from './backups/verify';
+export type { SigningKeys } from './crypto/signing';
+export { generateSigningKeys } from './crypto/signing';
 export type {
 	BackupDefinition,
 	BackupDefinitionInput,

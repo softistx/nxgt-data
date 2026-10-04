@@ -74,12 +74,16 @@ rather than at the first backup.
 | `repositories` | `[Repository, ...Repository[]]` | required | where backups are kept. `create` writes to every one; the other calls read from the first unless given `from`. Names must differ — [repositories](repositories.md) |
 | `recipients` | `[string, ...string[]]` | required | the age public keys every backup is encrypted to: `age1…` or `age1pq1…`. Each is checked here — [encryption](encryption.md) |
 | `tmpDir` | `string` | the system's temporary folder | an absolute path where each object is staged between the source and the repositories, and between a repository and a restore. One object at a time, removed as soon as it is done |
+| `signing` | `{ key: string }` | none | an Ed25519 private key, PEM (PKCS#8). `create` signs every manifest with it. Only where backups are made — [signing](signing.md) |
+| `trusted` | `[string, ...string[]]` | the public half of `signing.key`; none without `signing` | Ed25519 public keys, PEM (SPKI). `list`, `verify` and `restore` read only a manifest one of them signed. **Without `signing` or `trusted`, nothing is signed or checked** — [signing](signing.md) |
 
 ```ts
 interface BindBackupOptions {
 	repositories: readonly [Repository, ...Repository[]];
 	recipients: readonly [string, ...string[]];
 	tmpDir?: string | undefined;
+	signing?: { key: string } | undefined;
+	trusted?: readonly [string, ...string[]] | undefined;
 }
 
 function bindBackup<Name extends string>(
@@ -112,8 +116,8 @@ const created = await backups.create(directorySource({ path: '/srv/uploads' }));
 `create` reads every entry of the source in turn — never two at once, each
 opened once — and for each one compresses it with zstd, encrypts it with age
 to every recipient into `tmpDir`, measures it, and puts it into every
-repository. Then it writes the catalog the same way, and the manifest
-**last**. Nothing is held in memory past a chunk: measured on Bun 1.4.2,
+repository. Then it writes the catalog the same way, then — with `signing` —
+the manifest's signature, and the manifest **last**. Nothing is held in memory past a chunk: measured on Bun 1.4.2,
 64 MB went through age at a peak RSS of 88 MB.
 
 ```ts
@@ -123,6 +127,7 @@ interface Created {
 	entries: number;     // how many entries the source gave
 	size: number;        // their bytes, as the source gave them
 	storedSize: number;  // the bytes each repository holds for it, manifest apart
+	signed: boolean;     // whether its manifest was signed: `signing` was given
 	outcomes: RepositoryOutcome[]; // all { repository, stored: true } when it resolves
 }
 ```
@@ -152,7 +157,7 @@ const fromNas = await backups.list({ from: 'nas' });
 interface Listing {
 	repository: string;
 	backups: BackupInfo[]; // oldest first
-	unreadable: string[];  // ids whose manifest is there but does not read
+	unreadable: string[];  // ids whose manifest is there but does not read, or is not signed by a trusted key
 }
 
 interface BackupInfo {
@@ -167,8 +172,9 @@ interface BackupInfo {
 `list` reads the manifests alone, so it **needs no key**. A backup whose
 manifest was never written — one still being made, one that failed, or a
 repository that `PARTIAL` left out — is not listed: it does not exist. An id
-in `unreadable` has a manifest that is not one this package wrote, or that
-this version cannot read; `verify` on it says why.
+in `unreadable` has a manifest that is not one this package wrote, that
+this version cannot read, or — with `trusted` keys — that none of them
+signed; `verify` on it says why.
 
 ## Verifying
 
@@ -193,13 +199,16 @@ interface Verified {
 	objects: number;    // objects checked, the catalog included
 	storedSize: number; // their encrypted bytes
 	decrypted: boolean; // whether the entries were decrypted and checked too
+	signatureChecked: boolean; // whether the manifest's signature was checked: trusted keys are set
 }
 ```
 
 `verify` reads the whole backup back, one object at a time through
 `tmpDir`, and writes nowhere else. It rejects at the first problem:
-`NOT_FOUND` with no manifest, `INTEGRITY` for an object that differs or a
-manifest or catalog that does not read, `DECRYPT` when no identity opens it —
+`NOT_FOUND` with no manifest, `INTEGRITY` for one over 64 MiB, `SIGNATURE`
+for a manifest no trusted key
+signed, `INTEGRITY` for an object that differs or a manifest or catalog that
+does not read, `DECRYPT` when no identity opens it —
 [errors](errors.md).
 
 Without a key, it can run where the backups are kept, as often as you like:
@@ -241,9 +250,11 @@ interface Restored {
 }
 ```
 
-For each entry, in the backup's order, `restore` copies its object to
-`tmpDir`, checks its size and SHA-256 against the manifest **before a byte of
-it is decrypted**, then streams it through age and zstd to the target,
+With `trusted` keys, `restore` first checks the manifest's signature, and
+refuses an unsigned or untrusted one with `SIGNATURE` before reading anything
+else — [signing](signing.md). Then, for each entry, in the backup's order, it
+copies its object to `tmpDir`, checks its size and SHA-256 against the
+manifest **before a byte of it is decrypted**, then streams it through age and zstd to the target,
 checking the plain bytes against the catalog as they go. A damaged entry
 fails its stream at the end with `INTEGRITY`, so a target that waits for the
 end — `directoryTarget` does — lands nothing from it; then the restore
@@ -285,6 +296,7 @@ const backups = bindBackup(defineBackup({ name: 'uploads' }), {
 	],
 	recipients: [process.env.BACKUP_RECIPIENT as string],
 	tmpDir: '/var/tmp',
+	signing: { key: await Bun.file('/etc/backup/signing.pem').text() }, // so each verify checks it too
 });
 
 try {

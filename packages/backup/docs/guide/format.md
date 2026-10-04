@@ -11,6 +11,7 @@ without a key and what is not, and how to open it without this package.
       1.age                            ← entry 1
       …
       catalog.age                      ← the entry names and digests: zstd, then age
+      manifest.sig                     ← with `signing`: 64 bytes, just before the manifest
       manifest.json                    ← in the clear, written last
     20261004T221500087Z-03be44d1/
       …
@@ -93,8 +94,8 @@ It names no entry, so everything that needs only the manifest needs **no
 key**: `list`, `verify` without identities, and — next — rotation.
 
 **A backup exists once its manifest does.** Every object goes first, then the
-catalog, then the manifest, so a backup that stopped half-way — the process
-killed, the disk full, a source that threw — has no manifest: `list` leaves it out, and
+catalog, then — with `signing` — the signature, then the manifest, so a
+backup that stopped half-way — the process killed, the disk full, a source that threw — has no manifest: `list` leaves it out, and
 `verify` and `restore` answer `NOT_FOUND`. With several
 repositories, the manifest goes only into those that took every object before
 it — [repositories](repositories.md#several-repositories).
@@ -105,6 +106,24 @@ that does not parse, names another backup or id, or lists objects out of
 order is `INTEGRITY` — or, in `list`, an id in `unreadable`.
 [Troubleshooting](../troubleshooting.md#verify-on-app-the-manifest-is-unreadable--repository-local)
 lists each reason.
+
+## The signature
+
+With `signing` given to `bindBackup`, `manifest.sig` holds the 64 raw bytes
+of an Ed25519 signature over the **exact bytes** of `manifest.json` — no
+encoding, no header. It is put just before the manifest, in every
+repository, so a manifest never stands without it; a signature with no
+manifest beside it is a run that stopped, not a backup.
+
+A reader with `trusted` keys checks it on the manifest's bytes before
+parsing them, reads no more than 65 bytes of it, and refuses a backup
+without one, or with one no trusted key made, with `SIGNATURE`. Without
+`signing`, no `manifest.sig` is written; without `trusted`, none is read —
+[signing](signing.md).
+
+A manifest is read no further than 64 MiB — about half a million entries at
+some 130 bytes each — whether signed or not: a larger one is `INTEGRITY`,
+and `create` refuses to write one, since it could not be read back.
 
 ## Ids
 
@@ -143,14 +162,19 @@ age -d -i key.txt 0.age | zstd -d > a.txt
 
 # check it against the manifest first, as restore does
 sha256sum 0.age    # the manifest's objects[0].sha256
+
+# and the manifest against its signature — OpenSSL 3, not macOS's LibreSSL
+openssl pkeyutl -verify -pubin -inkey signing.pub.pem -rawin \
+  -in manifest.json -sigfile manifest.sig
 ```
 
-The commands themselves were not run for this page — no `age` or `zstd`
+The `age` and `zstd` commands were not run for this page — no `age` or `zstd`
 binary was at hand. What was run: a backup made by this package, its
 `0.age` and `catalog.age` opened with the `age-encryption` library's plain
 `Decrypter` and `Bun.zstdDecompressSync`, with no code from this package,
 gave back the entry and the catalog above. Both are the standard formats the
 commands read. A hybrid post-quantum key (`age1pq1…`) needs an `age` release
-that knows that key type.
+that knows that key type. The `openssl` line was run, with OpenSSL 3.5.9:
+[checking a signature by hand](signing.md#checking-a-signature-by-hand).
 
 Next: [encryption](encryption.md), for the keys and what each check proves.

@@ -1,7 +1,8 @@
 # Encryption
 
 This page covers the keys a backup is encrypted to and opened with, and what
-each check — age's, the manifest's, the catalog's — proves and does not.
+each check — age's, the manifest's, the catalog's, the signature's — proves
+and does not.
 
 ```ts
 import {
@@ -165,23 +166,25 @@ So two digests are kept beside it:
   from the catalog's, the stream fails at its end with `INTEGRITY`, and
   `directoryTarget` lands nothing.
 
-What is still possible in this version: someone who can **write** to the
-repository can write a whole backup of their own — every manifest lists the
-recipients in the clear —
-objects, catalog and manifest, all consistent — and it verifies and restores.
-Nothing here says the backup came from you. **Signed manifests** (ed25519) close that, and are
-[next on the roadmap](../roadmap.md). Until then, limit who can
-write to a repository, and keep a copy where the backed-up host cannot
-write.
+That leaves one gap: someone who can **write** to the repository can write
+a whole backup of their own — objects, catalog and manifest, all consistent,
+since every manifest lists the recipients in the clear — and the digests pass
+it. **Signed manifests** close it: `create` signs each manifest with an
+Ed25519 key only the writer holds, and a reader given `trusted` public keys
+refuses one that none of them signed, with `SIGNATURE`, before reading
+anything else — [signing](signing.md). Without `trusted`, that forged backup
+still verifies and restores.
 
 | Someone with write access to the repository… | Caught by | When |
 | --- | --- | --- |
 | flips a byte of an object | the manifest's SHA-256 | `verify` without a key; `restore` before decrypting |
 | replaces an object with a valid age file | the manifest's SHA-256 | the same |
-| replaces an object and rewrites its manifest entry | the catalog's SHA-256 | `verify` with identities; `restore`, before the entry lands |
+| replaces an object and rewrites its manifest entry | the manifest's signature, with `trusted` set; otherwise the catalog's SHA-256 | the signature: every call, first. The catalog: `verify` with identities; `restore`, before the entry lands |
 | moves another backup's manifest in | the manifest's `backup` and `id` | every call |
 | deletes the manifest | — | the backup no longer exists: not listed, `NOT_FOUND` |
-| writes a whole consistent backup of their own | nothing yet | signed manifests, [next](../roadmap.md) |
-| deletes backups | nothing here | append-only storage, [later](../roadmap.md) |
+| writes a whole consistent backup of their own | the manifest's signature, with `trusted` set — [signing](signing.md); nothing without it | `list` (in `unreadable`), `verify`, `restore`, before anything else is read |
+| edits a signed manifest, or moves another backup's signature in | the manifest's signature, with `trusted` set | the same |
+| deletes backups, or the newest so an older one looks latest | nothing here, signed or not | append-only storage, [later](../roadmap.md) |
 
-Next: [repositories](repositories.md), for where the bytes go.
+Next: [signing](signing.md), for who wrote a backup, or
+[repositories](repositories.md), for where the bytes go.

@@ -6,6 +6,7 @@ import {
 	defineBackup,
 	directorySource,
 	directoryTarget,
+	generateSigningKeys,
 	localRepository,
 } from '@nxgt/backup';
 
@@ -27,3 +28,16 @@ export const restoreInto = directoryTarget({ path: '/srv/restore' });
 export const nightly = () => backups.create(uploads);
 
 export const latest = async () => (await backups.list()).backups.at(-1);
+
+export const signingKeys = generateSigningKeys();
+
+export const signedBackups = bindBackup(appBackup, {
+	repositories: [repository],
+	recipients: [
+		'age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq',
+	],
+	signing: { key: signingKeys.privateKey },
+});
+
+export const checked = async (id: string) =>
+	(await signedBackups.verify(id)).signatureChecked;

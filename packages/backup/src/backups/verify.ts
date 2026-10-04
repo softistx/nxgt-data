@@ -35,6 +35,8 @@ export interface Verified {
 	storedSize: number;
 	/** Whether the entries were decrypted and checked too. */
 	decrypted: boolean;
+	/** Whether the manifest's signature was checked: trusted keys are set. */
+	signatureChecked: boolean;
 }
 
 /**
@@ -95,6 +97,7 @@ export async function verifyBackup(
 				0,
 			),
 			decrypted: decrypter !== undefined,
+			signatureChecked: ctx.trusted.length > 0,
 		};
 	} finally {
 		await rm(folder, { recursive: true, force: true });

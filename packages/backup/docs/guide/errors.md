@@ -27,12 +27,18 @@ class BackupError extends Error {
 	readonly code: BackupErrorCode;
 	readonly backup: string;                  // the definition's name
 	readonly id: string | undefined;          // the backup's id, once there is one
-	readonly repository: string | undefined;  // for NOT_FOUND, INTEGRITY, DECRYPT
+	readonly repository: string | undefined;  // for NOT_FOUND, INTEGRITY, DECRYPT, SIGNATURE
 	readonly outcomes: readonly RepositoryOutcome[]; // for PARTIAL and NOT_STORED; [] otherwise
 	readonly cause?: unknown;                 // age's or zstd's error, where there is one
 }
 
-type BackupErrorCode = 'NOT_FOUND' | 'INTEGRITY' | 'DECRYPT' | 'PARTIAL' | 'NOT_STORED';
+type BackupErrorCode =
+	| 'NOT_FOUND'
+	| 'INTEGRITY'
+	| 'DECRYPT'
+	| 'SIGNATURE'
+	| 'PARTIAL'
+	| 'NOT_STORED';
 
 type RepositoryOutcome =
 	| { repository: string; stored: true }
@@ -49,12 +55,14 @@ log.
 | `NOT_FOUND` | `verify`, `restore` | no backup with that id in that repository — or one whose manifest was never written, which is the same thing. From `restore`, also a name in `only` that the backup does not hold | `id`, `repository` |
 | `INTEGRITY` | `verify`, `restore` | what the repository holds is not what was written: an object missing, or differing in size or SHA-256 from the manifest; a manifest or catalog that does not read; an entry whose plain bytes differ from the catalog. A mismatch against the manifest stops before a byte is decrypted; a mismatch against the catalog fails the entry's stream at its end, so a target that stages, like `directoryTarget`, lands nothing, while one that streams has already seen the bytes | `id`, `repository`, and `cause` when age or zstd refused the bytes |
 | `DECRYPT` | `verify` with identities, `restore` | none of the identities given opens the backup. The object matched its manifest, so the bytes are fine; the key is not | `id`, `repository`, `cause` (age's error) |
+| `SIGNATURE` | `verify`, `restore` | `trusted` keys are set — given, or derived from `signing` — and the manifest has no `manifest.sig` (`the manifest is not signed`), or one none of them made (`no trusted key signed the manifest`). Checked on the manifest's bytes before they are parsed: nothing else of the backup was read, and nothing reached the target — [signing](signing.md) | `id`, `repository` |
 | `PARTIAL` | `create` | stored in some repositories and not others. The stored copies are complete | `id`, `outcomes` |
 | `NOT_STORED` | `create` | stored nowhere | `id`, `outcomes`, each with its error |
 
 `list` throws none of them for a bad manifest: an id whose manifest does not
-read goes into `unreadable` instead, and `verify` on it gives the
-`INTEGRITY` with its reason.
+read, or — with `trusted` keys — is not signed by one of them, goes into
+`unreadable` instead, and `verify` on it gives the `INTEGRITY` or the
+`SIGNATURE` with its reason.
 
 Every message, with what causes it and what to do, is in
 [troubleshooting](../troubleshooting.md).
@@ -68,7 +76,7 @@ up the first time the code runs.
 | Thrown by | When |
 | --- | --- |
 | `defineBackup` | a name that could not be a path segment |
-| `bindBackup` | a definition not from `defineBackup`, no repository, two repositories with one name, no recipient or one age refuses, a relative `tmpDir` |
+| `bindBackup` | a definition not from `defineBackup`, no repository, two repositories with one name, no recipient or one age refuses, a relative `tmpDir`; a `signing.key` that is not an Ed25519 private key, a `trusted` list that is empty, holds a private key or a key that is not an Ed25519 public key, or leaves out `signing.key`'s public half — [signing](signing.md#checked-at-bind-time). These never quote the key and carry no `cause` |
 | `localRepository`, `directorySource`, `directoryTarget` | a relative `path` |
 | `list`, `verify`, `restore` | a `from` that names no repository given to `bindBackup` |
 | `verify`, `restore` | an id that is not a backup id; no identity, or one age refuses |
@@ -117,6 +125,8 @@ export function verdictOf(error: unknown): Verdict {
 				return 'alert'; // the wrong key, or a backup encrypted to a key you no longer have
 			case 'NOT_FOUND':
 				return 'alert'; // the backup is gone, or never finished
+			case 'SIGNATURE':
+				return 'alert'; // not written by a key you trust: forged, edited, or signed by a retired key
 		}
 	}
 	if (error instanceof TypeError) return 'bug'; // wiring: fix the code

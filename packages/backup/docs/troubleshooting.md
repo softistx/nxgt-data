@@ -1,7 +1,7 @@
 # Troubleshooting
 
 This package throws one error of its own, `BackupError`, with a `code` —
-`NOT_FOUND`, `INTEGRITY`, `DECRYPT`, `PARTIAL` or `NOT_STORED` — the `backup`
+`NOT_FOUND`, `INTEGRITY`, `DECRYPT`, `SIGNATURE`, `PARTIAL` or `NOT_STORED` — the `backup`
 it is about, and its `id`, `repository` or `outcomes`
 ([errors](guide/errors.md)). A refusal of the way it was called — a name, a
 path, a key, an id — is a plain `TypeError`. Errors from your source, your
@@ -22,6 +22,11 @@ call instead — `verify on "app": …` or `restore on "app": …`.
   - [`bindBackup: tmpDir must be an absolute path`](#bindbackup-tmpdir-must-be-an-absolute-path)
   - [`bindBackup: recipients must list at least one age public key`](#bindbackup-recipients-must-list-at-least-one-age-public-key)
   - [`bindBackup: recipient 0 is not an age public key (age1… or age1pq1…)`](#bindbackup-recipient-0-is-not-an-age-public-key-age1-or-age1pq1)
+  - [`bindBackup: signing.key is not an Ed25519 private key (PEM, PKCS#8)`](#bindbackup-signingkey-is-not-an-ed25519-private-key-pem-pkcs8)
+  - [`bindBackup: trusted 0 is a private key; give its public key`](#bindbackup-trusted-0-is-a-private-key-give-its-public-key)
+  - [`bindBackup: trusted 0 is not an Ed25519 public key (PEM, SPKI)`](#bindbackup-trusted-0-is-not-an-ed25519-public-key-pem-spki)
+  - [`bindBackup: trusted must list at least one public key`](#bindbackup-trusted-must-list-at-least-one-public-key)
+  - [`bindBackup: trusted does not hold the public key of signing.key, so this backup could not read what it writes`](#bindbackup-trusted-does-not-hold-the-public-key-of-signingkey-so-this-backup-could-not-read-what-it-writes)
   - [`localRepository: path must be an absolute path`](#localrepository-path-must-be-an-absolute-path)
   - [`directorySource: path must be an absolute path`](#directorysource-path-must-be-an-absolute-path)
   - [`directoryTarget: path must be an absolute path`](#directorytarget-path-must-be-an-absolute-path)
@@ -30,6 +35,7 @@ call instead — `verify on "app": …` or `restore on "app": …`.
   - [`verify on "app": the id is not a backup id`](#verify-on-app-the-id-is-not-a-backup-id)
   - [`restore: identities must list at least one age secret key`](#restore-identities-must-list-at-least-one-age-secret-key)
   - [`restore: identity 0 is not an age secret key (AGE-SECRET-KEY-…)`](#restore-identity-0-is-not-an-age-secret-key-age-secret-key-)
+  - [`create on "app": trusted keys are set but no signing key, so this backup could not read what it writes`](#create-on-app-trusted-keys-are-set-but-no-signing-key-so-this-backup-could-not-read-what-it-writes)
   - [`create on "app": the source gave an entry name that is empty, over 4096 characters, holds a NUL, or was given twice`](#create-on-app-the-source-gave-an-entry-name-that-is-empty-over-4096-characters-holds-a-nul-or-was-given-twice)
   - [`ENOENT: no such file or directory, scandir '/srv/uploads'`](#enoent-no-such-file-or-directory-scandir-srvuploads)
   - [`directoryTarget: an entry name is not a relative path inside the folder`](#directorytarget-an-entry-name-is-not-a-relative-path-inside-the-folder)
@@ -38,9 +44,13 @@ call instead — `verify on "app": …` or `restore on "app": …`.
 - **Creating**
   - [`create on "app": stored in 1 of 2 repositories`](#create-on-app-stored-in-1-of-2-repositories)
   - [`create on "app": stored in 0 of 1 repositories`](#create-on-app-stored-in-0-of-1-repositories)
+  - [`create on "app": the manifest would be larger than 64 MiB; split the source into several backups`](#create-on-app-the-manifest-would-be-larger-than-64-mib-split-the-source-into-several-backups)
   - [`local repository: a key is not a relative path`](#local-repository-a-key-is-not-a-relative-path)
 - **Reading back**
   - [`verify on "app": no backup with that id (repository "local")`](#verify-on-app-no-backup-with-that-id-repository-local)
+  - [`verify on "app": the manifest is larger than 64 MiB (repository "local")`](#verify-on-app-the-manifest-is-larger-than-64-mib-repository-local)
+  - [`restore on "app": the manifest is not signed (repository "local")`](#restore-on-app-the-manifest-is-not-signed-repository-local)
+  - [`restore on "app": no trusted key signed the manifest (repository "local")`](#restore-on-app-no-trusted-key-signed-the-manifest-repository-local)
   - [`restore on "app": an entry asked for is not in the backup (repository "local")`](#restore-on-app-an-entry-asked-for-is-not-in-the-backup-repository-local)
   - [`restore on "app": no identity given opens it (repository "local")`](#restore-on-app-no-identity-given-opens-it-repository-local)
   - [`verify on "app": an object differs from its manifest (repository "local")`](#verify-on-app-an-object-differs-from-its-manifest-repository-local)
@@ -54,6 +64,7 @@ call instead — `verify on "app": …` or `restore on "app": …`.
 - **Symptoms without a message**
   - [A backup is missing from `list`](#a-backup-is-missing-from-list)
   - [An id is in `unreadable`](#an-id-is-in-unreadable)
+  - [Every backup made before signing is in `unreadable`](#every-backup-made-before-signing-is-in-unreadable)
   - [A backup that failed left objects in the repository](#a-backup-that-failed-left-objects-in-the-repository)
   - [A backup or a restore fails for lack of room](#a-backup-or-a-restore-fails-for-lack-of-room)
 
@@ -165,6 +176,109 @@ import { identityToRecipient } from 'age-encryption';
 const recipient = await identityToRecipient(identity); // age1… — this goes in recipients
 ```
 
+### `bindBackup: signing.key is not an Ed25519 private key (PEM, PKCS#8)`
+
+**When:** `bindBackup`, with `signing` given.
+**Why:** `signing.key` must be the text of an unencrypted Ed25519 private key
+in PKCS#8 PEM, `-----BEGIN PRIVATE KEY-----`. The usual causes: the
+**public** key given where the private one goes, an RSA or EC key, a
+passphrase-protected PEM (`-----BEGIN ENCRYPTED PRIVATE KEY-----`, measured
+on Bun 1.4.2: there is no option for the passphrase), a file path instead of
+the file's text, or a variable that is unset or lost its line breaks. Node's
+own error is dropped, so the key is never quoted and there is no `cause`.
+**Fix:** read the PEM from a file, as written by `generateSigningKeys()` or
+by `openssl genpkey -algorithm ed25519` (no `-aes256`).
+
+```ts
+signing: { key: await Bun.file('/etc/backup/signing.pem').text() }, // -----BEGIN PRIVATE KEY-----
+```
+
+To drop a passphrase from a key you already have:
+`openssl pkey -in signing.enc.pem -out signing.pem`. The
+[keys](guide/signing.md#keys) section has both halves.
+
+### `bindBackup: trusted 0 is a private key; give its public key`
+
+**When:** `bindBackup`; the number is the key's position in `trusted`.
+**Why:** that entry holds `PRIVATE KEY` — a private key, encrypted or not,
+where its public half goes. It is refused although its public half could be
+derived: a reader holding the private key could also sign backups it then
+trusts.
+**Fix:** give readers the public key only, and keep the private one where
+backups are made.
+
+```sh
+openssl pkey -in signing.pem -pubout -out signing.pub.pem # -----BEGIN PUBLIC KEY-----
+```
+
+```ts
+trusted: [await Bun.file('/etc/backup/signing.pub.pem').text()],
+```
+
+### `bindBackup: trusted 0 is not an Ed25519 public key (PEM, SPKI)`
+
+**When:** `bindBackup`; the number is the key's position in `trusted`.
+**Why:** that entry is not the text of an Ed25519 public key in SPKI PEM,
+`-----BEGIN PUBLIC KEY-----`: an RSA or EC key, an age recipient (`age1…`)
+given where a signing key goes, a file path instead of the file's text, or a
+variable that is unset or lost its line breaks. The key is never quoted.
+**Fix:** the public half of the signing key, read from its file.
+
+```ts
+bindBackup(uploads, {
+	repositories,
+	recipients,
+	trusted: [await Bun.file('/etc/backup/signing.pub.pem').text()], // -----BEGIN PUBLIC KEY-----
+});
+```
+
+`generateSigningKeys()` returns it as `publicKey`;
+`openssl pkey -in signing.pem -pubout` derives it from the private key.
+
+### `bindBackup: trusted must list at least one public key`
+
+**When:** `bindBackup`, with `trusted` that is empty or not an array —
+usually a list built from configuration that came out empty. The types
+refuse a literal `trusted: []`.
+**Why:** an empty list would trust nothing, and read nothing. "No check" is
+said by leaving `trusted` out, not by an empty list.
+**Fix:** fail with a message of your own that names the setting — the list
+came from somewhere.
+
+```ts
+const files = (process.env.BACKUP_TRUSTED_FILES ?? '').split(',').filter(Boolean);
+const [first, ...rest] = await Promise.all(files.map((file) => Bun.file(file).text()));
+if (first === undefined) throw new Error('BACKUP_TRUSTED_FILES names no public key');
+
+bindBackup(uploads, { repositories, recipients, trusted: [first, ...rest] });
+```
+
+Leaving `trusted` out instead turns the check off, so a forged backup reads
+like a signed one:
+[without `signing` or `trusted`](guide/signing.md#without-signing-or-trusted).
+
+### `bindBackup: trusted does not hold the public key of signing.key, so this backup could not read what it writes`
+
+**When:** `bindBackup`, with both `signing` and `trusted` given.
+**Why:** a writer is also a reader: its `list`, `verify` and `restore` check
+against `trusted`, so without its own public key there, every backup it made
+would come back `SIGNATURE`. Usually the key pair was changed on one side
+only, or `trusted` holds another host's key.
+**Fix:** add the writer's public key to `trusted` — or leave `trusted` out,
+and it is derived from `signing.key`.
+
+```ts
+bindBackup(uploads, {
+	repositories,
+	recipients,
+	signing: { key: privateKey },
+	trusted: [previousPublicKey, publicKey], // publicKey is signing.key's own half
+});
+```
+
+[Changing the signing key](guide/signing.md#changing-the-signing-key) gives
+the order to do it in.
+
 ### `localRepository: path must be an absolute path`
 
 **When:** `localRepository({ path })`.
@@ -249,6 +363,28 @@ the error holds the key.
 ```ts
 identities: [(process.env.BACKUP_IDENTITY ?? '').trim()], // AGE-SECRET-KEY-1… or AGE-SECRET-KEY-PQ-1…
 ```
+
+### `create on "app": trusted keys are set but no signing key, so this backup could not read what it writes`
+
+**When:** `create`, on a binding given `trusted` and no `signing`. Nothing
+is read from the source, and nothing is written.
+**Why:** a binding with `trusted` and no `signing` is a reader: it requires a
+signature on every manifest, and has no key to make one. A backup it created
+would be unsigned, and so `SIGNATURE` for itself and for every other reader.
+**Fix:** create from a binding that has `signing` — on the host that makes
+backups — and keep `trusted` alone for readers.
+
+```ts
+const writer = bindBackup(uploads, {
+	repositories,
+	recipients,
+	signing: { key: await Bun.file('/etc/backup/signing.pem').text() },
+});
+await writer.create(directorySource({ path: '/srv/uploads' }));
+```
+
+`trusted` may be left out on the writer: it defaults to `signing.key`'s
+public half ([options](guide/signing.md#options)).
 
 ### `create on "app": the source gave an entry name that is empty, over 4096 characters, holds a NUL, or was given twice`
 
@@ -376,6 +512,27 @@ for (const outcome of error.outcomes) {
 }
 ```
 
+### `create on "app": the manifest would be larger than 64 MiB; split the source into several backups`
+
+**When:** `create`, at the end, with a source of very many entries — 64 MiB
+of manifest is about half a million. A bare `TypeError`, not a
+`BackupError`.
+**Why:** the manifest lists every object, and a reader refuses one over
+64 MiB ([the manifest is larger than 64 MiB](#verify-on-app-the-manifest-is-larger-than-64-mib-repository-local)),
+so it is not written. It is checked once the objects and the catalog are
+stored: they stay in every repository without a manifest, as for any failed
+`create` — no call sees them
+([a backup that failed left objects](#a-backup-that-failed-left-objects-in-the-repository)).
+**Fix:** split the source into several backups, one definition each.
+
+```ts
+const avatars = bindBackup(defineBackup({ name: 'uploads-avatars' }), options);
+const documents = bindBackup(defineBackup({ name: 'uploads-documents' }), options);
+
+await avatars.create(directorySource({ path: '/srv/uploads/avatars' }));
+await documents.create(directorySource({ path: '/srv/uploads/documents' }));
+```
+
 ### `local repository: a key is not a relative path`
 
 **When:** calling a `localRepository`'s methods yourself with a key that is
@@ -408,6 +565,90 @@ for (const name of backups.repositories) {
 	console.log(name, held.some((b) => b.id === id));
 }
 ```
+
+### `verify on "app": the manifest is larger than 64 MiB (repository "local")`
+
+**Code:** `INTEGRITY`. In `list`, the id is in `unreadable` instead.
+**When:** `verify` or `restore`, before the signature or anything else is
+checked.
+**Why:** a repository is not trusted with the manifest's size: at most
+64 MiB and one byte of it are read, and a larger one is refused. This
+package never writes one that large
+([`create` refuses to](#create-on-app-the-manifest-would-be-larger-than-64-mib-split-the-source-into-several-backups)),
+so the file was replaced or grown by something else.
+**Fix:** another repository's copy, and a look at who can write to this one.
+
+```ts
+await backups.verify(id, { from: 'nas' });
+```
+
+### `restore on "app": the manifest is not signed (repository "local")`
+
+**Code:** `SIGNATURE`. In `list`, the id is in `unreadable` instead.
+**When:** `verify` or `restore`, from a reader with `trusted` keys — given,
+or derived from `signing`. Checked before the manifest is parsed and before
+any other object is read, so nothing lands in the target.
+**Why:** the backup has a `manifest.json` and no `manifest.sig`. Most often
+it was made before signing was on — by 0.1, or by a writer without
+`signing` — see
+[every backup made before signing](#every-backup-made-before-signing-is-in-unreadable).
+Otherwise, someone with write access to the repository put a backup of their
+own there, or the signature was deleted.
+**Fix:** for a backup you know predates signing, read it with a reader that
+has no `trusted`; for any other, do not restore it, and find out who wrote
+it.
+
+```ts
+import { BackupError } from '@nxgt/backup';
+
+try {
+	await reader.restore(id, target, { identities });
+} catch (error) {
+	if (error instanceof BackupError && error.code === 'SIGNATURE') {
+		console.error(error.message, error.id, error.repository);
+	}
+	throw error;
+}
+```
+
+[Reading](guide/signing.md#reading-list-verify-restore) has what is checked,
+and in which order.
+
+### `restore on "app": no trusted key signed the manifest (repository "local")`
+
+**Code:** `SIGNATURE`. In `list`, the id is in `unreadable` instead.
+**When:** `verify` or `restore`, from a reader with `trusted` keys; nothing
+lands in the target.
+**Why:** there is a `manifest.sig`, and none of the `trusted` keys made it
+over these exact bytes: the backup was signed with another key — the key
+was changed and the reader does not have the new public key, or still lacks
+the old one for older backups — or the manifest was edited after it was
+signed, even by one byte, or a signature was copied in from another backup.
+**Fix:** check which key signed it with OpenSSL 3, then give the reader that
+public key beside the current one if it is yours.
+
+```sh
+openssl pkeyutl -verify -pubin -inkey signing.pub.pem -rawin \
+  -in manifest.json -sigfile manifest.sig
+```
+
+```ts
+trusted: [oldPublicKey, newPublicKey],
+```
+
+The signature covers the manifest's whole content, which names the backup
+and the id: a signed manifest and its signature moved together under another
+id pass this check and fail the next one,
+[the manifest is another backup’s](#verify-on-app-the-manifest-is-another-backups-repository-local)
+(`INTEGRITY`). It says nothing about freshness, though: someone with write
+access can still delete a backup, or put back an older, genuinely signed
+one.
+
+If no key of yours verifies it, treat the backup as forged or tampered with:
+restore from another repository's copy. See
+[checking a signature by hand](guide/signing.md#checking-a-signature-by-hand)
+(macOS's own `openssl` cannot) and
+[changing the signing key](guide/signing.md#changing-the-signing-key).
 
 ### `restore on "app": an entry asked for is not in the backup (repository "local")`
 
@@ -558,14 +799,42 @@ for (const name of backups.repositories) console.log(name, (await backups.list({
 
 ### An id is in `unreadable`
 
-**Why:** its manifest is there and does not read as one this version wrote.
+**Why:** its manifest is there and does not read as one this version wrote,
+or is over 64 MiB — or, for a reader with `trusted` keys, it has no
+signature, or one no trusted key made. Size is checked first, then the
+signature, then the content.
 **Fix:** `verify` it for the reason, then see
-[the manifest is unreadable](#verify-on-app-the-manifest-is-unreadable--repository-local).
+[the manifest is not signed](#restore-on-app-the-manifest-is-not-signed-repository-local),
+[no trusted key signed the manifest](#restore-on-app-no-trusted-key-signed-the-manifest-repository-local),
+[the manifest is unreadable](#verify-on-app-the-manifest-is-unreadable--repository-local)
+or [larger than 64 MiB](#verify-on-app-the-manifest-is-larger-than-64-mib-repository-local).
 
 ```ts
 const { unreadable } = await backups.list();
 for (const id of unreadable) await backups.verify(id).catch((error) => console.error(error.message));
 ```
+
+### Every backup made before signing is in `unreadable`
+
+**When:** `list`, after `trusted` — or `signing`, which implies it — was
+given to a `bindBackup` reading a repository that holds backups made by 0.1,
+or by 0.2 without `signing`. `verify` and `restore` on those ids reject with
+[the manifest is not signed](#restore-on-app-the-manifest-is-not-signed-repository-local).
+**Why:** they have no `manifest.sig`, and a reader with `trusted` keys reads
+only a signed manifest. Nothing is signed after the fact.
+**Fix:** keep a second binding without `trusted`, for those ids only, until
+the last of them has expired — it trusts whatever the repository holds — or
+re-make them with `signing` on.
+
+```ts
+const signedOnly = bindBackup(uploads, { repositories, recipients, trusted: [publicKey] });
+const unsigned = bindBackup(uploads, { repositories, recipients }); // ids made before the switch only
+
+const { unreadable } = await signedOnly.list();
+for (const id of unreadable) await unsigned.verify(id); // reads them, without a signature check
+```
+
+[Upgrading](upgrading.md#backups-made-before-signing-was-on) weighs the two.
 
 ### A backup that failed left objects in the repository
 

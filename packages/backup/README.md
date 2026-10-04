@@ -12,6 +12,8 @@ in one or several repositories at once:
   exists once — and only once — its manifest does;
 - a restore checks each object against the manifest **before decrypting a
   byte**, and each entry's bytes against what the source gave as they go;
+- with a **signing key**, each manifest carries an **Ed25519 signature**, and
+  a reader given the public key refuses a backup it did not write;
 - the format is age's and zstd's: a backup opens without this package.
 
 ```ts
@@ -40,8 +42,8 @@ await backups.restore(created.id, directoryTarget({ path: '/srv/restore' }), {
 });
 ```
 
-> **0.x.** Full backups, local repositories and checked restores are here;
-> signed manifests, an S3 repository and rotation are next — see the
+> **0.x.** Full backups, local repositories, checked restores and signed
+> manifests are here; an S3 repository and rotation are next — see the
 > [roadmap](docs/roadmap.md).
 
 ## Install
@@ -98,7 +100,8 @@ const { id, entries, size, storedSize } = await backups.create(
 
 `create` reads the entries one at a time, never holding more than a chunk in
 memory, and writes `/mnt/backups/uploads/<id>/0.age`, `1.age`, …,
-`catalog.age`, and `manifest.json` last. The
+`catalog.age`, and `manifest.json` last — with `manifest.sig` just before
+it when [signing](#signed-manifests). The
 [format](docs/guide/format.md) page has the layout.
 
 ## List and verify
@@ -118,7 +121,8 @@ if (latest) {
 
 `list` reads manifests alone. A backup whose manifest was never written — one
 still running, one that failed — is not listed; one whose manifest does not
-read is in `unreadable`, and `verify` on it says why.
+read, or that no `trusted` key signed, is in `unreadable`, and `verify` on it
+says why.
 
 ## Restore
 
@@ -140,6 +144,45 @@ Each object is copied to `tmpDir` and checked against the manifest before age
 reads it; each entry's bytes are checked against the catalog as they stream,
 and a damaged one fails with `INTEGRITY` — `directoryTarget` lands nothing
 from it.
+
+## Signed manifests
+
+```ts
+import { bindBackup, defineBackup, directorySource, localRepository } from '@nxgt/backup';
+
+const uploads = defineBackup({ name: 'uploads' });
+const repositories = [localRepository({ path: '/mnt/backups' })] as const;
+const recipients = [process.env.BACKUP_RECIPIENT as string] as const;
+
+// Where backups are made: the private key, PEM (PKCS#8).
+const writer = bindBackup(uploads, {
+	repositories,
+	recipients,
+	signing: { key: await Bun.file('/etc/backup/signing.pem').text() },
+});
+const { id, signed } = await writer.create(directorySource({ path: '/srv/uploads' }));
+// signed: true — manifest.sig was put just before manifest.json
+
+// Everywhere else: the public key only, PEM (SPKI).
+const reader = bindBackup(uploads, {
+	repositories,
+	recipients,
+	trusted: [await Bun.file('/etc/backup/signing.pub.pem').text()],
+});
+const { signatureChecked } = await reader.verify(id); // true
+```
+
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `signing` | `{ key: string }` | none | an Ed25519 private key. `create` signs the exact bytes of each manifest into `manifest.sig` |
+| `trusted` | `[string, ...string[]]` | the public half of `signing.key`; none without `signing` | Ed25519 public keys. `list`, `verify` and `restore` refuse a manifest none of them signed — `SIGNATURE`, or an id in `unreadable` — before reading anything else |
+
+`generateSigningKeys()` makes a pair, `{ privateKey, publicKey }`, as PEM;
+`openssl genpkey -algorithm ed25519` makes the same. Several `trusted` keys
+let the signing key change without a backup becoming unreadable. The
+signature proves who wrote a backup; it hides nothing, and it does not stop
+someone with write access from deleting backups —
+[signing](docs/guide/signing.md).
 
 ## Several repositories
 
@@ -209,7 +252,8 @@ const settings: BackupSource = {
 | Function | |
 | --- | --- |
 | `defineBackup({ name })` | describes a backup; touches nothing. Frozen. A name that could not be a path segment is a bare `TypeError` |
-| `bindBackup(definition, { repositories, recipients, tmpDir? })` | binds it to where it is kept and who can read it. No I/O; a list or a key that could never work is a bare `TypeError` |
+| `bindBackup(definition, { repositories, recipients, tmpDir?, signing?, trusted? })` | binds it to where it is kept, who can read it, and who signs it. No I/O; a list or a key that could never work is a bare `TypeError` |
+| `generateSigningKeys()` | a new Ed25519 key pair for `signing` and `trusted`: `{ privateKey, publicKey }`, PEM |
 | `localRepository({ path, name? })` | a repository in a local folder — a disk, a mounted volume, a share. `name` is `local` by default |
 | `directorySource({ path })` | every regular file under a folder, by relative path, sorted. Symbolic links and empty folders are skipped |
 | `directoryTarget({ path, overwrite? })` | writes each entry to a file under a folder. Refuses an unsafe name, and an existing file unless `overwrite: true` |
@@ -226,6 +270,7 @@ const settings: BackupSource = {
 | --- | --- |
 | `BackupDefinition<Name>`, `BackupDefinitionInput<Name>` | what `defineBackup` gives back, and takes |
 | `BindBackupOptions`, `BoundBackup<Name>` | what `bindBackup` takes, and gives back |
+| `SigningKeys` | what `generateSigningKeys` gives back |
 | `Created`, `Listing`, `BackupInfo`, `Verified`, `Restored` | what `create`, `list`, `verify` and `restore` resolve to |
 | `ListOptions`, `VerifyOptions`, `RestoreOptions` | their options |
 | `Repository`, `LocalRepositoryOptions` | where backups are kept, to write your own |
@@ -246,13 +291,15 @@ source**.
 | `NOT_FOUND` | no backup with that id in that repository — or none with a manifest, which is the same thing — or a name in `only` the backup does not hold | `verify on "uploads": no backup with that id (repository "local")` |
 | `INTEGRITY` | what the repository holds is not what was written: an object missing or differing from the manifest, a manifest or catalog that does not read, an entry whose bytes differ. A mismatch against the manifest stops before a byte is decrypted; a mismatch against the catalog fails the entry's stream at its end, so a target that stages, like `directoryTarget`, lands nothing, while one that streams has already seen the bytes | `verify on "uploads": an object differs from its manifest (repository "local")` |
 | `DECRYPT` | none of the identities given opens the backup | `restore on "uploads": no identity given opens it (repository "local")` |
+| `SIGNATURE` | `trusted` keys are set and the manifest has no signature, or none by a trusted key. Nothing else of the backup was read. `list` puts the id in `unreadable` instead | `restore on "uploads": no trusted key signed the manifest (repository "local")` |
 | `PARTIAL` | `create` stored it in some repositories and not others; `outcomes` says which. The stored copies are complete | `create on "uploads": stored in 1 of 2 repositories` |
 | `NOT_STORED` | `create` stored it nowhere; `outcomes` holds each repository's error | `create on "uploads": stored in 0 of 1 repositories` |
 
 **Wiring is a bare `TypeError`**: a bad name, an empty repository list, two
-repositories with one name, a key age refuses, a relative path, an unknown
-`from`, a malformed id. An error from your source, your target or a
-repository passes through as it is. Every message is in
+repositories with one name, a key age refuses, a signing or trusted key that
+is not an Ed25519 key of the right half, a relative path, an unknown `from`,
+a malformed id. None quotes a key. An error from your source, your target or
+a repository passes through as it is. Every message is in
 [troubleshooting](docs/troubleshooting.md); a handler is in
 [errors](docs/guide/errors.md).
 
@@ -262,7 +309,8 @@ Each is a `@ts-expect-error` case in [`test/types/backup.ts`](https://github.com
 
 - `defineBackup` without a name, or with a name that is not a string.
 - `bindBackup` with no repository, no recipient, or a recipient that is not
-  a string.
+  a string; with `signing` given the key itself instead of `{ key }`; with
+  `trusted: []`, or one key instead of a list.
 - `create` given a path instead of a source.
 - `restore` without `identities`, with one key instead of a list, or with an
   `only` that is neither a list of names nor a test on a name; `verify` with
@@ -275,9 +323,18 @@ Each is a `@ts-expect-error` case in [`test/types/backup.ts`](https://github.com
 - **Lose the identity and the backups are noise.** Keep the secret key
   outside the host it protects, and add a second recipient held elsewhere:
   `recipients: [primary, escrow]` — [encryption](docs/guide/encryption.md#several-recipients).
-- **A checked backup is not yet a signed one**: anyone who can write to the
-  repository can write a whole backup of their own that verifies and
-  restores — the public keys are in every manifest, in the clear. Signed manifests are next — [what it proves](docs/guide/encryption.md#what-it-proves-and-what-it-does-not).
+- **Without `signing` or `trusted`, nothing is signed or checked**, as in
+  0.1: anyone who can write to the repository can write a whole backup of
+  their own that verifies and restores — the public keys are in every
+  manifest, in the clear. Give `trusted` to every reader, not only the
+  writer `signing`: `trusted: [publicKey]` —
+  [signing](docs/guide/signing.md#without-signing-or-trusted).
+- **Turning signing on makes the older, unsigned backups `unreadable`** to
+  every reader with `trusted`. Keep a reader without it until they expire —
+  [upgrading](docs/upgrading.md#01--02).
+- **macOS's `openssl` cannot check a signature**: it is LibreSSL, which has
+  no Ed25519, and stops at `unable to load Public Key`. Use OpenSSL 3 —
+  [by hand](docs/guide/signing.md#checking-a-signature-by-hand).
 - **`tmpDir` needs room for the largest object**, compressed and encrypted,
   for `create`, `verify` and `restore` alike. `tmpDir: '/var/tmp'` when
   `/tmp` is a small tmpfs — [more](docs/troubleshooting.md#a-backup-or-a-restore-fails-for-lack-of-room).
@@ -296,15 +353,20 @@ Each is a `@ts-expect-error` case in [`test/types/backup.ts`](https://github.com
   bind, create, list, verify and restore, with a nightly job and a restore
   drill.
 - [docs/guide/format.md](docs/guide/format.md) — the repository layout, the
-  manifest and the catalog, ids, and opening a backup by hand.
+  manifest, its signature and the catalog, ids, and opening a backup by hand.
 - [docs/guide/encryption.md](docs/guide/encryption.md) — recipients and
   identities, post-quantum keys, and what age does and does not prove.
+- [docs/guide/signing.md](docs/guide/signing.md) — signed manifests:
+  `signing`, `trusted`, `generateSigningKeys`, `SIGNATURE`, changing the key,
+  and checking a signature with `openssl`.
 - [docs/guide/repositories.md](docs/guide/repositories.md) —
   `localRepository`, several repositories, and writing your own.
 - [docs/guide/sources-and-targets.md](docs/guide/sources-and-targets.md) —
   `directorySource`, `directoryTarget`, and writing your own.
 - [docs/guide/errors.md](docs/guide/errors.md) — `BackupError`, its codes
   and fields, and a handler.
+- [docs/upgrading.md](docs/upgrading.md) — what to change from one minor to
+  the next.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — every error this
   package can raise, by the message you will see.
 - [docs/roadmap.md](docs/roadmap.md) — what is coming, and what has been

@@ -1,10 +1,12 @@
 import type { Decrypter } from 'age-encryption';
 import { measure } from '../crypto/measure';
 import { zstd } from '../crypto/seal';
+import { signedByAny } from '../crypto/signing';
 import { BackupError } from '../errors/backup-error';
 import { type Catalog, readCatalog } from '../format/catalog';
 import { isBackupId } from '../format/ids';
 import {
+	MANIFEST_MAX_BYTES,
 	type Manifest,
 	readManifest,
 	type StoredObject,
@@ -13,6 +15,9 @@ import type { Repository } from '../repository/types';
 import { type BackupContext, keyOf } from './context';
 
 export const MANIFEST = 'manifest.json';
+
+/** The manifest's Ed25519 signature: 64 raw bytes over its exact bytes. */
+export const SIGNATURE = 'manifest.sig';
 
 /** Where an error happened, for its message and its fields. */
 export interface At {
@@ -24,7 +29,7 @@ export interface At {
 export function failure(
 	ctx: BackupContext,
 	at: At,
-	code: 'NOT_FOUND' | 'INTEGRITY' | 'DECRYPT',
+	code: 'NOT_FOUND' | 'INTEGRITY' | 'DECRYPT' | 'SIGNATURE',
 	what: string,
 	cause?: unknown,
 ): BackupError {
@@ -41,8 +46,10 @@ export function failure(
 }
 
 /**
- * A backup's manifest, checked: a backup without one does not exist, and
- * one whose manifest names another backup or another id is not this one.
+ * A backup's manifest, checked: a backup without one does not exist, one
+ * that trusted keys are set for and none of them signed is `SIGNATURE` —
+ * checked on its bytes, before they are parsed — and one whose manifest
+ * names another backup or another id is not this one.
  */
 export async function fetchManifest(
 	ctx: BackupContext,
@@ -55,7 +62,12 @@ export async function fetchManifest(
 	}
 	const stream = await at.repository.get(keyOf(ctx, at.id, MANIFEST));
 	if (!stream) throw failure(ctx, at, 'NOT_FOUND', 'no backup with that id');
-	const read = readManifest(await new Response(stream).text());
+	const bytes = await upTo(stream, MANIFEST_MAX_BYTES + 1);
+	if (bytes.length > MANIFEST_MAX_BYTES) {
+		throw failure(ctx, at, 'INTEGRITY', 'the manifest is larger than 64 MiB');
+	}
+	if (ctx.trusted.length > 0) await checkSignature(ctx, at, bytes);
+	const read = readManifest(new TextDecoder().decode(bytes));
 	if (typeof read === 'string') {
 		throw failure(ctx, at, 'INTEGRITY', `the manifest is unreadable: ${read}`);
 	}
@@ -63,6 +75,43 @@ export async function fetchManifest(
 		throw failure(ctx, at, 'INTEGRITY', 'the manifest is another backup’s');
 	}
 	return read;
+}
+
+async function checkSignature(
+	ctx: BackupContext,
+	at: At,
+	manifest: Uint8Array,
+): Promise<void> {
+	const stream = await at.repository.get(keyOf(ctx, at.id, SIGNATURE));
+	if (!stream) {
+		throw failure(ctx, at, 'SIGNATURE', 'the manifest is not signed');
+	}
+	const signature = await upTo(stream, 65);
+	if (!signedByAny(ctx.trusted, manifest, signature)) {
+		throw failure(ctx, at, 'SIGNATURE', 'no trusted key signed the manifest');
+	}
+}
+
+/**
+ * At most `limit` bytes of `stream`, the rest cancelled: a repository is not
+ * trusted with the size. Holds only what arrived, not `limit` up front.
+ */
+async function upTo(
+	stream: ReadableStream<Uint8Array>,
+	limit: number,
+): Promise<Uint8Array> {
+	const reader = stream.getReader();
+	const chunks: Uint8Array[] = [];
+	let length = 0;
+	while (length < limit) {
+		const { done, value } = await reader.read();
+		if (done) return Buffer.concat(chunks, length);
+		const kept = value.subarray(0, limit - length);
+		chunks.push(kept);
+		length += kept.length;
+	}
+	await reader.cancel();
+	return Buffer.concat(chunks, length);
 }
 
 /**

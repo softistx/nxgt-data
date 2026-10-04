@@ -25,7 +25,8 @@ export interface Listing {
 	backups: BackupInfo[];
 	/**
 	 * Ids whose manifest is there but does not read as one this package
-	 * wrote. `verify` on one of them says why.
+	 * wrote — or, with trusted keys, is not signed by one of them. `verify`
+	 * on one of them says why.
 	 */
 	unreadable: string[];
 }
@@ -64,7 +65,10 @@ export async function listBackups(
 				),
 			});
 		} catch (error) {
-			if (!(error instanceof BackupError) || error.code !== 'INTEGRITY')
+			if (
+				!(error instanceof BackupError) ||
+				(error.code !== 'INTEGRITY' && error.code !== 'SIGNATURE')
+			)
 				throw error;
 			unreadable.push(id);
 		}
