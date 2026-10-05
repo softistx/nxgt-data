@@ -105,7 +105,7 @@
     },
     "packages/mongo": {
       "name": "@nxgt/mongo",
-      "version": "0.19.0",
+      "version": "0.19.1",
       "devDependencies": {
         "@types/bun": "^1.4.0",
         "mongodb": "7.6.0",
@@ -153,7 +153,7 @@
     },
     "packages/mongo-meilisearch": {
       "name": "@nxgt/mongo-meilisearch",
-      "version": "0.4.4",
+      "version": "0.5.0",
       "devDependencies": {
         "@nxgt/meilisearch": "workspace:^",
         "@nxgt/mongo": "workspace:^",
@@ -173,7 +173,7 @@
     },
     "packages/mongo-search-kit": {
       "name": "@nxgt/mongo-search-kit",
-      "version": "0.2.6",
+      "version": "0.3.0",
       "devDependencies": {
         "@nxgt/mongo-meilisearch": "workspace:^",
         "@types/bun": "^1.4.0",
