@@ -937,12 +937,12 @@ the file.
 
 ## Known state
 
-`bun run test` is **1834 pass, 0 fail**, measured by a full run on
+`bun run test` is **1842 pass, 0 fail**, measured by a full run on
 2026-10-05 (after the guards were wired into `openRedis`): drizzle 167,
 meilisearch 130, mongo 667, drizzle-meilisearch 42, mongo-meilisearch 75,
-redis 247, s3 104, backup 196, mongo-backup 68, `mongo-backup-job-example` 2,
+redis 255, s3 104, backup 196, mongo-backup 68, `mongo-backup-job-example` 2,
 hono-api-example 43 and the scripts' 93. The total is the earlier 1812 plus the
-22 specs of the wired guards (`wiring/guards.spec.ts` and
+30 specs of the wired guards (`wiring/guards.spec.ts` and
 `wiring/config/guard-refusals.spec.ts`); no other spec was added. (1812 was
 measured on 2026-10-04, after `@nxgt/redis-guard` was dropped: the earlier 1815
 less the 3 identity specs of `redis-guard`'s deprecated re-exports.)
