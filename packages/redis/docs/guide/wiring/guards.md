@@ -103,7 +103,6 @@ const b = await openRedis(defineRedis({ uri, prefix: 'b', limits }));
   limit named "login" twice, under …`, and `wires the idempotency named …`.
 - **An instance that wires only guards is fine**; one that wires nothing at all
   is refused (`wires no cache, no channel, no rate limit and no idempotency`).
-
 - **One name across a cache, a rate limit and an idempotency is refused.**
   All three write `<name>:<key>`, so a cache `login` and a rate limit `login`
   would meet in Redis (an idempotency's hash as a `WRONGTYPE`, the strings of a cache and a limit overwriting each other): `wires the cache "users" and the rate

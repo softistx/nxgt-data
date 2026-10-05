@@ -265,7 +265,7 @@ the name it is **exported** by; a schema, a type or a constant in the same file
 is left where it is. One definition exported under two keys is refused: both
 would write the same keys. A name shared by a cache, a rate limit and an
 idempotency on one instance is refused too — all three write `<name>:<key>` —
-at run time only, comparing names (a rename is the fix); channels are exempt.
+at wiring time only, comparing names (a rename is the fix); channels are exempt.
 Each slot keeps only its own kind, so one module may be passed to several.
 These are scopes, not
 one client with names on it: nothing falls through to the driver, and a key
