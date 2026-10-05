@@ -937,12 +937,15 @@ the file.
 
 ## Known state
 
-`bun run test` is **1812 pass, 0 fail**, measured by a full run on
-2026-10-04 (after `@nxgt/redis-guard` was dropped from the repository): drizzle 167,
+`bun run test` is **1834 pass, 0 fail**, measured by a full run on
+2026-10-05 (after the guards were wired into `openRedis`): drizzle 167,
 meilisearch 130, mongo 667, drizzle-meilisearch 42, mongo-meilisearch 75,
-redis 225, s3 104, backup 196, mongo-backup 68, `mongo-backup-job-example` 2,
-hono-api-example 43 and the scripts' 93. The total is the earlier 1815 less the 3
-identity specs of `redis-guard`'s deprecated re-exports; no other spec changed.
+redis 247, s3 104, backup 196, mongo-backup 68, `mongo-backup-job-example` 2,
+hono-api-example 43 and the scripts' 93. The total is the earlier 1812 plus the
+22 specs of the wired guards (`wiring/guards.spec.ts` and
+`wiring/config/guard-refusals.spec.ts`); no other spec changed. (1812 was
+measured on 2026-10-04, after `@nxgt/redis-guard` was dropped: the earlier 1815
+less the 3 identity specs of `redis-guard`'s deprecated re-exports.)
 The three kits (`@nxgt/redis-kit`, `@nxgt/mongo-kit` and `@nxgt/mongo-search-kit`)
 were folded into `@nxgt/redis`, `@nxgt/mongo` and `@nxgt/mongo-meilisearch`,
 and `@nxgt/redis-guard` into `@nxgt/redis`, and all four were removed from the
