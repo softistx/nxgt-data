@@ -6,6 +6,8 @@ import {
 	bindRateLimit,
 	defineIdempotency,
 	defineRateLimit,
+	defineRedis,
+	openRedis,
 } from '@nxgt/redis';
 import type { RedisClient } from 'bun';
 import { z } from 'zod';
@@ -39,3 +41,21 @@ export const orders = bindIdempotency(redis, createOrder);
 export function consumed() {
 	return exportsLimit.consume({ org: 'acme', user: 'u1' });
 }
+
+/**
+ * The wired guards: a configuration and the Redis it opens, both with
+ * inferred types that name `LimitScope`, `IdempotencyScope` and the aliases
+ * they are built from.
+ */
+export const wiredConfig = defineRedis({
+	uri: 'redis://127.0.0.1:6379',
+	prefix: 'myapp',
+	limits: { exportLimit },
+	idempotency: { createOrder },
+});
+
+export const wired = await openRedis(wiredConfig);
+
+export const wiredLimits = wired.limits;
+
+export const wiredOrders = wired.idempotency;

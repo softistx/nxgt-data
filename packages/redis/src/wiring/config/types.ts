@@ -135,39 +135,6 @@ type NoExtraKeys<C, Known extends string> = {
 	[K in Exclude<keyof C, Known>]: `"${K & string}" is not an option here`;
 };
 
-/** Every kind of definition a module may export, loosely typed. */
-type AnyDefinition =
-	| CacheDefinition<never, z.ZodType>
-	| ChannelDefinition<z.ZodType>
-	| RateLimitDefinition<never>
-	| IdempotencyDefinition<never, z.ZodType>;
-
-/**
- * The exports of a module that are a definition, but of another kind than
- * `Own`, each turned into a message. Exports that are no definition at all —
- * a schema, a type, a constant — are left alone, as everywhere else.
- */
-type Misplaced<M, Own, Slot extends string> = {
-	[K in keyof M as M[K] extends Own
-		? never
-		: M[K] extends AnyDefinition
-			? K
-			: never]: `"${K & string}" is not a ${Slot}`;
-};
-
-type CheckedGuards<C> = (C extends { limits: infer L }
-	? { limits: Misplaced<L, RateLimitDefinition<never>, 'rate limit'> }
-	: unknown) &
-	(C extends { idempotency: infer I }
-		? {
-				idempotency: Misplaced<
-					I,
-					IdempotencyDefinition<never, z.ZodType>,
-					'idempotency'
-				>;
-			}
-		: unknown);
-
 /** The single-instance shape, with its own keys and nothing else. */
 type CheckedInstance<C> = NoExtraKeys<
 	C,
@@ -179,8 +146,7 @@ type CheckedInstance<C> = NoExtraKeys<
 	| 'channels'
 	| 'limits'
 	| 'idempotency'
-> &
-	CheckedGuards<C>;
+>;
 
 /**
  * The whole configuration: either `{ instances }` alone, or one instance

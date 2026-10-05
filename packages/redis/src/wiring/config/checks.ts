@@ -128,49 +128,8 @@ export function checkInstance(
 			`${where} has an empty prefix. Leave it out, or give it a name.`,
 		);
 	}
-	checkKinds(where, instance);
 	checkNothingWired(where, instance);
 	checkNoClash(where, instance);
-}
-
-/** What a definition is, for a refusal, and the key it is wired under. */
-function kindOf(value: unknown): readonly [kind: string, slot: string] | null {
-	if (isCache(value)) return ['cache', 'caches'];
-	if (isChannel(value)) return ['channel', 'channels'];
-	if (isRateLimit(value)) return ['rate limit', 'limits'];
-	if (isIdempotency(value)) return ['idempotency', 'idempotency'];
-	return null;
-}
-
-const withArticle = (kind: string) =>
-	kind === 'idempotency' ? `an ${kind}` : `a ${kind}`;
-
-/**
- * Refuses a definition of another kind under `limits` or `idempotency`.
- *
- * Only these two: `caches` and `channels` skip what is not theirs, as they
- * always have. A cache under `limits` would otherwise be skipped without a
- * word — and a rate limit nobody enforces is the one failure that looks like
- * success.
- */
-function checkKinds(
-	where: string,
-	instance: InstanceConfig<object, object>,
-): void {
-	for (const [slot, module, own] of [
-		['limits', instance.limits, 'rate limit'],
-		['idempotency', instance.idempotency, 'idempotency'],
-	] as const) {
-		for (const [key, value] of Object.entries(module ?? {})) {
-			const found = kindOf(value);
-			if (found === null || found[0] === own) continue;
-			throw new TypeError(
-				`${where} has "${key}" under ${slot}, which is ${withArticle(found[0])}, ` +
-					`not ${withArticle(own)}. Wire it under ${found[1]}, or keep it out ` +
-					'of this module.',
-			);
-		}
-	}
 }
 
 function checkNothingWired(
@@ -190,35 +149,61 @@ function checkNothingWired(
 	}
 }
 
+type Group = readonly [
+	kind: string,
+	wired: readonly (readonly [key: string, definition: { name: string }])[],
+];
+
 /**
- * Refuses one definition wired twice, under two keys.
+ * Refuses a name used twice among `groups`.
  *
- * Two keys pointing at the same definition write the same Redis keys, so one
- * of them is silently dead: `redis.cache.a.delete(p)` empties what
- * `redis.cache.b.set(p, v)` wrote. It is a copy-paste in the module that
- * exports them, and nothing downstream can see it.
+ * One definition under two keys: both would write the same Redis keys, so one
+ * of them is silently dead — `redis.cache.a.delete(p)` empties what
+ * `redis.cache.b.set(p, v)` wrote. A copy-paste in the module that exports
+ * them, which nothing downstream can see.
+ *
+ * Two definitions of different kinds with one name, in the same group list:
+ * a cache, a rate limit and an idempotency all write `<name>:<key>`, so they
+ * would meet in Redis as a `WRONGTYPE` on whichever runs second. Only names
+ * are compared — never what a key function would build.
+ */
+function refuseClash(where: string, groups: readonly Group[]): void {
+	const seen = new Map<string, { kind: string; key: string }>();
+	for (const [kind, wired] of groups) {
+		for (const [key, definition] of wired) {
+			const first = seen.get(definition.name);
+			if (first === undefined) {
+				seen.set(definition.name, { kind, key });
+			} else if (first.kind === kind) {
+				throw new TypeError(
+					`${where} wires the ${kind} named "${definition.name}" twice, ` +
+						`under "${first.key}" and "${key}". They would share every key ` +
+						'in Redis. Export one of them, or give it a name of its own.',
+				);
+			} else {
+				throw new TypeError(
+					`${where} wires the ${first.kind} "${first.key}" and the ${kind} ` +
+						`"${key}" under one name, "${definition.name}". They would share ` +
+						'every key in Redis, and the second to run gets WRONGTYPE. Give ' +
+						'one of them a name of its own.',
+				);
+			}
+		}
+	}
+}
+
+/**
+ * Channels have a namespace of their own — pub/sub names are not keys — so
+ * they are checked among themselves, and a channel named like a cache is fine.
  */
 function checkNoClash(
 	where: string,
 	instance: InstanceConfig<object, object>,
 ): void {
-	for (const [kind, wired] of [
+	refuseClash(where, [
 		['cache', wiredOf(instance.caches, isCache)],
-		['channel', wiredOf(instance.channels, isChannel)],
 		['rate limit', wiredOf(instance.limits, isRateLimit)],
 		['idempotency', wiredOf(instance.idempotency, isIdempotency)],
-	] as const) {
-		const seen = new Map<string, string>();
-		for (const [key, definition] of wired) {
-			const first = seen.get(definition.name);
-			if (first !== undefined) {
-				throw new TypeError(
-					`${where} wires the ${kind} named "${definition.name}" twice, ` +
-						`under "${first}" and "${key}". They would share every key ` +
-						'in Redis. Export one of them, or give it a name of its own.',
-				);
-			}
-			seen.set(definition.name, key);
-		}
-	}
+	]);
+	refuseClash(where, [['channel', wiredOf(instance.channels, isChannel)]]);
 }

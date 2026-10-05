@@ -15,6 +15,7 @@ import * as caches from '../wiring/caches';
 import * as channels from '../wiring/channels';
 import * as idempotency from '../wiring/idempotency';
 import * as limits from '../wiring/limits';
+import * as mixed from '../wiring/mixed';
 
 const uri = 'redis://127.0.0.1:6379';
 
@@ -160,18 +161,17 @@ async function wiredGuards() {
 	// @ts-expect-error
 	await redis.idempotency.charges.run('k', () => ({ id: 'x' }));
 
-	// A cache under `limits`, a limit under `idempotency` and the other two
-	// crossings are refused by the configuration, on the export's own key.
-	// @ts-expect-error
-	defineRedis({ uri, limits: { users: caches.users } });
-	// @ts-expect-error
-	defineRedis({ uri, limits: caches });
-	// @ts-expect-error
-	defineRedis({ uri, idempotency: { login: limits.login } });
-	// @ts-expect-error
-	defineRedis({ uri, limits: { orders: idempotency.orders } });
-	// @ts-expect-error
-	defineRedis({ uri, idempotency: { users: caches.users } });
+	// Each slot keeps its own kind, as `caches` and `channels` do, so a module
+	// may be passed to several slots — and a definition under the wrong slot is
+	// refused where it is used, not where it is configured.
+	const wrong = await openRedis(
+		defineRedis({ uri, caches, limits: caches, idempotency: limits }),
+	);
+	// @ts-expect-error `users` is a cache: not wired on `limits`
+	wrong.limits.users;
+	// @ts-expect-error `login` is a rate limit: not wired on `idempotency`
+	wrong.idempotency.login;
+	await wrong.cache.users.get('ada');
 
 	// An idempotency is not a cache either.
 	const notCaches = await openRedis(
@@ -188,8 +188,12 @@ async function wiredGuards() {
 	);
 	const noLimits: never = several.limits;
 	void noLimits;
-	// @ts-expect-error
+	// @ts-expect-error `a` wires no idempotency
 	several.instances.a.idempotency.orders;
+	// @ts-expect-error `b` wires no limit
+	several.instances.b.limits.login;
+	// @ts-expect-error an unknown name on an instance that wires limits
+	several.instances.a.limits.nope;
 
 	// These must keep compiling.
 	const result = await redis.limits.login.consume({ ip: '10.0.0.1' });
@@ -204,6 +208,7 @@ async function wiredGuards() {
 	void status;
 	await redis.idempotency.charges.run('k', () => ({ chargeId: 'x' }));
 	defineRedis({ uri, limits, idempotency, caches, channels });
+	defineRedis({ uri, caches: mixed, limits: mixed, idempotency: mixed });
 	await several.instances.a.limits.login.peek({ ip: 'x' });
 	await redis.close();
 }

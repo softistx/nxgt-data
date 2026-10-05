@@ -4,6 +4,7 @@ import { rejection } from '../../test/rejection';
 import * as caches from '../../test/wiring/caches';
 import * as idempotency from '../../test/wiring/idempotency';
 import * as limits from '../../test/wiring/limits';
+import * as mixed from '../../test/wiring/mixed';
 import { GuardError } from '../errors/guard-error';
 import { defineRedis } from './config/define-redis';
 import { openRedis } from './open-redis';
@@ -114,6 +115,60 @@ describe('wired rate limits', () => {
 		expect(() => redis.limits).toThrow(/limits: this Redis holds 2/);
 		expect(() => redis.idempotency).toThrow(/idempotency: this Redis holds 2/);
 		expect(Object.keys(redis.instances.b.limits)).toEqual([]);
+	});
+});
+
+describe('one module for every kind', () => {
+	test('each slot keeps only its own kind', async () => {
+		const redis = track(
+			await openRedis(
+				defineRedis({
+					uri: servers.redis.uri,
+					caches: mixed,
+					channels: mixed,
+					limits: mixed,
+					idempotency: mixed,
+				}),
+			),
+		);
+		expect(Object.keys(redis.cache)).toEqual(['users']);
+		expect(Object.keys(redis.channels)).toEqual(['created']);
+		expect(Object.keys(redis.limits)).toEqual(['login']);
+		expect(Object.keys(redis.idempotency)).toEqual(['orders']);
+		expect((await redis.limits.login.consume(ada)).allowed).toBe(true);
+	});
+
+	test('a definition under a slot of another kind is not wired there', async () => {
+		const redis = track(
+			await openRedis(defineRedis({ uri: servers.redis.uri, caches, limits })),
+		);
+		// @ts-expect-error a cache is not a rate limit: not on `redis.limits`
+		expect(redis.limits.users).toBeUndefined();
+		// @ts-expect-error nor a rate limit a cache
+		expect(redis.cache.login).toBeUndefined();
+	});
+
+	test('with several instances, a name an instance does not wire is not there', async () => {
+		const redis = track(
+			await openRedis(
+				defineRedis({
+					instances: {
+						a: { uri: servers.redis.uri, limits },
+						b: { uri: servers.redis.uri, idempotency },
+					},
+				}),
+			),
+		);
+		// @ts-expect-error `nope` is wired nowhere
+		expect(redis.instances.a.limits.nope).toBeUndefined();
+		// @ts-expect-error `login` is wired on `a`, not on `b`
+		expect(redis.instances.b.limits.login).toBeUndefined();
+		// @ts-expect-error `orders` is wired on `b`, not on `a`
+		expect(redis.instances.a.idempotency.orders).toBeUndefined();
+		expect(Object.keys(redis.instances.b.idempotency).sort()).toEqual([
+			'charges',
+			'orders',
+		]);
 	});
 });
 
