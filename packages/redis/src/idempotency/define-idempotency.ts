@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { IdempotencyDefinition } from './types';
+import type { IdempotencyDefinition, IdempotencyInput } from './types';
 
 /** How long the in-flight marker lives when a definition says nothing. */
 export const DEFAULT_LEASE = 10_000;
@@ -12,7 +12,7 @@ const isCount = (n: unknown): n is number =>
  * `bindIdempotency` makes them too, for a definition written by hand.
  */
 export function checkIdempotency<P, S extends z.ZodType>(
-	definition: IdempotencyDefinition<P, S>,
+	definition: IdempotencyInput<P, S>,
 	call: string,
 ): void {
 	const { name, ttl, lease } = definition;
@@ -62,8 +62,11 @@ export function checkIdempotency<P, S extends z.ZodType>(
  * message quotes them.
  */
 export function defineIdempotency<P, S extends z.ZodType>(
-	definition: IdempotencyDefinition<P, S>,
+	definition: IdempotencyInput<P, S>,
 ): IdempotencyDefinition<P, S> {
 	checkIdempotency(definition, 'defineIdempotency');
-	return Object.freeze({ ...definition });
+	return Object.freeze({
+		...definition,
+		lease: definition.lease ?? DEFAULT_LEASE,
+	});
 }

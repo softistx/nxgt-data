@@ -9,6 +9,12 @@ _Nothing in progress._
 
 ## Next
 
+- **Rate limits and idempotency wired beside `openRedis`** — definitions
+  exported from a module and handed to `defineRedis`, then bound by
+  `openRedis` under the instances and prefix of the configuration, as the
+  caches are today. It is a change inside this package, with no new one: until
+  then a guard is bound to a client by hand, with `bindRateLimit` and
+  `bindIdempotency`, and the keys it writes carry no deployment prefix.
 - **The refusal of an unknown option, in the message it was written for** —
   an option the configuration does not have is a compile error today, but
   TypeScript usually reports it as `is not assignable to type 'never'` on
@@ -18,7 +24,11 @@ _Nothing in progress._
 
 ## Later
 
-_Nothing queued._
+- **A `./hono` subpath** — a middleware that answers a spent limit with a 429
+  and the `RateLimit-*` headers. Only once a consumer is found copying the
+  [HTTP recipe](guide/guard/rate-limits.md#http-headers-for-any-framework):
+  until then the recipe is a dozen lines for any framework, and a subpath would
+  be one more peer to keep in step.
 
 ## Not planned
 
@@ -33,7 +43,7 @@ _Nothing queued._
   fails, and what comes back is Redis's own error, as `RedisError`.
 - **A queue** — pub/sub is fire-and-forget. A message published while nobody
   is subscribed is gone, and nothing is stored, acknowledged or replayed.
-- **An actor, or a session** — `@nxgt/mongo-kit` derives its object with
+- **An actor, or a session** — `@nxgt/mongo`'s `openMongo` derives its object with
   `as(actor)` and `withSession`, because MongoDB has something to stamp and
   something to carry. Redis has neither, so what `openRedis` gives back is the
   same object for every request, is never derived, and `close()` always
@@ -57,9 +67,49 @@ _Nothing queued._
   reaches a caller from a cache, a channel or a lock, with its `code`.
 - **Closing on a signal** — nothing listens to `SIGTERM` for you. Call
   `close()` on a connection, or `closeRedis()`, where your process shuts down.
+- **The host's clock for a rate limit** — `now` is the Redis server's `TIME`,
+  read inside the script, so every process agrees and a host with a wrong clock
+  cannot refill a bucket. An option to send the caller's time instead would
+  give that up.
+- **Fixed or sliding windows** — GCRA gives the same guarantees in one string
+  per key, with no counter per window and no sorted set per caller.
+- **An in-memory fallback** — a limit that silently becomes per-process when
+  Redis is down is not the limit you defined. A failed call fails, with
+  Redis's own error. The same holds for idempotency.
+- **Storing thrown errors** — an error from `work` gives the key back, so the
+  next call runs again. A failure that must replay is a result: a union member
+  of the schema, which the types check and a replay parses like any other.
+- **Interrupting `work` when its lease is lost** — an `AbortSignal` handed to
+  `work`, say. `work` is your function, and `run` only ever calls it and
+  awaits it: JavaScript has no way to stop it, so a signal would be a request
+  that `work` may ignore, and it could not undo what `work` had already done.
+  It would not fire in the case that matters most either: a lease is lost
+  when synchronous work holds the event loop for a whole lease, and the
+  renewal that would notice is a timer on that same blocked loop. So a lost
+  lease is reported where it can be acted on — `run` refuses to store the
+  result and rejects with `LEASE_LOST` once `work` returns — and a caller that
+  wants to stop early can keep its own `AbortController` and deadline inside
+  `work`.
+- **Treating an unreadable stored result as a miss** — as a cache would. A
+  stored result stands for work that already happened; running it again
+  would do it twice. It is `INVALID`, and `forget` is the deliberate way to
+  run again.
 
 ## Shipped
 
+- **Rate limits and idempotency, folded in from `@nxgt/redis-guard`** —
+  `defineRateLimit` / `bindRateLimit`: GCRA as one atomic script over one key,
+  timed by the Redis server's clock, with `consume`, `enforce`, `peek` and
+  `reset`, a `cost` per call, and results as delays in milliseconds, counted in
+  exact integers. `defineIdempotency` / `bindIdempotency`, with `run` and
+  `forget`: the first call with a key runs `work` and keeps its result, checked
+  by a zod schema, and a repeat gets it back; a different fingerprint is
+  refused (`MISMATCH`), a repeat during the first run is refused
+  (`IN_PROGRESS`, with `retryAfter`) or waits with `wait`, and the running call
+  renews its lease while `work` runs, so `lease` only bounds how long a
+  **crashed** run holds the key. Their error is `GuardError`, with its own
+  codes. Nothing was renamed: `@nxgt/redis-guard` now re-exports this one,
+  deprecated — 0.5.0.
 - **The wiring, folded in from `@nxgt/redis-kit`** — `defineRedis` checking a
   configuration of one or several Redis instances and freezing it without
   connecting to anything, and `openRedis` opening the clients and giving back

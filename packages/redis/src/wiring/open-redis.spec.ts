@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { useRedis } from '../../test/fixtures';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import * as caches from '../../test/wiring/caches';
 import * as channels from '../../test/wiring/channels';
 import { connectRedis } from '../connection/connect';
@@ -111,16 +112,18 @@ describe('lock', () => {
 	test('names the instance when the Redis holds several', async () => {
 		const redis = track(await openRedis(two()));
 		expect(await redis.lock('import', () => 'ok', { on: 'pubsub' })).toBe('ok');
-		await expect(redis.lock('import', () => 'ok')).rejects.toThrow(
+		expect(await rejectionMessage(redis.lock('import', () => 'ok'))).toMatch(
 			/lock: this Redis holds 2 Redis instances/,
 		);
 	});
 
 	test('an instance this Redis does not have is named in the refusal', async () => {
 		const redis = track(await openRedis(two()));
-		await expect(
-			redis.lock('import', () => 'ok', { on: 'nope' as never }),
-		).rejects.toThrow(
+		expect(
+			await rejectionMessage(
+				redis.lock('import', () => 'ok', { on: 'nope' as never }),
+			),
+		).toContain(
 			'lock: this Redis has no instance named "nope". It wires "cache", "pubsub".',
 		);
 	});
@@ -141,7 +144,7 @@ describe('opening', () => {
 				},
 			},
 		});
-		await expect(openRedis(config)).rejects.toThrow();
+		await rejection(openRedis(config));
 		// The first instance's hold was given back on the way out: the URI has
 		// no holder left, so this opens a working client rather than the one
 		// the failed Redis would have kept.
@@ -154,7 +157,7 @@ describe('opening', () => {
 		// `defineRedis` refuses this; `openRedis` takes a `RedisConfig`, which
 		// a caller can write themselves, and says which instance is wrong.
 		const byHand = { instances: { main: { caches } } } as never;
-		await expect(openRedis(byHand)).rejects.toThrow(
+		expect(await rejectionMessage(openRedis(byHand))).toContain(
 			'openRedis: instance "main" has neither uri nor client. Give it one.',
 		);
 	});
@@ -163,7 +166,7 @@ describe('opening', () => {
 		const byHand = {
 			instances: { main: { uri: servers.redis.uri } },
 		} as never;
-		await expect(openRedis(byHand)).rejects.toThrow(
+		expect(await rejectionMessage(openRedis(byHand))).toContain(
 			'openRedis: instance "main" wires no cache and no channel. Pass ' +
 				'the module that exports them, or drop the instance.',
 		);

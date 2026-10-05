@@ -1,8 +1,8 @@
-import type { LimitResult } from '@nxgt/redis-guard';
+import type { LimitResult } from '@nxgt/redis';
 
 /**
- * The HTTP side of `@nxgt/redis-guard`, shared by every module that guards a
- * route: `@nxgt/redis-guard` answers in milliseconds, and HTTP asks for
+ * The HTTP side of `@nxgt/redis`, shared by every module that guards a
+ * route: `@nxgt/redis` answers in milliseconds, and HTTP asks for
  * seconds.
  */
 

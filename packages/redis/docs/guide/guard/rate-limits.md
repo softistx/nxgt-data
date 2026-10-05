@@ -6,7 +6,7 @@ whether it is allowed, how much is left, and how long to wait.
 
 ```ts
 import { RedisClient } from 'bun';
-import { bindRateLimit, defineRateLimit } from '@nxgt/redis-guard';
+import { bindRateLimit, defineRateLimit } from '@nxgt/redis';
 
 export const loginLimit = defineRateLimit({
 	name: 'login',
@@ -39,7 +39,7 @@ rather than at the first request.
 
 `burst × per` may be at most 9,007,199,254,740, and `burst × per ÷ limit` —
 how long an empty bucket takes to refill — at most ten years; anything else
-is a `TypeError` at definition, [in troubleshooting](../troubleshooting.md#configuration).
+is a `TypeError` at definition, [in troubleshooting](../../troubleshooting.md#configuration).
 
 ```ts
 interface RateLimitDefinition<P> {
@@ -54,7 +54,7 @@ function defineRateLimit<P>(definition: RateLimitDefinition<P>): RateLimitDefini
 ```
 
 A stored key is `` `<name>:<key(params)>` `` — the same shape as an
-`@nxgt/redis` cache's, so one naming scheme covers both:
+`@nxgt/redis` cache's, so one naming scheme covers all three:
 
 ```ts
 login.keyFor({ ip: '203.0.113.7' });   // 'login:203.0.113.7'
@@ -181,7 +181,7 @@ five messages.
 
 ```ts
 import { RedisClient } from 'bun';
-import { bindRateLimit, defineRateLimit } from '@nxgt/redis-guard';
+import { bindRateLimit, defineRateLimit } from '@nxgt/redis';
 
 const exportLimit = defineRateLimit({
 	name: 'export',
@@ -251,7 +251,7 @@ into headers; it is plain `Headers`, so it fits `Bun.serve`, Hono, Elysia or
 anything that speaks the Fetch API.
 
 ```ts
-import type { LimitResult } from '@nxgt/redis-guard';
+import type { LimitResult } from '@nxgt/redis';
 
 /** The draft-standard RateLimit-* headers, and Retry-After on a denial. */
 export function rateLimitHeaders(result: LimitResult): Headers {
@@ -320,7 +320,7 @@ value, and each value is a fresh bucket.
 With `enforce`, in a Hono app's error handler:
 
 ```ts
-import { GuardError } from '@nxgt/redis-guard';
+import { GuardError } from '@nxgt/redis';
 
 app.onError((error, c) => {
 	if (error instanceof GuardError && error.code === 'RATE_LIMITED') {
@@ -344,4 +344,4 @@ app.onError((error, c) => {
 A `GuardError` names the **definition**, never the key or the params: those
 came from a request — an address, a user id — and a log line is no place for
 them. Every message, with its fix, is in
-[troubleshooting](../troubleshooting.md).
+[troubleshooting](../../troubleshooting.md).

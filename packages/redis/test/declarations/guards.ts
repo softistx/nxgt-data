@@ -1,12 +1,12 @@
 // The guards an app exports, defined and bound, behind exported values whose
 // types are inferred: a declaration build must be able to name each one
-// through `@nxgt/redis-guard` and its peers alone (TS2883 otherwise).
+// through `@nxgt/redis` and its peers alone (TS2883 otherwise).
 import {
 	bindIdempotency,
 	bindRateLimit,
 	defineIdempotency,
 	defineRateLimit,
-} from '@nxgt/redis-guard';
+} from '@nxgt/redis';
 import type { RedisClient } from 'bun';
 import { z } from 'zod';
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
 import { seatCache, useRedis, userCache } from '../../test/fixtures';
+import { rejection } from '../../test/rejection';
 import { RedisError } from '../errors/redis-error';
 import { bindCache } from './bind-cache';
 import { defineCache } from './define-cache';
@@ -103,7 +104,7 @@ describe('a bound cache', () => {
 	test('refuses a value the schema does not accept, before storing it', async () => {
 		const cache = users();
 		const wrong = { id: 'u1', email: 42 } as unknown as typeof ada;
-		await expect(cache.set('u1', wrong)).rejects.toThrow(RedisError);
+		expect(await rejection(cache.set('u1', wrong))).toBeInstanceOf(RedisError);
 		// Nothing was written: a refused value is not a half-write.
 		expect(await servers.redis.client.get('user:u1')).toBeNull();
 	});

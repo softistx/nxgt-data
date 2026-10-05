@@ -5,7 +5,7 @@ import {
 	bindRateLimit,
 	defineIdempotency,
 	defineRateLimit,
-} from '@nxgt/redis-guard';
+} from '@nxgt/redis';
 import type { RedisClient } from 'bun';
 import type { z } from 'zod';
 import { zArticle } from '../../generated/zod';

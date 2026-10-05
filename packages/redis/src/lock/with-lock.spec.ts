@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { useRedis } from '../../test/fixtures';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { RedisError } from '../errors/redis-error';
 import { withLock } from './with-lock';
 
@@ -37,9 +38,9 @@ describe('withLock', () => {
 			servers.redis.client,
 			'job',
 			async () => {
-				await expect(
-					withLock(servers.redis.client, 'job', () => 'never'),
-				).rejects.toThrow(RedisError);
+				expect(
+					await rejection(withLock(servers.redis.client, 'job', () => 'never')),
+				).toBeInstanceOf(RedisError);
 			},
 			{ ttl: 5_000 },
 		);
@@ -57,11 +58,13 @@ describe('withLock', () => {
 	});
 
 	test('gives the lock back when the work throws, and passes the error on', async () => {
-		await expect(
-			withLock(servers.redis.client, 'job', () => {
-				throw new Error('work failed');
-			}),
-		).rejects.toThrow('work failed');
+		expect(
+			await rejectionMessage(
+				withLock(servers.redis.client, 'job', () => {
+					throw new Error('work failed');
+				}),
+			),
+		).toContain('work failed');
 		expect(await servers.redis.client.get('lock:job')).toBeNull();
 	});
 

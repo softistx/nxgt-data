@@ -20,13 +20,13 @@ export interface IdempotencyDefinition<P, S extends z.ZodType> {
 	readonly ttl: number;
 	/**
 	 * How long the in-flight marker lives unless renewed, **in milliseconds**
-	 * (default 10 000). `run` renews it every third of this while `work`
+	 * (`defineIdempotency` fills 10 000 when it is left out). `run` renews it every third of this while `work`
 	 * runs, so it bounds how long a **crashed** run holds the key, not how
 	 * long `work` may take. It lapses under a live run only when no renewal
 	 * reaches Redis for a whole lease — the connection lost, or the event
 	 * loop blocked by synchronous work.
 	 */
-	readonly lease?: number;
+	readonly lease: number;
 	/**
 	 * What a result is. Checked on the way in — what `work` returned — and on
 	 * the way out, on every replay. It must accept its own output, and that
@@ -34,6 +34,17 @@ export interface IdempotencyDefinition<P, S extends z.ZodType> {
 	 */
 	readonly schema: S;
 }
+
+/**
+ * What `defineIdempotency` takes: a definition whose `lease` may be left out.
+ * The definition it returns has it, always. A `CacheDefinition` has no
+ * `lease`, so it is not one, and `bindIdempotency(client, someCache)` is a
+ * compile error instead of a `WRONGTYPE` at run time.
+ */
+export type IdempotencyInput<P, S extends z.ZodType> = Omit<
+	IdempotencyDefinition<P, S>,
+	'lease'
+> & { readonly lease?: number };
 
 /** Options for one `run`. */
 export interface RunOptions {
