@@ -198,6 +198,25 @@ describe('config refusals', () => {
 		).toThrow(/wires no cache, no channel, no rate limit and no idempotency/);
 	});
 
+	test('an idempotency written by hand without its lease is a cache, and refused', () => {
+		// `defineIdempotency` always fills the lease; without one the shape is a
+		// cache's, which `bindIdempotency` would turn into a WRONGTYPE.
+		const { lease: _lease, ...noLease } = idempotency.orders;
+		expect(() =>
+			// @ts-expect-error a definition with no lease is not an idempotency
+			defineRedis({ uri, idempotency: { orders: noLease } }),
+		).toThrow(
+			/has "orders" under idempotency, which is a cache, not an idempotency/,
+		);
+	});
+
+	test('a half-written rate limit, with no per, is not wired', () => {
+		const { per: _per, ...noPer } = limits.login;
+		expect(() => defineRedis({ uri, limits: { login: noPer } })).toThrow(
+			/wires no cache, no channel, no rate limit and no idempotency/,
+		);
+	});
+
 	test('openRedis runs the same refusal, on a configuration built elsewhere', async () => {
 		const byHand = {
 			instances: { main: { uri: servers.redis.uri, limits: caches } },
