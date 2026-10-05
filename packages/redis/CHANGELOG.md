@@ -1,5 +1,11 @@
 # @nxgt/redis
 
+## 0.5.0
+
+### Minor Changes
+
+- [#181](https://github.com/softistx/nxgt-data/pull/181) [`050352e`](https://github.com/softistx/nxgt-data/commit/050352ef73db1f43f7ea3267ec730ba2bf340af3) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The rate limits and the idempotency of `@nxgt/redis-guard` are now in this package, exported from the root and **not renamed**. New exports: `defineRateLimit`, `bindRateLimit`, `defineIdempotency`, `bindIdempotency`, and the error `GuardError` with its codes `GuardErrorCode` (`RATE_LIMITED`, `COST`, `IN_PROGRESS`, `MISMATCH`, `INVALID`, `LEASE_LOST`). The types come with them: `RateLimitDefinition`, `BoundRateLimit`, `LimitResult`, `IdempotencyDefinition`, `BoundIdempotency`, `Idempotent` and `RunOptions`. Each takes any Bun `RedisClient` — the `client` of a connection or of `openRedis`, or your own — and every message is what `@nxgt/redis-guard` 0.3.2 gave. `GuardError` stays its own class, apart from `RedisError`. Nothing existing changes. The guides, the troubleshooting entries and the roadmap moved here with it, and the README has a section on each. A cache definition and an idempotency definition are no longer assignable to each other — `bindCache(client, someIdempotency)` and `bindIdempotency(client, someCache)` were compile errors waiting to be `WRONGTYPE` at run time: `CacheDefinition` declares `lease?: never`, and `IdempotencyDefinition` has a required `lease`, which `defineIdempotency` fills with 10 000 when it is left out. A definition built by hand, not through `defineIdempotency`, must now carry its `lease`.
+
 ## 0.4.1
 
 ### Patch Changes

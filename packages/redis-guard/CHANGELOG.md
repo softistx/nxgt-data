@@ -1,5 +1,16 @@
 # @nxgt/redis-guard
 
+## 0.4.0
+
+### Minor Changes
+
+- [#181](https://github.com/softistx/nxgt-data/pull/181) [`050352e`](https://github.com/softistx/nxgt-data/commit/050352ef73db1f43f7ea3267ec730ba2bf340af3) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `@nxgt/redis-guard` is deprecated: its API moved into `@nxgt/redis`, and this package now only re-exports it, under the same names and with the same messages — `defineRateLimit`, `bindRateLimit`, `defineIdempotency`, `bindIdempotency`, `GuardError`, `GuardErrorCode` and the types, each marked `@deprecated`. `@nxgt/redis` is its one peer besides `typescript` (`zod` comes with it), and the docs are gone from the package — they live in `@nxgt/redis`. Nothing a caller wrote has to change but the import: `GuardError` from either package is one class, so an `instanceof` still holds across both. Move to `@nxgt/redis` when you can: `bun add @nxgt/redis`, then change the import.
+
+### Patch Changes
+
+- Updated dependencies [[`050352e`](https://github.com/softistx/nxgt-data/commit/050352ef73db1f43f7ea3267ec730ba2bf340af3)]:
+  - @nxgt/redis@0.5.0
+
 ## 0.3.2
 
 ### Patch Changes
