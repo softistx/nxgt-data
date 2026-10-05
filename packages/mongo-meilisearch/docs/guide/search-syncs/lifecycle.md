@@ -1,21 +1,21 @@
-# The kit's lifecycle
+# The search syncs' lifecycle
 
 One `syncIndexes`, one `reindexAll`, one `start`, one `close` for every sync the
 [config](wiring.md) named — and one promise to watch while they run.
 
 ```ts
 import { bindIndex } from '@nxgt/meilisearch';
-import { createKit, defineConfig } from '@nxgt/mongo-kit';
-import { createSearchKit } from '@nxgt/mongo-search-kit';
+import { openMongo, defineMongo } from '@nxgt/mongo';
+import { createSearchSyncs } from '@nxgt/mongo-meilisearch';
 import * as collections from './models';                 // the defineCollections
 import { meili } from './meili';                         // a Meilisearch client
 import { articleIndex, authorIndex } from './search';    // the defineIndexes
 
-const kit = await createKit(
-	defineConfig({ uri: process.env.MONGO_URI!, collections }),
+const mongo = await openMongo(
+	defineMongo({ uri: process.env.MONGO_URI!, collections }),
 );
 
-const search = createSearchKit(kit, {
+const search = createSearchSyncs(mongo, {
 	articles: {
 		index: bindIndex(meili, articleIndex),
 		transform: (article) => ({ id: String(article._id), title: article.title }),
@@ -34,13 +34,13 @@ void running.failed.catch(() => process.exit(1)); // await it or catch it
 // …
 
 await running.close();                  // flush and stop every sync
-await kit.close();                      // the Mongo kit is still yours
+await mongo.close();                      // the Mongo is still yours
 ```
 
 ## `syncs`
 
 Each sync as `@nxgt/mongo-meilisearch` built it, under the key the config
-used — so anything the kit does not wrap is still reachable:
+used — so anything `createSearchSyncs` does not wrap is still reachable:
 
 ```ts
 search.syncs.articles.name;             // 'articles:articles'
@@ -86,7 +86,7 @@ not there. `dryRun` shows every **settings** difference at once, but not past
 a primary-key mismatch: that one throws in a dry run too, since no setting
 could make the index right.
 
-It is a **deployment step**, like the Mongo kit's `sync()`, and it comes
+It is a **deployment step**, like the Mongo's `sync()`, and it comes
 first: `reindexAll` and `start` write documents, and an index a document write
 creates gets the primary key but none of the definition's settings until a
 sync runs — its filters and sorts are refused until then.
@@ -108,7 +108,7 @@ it, run it again — a reindex that succeeded is idempotent.
 It cannot run beside a follower: `@nxgt/mongo-meilisearch` throws
 `SearchSyncError` with the code `RUNNING` for a sync of the same object that
 is already following, or whose name another process holds the lease on, and
-the kit passes it through.
+`createSearchSyncs` passes it through.
 
 Each reindex holds its sync's lease while it runs. One that finds the lease
 taken over — the process stalled past `leaseMs`, or the lease was removed —
@@ -143,7 +143,7 @@ throughout, which is why a failure closes them rather than leaving them
 behind.
 
 Each sync takes the lease on its own name as it starts, so a second process
-running the same kit is refused at the first name the other holds — a
+starting the same syncs is refused at the first name the other holds — a
 `SearchSyncError` with the code `RUNNING`, naming the holder and when its
 lease ends — and lets go of the names it had already taken:
 
@@ -166,8 +166,8 @@ try {
 
 A `RUNNING` the lease refused carries its `holder` and its `expiresAt`, a
 `Date` on MongoDB's clock, so a standby can wait exactly until that lease
-lapses; the loop is in the [troubleshooting entry](../troubleshooting.md#search-sync-articlesarticles-is-held-by--until--wait-for-it-to-close-or-for-its-lease-to-lapse-before-you-start-it).
-Both are `undefined` on a `LEASE_LOST`, and on the refusal of a kit that is
+lapses; the loop is in the [troubleshooting entry](../../troubleshooting.md#search-sync-articlesarticles-is-held-by--until--wait-for-it-to-close-or-for-its-lease-to-lapse-before-you-start-it).
+Both are `undefined` on a `LEASE_LOST`, and on the refusal of syncs that are
 already running in this process.
 
 A lease lasts each entry's `leaseMs` (30 s) unrenewed, so a process that
@@ -176,7 +176,7 @@ died holds its names that long at most. `start()` itself rejects with
 closes the syncs already started, as for any failure. A running sync whose
 lease another process took over stops, and `failed` rejects with
 `LEASE_LOST`. The lease
-itself is [`@nxgt/mongo-meilisearch`'s](https://www.npmjs.com/package/@nxgt/mongo-meilisearch).
+itself is the single sync's: see [Following changes](../following-changes.md).
 
 ## `failed`
 
@@ -194,7 +194,7 @@ running.failed.catch((error: SearchSyncError) => {
 });
 ```
 
-- **It must be taken.** A rejection nobody handles ends the process. The kit
+- **It must be taken.** A rejection nobody handles ends the process. `createSearchSyncs`
   already takes each sync's own `closed`, so `failed` is the only one left to
   you — handle it.
 - **It never resolves.** A clean stop is not an event to wait for, so
@@ -202,7 +202,7 @@ running.failed.catch((error: SearchSyncError) => {
   for racing against your own shutdown.
 - **A dropped collection leaves it silent.** `@nxgt/mongo-meilisearch` treats
   an invalidated stream as a clean stop — that sync's `closed` *resolves*
-  with `'invalidated'` — and the kit forwards failures only. Watch
+  with `'invalidated'` — and `createSearchSyncs` forwards failures only. Watch
   `running.running.articles.closed` when a drop has to be noticed.
 
 ## `flush()` and `close()`
@@ -223,27 +223,27 @@ throws anything else, including a **second** sync that fell over after
 `failed` had settled, and anything that goes wrong while closing. If more
 than one throws, it reports the first.
 
-`close()` is idempotent, and `RunningSearchKit` is `AsyncDisposable`.
+`close()` is idempotent, and `RunningSearchSyncs` is `AsyncDisposable`.
 
 ## A worker process
 
-The two kits, started in order and closed in reverse:
+The Mongo and the search syncs, started in order and closed in reverse:
 
 ```ts
-import { createKit } from '@nxgt/mongo-kit';
-import { createSearchKit } from '@nxgt/mongo-search-kit';
+import { openMongo } from '@nxgt/mongo';
+import { createSearchSyncs } from '@nxgt/mongo-meilisearch';
 import type { SearchSyncError } from '@nxgt/mongo-meilisearch';
 import { config } from './db';
 import { searchConfig } from './search';
 
-const kit = await createKit(config);
-const search = createSearchKit(kit, searchConfig(meili));
+const mongo = await openMongo(config);
+const search = createSearchSyncs(mongo, searchConfig(meili));
 
 const running = await search.start();
 
 const stop = async () => {
 	await running.close(); // flushes and records where each sync is
-	await kit.close();     // the search kit never closes it
+	await mongo.close();     // the search syncs never close it
 	process.exit(0);
 };
 process.on('SIGTERM', stop);
@@ -253,7 +253,7 @@ process.on('SIGINT', stop);
 await running.failed.catch(async (error: SearchSyncError) => {
 	console.error({ sync: error.sync, code: error.code, cause: error.cause });
 	await running.close().catch(() => undefined);
-	await kit.close();
+	await mongo.close();
 	process.exit(1);
 });
 ```
@@ -261,9 +261,9 @@ await running.failed.catch(async (error: SearchSyncError) => {
 A deployment step is the same two objects, without `start`:
 
 ```ts
-await using kit = await createKit(config);
-await kit.sync();                                   // the collections
-const search = createSearchKit(kit, searchConfig(meili));
+await using mongo = await openMongo(config);
+await mongo.sync();                                   // the collections
+const search = createSearchSyncs(mongo, searchConfig(meili));
 await search.syncIndexes();                         // the indexes
 const reports = await search.reindexAll();
 for (const [key, report] of Object.entries(reports)) {
@@ -274,15 +274,15 @@ for (const [key, report] of Object.entries(reports)) {
 ## Signatures
 
 ```ts
-interface SearchKit<S> {
+interface SearchSyncs<S> {
 	readonly syncs: ByKey<S, SearchSync>;
 	state(): Promise<ByKey<S, SearchSyncState | undefined>>;
 	syncIndexes(options?: SyncOptions): Promise<ByKey<S, SyncReport>>; // @nxgt/meilisearch's
 	reindexAll(): Promise<ByKey<S, ReindexReport>>;
-	start(): Promise<RunningSearchKit<S>>;
+	start(): Promise<RunningSearchSyncs<S>>;
 }
 
-interface RunningSearchKit<S> extends AsyncDisposable {
+interface RunningSearchSyncs<S> extends AsyncDisposable {
 	readonly running: ByKey<S, RunningSearchSync>;
 	readonly failed: Promise<never>;
 	flush(): Promise<void>;
@@ -297,5 +297,5 @@ type ByKey<S, T> = { readonly [K in keyof S]: T };
 
 ## Next
 
-- [Wiring it over a Mongo kit](wiring.md) — the config behind all of this.
-- [Troubleshooting](../troubleshooting.md) — the messages, with their fixes.
+- [Wiring it over a Mongo](wiring.md) — the config behind all of this.
+- [Troubleshooting](../../troubleshooting.md) — the messages, with their fixes.

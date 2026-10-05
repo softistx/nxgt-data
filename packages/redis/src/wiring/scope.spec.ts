@@ -50,8 +50,8 @@ describe('the scopes', () => {
 	});
 
 	test('a key that is wired nowhere is plainly undefined', () => {
-		// Nothing falls through to a driver here, unlike `@nxgt/mongo-kit`'s
-		// scope over `Db`: a name that is not wired has nothing behind it.
+		// Nothing falls through to a driver here, unlike the wiring in `@nxgt/mongo`, whose
+		// scope sits over `Db`: a name that is not wired has nothing behind it.
 		expect((redis.cache as Record<string, unknown>)['nope']).toBeUndefined();
 		expect((redis.channels as Record<string, unknown>)['nope']).toBeUndefined();
 	});

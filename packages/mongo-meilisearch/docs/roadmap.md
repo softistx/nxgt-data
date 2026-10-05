@@ -26,12 +26,30 @@ _Nothing queued._
   but a change to one of them does not reach the index: the sync follows the
   collection it was given. Run a sync per collection that has to move the
   index.
+- **`createSearchSyncs` over several databases** — a Mongo holding more than
+  one gives `never` for its keys, and `createSearchSyncs` throws naming them.
+  Build one `createSearchSyncs` per database, from a Mongo that wires that
+  database alone.
+- **`createSearchSyncs` owning the Mongo** — closing the search syncs stops
+  them and nothing else: the clients, the databases and the collections
+  belong to the Mongo, and `mongo.close()` stays the caller's.
+- **A lock of its own for `createSearchSyncs`** — the lease already provides
+  it: each sync takes a lease on its name, so a second process starting the
+  same syncs is refused with `RUNNING`.
 - **One index fed by two collections, or by another writer** — a reindex
   removes every document the collection does not give it, whoever wrote it.
   The sync owns its index.
 
 ## Shipped
 
+- **Several collections from one config** — `createSearchSyncs(mongo, config)`
+  over what `@nxgt/mongo`'s `openMongo` returns: one entry per collection,
+  under the key the Mongo wires it as, and one `syncIndexes`, `reindexAll`,
+  `start` and `close` for all of them, with `failed` for the first sync that
+  stops. It is `@nxgt/mongo-search-kit`, folded in and renamed
+  (`createSearchKit` is `createSearchSyncs`), whose own roadmap is carried
+  here: `syncIndexes()` and one follower per sync name across processes came
+  with its 0.2.0, and the package is now a deprecated re-export — 0.5.0.
 - **A standby waits exactly for the holder** — a `RUNNING` the lease refused
   carries `holder` and `expiresAt`, read from the lease document, so a process
   waiting for the name sleeps until the holder's lease lapses instead of a

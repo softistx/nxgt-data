@@ -113,7 +113,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/mongodb
-          key: mongod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/mongo/test/server.ts', 'packages/mongo-meilisearch/test/mongo.ts', 'packages/mongo-search-kit/test/mongo.ts', 'packages/mongo-backup/test/mongo.ts', 'examples/hono-api/test/mongo.ts', 'examples/mongo-backup-job/test/mongo.ts') }}
+          key: mongod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/mongo/test/server.ts', 'packages/mongo-meilisearch/test/mongo.ts', 'packages/mongo-backup/test/mongo.ts', 'examples/hono-api/test/mongo.ts', 'examples/mongo-backup-job/test/mongo.ts') }}
       - name: Run tests
         run: bun run test
       # The build exits 0 on packages that throw the instant they are imported —
@@ -188,7 +188,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/mongodb
-          key: mongod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/mongo/test/server.ts', 'packages/mongo-meilisearch/test/mongo.ts', 'packages/mongo-search-kit/test/mongo.ts', 'packages/mongo-backup/test/mongo.ts', 'examples/hono-api/test/mongo.ts', 'examples/mongo-backup-job/test/mongo.ts') }}
+          key: mongod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/mongo/test/server.ts', 'packages/mongo-meilisearch/test/mongo.ts', 'packages/mongo-backup/test/mongo.ts', 'examples/hono-api/test/mongo.ts', 'examples/mongo-backup-job/test/mongo.ts') }}
       - name: Run tests
         run: bun run test
       - name: Verify the built artifacts load

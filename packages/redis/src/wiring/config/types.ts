@@ -89,7 +89,7 @@ export type ChannelsIn<
  * TypeScript's excess-property check: the literal *is* the inferred type, and
  * nothing is in excess of itself. The constraint is therefore written as
  * `config: C & Checked<C>`, which makes the refusal land on the key the
- * application wrote rather than on the whole object. `@nxgt/mongo-kit` does
+ * application wrote rather than on the whole object. `@nxgt/mongo`'s wiring does
  * the same, for the same reason.
  */
 type NoExtraKeys<C, Known extends string> = {

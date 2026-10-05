@@ -128,7 +128,7 @@ export type RedisLockOptions<C> = LockOptions & {
  * An application's Redis wiring: the clients, the caches and the channels,
  * in one object that closes everything it opened.
  *
- * There is no `as(actor)` and no `withSession`, as `@nxgt/mongo-kit` has:
+ * There is no `as(actor)` and no `withSession`, as `@nxgt/mongo`'s wiring has:
  * Redis has neither an actor to stamp nor a session to carry, so a Redis object is
  * the same object for every request and is never derived.
  */

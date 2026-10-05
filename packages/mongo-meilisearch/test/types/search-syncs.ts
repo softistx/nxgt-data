@@ -1,23 +1,23 @@
-// What a search config refuses. Checked by `tsc --noEmit`, never run: a
+// What a search syncs config refuses. Checked by `tsc --noEmit`, never run: a
 // refusal that stops holding fails the typecheck on its unused directive.
 //
-// `SearchConfig` is three nested conditionals over an inferred `I`, the shape
+// `SearchSyncsConfig` is three nested conditionals over an inferred `I`, the shape
 // that silently lost refusals in `@nxgt/mongo`. These cases are what says it
 // still refuses what it claims to.
 import { bindIndex, defineIndex } from '@nxgt/meilisearch';
 import { Meilisearch } from 'meilisearch';
 import type { ObjectId } from 'mongodb';
-import { createSearchKit } from '../../src';
+import { createSearchSyncs } from '../../src';
 import {
 	type Article,
 	articleIndex,
 	authorIndex,
-	type Kit,
-	toArticleHit,
 	toAuthorHit,
+	toHit,
+	type Wired,
 } from '../fixtures';
 
-declare const kit: Kit;
+declare const mongo: Wired;
 const meili = new Meilisearch({ host: 'http://127.0.0.1:1' });
 const articles = bindIndex(meili, articleIndex);
 const authors = bindIndex(meili, authorIndex);
@@ -34,7 +34,7 @@ const numbered = bindIndex(
 
 // An inline transform is typed by both sides: the document by the collection
 // the key names, the result by the index the entry carries.
-createSearchKit(kit, {
+createSearchSyncs(mongo, {
 	articles: {
 		index: articles,
 		transform: (article) => {
@@ -50,13 +50,13 @@ createSearchKit(kit, {
 });
 
 // A transform written for the other collection.
-createSearchKit(kit, {
+createSearchSyncs(mongo, {
 	// @ts-expect-error `authors` documents have no `title`
 	articles: { index: articles, transform: toAuthorHit },
 });
 
 // A transform that gives the wrong index's document.
-createSearchKit(kit, {
+createSearchSyncs(mongo, {
 	articles: {
 		index: articles,
 		// @ts-expect-error `articleIndex` holds `title`, not `name`
@@ -65,7 +65,7 @@ createSearchKit(kit, {
 });
 
 // A field the collection does not hold, inside an inline transform.
-createSearchKit(kit, {
+createSearchSyncs(mongo, {
 	articles: {
 		index: articles,
 		// @ts-expect-error `titel` is not a field of `articles`
@@ -74,22 +74,22 @@ createSearchKit(kit, {
 });
 
 // @ts-expect-error `transform` is not optional
-createSearchKit(kit, { articles: { index: articles } });
+createSearchSyncs(mongo, { articles: { index: articles } });
 
 // @ts-expect-error `index` is not optional
-createSearchKit(kit, { articles: { transform: toArticleHit } });
+createSearchSyncs(mongo, { articles: { transform: toHit } });
 
-createSearchKit(kit, {
+createSearchSyncs(mongo, {
 	articles: {
 		index: articles,
-		transform: toArticleHit,
+		transform: toHit,
 		// @ts-expect-error the option is `batchSize`
 		batchSizes: 10,
 	},
 });
 
 // An index whose ids are numbers: the id cannot be read off the document.
-createSearchKit(kit, {
+createSearchSyncs(mongo, {
 	// @ts-expect-error `toIndexId` is required when the ids are not strings
 	articles: {
 		index: numbered,
@@ -98,7 +98,7 @@ createSearchKit(kit, {
 });
 
 // The same entry, with it.
-createSearchKit(kit, {
+createSearchSyncs(mongo, {
 	articles: {
 		index: numbered,
 		transform: (article: Article) => ({ n: 1, title: article.title }),
@@ -106,21 +106,21 @@ createSearchKit(kit, {
 	},
 });
 
-// A key the kit wires no collection for.
-createSearchKit(kit, {
-	// @ts-expect-error the kit wires no `comments`
-	comments: { index: articles, transform: toArticleHit },
+// A key the Mongo wires no collection for.
+createSearchSyncs(mongo, {
+	// @ts-expect-error the Mongo wires no `comments`
+	comments: { index: articles, transform: toHit },
 });
 
 // A key that is a member of the driver's `Db`.
-createSearchKit(kit, {
+createSearchSyncs(mongo, {
 	// @ts-expect-error `command` is the driver's, not a collection
-	command: { index: articles, transform: toArticleHit },
+	command: { index: articles, transform: toHit },
 });
 
 // `syncIndexes` reports under the config's keys, and takes the index's options.
-const search = createSearchKit(kit, {
-	articles: { index: articles, transform: toArticleHit },
+const search = createSearchSyncs(mongo, {
+	articles: { index: articles, transform: toHit },
 });
 void search.syncIndexes({ dryRun: true }).then((reports) => {
 	const uid: string = reports.articles.uid;

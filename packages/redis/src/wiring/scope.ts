@@ -73,7 +73,7 @@ function channelOf(
  *
  * Nothing is built ahead of the first read: an application wires every cache
  * and every channel it has, and a request touches two of them. The same
- * pattern as `@nxgt/mongo-kit`'s `collectionAt`.
+ * pattern as `@nxgt/mongo`'s `collectionAt`.
  *
  * Keyed by the **wired key**, not by the definition's `name`: the two happen
  * to be one-to-one only because `checkNoClash` refuses one definition under
@@ -101,7 +101,7 @@ function at<T>(
 /**
  * A scope over the wired definitions: one own enumerable getter per key.
  *
- * Getters rather than a `Proxy`: unlike `@nxgt/mongo-kit`, which augments the
+ * Getters rather than a `Proxy`: unlike `@nxgt/mongo`'s wiring, which augments the
  * driver's `Db` and must fall through to it, nothing here has a member to
  * fall through to. `Object.keys` therefore lists what is wired, and a key
  * that is not wired is plainly `undefined` rather than a driver method that

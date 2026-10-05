@@ -49,10 +49,9 @@ async function open(
  * await redis.channels.users.publish({ id: userId, event: 'created' });
  * ```
  *
- * `openRedis`, not `createKit`: `AGENTS.md` reserves `create*` for an
- * assembly that does no I/O, and says in as many words that
- * `@nxgt/mongo-kit`'s `createKit` is the one exception and not a licence for
- * a second. This one opens connections, so it takes the verb that says so.
+ * `openRedis`, not `createRedis`: `AGENTS.md` reserves `create*` for an
+ * assembly that does no I/O, and `openMongo` takes the same verb for the same
+ * reason. This one opens connections, so it takes the verb that says so.
  *
  * The checks run here as well as in `defineRedis`: a configuration is often
  * built in one file and connected in another, and this is the call a stack

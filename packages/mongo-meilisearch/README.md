@@ -1,9 +1,49 @@
 # @nxgt/mongo-meilisearch
 
-Keeps a [Meilisearch](https://www.meilisearch.com) index in step with a
-MongoDB collection: a typed transform from one to the other, a full reindex,
-and a change stream that picks up where it stopped, its position kept in
-MongoDB.
+Keeps [Meilisearch](https://www.meilisearch.com) indexes in step with MongoDB
+collections: a typed transform from one to the other, a full reindex, and a
+change stream that picks up where it stopped, its position kept in MongoDB.
+`createSearchSyncs` does it for every collection an `openMongo` wires, from one
+config and one `start()`; `createSearchSync` does it for one collection.
+
+```ts
+import { bindIndex } from '@nxgt/meilisearch';
+import { defineMongo, openMongo } from '@nxgt/mongo';
+import { createSearchSyncs } from '@nxgt/mongo-meilisearch';
+
+const mongo = await openMongo(defineMongo({ uri, collections })); // @nxgt/mongo
+
+const search = createSearchSyncs(mongo, {
+	articles: {
+		index: bindIndex(meili, articleIndex),        // @nxgt/meilisearch
+		// `article` is typed by the collection the key names, and the result
+		// by the index this entry carries. `null` keeps a document out.
+		transform: (article) =>
+			article.draft ? null : { id: String(article._id), title: article.title },
+	},
+	authors: {
+		index: bindIndex(meili, authorIndex),
+		transform: (author) => ({ id: String(author._id), name: author.name }),
+	},
+});
+
+await search.syncIndexes();             // every index, with its settings
+const running = await search.start();   // reindexes the first time, then follows
+running.failed.catch(exit);             // await it or catch it — see Traps
+// …
+await running.close();                  // flushes and stops every sync
+```
+
+Each collection's sync is the `createSearchSync` below, unchanged. What
+`createSearchSyncs` adds is the wiring: the collections come from the Mongo,
+under the key they are exported under (the same one `mongo.db.articles`
+answers to), so nothing is named twice, and the syncs are started and stopped
+together. A key the Mongo wires no collection for does not compile, and is
+refused by name at run time too. `createSearchSyncs` sends nothing:
+`syncIndexes`, `reindexAll` and `start` do. See [Several
+collections](#several-collections-createsearchsyncs) for its API.
+
+## One collection at a time
 
 ```ts
 import { createSearchSync } from '@nxgt/mongo-meilisearch';
@@ -359,10 +399,76 @@ before it could be read),
 `cause`. Its constructor takes `(message, options: SearchSyncErrorOptions)`,
 that is `{ code, sync, cause?, holder?, expiresAt? }`; both types are exported.
 
+## Several collections: `createSearchSyncs`
+
+```ts
+function createSearchSyncs<C, const I extends IndexMap<I>>(
+	mongo: Mongo<C>,
+	config: SearchSyncsConfig<C, I>,
+): SearchSyncs<I>;
+```
+
+`mongo` is what `@nxgt/mongo`'s `openMongo` returned, and `config` is one entry
+per collection, under the key the Mongo wires it under. An entry is everything
+`createSearchSync` takes **except `collection`**, which the Mongo already
+holds: `index`, `transform`, `toIndexId` (optional while the index's ids are
+strings, required otherwise), and optionally `name`, `stateCollection`,
+`batchSize`, `flushIntervalMs`, `positionIntervalMs`, `leaseMs`, `pageSize` and
+`onHistoryLost`.
+
+`SearchSyncs<I>`:
+
+| Member | |
+| --- | --- |
+| `syncs: { [K in keyof I]: SearchSync }` | each sync as `createSearchSync` built it, so anything this does not wrap is still reachable |
+| `state()` | where each sync stands, under its key; `undefined` for one that never reindexed |
+| `syncIndexes(options?)` | every index created and its settings applied where they differ: `@nxgt/meilisearch`'s `SyncReport` per key, `dryRun` and `wait` passed through. One after another; the first that throws stops the rest |
+| `reindexAll()` | a `ReindexReport` per key. One after another, and the first that throws stops the rest |
+| `start()` | every sync, resolving once they are all hearing changes; one that fails to start closes the ones already started |
+
+`RunningSearchSyncs<I>`, also `AsyncDisposable`:
+
+| Member | |
+| --- | --- |
+| `running: { [K in keyof I]: RunningSearchSync }` | each running sync, so its `ready`, its `closed` and its own `flush` are still reachable |
+| `failed: Promise<never>` | rejects with the **first** sync that stops on an error, and never settles otherwise. A later failure is `close()`'s to report |
+| `flush()` | sends what every sync holds, and records where each one is. Stops at the first that fails |
+| `close()` | flushes, then stops every sync. Idempotent |
+
+The types: `SearchSyncsConfig<C, I>` (a `SearchSyncEntry` per key of
+`SoleCollections<C>`, and for a key the Mongo wires no collection for, a
+refusal string that names it in place of the entry), `SearchSyncEntry<Col, I>`
+(`Omit<SearchSyncOptions<Col, I>, 'collection'>`), `SoleCollections<C>` (what a
+Mongo's sole database holds, by the name each definition is exported under;
+`never` when it holds several), `IndexMap<I>` (the index definitions a config
+names, from which `I` is inferred, which is what lets a `transform` be written
+inline) and `ByKey<S, T>` (`{ readonly [K in keyof S]: T }`, the shape of every
+per-key result).
+
+What it does not do:
+
+- **Follow several databases.** A Mongo that holds several gives `never` for
+  its keys, as `mongo.db` itself does, and `createSearchSyncs` throws naming
+  them. Build one `createSearchSyncs` per database, from a Mongo that wires
+  that database alone.
+- **Coordinate processes on its own.** Each entry's sync takes the lease on its
+  name when it starts: a second process starting the same syncs is refused
+  with `RUNNING` for the first sync whose name is held, and starts nothing.
+- **Own the Mongo.** Closing the search syncs stops them and nothing else:
+  the clients, the databases and the collections are the Mongo's, and
+  `mongo.close()` is still the caller's to make.
+
+The [guides](docs/guide/search-syncs/wiring.md) cover the config and the
+[lifecycle](docs/guide/search-syncs/lifecycle.md) in full.
+
 ## What does not compile
 
 Each is a `@ts-expect-error` case in this package's type tests.
 
+- A key the Mongo wires no collection for (the message names it), a key that
+  is a member of the driver's `Db`, such as `command`, and a Mongo that holds
+  more than one database: all `createSearchSyncs`'s. Its entries are
+  checked as below, the `transform` typed by the collection the key names.
 - A transform that reads a field the collection's schema does not have.
 - A transform that leaves out a field the index's document has, or gives an
   id of the wrong type (an `ObjectId` for a string id). A field the document
@@ -420,9 +526,48 @@ Each is a `@ts-expect-error` case in this package's type tests.
   `documents.delete` and `tasks.get`, plus `indexes.create` unless the index
   already exists — the first write to an index that does not creates it.
 
+Of `createSearchSyncs`:
+
+- **A failure nobody handles is silent, not loud.** A sync that stops on an
+  error rejects `failed`, and `createSearchSyncs` takes that rejection itself,
+  as it takes each sync's own `closed`, so nothing ends the process and nothing
+  is printed. That index simply stops updating. `failed` is the only place the
+  failure surfaces, so handle it; unhandled, the first sign is stale search
+  results.
+- **`failed` never resolves.** A clean stop is not an event to wait for, so
+  `await running.failed` after `close()` waits forever. It is for `catch`, or
+  for racing against your own shutdown.
+- **A dropped collection leaves `failed` silent.** An invalidated stream is a
+  clean stop (`closed` *resolves* with `'invalidated'`), and `failed` forwards
+  failures only. That sync is dead and nothing settles. Watch
+  `running.running.<key>.closed` if a drop has to be noticed.
+- **`close()` does not report the failure `failed` already carried.** That one
+  sync rejects its own `close` with what it stopped on, and it is swallowed, so
+  a caller does not hear it twice. Every *other* failure is thrown, including a
+  **second** sync that fell over after `failed` settled, and anything that goes
+  wrong *while* closing. If more than one throws, `close` reports the first.
+- **A failed `start()` leaves nothing running.** The syncs already started are
+  closed before the error comes back.
+- **`reindexAll()` and `flush()` stop at the first failure.** The keys already
+  done are lost with the rejection of `reindexAll`, because a reindex removes
+  what a collection no longer gives and a half-finished run is not a state to
+  keep going from: read the error, fix, run it again, since the reindexes that
+  succeeded are idempotent. A sync that has already fallen over rejects
+  `flush` at once and the ones after it are neither sent nor recorded, which is
+  safe on restart but not free. `close()` keeps going past a sync that fails.
+- **Two `createSearchSyncs` over one collection are two syncs over one
+  index.** The default `name` is `<collection>:<index uid>`, so two built from
+  the same config share their resume point and their lease: the second is
+  refused with `RUNNING` while the first runs. Give `name` if you mean them to
+  differ.
+
 ## Documentation
 
 - [Guide index](docs/README.md) — every page, and when to read it.
+- [Wiring it over a Mongo](docs/guide/search-syncs/wiring.md) — the
+  `createSearchSyncs` config, its keys, and every option an entry takes.
+- [The search syncs' lifecycle](docs/guide/search-syncs/lifecycle.md) —
+  `syncIndexes`, `reindexAll`, `start`, `failed`, `flush` and `close`.
 - [The sync's lifecycle](docs/guide/sync-lifecycle.md) — the two definitions,
   the transform, and every option with its default.
 - [Reindexing](docs/guide/reindex.md) — the full fill, and what it removes.
