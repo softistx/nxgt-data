@@ -98,8 +98,14 @@ app.onError((error, c) => {
 
 ## A health check
 
-`ping` answers within `timeoutMS` either way, and never throws — a health
-check reports, it does not fail.
+`ping` answers within `timeoutMS` (plus a 250 ms grace) either way, and never
+throws — a health check reports, it does not fail. The deadline holds even
+right after the server is lost, when the driver would otherwise wait
+`serverSelectionTimeoutMS` (30 s by default) for a server to select; then the
+result is `{ ok: false }` with a `ConnectionError`, `ping: no answer in 500ms`.
+
+`timeoutMS: 0` is not "no limit" here, as it is for the driver: a health check
+without one makes no sense, so only the 250 ms grace bounds it.
 
 ```ts
 app.get('/health', async (c) => {
@@ -189,7 +195,7 @@ interface MongoConnection extends AsyncDisposable {
 	readonly client: MongoClient;
 	/** The URI's database, or `test` when the URI names none. */
 	readonly db: Db;
-	/** Sends `ping`, and answers within `timeoutMS` (default 2 s) either way. */
+	/** Sends `ping`, and answers within `timeoutMS` (default 2 s) and a short grace, either way. */
 	ping(options?: { timeoutMS?: number }): Promise<PingResult>;
 	/** Idempotent. The client closes when the last connection to it does. */
 	close(): Promise<void>;

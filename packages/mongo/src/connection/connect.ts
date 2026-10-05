@@ -14,7 +14,7 @@ export interface MongoConnection extends AsyncDisposable {
 	readonly client: MongoClient;
 	/** The URI's database, or `test` when the URI names none — the driver's default. */
 	readonly db: Db;
-	/** Sends `ping`, and answers within `timeoutMS` (default 2 s) either way. */
+	/** Sends `ping`, and answers within `timeoutMS` (default 2 s) and a short grace, either way. */
 	ping(options?: { timeoutMS?: number }): Promise<PingResult>;
 	/** Idempotent. The client closes when the last connection to it does. */
 	close(): Promise<void>;
@@ -85,14 +85,49 @@ function share(uri: string, options: MongoClientOptions): Shared {
 	return shared;
 }
 
-/** `ping` within `timeoutMS`; never throws. Also the wiring's, for a client handed in. */
+/**
+ * How long after `timeoutMS` the timer in `ping` waits. The driver's own
+ * `MongoOperationTimeoutError` is the better answer whenever it comes, so the
+ * timer stands behind it: a timer at exactly `timeoutMS` would always fire
+ * first and hide it.
+ */
+const PING_GRACE_MS = 250;
+
+/**
+ * `ping` within `timeoutMS` (plus a short grace); never throws. Also the
+ * wiring's, for a client handed in.
+ *
+ * `timeoutMS` is the driver's deadline for the command, and it does not bound
+ * server selection, which waits `serverSelectionTimeoutMS` (30 s by default).
+ * Measured on mongodb 7.6.0: on a connected client that has just lost its
+ * server, the first ping fails fast with a `MongoNetworkError` and one of the
+ * next pings waits the 30 s, `timeoutMS` ignored. So the command is raced
+ * against a timer of its own, which answers with a `ConnectionError` when it
+ * wins. `timeoutMS: 0` means no limit to the driver, but a health check with
+ * none makes no sense: the timer still bounds it, at the 250 ms grace.
+ */
 export async function ping(db: Db, timeoutMS = 2_000): Promise<PingResult> {
 	const started = performance.now();
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const deadline = new Promise<PingResult>((resolve) => {
+		timer = setTimeout(
+			() =>
+				resolve({
+					ok: false,
+					error: new ConnectionError(`ping: no answer in ${timeoutMS}ms`),
+				}),
+			timeoutMS + PING_GRACE_MS,
+		);
+	});
+	const command = db.command({ ping: 1 }, { timeoutMS }).then(
+		(): PingResult => ({ ok: true, latencyMs: performance.now() - started }),
+		// Also what keeps a rejection that comes after the timer won handled.
+		(error: unknown): PingResult => ({ ok: false, error }),
+	);
 	try {
-		await db.command({ ping: 1 }, { timeoutMS });
-		return { ok: true, latencyMs: performance.now() - started };
-	} catch (error) {
-		return { ok: false, error };
+		return await Promise.race([command, deadline]);
+	} finally {
+		clearTimeout(timer);
 	}
 }
 
