@@ -43,7 +43,7 @@ _Nothing in progress._
   fails, and what comes back is Redis's own error, as `RedisError`.
 - **A queue** — pub/sub is fire-and-forget. A message published while nobody
   is subscribed is gone, and nothing is stored, acknowledged or replayed.
-- **An actor, or a session** — `@nxgt/mongo-kit` derives its object with
+- **An actor, or a session** — `@nxgt/mongo`'s `openMongo` derives its object with
   `as(actor)` and `withSession`, because MongoDB has something to stamp and
   something to carry. Redis has neither, so what `openRedis` gives back is the
   same object for every request, is never derived, and `close()` always
