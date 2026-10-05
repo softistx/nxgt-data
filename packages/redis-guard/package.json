@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/redis-guard",
-	"version": "0.3.2",
+	"version": "0.4.0",
 	"description": "Deprecated: moved into @nxgt/redis. Re-exports its rate limits and idempotency under the same names",
 	"license": "MIT",
 	"type": "module",
