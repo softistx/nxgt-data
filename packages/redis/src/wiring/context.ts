@@ -34,7 +34,7 @@ export interface InstanceContext {
  *
  * There is no derived redis here — Redis has no actor and no session — so
  * there is one context per redis and `close()` always belongs to it. That is
- * the one place this Redis is simpler than `@nxgt/mongo-kit`, which needs a
+ * the one place this Redis is simpler than `@nxgt/mongo`'s wiring, which needs a
  * `root` flag to tell the closable redis from the derived ones.
  */
 export interface WiringContext {
