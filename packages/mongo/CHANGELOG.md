@@ -1,5 +1,11 @@
 # @nxgt/mongo
 
+## 0.19.1
+
+### Patch Changes
+
+- [#176](https://github.com/softistx/nxgt-data/pull/176) [`a744fd6`](https://github.com/softistx/nxgt-data/commit/a744fd6b3e6f1aa2d56ebefeb7bf3429c342b2b3) Thanks [@SteveGT96](https://github.com/SteveGT96)! - A `ping` right after the server is lost answers within its deadline instead of after server selection's 30 s. `timeoutMS` does not bound server selection, so the second ping on a connected client that had just lost its server waited `serverSelectionTimeoutMS`; `ping` now races a timer set at `timeoutMS` plus a 250 ms grace, and answers `{ ok: false }` with a `ConnectionError` (`ping: no answer in …ms`) when it wins. The driver's own `MongoOperationTimeoutError` still comes first whenever the driver honours the deadline. The wiring's `ping` for a `client` handed in uses the same one.
+
 ## 0.19.0
 
 ### Minor Changes

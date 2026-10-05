@@ -1,5 +1,16 @@
 # @nxgt/mongo-meilisearch
 
+## 0.5.0
+
+### Minor Changes
+
+- [#178](https://github.com/softistx/nxgt-data/pull/178) [`f7e6679`](https://github.com/softistx/nxgt-data/commit/f7e66790eef01e5beb26c9d6f603dd835b3c185e) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The search over several collections of `@nxgt/mongo-search-kit` is now in this package. New exports: `createSearchSyncs(mongo, config)`, which takes what `@nxgt/mongo`'s `openMongo` returned and one entry per collection — an index and a transform, under the key the Mongo wires that collection under — and gives `syncs`, `state()`, `syncIndexes()`, `reindexAll()` and a `start()` that resolves once every sync is hearing changes, into a `RunningSearchSyncs` with `running`, `failed`, `flush()` and `close()`. Each collection's sync is the `createSearchSync` this package already had, unchanged. The types come with it: `SearchSyncs`, `RunningSearchSyncs`, `SearchSyncsConfig`, `SearchSyncEntry`, `IndexMap`, `SoleCollections` and `ByKey`. It is what `@nxgt/mongo-search-kit` shipped, renamed: `createSearchKit` is `createSearchSyncs`, `SearchKit` is `SearchSyncs`, `RunningSearchKit` is `RunningSearchSyncs`, `SearchConfig` is `SearchSyncsConfig` and `SearchEntry` is `SearchSyncEntry`. The messages follow: they begin `createSearchSyncs:` (the type-level refusal too, which began `mongo-search-kit:`), and the ones that named the object read `this Mongo holds N databases … Build one \`createSearchSyncs\` per database` and `this Mongo wires no collection called "…"`. The guides, the troubleshooting entries and the roadmap moved here with it. Nothing existing changes; `@nxgt/mongo` 0.19.0 or later is needed for the `Mongo` type it takes.
+
+### Patch Changes
+
+- Updated dependencies [[`a744fd6`](https://github.com/softistx/nxgt-data/commit/a744fd6b3e6f1aa2d56ebefeb7bf3429c342b2b3)]:
+  - @nxgt/mongo@0.19.1
+
 ## 0.4.4
 
 ### Patch Changes
