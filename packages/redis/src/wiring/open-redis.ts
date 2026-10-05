@@ -1,8 +1,21 @@
 import { connectRedis, type RedisConnection } from '../connection/connect';
-import { checkInstance, isCache, isChannel, wiredOf } from './config/checks';
+import {
+	checkInstance,
+	isCache,
+	isChannel,
+	isIdempotency,
+	isRateLimit,
+	wiredOf,
+} from './config/checks';
 import type { InstanceConfig, RedisConfig } from './config/types';
 import type { InstanceContext, WiringContext } from './context';
-import type { AnyCache, AnyChannel, Redis } from './types';
+import type {
+	AnyCache,
+	AnyChannel,
+	AnyIdempotency,
+	AnyRateLimit,
+	Redis,
+} from './types';
 import { wire } from './wire';
 
 async function open(
@@ -30,6 +43,8 @@ async function open(
 		prefix: instance.prefix,
 		caches: wiredOf<AnyCache>(instance.caches, isCache),
 		channels: wiredOf<AnyChannel>(instance.channels, isChannel),
+		limits: wiredOf<AnyRateLimit>(instance.limits, isRateLimit),
+		idempotency: wiredOf<AnyIdempotency>(instance.idempotency, isIdempotency),
 		connection,
 	};
 }
@@ -40,13 +55,15 @@ async function open(
  * ```ts
  * import * as caches from './caches';
  * import * as channels from './channels';
+ * import * as limits from './limits';
  *
  * export const redis = await openRedis(
- *   defineRedis({ uri: process.env.REDIS_URL!, caches, channels }),
+ *   defineRedis({ uri: process.env.REDIS_URL!, caches, channels, limits }),
  * );
  *
  * await redis.cache.sessions.remember({ userId }, () => load(userId));
  * await redis.channels.users.publish({ id: userId, event: 'created' });
+ * await redis.limits.login.enforce({ ip });
  * ```
  *
  * `openRedis`, not `createRedis`: `AGENTS.md` reserves `create*` for an
@@ -77,6 +94,8 @@ export async function openRedis<C>(config: RedisConfig<C>): Promise<Redis<C>> {
 		instances,
 		caches: new Map(),
 		channels: new Map(),
+		limits: new Map(),
+		idempotency: new Map(),
 		subscriptions: new Set(),
 	};
 	return wire<C>(ctx);
