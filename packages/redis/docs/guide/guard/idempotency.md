@@ -81,6 +81,13 @@ limit's and an `@nxgt/redis` cache's:
 orders.keyFor({ user: 'u1', key: 'k-123' });   // 'orders.create:u1/k-123'
 ```
 
+The policy is readable from the bound object, without the definition:
+
+```ts
+orders.definition.ttl;    // 86_400, seconds
+orders.definition.lease;  // 30_000, milliseconds
+```
+
 **Scope the key to whoever chose it.** An `Idempotency-Key` header is unique
 only to the client that made it up. Key on the user, the tenant or the API
 key as well, or two clients that happen to pick the same key would share one
@@ -100,6 +107,7 @@ function bindIdempotency<P, S extends z.ZodType>(
 ): BoundIdempotency<P, z.output<S>, z.input<S>>;
 
 interface BoundIdempotency<P, T, I = T> {
+	readonly definition: IdempotencyDefinition<P, z.ZodType<T, I>>;
 	keyFor(params: P): string;
 	run(params: P, work: () => Promise<I> | I, options?: RunOptions): Promise<Idempotent<T>>;
 	forget(params: P): Promise<boolean>;
@@ -110,6 +118,11 @@ interface Idempotent<T> {
 	readonly replayed: boolean; // true when an earlier run stored it
 }
 ```
+
+`definition` is the one it was bound with, read-only: `orders.definition.ttl`
+and `.lease` give the policy without passing the definition a second time.
+Wired through `openRedis`, it is the frozen copy with the instance's prefix in
+its name, so `definition.name` is what is actually written.
 
 `forget(params)` deletes the key whether it is done or still running, and
 resolves `true` when something was there — the deliberate way to let a key

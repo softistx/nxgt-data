@@ -34,6 +34,11 @@ export function bindIdempotency<P, S extends z.ZodType>(
 	};
 	const keyFor = (params: P) => `${ctx.name}:${definition.key(params)}`;
 	return {
+		// `S` is one schema; the bound type names only what it accepts and gives.
+		definition: definition as IdempotencyDefinition<
+			P,
+			z.ZodType<z.output<S>, z.input<S>>
+		>,
 		keyFor,
 		run: async (params, work, options) =>
 			await run<z.output<S>, z.input<S>>(ctx, keyFor(params), work, options),

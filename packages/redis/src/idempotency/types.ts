@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import type { DefinitionView } from '../definition-view';
 
 /**
  * One idempotent operation: what it is called, how its key is built from
@@ -81,6 +82,17 @@ export interface Idempotent<T> {
  * stored and replayed.
  */
 export interface BoundIdempotency<P, T, I = T> {
+	/**
+	 * The definition this was bound with, to read its policy (`ttl`, `lease`) without
+	 * passing it a second time. Wired through `openRedis`, it is the copy
+	 * with the prefix in its name, so `definition.name` is the name that is
+	 * actually written. Read-only: the wired copy is frozen, so a policy
+	 * cannot be changed through it.
+	 */
+	readonly definition: DefinitionView<
+		IdempotencyDefinition<P, z.ZodType<T, I>>,
+		P
+	>;
 	/** The key this would use, for a caller that needs the string itself. */
 	keyFor(params: P): string;
 	/**

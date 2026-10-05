@@ -42,6 +42,12 @@ export type PayloadOf<D> =
  * duplicated connection, which is what makes a forgotten one cost something.
  */
 export interface BoundChannel<D> {
+	/**
+	 * The definition this was bound with. Wired through `openRedis`, it is
+	 * the copy with the prefix in its name, so `definition.name` is the name
+	 * that is actually written. Read-only: the wired copy is frozen.
+	 */
+	readonly definition: D;
 	/** The channel's name in Redis, prefix included. */
 	readonly name: string;
 	/** The number of subscribers Redis handed the message to. Not a delivery

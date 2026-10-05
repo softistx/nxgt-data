@@ -91,6 +91,12 @@ _Nothing in progress._
 
 ## Shipped
 
+- **Bound caches, rate limits and idempotency expose their definition** —
+  `definition` on each, read-only: `redis.limits.api.definition.limit`, `.per`,
+  `.ttl`, `.lease`, so a consumer handed a bound guard need not be handed its
+  policy too. Wired, it is the frozen copy with the prefix, so
+  `definition.name` is the name actually written. The wired channel has it too.
+
 - **Rate limits and idempotency wired by `defineRedis` and `openRedis`** —
   definitions exported from a module and handed to `defineRedis` as `limits`
   and `idempotency`, bound by `openRedis` under the instance's `prefix` and

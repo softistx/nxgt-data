@@ -23,6 +23,7 @@ wiring adds: the binding, the prefix, and what the types hold you to.
 
 | Member | | |
 | --- | --- | --- |
+| `definition` | `CacheDefinition` | the definition it was bound with, read-only and frozen; its `name` carries the prefix, so `definition.ttl` is the policy and `definition.name` the name written |
 | `keyFor(params)` | `string` | the key it would use, for a caller that needs the string itself |
 | `get(params)` | `Promise<T \| undefined>` | the value, or `undefined` — a miss, an expiry, or a shape the schema no longer matches |
 | `set(params, value, { ttl })` | `Promise<void>` | the value as the schema accepts it — a `.default()` field may be left out — checked, then stored as the schema gives it back, for the definition's `ttl` or the one given here |

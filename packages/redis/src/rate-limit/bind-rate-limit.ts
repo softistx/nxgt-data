@@ -52,6 +52,7 @@ export function bindRateLimit<P>(
 	};
 
 	return {
+		definition,
 		keyFor,
 		consume: (params, cost) => consume('consume', params, cost),
 		async enforce(params, cost) {

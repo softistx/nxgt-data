@@ -175,6 +175,7 @@ redis.instances.cache.channels.created;             // that instance wires no ch
 
 ```ts
 interface BoundChannel<D> {
+	readonly definition: D; // frozen, with the prefix in its name
 	readonly name: string;
 	publish(payload: PayloadOf<D>): Promise<number>;
 	subscribe(

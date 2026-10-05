@@ -1,3 +1,5 @@
+import type { DefinitionView } from '../definition-view';
+
 /**
  * One rate limit: what it is called, how its key is built from what it
  * limits, and the rate.
@@ -45,6 +47,14 @@ export interface LimitResult {
  * for — a whole number from 1 to the burst, and from 0 for `peek`.
  */
 export interface BoundRateLimit<P> {
+	/**
+	 * The definition this was bound with, to read its policy (`limit`, `per`) without
+	 * passing it a second time. Wired through `openRedis`, it is the copy
+	 * with the prefix in its name, so `definition.name` is the name that is
+	 * actually written. Read-only: the wired copy is frozen, so a policy
+	 * cannot be changed through it.
+	 */
+	readonly definition: DefinitionView<RateLimitDefinition<P>, P>;
 	/** The key this would use, for a caller that needs the string itself. */
 	keyFor(params: P): string;
 	/** Counts the call if it is allowed. A denial counts nothing. */

@@ -165,3 +165,14 @@ bindIdempotency(client, userCreated);
 
 // @ts-expect-error a channel is not a rate limit
 bindRateLimit(client, userCreated);
+
+// A bound idempotency and a bound cache show their definition, read-only.
+const lease: number = orders.definition.lease;
+void lease;
+// @ts-expect-error definition is readonly
+orders.definition = createOrder;
+const cached = bindCache(client, userCache);
+const ttl: number = cached.definition.ttl;
+void ttl;
+// @ts-expect-error definition is readonly
+cached.definition = userCache;

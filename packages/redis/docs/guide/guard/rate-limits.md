@@ -82,6 +82,7 @@ function bindRateLimit<P>(
 ): BoundRateLimit<P>;
 
 interface BoundRateLimit<P> {
+	readonly definition: RateLimitDefinition<P>;
 	keyFor(params: P): string;
 	consume(params: P, cost?: number): Promise<LimitResult>;
 	enforce(params: P, cost?: number): Promise<LimitResult>;
@@ -89,6 +90,19 @@ interface BoundRateLimit<P> {
 	reset(params: P): Promise<boolean>;
 }
 ```
+
+`definition` is the one it was bound with, read-only, so a consumer that is
+handed the bound limit can read its policy without being handed the
+definition too:
+
+```ts
+redis.limits.api.definition.limit; // 100
+redis.limits.api.definition.per;   // 60_000
+```
+
+Wired through `openRedis`, it is the copy with the instance's prefix in its
+name — `definition.name` is what is actually written — and it is frozen, so a
+policy cannot be changed through it.
 
 `cost` defaults to 1 — see [Costs](#costs) and [Four ways to ask](#four-ways-to-ask).
 

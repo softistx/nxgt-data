@@ -98,3 +98,11 @@ declare const error: GuardError;
 // @ts-expect-error possibly undefined
 const wait: number = error.retryAfter;
 void wait;
+
+// A bound guard shows its definition and cannot be pointed at another.
+const limit: number = login.definition.limit;
+void limit;
+// @ts-expect-error definition is readonly
+login.definition = loginLimit;
+// @ts-expect-error a definition's own fields are readonly too
+login.definition.limit = 1;

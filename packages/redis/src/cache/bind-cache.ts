@@ -1,5 +1,6 @@
 import type { RedisClient } from 'bun';
 import type { z } from 'zod';
+import type { DefinitionView } from '../definition-view';
 import { RedisError } from '../errors/redis-error';
 import type { CacheDefinition } from './types';
 
@@ -12,6 +13,14 @@ import type { CacheDefinition } from './types';
  * what gets stored.
  */
 export interface BoundCache<P, T, I = T> {
+	/**
+	 * The definition this was bound with, to read its policy (`ttl`) without
+	 * passing it a second time. Wired through `openRedis`, it is the copy
+	 * with the prefix in its name, so `definition.name` is the name that is
+	 * actually written. Read-only: the wired copy is frozen, so a policy
+	 * cannot be changed through it.
+	 */
+	readonly definition: DefinitionView<CacheDefinition<P, z.ZodType<T, I>>, P>;
 	/** The key this would use, for a caller that needs the string itself. */
 	keyFor(params: P): string;
 	/** The value, or `undefined` — a miss, an expiry, or a stale shape. */
@@ -102,6 +111,11 @@ export function bindCache<P, S extends z.ZodType>(
 	};
 
 	return {
+		// `S` is one schema; the bound type names only what it accepts and gives.
+		definition: definition as CacheDefinition<
+			P,
+			z.ZodType<z.output<S>, z.input<S>>
+		>,
 		keyFor,
 		get,
 		set: async (params, value, options) => {
