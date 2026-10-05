@@ -1,3 +1,5 @@
+import type { DefinitionView } from '../definition-view';
+
 /**
  * One rate limit: what it is called, how its key is built from what it
  * limits, and the rate.
@@ -52,7 +54,7 @@ export interface BoundRateLimit<P> {
 	 * actually written. Read-only: the wired copy is frozen, so a policy
 	 * cannot be changed through it.
 	 */
-	readonly definition: RateLimitDefinition<P>;
+	readonly definition: DefinitionView<RateLimitDefinition<P>, P>;
 	/** The key this would use, for a caller that needs the string itself. */
 	keyFor(params: P): string;
 	/** Counts the call if it is allowed. A denial counts nothing. */

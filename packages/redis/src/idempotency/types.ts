@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import type { DefinitionView } from '../definition-view';
 
 /**
  * One idempotent operation: what it is called, how its key is built from
@@ -88,7 +89,10 @@ export interface BoundIdempotency<P, T, I = T> {
 	 * actually written. Read-only: the wired copy is frozen, so a policy
 	 * cannot be changed through it.
 	 */
-	readonly definition: IdempotencyDefinition<P, z.ZodType<T, I>>;
+	readonly definition: DefinitionView<
+		IdempotencyDefinition<P, z.ZodType<T, I>>,
+		P
+	>;
 	/** The key this would use, for a caller that needs the string itself. */
 	keyFor(params: P): string;
 	/**

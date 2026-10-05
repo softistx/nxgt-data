@@ -1,5 +1,6 @@
 import type { RedisClient } from 'bun';
 import type { z } from 'zod';
+import type { DefinitionView } from '../definition-view';
 import { RedisError } from '../errors/redis-error';
 import type { CacheDefinition } from './types';
 
@@ -19,7 +20,7 @@ export interface BoundCache<P, T, I = T> {
 	 * actually written. Read-only: the wired copy is frozen, so a policy
 	 * cannot be changed through it.
 	 */
-	readonly definition: CacheDefinition<P, z.ZodType<T, I>>;
+	readonly definition: DefinitionView<CacheDefinition<P, z.ZodType<T, I>>, P>;
 	/** The key this would use, for a caller that needs the string itself. */
 	keyFor(params: P): string;
 	/** The value, or `undefined` — a miss, an expiry, or a stale shape. */
