@@ -12,13 +12,12 @@ Data access for TypeScript apps: the code written around every table, once.
 | [`@nxgt/mongo-backup`](packages/mongo-backup) | MongoDB for `@nxgt/backup`: a full backup read at one cluster time, incremental and differential ones from the change stream, and a restore that lands each collection whole or not at all, into the same database or another | [npm](https://www.npmjs.com/package/@nxgt/mongo-backup) |
 | [`@nxgt/mongo-meilisearch`](packages/mongo-meilisearch) | keeps Meilisearch indexes in step with MongoDB collections, one or every collection a Mongo wires: a transform typed by both definitions, a full reindex, and a change stream that resumes where it stopped | [npm](https://www.npmjs.com/package/@nxgt/mongo-meilisearch) |
 | [`@nxgt/redis`](packages/redis) | Redis on Bun's own client: one connection shared per URI, typed caches and channels, a lock that is safe to release, rate limits and idempotent operations checked by one atomic script each, timed by the Redis server's clock, and an application's whole Redis wiring in one object — `defineRedis` and `openRedis` give `redis.cache.users` with the deployment's prefix in front of every key, plus the lock, the health check and the subscriptions it closes | [npm](https://www.npmjs.com/package/@nxgt/redis) |
-| [`@nxgt/redis-guard`](packages/redis-guard) | **deprecated**: moved into `@nxgt/redis`, which it re-exports under the same names | [npm](https://www.npmjs.com/package/@nxgt/redis-guard) |
 | [`@nxgt/s3`](packages/s3) | S3 on Bun's own client: a bucket described once, keys built by a typed function, uploads refused before they are sent, and presigned URLs from the same definition | [npm](https://www.npmjs.com/package/@nxgt/s3) |
 
 Each package's README, its npm page, shows how to use it, then documents
 every function, class and type it exports in its **API** section.
 
-`@nxgt/redis-kit`, `@nxgt/mongo-kit` and `@nxgt/mongo-search-kit` were folded into `@nxgt/redis`, `@nxgt/mongo` and `@nxgt/mongo-meilisearch`; their last versions stay on npm, deprecated.
+`@nxgt/redis-kit`, `@nxgt/redis-guard`, `@nxgt/mongo-kit` and `@nxgt/mongo-search-kit` were folded into `@nxgt/redis` (the first two), `@nxgt/mongo` and `@nxgt/mongo-meilisearch`; their last versions stay on npm, deprecated.
 
 `examples/` holds applications built on them, which are not published:
 [`examples/hono-api`](examples/hono-api) is a Hono API on `@nxgt/mongo`'s wiring
