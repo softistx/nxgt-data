@@ -6,7 +6,7 @@ author, services that take that Mongo, and the collections typed on the
 driver's own `Db`.
 
 Writing an article is guarded by
-[`@nxgt/redis-guard`](../../packages/redis-guard/README.md), on a Redis:
+[`@nxgt/redis`](../../packages/redis/README.md), on a Redis:
 **five writes a minute per user**, with the `RateLimit-*` headers and a 429,
 and an **`Idempotency-Key`** that makes a retried write publish once — see
 [The guards](#the-guards).
@@ -284,11 +284,11 @@ console.log(`🚀 Server running at ${server.url} ${env.NODE_ENV}`);
 `POST /articles` is the one guarded route: it writes, in a transaction that
 also raises the author's count, so it is what a client hammering or retrying
 would do real damage with. Both guards are
-[`@nxgt/redis-guard`](../../packages/redis-guard/README.md)'s, each a Lua
+[`@nxgt/redis`](../../packages/redis/README.md)'s, each a Lua
 script timed by the Redis server's clock, and the route follows its guides'
 HTTP recipes
-([rate limits](../../packages/redis-guard/docs/guide/rate-limits.md#http-headers-for-any-framework),
-[idempotency](../../packages/redis-guard/docs/guide/idempotency.md#http-the-idempotency-key-header-for-any-framework)).
+([rate limits](../../packages/redis/docs/guide/guard/rate-limits.md#http-headers-for-any-framework),
+[idempotency](../../packages/redis/docs/guide/guard/idempotency.md#http-the-idempotency-key-header-for-any-framework)).
 
 ```ts
 // src/modules/articles/articles.guards.ts — described once, bound once per app
@@ -433,7 +433,7 @@ here.
   holds no user — it is keyed by one on each call — and binding sends
   nothing to Redis, so `bindGuards(redis)` runs in `buildApp` and every
   request shares the result.
-- **Headers are delays in whole seconds, rounded up.** `@nxgt/redis-guard`
+- **Headers are delays in whole seconds, rounded up.** `@nxgt/redis`
   answers in milliseconds; `Retry-After: 11` for 11 001 ms would tell a
   client to come back a millisecond early, so `seconds(ms)` is a
   `Math.ceil`. None is a date: the client counts from when it read the reply,

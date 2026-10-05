@@ -92,5 +92,5 @@ bun add zod
 
 Bun installs a missing peer by itself unless told not to, so this usually
 goes unnoticed; where peers are not installed, `tsc` fails on the shipped
-declarations — see [troubleshooting](troubleshooting.md#cannot-find-module-zod-or-its-corresponding-type-declarations).
+declarations — see [troubleshooting](../../troubleshooting.md#cannot-find-module-zod-or-its-corresponding-type-declarations).
 Nothing about rate limits changed.

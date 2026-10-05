@@ -35,11 +35,15 @@ guides, the troubleshooting entries and the roadmap are in
 
 ## Install
 
+Install `@nxgt/redis` instead; this package adds nothing to it:
+
 ```sh
-bun add @nxgt/redis-guard @nxgt/redis zod
+bun add @nxgt/redis zod
 ```
 
-`@nxgt/redis` is a required peer (and `zod` through it), with `typescript`.
+An application that still imports `@nxgt/redis-guard` keeps working: it
+re-exports `@nxgt/redis`, which is a required peer (and `zod` through it),
+with `typescript`.
 
 ## License
 
