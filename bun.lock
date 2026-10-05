@@ -139,18 +139,6 @@
         "typescript": "^6.0.3",
       },
     },
-    "packages/mongo-kit": {
-      "name": "@nxgt/mongo-kit",
-      "version": "0.5.0",
-      "devDependencies": {
-        "@nxgt/mongo": "workspace:^",
-        "@types/bun": "^1.4.0",
-      },
-      "peerDependencies": {
-        "@nxgt/mongo": "workspace:^",
-        "typescript": "^6.0.3",
-      },
-    },
     "packages/mongo-meilisearch": {
       "name": "@nxgt/mongo-meilisearch",
       "version": "0.5.0",
@@ -168,18 +156,6 @@
         "@nxgt/mongo": "workspace:^",
         "meilisearch": ">=0.62.0 <1",
         "mongodb": ">=7.0.0 <8",
-        "typescript": "^6.0.3",
-      },
-    },
-    "packages/mongo-search-kit": {
-      "name": "@nxgt/mongo-search-kit",
-      "version": "0.3.0",
-      "devDependencies": {
-        "@nxgt/mongo-meilisearch": "workspace:^",
-        "@types/bun": "^1.4.0",
-      },
-      "peerDependencies": {
-        "@nxgt/mongo-meilisearch": "workspace:^",
         "typescript": "^6.0.3",
       },
     },
@@ -207,18 +183,6 @@
       "peerDependencies": {
         "typescript": "^6.0.3",
         "zod": ">=4.6.5 <5",
-      },
-    },
-    "packages/redis-kit": {
-      "name": "@nxgt/redis-kit",
-      "version": "0.3.0",
-      "devDependencies": {
-        "@nxgt/redis": "workspace:^",
-        "@types/bun": "^1.4.0",
-      },
-      "peerDependencies": {
-        "@nxgt/redis": "workspace:^",
-        "typescript": "^6.0.3",
       },
     },
     "packages/s3": {
@@ -328,11 +292,7 @@
 
     "@nxgt/mongo-backup": ["@nxgt/mongo-backup@workspace:packages/mongo-backup"],
 
-    "@nxgt/mongo-kit": ["@nxgt/mongo-kit@workspace:packages/mongo-kit"],
-
     "@nxgt/mongo-meilisearch": ["@nxgt/mongo-meilisearch@workspace:packages/mongo-meilisearch"],
-
-    "@nxgt/mongo-search-kit": ["@nxgt/mongo-search-kit@workspace:packages/mongo-search-kit"],
 
     "@nxgt/openapi-codegen": ["@nxgt/openapi-codegen@0.4.1", "", { "peerDependencies": { "@redocly/openapi-core": "^2.52.1", "typescript": "^6.0.3", "zod": "^4.5.4" }, "optionalPeers": ["@redocly/openapi-core"], "bin": { "nxgt-openapi": "dist/cli.js" } }, "sha512-GrJzkidA9ef3AjoZIOryaie/Oknwa5CDncAMEKlvz+Ize2Yh8IHdbrgvoRGkuiacsCtDbaWQmONSsGDlI44asA=="],
 
@@ -341,8 +301,6 @@
     "@nxgt/redis": ["@nxgt/redis@workspace:packages/redis"],
 
     "@nxgt/redis-guard": ["@nxgt/redis-guard@workspace:packages/redis-guard"],
-
-    "@nxgt/redis-kit": ["@nxgt/redis-kit@workspace:packages/redis-kit"],
 
     "@nxgt/s3": ["@nxgt/s3@workspace:packages/s3"],
 
