@@ -56,9 +56,10 @@ export function wiredOf<T>(
  *
  * A bare `TypeError`, with no code. Every refusal here is wiring-time — no
  * request can produce one — and there are few enough to tell apart by their
- * sentence, which is the rule in `AGENTS.md`. `@nxgt/mongo-kit` is the
- * exception to it because it has seven; `@nxgt/mongo-search-kit`, which is
- * the closer neighbour in size, carries no error class either.
+ * sentence, which is the rule in `AGENTS.md`. `@nxgt/mongo`'s wiring is the
+ * exception to it because it has seven (`WiringError`);
+ * `@nxgt/mongo-meilisearch`'s `createSearchSyncs`, the closer neighbour in
+ * size, carries no error class either.
  */
 export function checkInstance(
 	call: 'defineRedis' | 'openRedis',
