@@ -232,7 +232,7 @@ matching key in `exports` — except a `bin` target (`@nxgt/mongo-backup`'s
   dependency field has finished, and the ones of one wave in parallel:
   `bun run --filter` started dependents beside their dependencies on a clean
   checkout in alxia. Two waves here: the standalone packages, then the two
-  bridges and `@nxgt/mongo-backup` (after `@nxgt/backup`). The examples run after them, with
+  bridges, `@nxgt/redis-guard` (after `@nxgt/redis`) and `@nxgt/mongo-backup` (after `@nxgt/backup`). The examples run after them, with
   `--filter './examples/*'`.
 - **CI's "Newest peers" job tests the other end of every peer range.** The
   CI job runs the lockfile: the exact version each package pins as a
@@ -622,7 +622,7 @@ under all of them; a package's `tsconfig.json` turns no check on or off.
     which also rethrows anything but a `SearchSyncError` and narrows the
     type, and `create-search-syncs.spec.ts` with the `test/rejection.ts`
     copy. The other packages' specs (`drizzle`, `drizzle-meilisearch`,
-    `redis`, `s3`) and
+    `s3`) and
     `examples/hono-api` still use `.rejects` and are open to it;
     `grep -rn "\.rejects" packages/*/src packages/*/test examples/*/src`
     lists them, and should end up listing only the comments in the
