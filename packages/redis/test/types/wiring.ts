@@ -13,6 +13,9 @@ import { openRedis } from '../../src/wiring/open-redis';
 import type { RedisOf } from '../../src/wiring/types';
 import * as caches from '../wiring/caches';
 import * as channels from '../wiring/channels';
+import * as idempotency from '../wiring/idempotency';
+import * as limits from '../wiring/limits';
+import * as mixed from '../wiring/mixed';
 
 const uri = 'redis://127.0.0.1:6379';
 
@@ -133,6 +136,83 @@ async function severalInstances() {
 	await redis.close();
 }
 
+async function wiredGuards() {
+	const redis = await openRedis(defineRedis({ uri, limits, idempotency }));
+
+	// A limit and an idempotency that are not wired.
+	// @ts-expect-error
+	redis.limits.nope;
+	// @ts-expect-error
+	redis.idempotency.nope;
+
+	// A cache is not wired under `limits`, nor a limit under `idempotency`.
+	// @ts-expect-error
+	redis.limits.users;
+	// @ts-expect-error
+	redis.idempotency.login;
+
+	// `login` is keyed by an object, `charges` by a string.
+	// @ts-expect-error
+	await redis.limits.login.consume('10.0.0.1');
+	// @ts-expect-error
+	await redis.idempotency.charges.run({ key: 'k' }, () => ({ chargeId: 'x' }));
+
+	// `work` returns what the schema accepts.
+	// @ts-expect-error
+	await redis.idempotency.charges.run('k', () => ({ id: 'x' }));
+
+	// Each slot keeps its own kind, as `caches` and `channels` do, so a module
+	// may be passed to several slots — and a definition under the wrong slot is
+	// refused where it is used, not where it is configured.
+	const wrong = await openRedis(
+		defineRedis({ uri, caches, limits: caches, idempotency: limits }),
+	);
+	// @ts-expect-error `users` is a cache: not wired on `limits`
+	wrong.limits.users;
+	// @ts-expect-error `login` is a rate limit: not wired on `idempotency`
+	wrong.idempotency.login;
+	await wrong.cache.users.get('ada');
+
+	// An idempotency is not a cache either.
+	const notCaches = await openRedis(
+		defineRedis({ uri, caches: { orders: idempotency.orders }, limits }),
+	);
+	// @ts-expect-error
+	notCaches.cache.orders;
+
+	// With several instances `redis.limits` is `never`, as `redis.cache` is.
+	const several = await openRedis(
+		defineRedis({
+			instances: { a: { uri, limits }, b: { uri, idempotency } },
+		}),
+	);
+	const noLimits: never = several.limits;
+	void noLimits;
+	// @ts-expect-error `a` wires no idempotency
+	several.instances.a.idempotency.orders;
+	// @ts-expect-error `b` wires no limit
+	several.instances.b.limits.login;
+	// @ts-expect-error an unknown name on an instance that wires limits
+	several.instances.a.limits.nope;
+
+	// These must keep compiling.
+	const result = await redis.limits.login.consume({ ip: '10.0.0.1' });
+	const left: number = result.remaining;
+	void left;
+	await redis.limits.exports.enforce({ org: 'acme', user: 'ada' }, 2);
+	const done = await redis.idempotency.orders.run(
+		{ user: 'u', key: 'k' },
+		() => ({ orderId: 'o', total: 1 }),
+	);
+	const status: string = done.value.status;
+	void status;
+	await redis.idempotency.charges.run('k', () => ({ chargeId: 'x' }));
+	defineRedis({ uri, limits, idempotency, caches, channels });
+	defineRedis({ uri, caches: mixed, limits: mixed, idempotency: mixed });
+	await several.instances.a.limits.login.peek({ ip: 'x' });
+	await redis.close();
+}
+
 /**
  * `RedisOf` types a Redis from the configuration alone — a service that is handed
  * one, rather than reading `Awaited<ReturnType<typeof openRedis>>` back.
@@ -238,4 +318,5 @@ export {
 	severalInstances,
 	soleInstance,
 	unknownInputs,
+	wiredGuards,
 };

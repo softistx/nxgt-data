@@ -9,12 +9,6 @@ _Nothing in progress._
 
 ## Next
 
-- **Rate limits and idempotency wired beside `openRedis`** — definitions
-  exported from a module and handed to `defineRedis`, then bound by
-  `openRedis` under the instances and prefix of the configuration, as the
-  caches are today. It is a change inside this package, with no new one: until
-  then a guard is bound to a client by hand, with `bindRateLimit` and
-  `bindIdempotency`, and the keys it writes carry no deployment prefix.
 - **The refusal of an unknown option, in the message it was written for** —
   an option the configuration does not have is a compile error today, but
   TypeScript usually reports it as `is not assignable to type 'never'` on
@@ -97,6 +91,17 @@ _Nothing in progress._
 
 ## Shipped
 
+- **Rate limits and idempotency wired by `defineRedis` and `openRedis`** —
+  definitions exported from a module and handed to `defineRedis` as `limits`
+  and `idempotency`, bound by `openRedis` under the instance's `prefix` and
+  typed from the configuration: `redis.limits.login.enforce(…)`,
+  `redis.idempotency.orders.run(…)`, as the caches are. Each slot keeps only its own
+  kind, and a name shared by a cache, a rate limit and an idempotency on one
+  instance is refused. A guard
+  still bound by hand writes no prefix, so moving one to the wiring starts new
+  keys — counts restart and stored results are not replayed. New exports:
+  `LimitsOf`, `IdempotencyOf`, `LimitsIn`, `IdempotencyIn`, `LimitScope`,
+  `IdempotencyScope`, `SoleLimits` and `SoleIdempotency` — 0.6.0.
 - **Rate limits and idempotency, folded in from `@nxgt/redis-guard`** —
   `defineRateLimit` / `bindRateLimit`: GCRA as one atomic script over one key,
   timed by the Redis server's clock, with `consume`, `enforce`, `peek` and

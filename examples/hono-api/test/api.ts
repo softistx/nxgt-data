@@ -1,8 +1,10 @@
-import { beforeAll } from 'bun:test';
+import { afterAll, beforeAll } from 'bun:test';
+import { defineRedis, openRedis } from '@nxgt/redis';
 import type { Hono } from 'hono';
 import { ObjectId } from 'mongodb';
 import { buildApp } from '../src/app';
 import type { Env, GuardOptions } from '../src/context';
+import { type AppRedis, wiring } from '../src/redis';
 import { useMongo } from './mongo';
 import { useRedis } from './redis';
 
@@ -40,10 +42,20 @@ function caller(app: () => Hono<Env>): Call {
 export function useApi(database: string, options: GuardOptions = {}) {
 	const state = useMongo(database);
 	const servers = useRedis();
+	const wired = {} as { redis: AppRedis };
 	let app: Hono<Env>;
 
-	beforeAll(() => {
-		app = buildApp(state.mongo, servers.redis.client, options);
+	beforeAll(async () => {
+		// The app's own wiring, over the spec's server: the client is handed in,
+		// so closing the Redis below leaves it to `useRedis` to stop.
+		wired.redis = await openRedis(
+			defineRedis({ client: servers.redis.client, ...wiring }),
+		);
+		app = buildApp(state.mongo, wired.redis, options);
+	});
+
+	afterAll(async () => {
+		await wired.redis?.close();
 	});
 
 	const call = caller(() => app);
@@ -62,9 +74,9 @@ export function useApi(database: string, options: GuardOptions = {}) {
 	 * that compares two settings. Call it inside a test.
 	 */
 	function callWith(other: GuardOptions): Call {
-		const built = buildApp(state.mongo, servers.redis.client, other);
+		const built = buildApp(state.mongo, wired.redis, other);
 		return caller(() => built);
 	}
 
-	return { mongo: state, redis: servers, call, callWith, newUser };
+	return { mongo: state, redis: servers, wired, call, callWith, newUser };
 }

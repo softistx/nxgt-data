@@ -7,7 +7,12 @@ import {
 	prefixed,
 	type WiringContext,
 } from './context';
-import { cacheScopeOf, channelScopeOf } from './scope';
+import {
+	cacheScopeOf,
+	channelScopeOf,
+	idempotencyScopeOf,
+	limitScopeOf,
+} from './scope';
 import type { Redis, RedisLockOptions } from './types';
 
 /**
@@ -24,6 +29,8 @@ function scopeFor(
 ): LooseInstanceScope {
 	let caches: object | undefined;
 	let channels: object | undefined;
+	let limits: object | undefined;
+	let idempotency: object | undefined;
 	return {
 		get cache() {
 			caches ??= cacheScopeOf(ctx, instance);
@@ -32,6 +39,14 @@ function scopeFor(
 		get channels() {
 			channels ??= channelScopeOf(ctx, instance);
 			return channels;
+		},
+		get limits() {
+			limits ??= limitScopeOf(ctx, instance);
+			return limits;
+		},
+		get idempotency() {
+			idempotency ??= idempotencyScopeOf(ctx, instance);
+			return idempotency;
 		},
 		client: instance.client,
 		prefix: instance.prefix,
@@ -62,6 +77,8 @@ function scopeFor(
 interface LooseInstanceScope {
 	readonly cache: object;
 	readonly channels: object;
+	readonly limits: object;
+	readonly idempotency: object;
 	readonly client: unknown;
 	readonly prefix: string | undefined;
 	lock<T>(
@@ -119,6 +136,12 @@ export function wire<C>(ctx: WiringContext): Redis<C> {
 		},
 		get channels() {
 			return sole('channels').channels;
+		},
+		get limits() {
+			return sole('limits').limits;
+		},
+		get idempotency() {
+			return sole('idempotency').idempotency;
 		},
 		instances: Object.freeze(instances),
 		clients: Object.freeze(clients),

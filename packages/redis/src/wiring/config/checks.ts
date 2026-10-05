@@ -1,6 +1,8 @@
 import type { z } from 'zod';
 import type { CacheDefinition } from '../../cache/types';
 import type { ChannelDefinition } from '../../channel/define-channel';
+import type { IdempotencyDefinition } from '../../idempotency/types';
+import type { RateLimitDefinition } from '../../rate-limit/types';
 import type { InstanceConfig } from './types';
 
 /**
@@ -20,6 +22,42 @@ export function isCache(
 		typeof it['name'] === 'string' &&
 		typeof it['key'] === 'function' &&
 		typeof it['ttl'] === 'number' &&
+		it['lease'] === undefined &&
+		it['schema'] !== undefined
+	);
+}
+
+/**
+ * Whether a module export is a rate limit definition: `limit` and `per` are
+ * what no other kind has.
+ */
+export function isRateLimit(
+	value: unknown,
+): value is RateLimitDefinition<never> {
+	if (typeof value !== 'object' || value === null) return false;
+	const it = value as Record<string, unknown>;
+	return (
+		typeof it['name'] === 'string' &&
+		typeof it['key'] === 'function' &&
+		typeof it['limit'] === 'number' &&
+		typeof it['per'] === 'number'
+	);
+}
+
+/**
+ * Whether a module export is an idempotency definition: a cache's shape with
+ * a `lease`, which `defineIdempotency` always fills and a cache never has.
+ */
+export function isIdempotency(
+	value: unknown,
+): value is IdempotencyDefinition<never, z.ZodType> {
+	if (typeof value !== 'object' || value === null) return false;
+	const it = value as Record<string, unknown>;
+	return (
+		typeof it['name'] === 'string' &&
+		typeof it['key'] === 'function' &&
+		typeof it['ttl'] === 'number' &&
+		typeof it['lease'] === 'number' &&
 		it['schema'] !== undefined
 	);
 }
@@ -98,43 +136,74 @@ function checkNothingWired(
 	where: string,
 	instance: InstanceConfig<object, object>,
 ): void {
-	const caches = wiredOf(instance.caches, isCache);
-	const channels = wiredOf(instance.channels, isChannel);
-	if (caches.length === 0 && channels.length === 0) {
+	if (
+		wiredOf(instance.caches, isCache).length === 0 &&
+		wiredOf(instance.channels, isChannel).length === 0 &&
+		wiredOf(instance.limits, isRateLimit).length === 0 &&
+		wiredOf(instance.idempotency, isIdempotency).length === 0
+	) {
 		throw new TypeError(
-			`${where} wires no cache and no channel. Pass the module that ` +
-				'exports them, or drop the instance.',
+			`${where} wires no cache, no channel, no rate limit and no ` +
+				'idempotency. Pass the module that exports them, or drop the instance.',
 		);
 	}
 }
 
+type Group = readonly [
+	kind: string,
+	wired: readonly (readonly [key: string, definition: { name: string }])[],
+];
+
 /**
- * Refuses one definition wired twice, under two keys.
+ * Refuses a name used twice among `groups`.
  *
- * Two keys pointing at the same definition write the same Redis keys, so one
- * of them is silently dead: `redis.cache.a.delete(p)` empties what
- * `redis.cache.b.set(p, v)` wrote. It is a copy-paste in the module that
- * exports them, and nothing downstream can see it.
+ * One definition under two keys: both would write the same Redis keys, so one
+ * of them is silently dead — `redis.cache.a.delete(p)` empties what
+ * `redis.cache.b.set(p, v)` wrote. A copy-paste in the module that exports
+ * them, which nothing downstream can see.
+ *
+ * Two definitions of different kinds with one name, in the same group list:
+ * a cache, a rate limit and an idempotency all write `<name>:<key>`, so they
+ * would meet in Redis: an idempotency's hash as `WRONGTYPE`, and a cache's
+ * and a rate limit's strings overwriting each other. Only names
+ * are compared — never what a key function would build.
+ */
+function refuseClash(where: string, groups: readonly Group[]): void {
+	const seen = new Map<string, { kind: string; key: string }>();
+	for (const [kind, wired] of groups) {
+		for (const [key, definition] of wired) {
+			const first = seen.get(definition.name);
+			if (first === undefined) {
+				seen.set(definition.name, { kind, key });
+			} else if (first.kind === kind) {
+				throw new TypeError(
+					`${where} wires the ${kind} named "${definition.name}" twice, ` +
+						`under "${first.key}" and "${key}". They would share every key ` +
+						'in Redis. Export one of them, or give it a name of its own.',
+				);
+			} else {
+				throw new TypeError(
+					`${where} wires the ${first.kind} "${first.key}" and the ${kind} ` +
+						`"${key}" under one name, "${definition.name}". They would share ` +
+						'every key in Redis. Give one of them a name of its own.',
+				);
+			}
+		}
+	}
+}
+
+/**
+ * Channels have a namespace of their own — pub/sub names are not keys — so
+ * they are checked among themselves, and a channel named like a cache is fine.
  */
 function checkNoClash(
 	where: string,
 	instance: InstanceConfig<object, object>,
 ): void {
-	for (const [kind, wired] of [
+	refuseClash(where, [
 		['cache', wiredOf(instance.caches, isCache)],
-		['channel', wiredOf(instance.channels, isChannel)],
-	] as const) {
-		const seen = new Map<string, string>();
-		for (const [key, definition] of wired) {
-			const first = seen.get(definition.name);
-			if (first !== undefined) {
-				throw new TypeError(
-					`${where} wires the ${kind} named "${definition.name}" twice, ` +
-						`under "${first}" and "${key}". They would share every key ` +
-						'in Redis. Export one of them, or give it a name of its own.',
-				);
-			}
-			seen.set(definition.name, key);
-		}
-	}
+		['rate limit', wiredOf(instance.limits, isRateLimit)],
+		['idempotency', wiredOf(instance.idempotency, isIdempotency)],
+	]);
+	refuseClash(where, [['channel', wiredOf(instance.channels, isChannel)]]);
 }

@@ -1,10 +1,10 @@
-import type { RedisClient } from 'bun';
 import { api } from '../../src/api';
 import type { AppMongo } from '../../src/db';
 import { ArticleGuards } from '../../src/modules/articles/articles.guards';
 import { ArticleService } from '../../src/modules/articles/articles.service';
 import { router } from '../../src/modules/users';
 import { UserService } from '../../src/modules/users/users.service';
+import type { AppRedis } from '../../src/redis';
 
 /**
  * What the module boundary refuses, measured rather than claimed: a registry
@@ -63,7 +63,7 @@ articles.edit('68ca1f0f2b1c4d5e6f7a8b90', {
  * to the user, and the rate limit counts per user, so neither compiles
  * without one.
  */
-const guards = new ArticleGuards({} as RedisClient);
+const guards = new ArticleGuards({} as AppRedis);
 
 // @ts-expect-error a key scoped to nobody would be shared by every client
 void guards.creation.run({ key: 'k-1' }, () => null);

@@ -5,13 +5,21 @@ import {
 	type Subscription,
 	subscribe,
 } from '../channel/pubsub';
+import { bindIdempotency } from '../idempotency/bind-idempotency';
+import { bindRateLimit } from '../rate-limit/bind-rate-limit';
 import {
 	type InstanceContext,
 	prefixed,
 	type Wired,
 	type WiringContext,
 } from './context';
-import type { AnyCache, AnyChannel, BoundChannel } from './types';
+import type {
+	AnyCache,
+	AnyChannel,
+	AnyIdempotency,
+	AnyRateLimit,
+	BoundChannel,
+} from './types';
 
 /**
  * A definition with this instance's prefix in its name.
@@ -138,5 +146,34 @@ export function channelScopeOf(
 ): object {
 	return scopeOf(instance.channels, (key: string, definition: AnyChannel) =>
 		at(ctx.channels, instance, key, () => channelOf(ctx, instance, definition)),
+	);
+}
+
+/**
+ * Rate limits bound with the prefix in their name, so a stored key is
+ * `<prefix>:<name>:<key>`. `bindRateLimit` takes no prefix of its own: the
+ * definition copy carries it, as a cache's does.
+ */
+export function limitScopeOf(
+	ctx: WiringContext,
+	instance: InstanceContext,
+): object {
+	return scopeOf(instance.limits, (key: string, definition: AnyRateLimit) =>
+		at(ctx.limits, instance, key, () =>
+			bindRateLimit(instance.client, underPrefix(instance, definition)),
+		),
+	);
+}
+
+export function idempotencyScopeOf(
+	ctx: WiringContext,
+	instance: InstanceContext,
+): object {
+	return scopeOf(
+		instance.idempotency,
+		(key: string, definition: AnyIdempotency) =>
+			at(ctx.idempotency, instance, key, () =>
+				bindIdempotency(instance.client, underPrefix(instance, definition)),
+			),
 	);
 }

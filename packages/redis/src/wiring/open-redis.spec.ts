@@ -167,7 +167,7 @@ describe('opening', () => {
 			instances: { main: { uri: servers.redis.uri } },
 		} as never;
 		expect(await rejectionMessage(openRedis(byHand))).toContain(
-			'openRedis: instance "main" wires no cache and no channel. Pass ' +
+			'openRedis: instance "main" wires no cache, no channel, no rate limit and no idempotency. Pass ' +
 				'the module that exports them, or drop the instance.',
 		);
 	});

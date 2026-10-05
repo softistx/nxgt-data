@@ -114,11 +114,12 @@ module is measured where it is read.
 | `src/modules/index.ts` | the one list of mounted modules. Adding a module is a line here, and forgetting it is a **startup** error, not a 404 |
 | `src/middlewares/` | what every request goes through, one file per concern — `provideServices(mongo)`, which also puts the checked user on the context as `actor`, and `provideGuards(guards)` |
 | `src/api.ts` | one registry for the spec, imported by each module — `tag: 'users'` bounds a module to its own operations, and `api.assertComplete()` refuses to start with one nobody serves |
-| `src/context.ts` | `Env`, `buildServices(mongo)` and `bindGuards(redis)` — it only **composes** the slices each module declares, so a new module is one line here and nothing else |
-| `src/modules/articles/articles.guards.ts` | the module's guards, described once: `defineRateLimit` keyed on the user, `defineIdempotency` keyed on the user **and** the key, its result checked by the spec's own `zArticle` — and `ArticleGuards`, which binds both to one `RedisClient` |
+| `src/context.ts` | `Env`, `buildServices(mongo)` and `bindGuards(redis)`, which reads the guards off the opened Redis — it only **composes** the slices each module declares, so a new module is one line here and nothing else |
+| `src/modules/articles/articles.guards.ts` | the module's guards, described once: `defineRateLimit` keyed on the user, `defineIdempotency` keyed on the user **and** the key, its result checked by the spec's own `zArticle` — and `ArticleGuards`, which reads both off the app's Redis: they are wired there, not bound by hand |
+| `src/redis.ts` | the Redis configuration: one `defineRedis` with the `prefix` and the guards each module exports (`limits`, `idempotency`), and `AppRedis` derived from it with `RedisOf` |
 | `src/guards.ts` | the guide's HTTP recipe: `rateLimitHeaders(result)` and `seconds(ms)`, rounding **up** |
 | `src/app.ts` | the middlewares, then every module in `src/modules/index.ts` mounted. It holds no middleware and no route of its own. `assertServed` reads the assembled app, so a module left out of that list is a startup error |
-| `src/index.ts` | the Mongo and the Redis client opened **once** for the process, closed on `SIGINT`/`SIGTERM` |
+| `src/index.ts` | the Mongo and the Redis (`openRedis`) opened **once** for the process, closed on `SIGINT`/`SIGTERM` |
 | `src/sync.ts` | `mongo.sync()` as a deployment step, with `--dry-run` |
 | `src/modules/<name>/<name>.service.spec.ts` | the module's services with no HTTP at all — that is what the layer buys |
 | `src/modules/<name>/<name>.route.spec.ts` | the module's routes over HTTP, called as a client would, over a mongod in memory |
@@ -168,7 +169,7 @@ export const routes = { articles, users };
 
 // src/app.ts — the middlewares, then every module in that list
 app.use(provideServices(mongo));
-app.use(provideGuards(bindGuards(redis)));    // bound once, shared by every request
+app.use(provideGuards(bindGuards(redis)));    // read once off the opened Redis, shared by every request
 for (const router of Object.values(routes)) app.route('/', router);
 api.assertComplete();   // every operation has a handler
 assertServed(app);      // and every handler is actually mounted
@@ -261,13 +262,12 @@ Object literal may only specify known properties, and 'LOG_LEVEL' does not
 
 ## The server
 
-`src/index.ts` opens the Mongo and the Redis client, hands the app to
-`Bun.serve`, and gives the clients back on a signal:
+`src/index.ts` opens the Mongo and the Redis, hands the app to
+`Bun.serve`, and gives them back on a signal:
 
 ```ts
 const mongo = await openMongo(config);
-const redis = new RedisClient(env.REDIS_URL);   // Bun's own; no driver
-await redis.connect();
+const redis = await openRedis(config);   // Bun's own client underneath; no driver
 
 const server = serve({
 	fetch: buildApp(mongo, redis).fetch,
@@ -291,7 +291,7 @@ HTTP recipes
 [idempotency](../../packages/redis/docs/guide/guard/idempotency.md#http-the-idempotency-key-header-for-any-framework)).
 
 ```ts
-// src/modules/articles/articles.guards.ts — described once, bound once per app
+// src/modules/articles/articles.guards.ts — described once
 export const articleWrites = defineRateLimit({
 	name: 'articles.write',
 	key: (params: { user: string }) => params.user,
@@ -306,6 +306,21 @@ export const articleCreation = defineIdempotency({
 	lease: 10_000,
 	schema: zArticle.nullable(),     // the spec's own schema; null is the 404
 });
+```
+
+```ts
+// src/redis.ts — wired once, under the deployment's prefix
+export const config = defineRedis({
+	uri: env.REDIS_URL,
+	prefix: 'blog',
+	limits: { articleWrites },
+	idempotency: { articleCreation },
+});
+
+// what `ArticleGuards` reads off the opened Redis: no client, no bind call,
+// no prefix spelled by hand
+await redis.limits.articleWrites.consume({ user });            // blog:articles.write:<user>
+await redis.idempotency.articleCreation.run({ user, key }, write, { fingerprint });
 ```
 
 What `POST /articles` answers, in the order it decides:
@@ -430,9 +445,11 @@ here.
   site: `ArticleService.write` is `async` for that reason alone, and its
   spec measures it.
 - **The guards are bound once, not per request.** Unlike a service, a guard
-  holds no user — it is keyed by one on each call — and binding sends
-  nothing to Redis, so `bindGuards(redis)` runs in `buildApp` and every
-  request shares the result.
+  holds no user — it is keyed by one on each call — and `openRedis` bound
+  them when it opened, under the `blog` prefix, so `bindGuards(redis)` only
+  reads them off it, in `buildApp`, and every request shares the result.
+  (Before the guards were wired this API called `bindRateLimit` and
+  `bindIdempotency` itself, on a bare client, and its keys had no prefix.)
 - **Headers are delays in whole seconds, rounded up.** `@nxgt/redis`
   answers in milliseconds; `Retry-After: 11` for 11 001 ms would tell a
   client to come back a millisecond early, so `seconds(ms)` is a

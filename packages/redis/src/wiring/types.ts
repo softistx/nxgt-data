@@ -10,13 +10,22 @@ import type {
 import type { ChannelDefinition } from '../channel/define-channel';
 import type { SubscribeOptions, Subscription } from '../channel/pubsub';
 import type { PingResult } from '../connection/connect';
+import type {
+	BoundIdempotency,
+	IdempotencyDefinition,
+} from '../idempotency/types';
 import type { LockOptions } from '../lock/with-lock';
+import type { BoundRateLimit, RateLimitDefinition } from '../rate-limit/types';
 import type {
 	CachesIn,
 	CachesOf,
 	ChannelsIn,
 	ChannelsOf,
+	IdempotencyIn,
+	IdempotencyOf,
 	InstanceName,
+	LimitsIn,
+	LimitsOf,
 	RedisConfig,
 } from './config/types';
 
@@ -56,10 +65,37 @@ export type ChannelScope<Ch> = {
 	readonly [K in keyof ChannelsOf<Ch>]: BoundChannel<ChannelsOf<Ch>[K]>;
 };
 
+/** What a rate limit's key takes, so a bound limit can ask for it. */
+type LimitParams<D> = D extends RateLimitDefinition<infer P> ? P : never;
+
+export type LimitScope<Li> = {
+	readonly [K in keyof LimitsOf<Li>]: BoundRateLimit<
+		LimitParams<LimitsOf<Li>[K]>
+	>;
+};
+
+export type IdempotencyScope<Id> = {
+	readonly [K in keyof IdempotencyOf<Id>]: IdempotencyOf<Id>[K] extends IdempotencyDefinition<
+		infer P,
+		infer S
+	>
+		? BoundIdempotency<P, z.output<S>, z.input<S>>
+		: never;
+};
+
 /** One Redis instance, with everything wired on it. */
-export interface InstanceScope<Ca, Ch> {
+export interface InstanceScope<
+	Ca,
+	Ch,
+	Li = Record<never, never>,
+	Id = Record<never, never>,
+> {
 	readonly cache: CacheScope<Ca>;
 	readonly channels: ChannelScope<Ch>;
+	/** Rate limits, bound under this instance's prefix: `<prefix>:<name>:<key>`. */
+	readonly limits: LimitScope<Li>;
+	/** Idempotent operations, bound under this instance's prefix likewise. */
+	readonly idempotency: IdempotencyScope<Id>;
 	/** The driver's client, for a command this package does not wrap. */
 	readonly client: RedisClient;
 	/** What goes in front of every key, or `undefined` when nothing does. */
@@ -104,7 +140,9 @@ export type SoleInstance<C> =
 	Sole<InstanceName<C>> extends true
 		? InstanceScope<
 				CachesIn<C, InstanceName<C>>,
-				ChannelsIn<C, InstanceName<C>>
+				ChannelsIn<C, InstanceName<C>>,
+				LimitsIn<C, InstanceName<C>>,
+				IdempotencyIn<C, InstanceName<C>>
 			>
 		: never;
 
@@ -118,6 +156,16 @@ export type SoleChannels<C> =
 		? ChannelScope<ChannelsIn<C, InstanceName<C>>>
 		: never;
 
+export type SoleLimits<C> =
+	Sole<InstanceName<C>> extends true
+		? LimitScope<LimitsIn<C, InstanceName<C>>>
+		: never;
+
+export type SoleIdempotency<C> =
+	Sole<InstanceName<C>> extends true
+		? IdempotencyScope<IdempotencyIn<C, InstanceName<C>>>
+		: never;
+
 /** `lock` names the instance when there is more than one. */
 export type RedisLockOptions<C> = LockOptions & {
 	/** Which Redis the lock lives on. Required when it holds several. */
@@ -125,7 +173,7 @@ export type RedisLockOptions<C> = LockOptions & {
 };
 
 /**
- * An application's Redis wiring: the clients, the caches and the channels,
+ * An application's Redis wiring: the clients, the caches, the channels and the guards,
  * in one object that closes everything it opened.
  *
  * There is no `as(actor)` and no `withSession`, as `@nxgt/mongo`'s wiring has:
@@ -137,10 +185,16 @@ export interface Redis<C> extends AsyncDisposable {
 	readonly cache: SoleCache<C>;
 	/** The channels, when it holds one instance. `never` when it holds several. */
 	readonly channels: SoleChannels<C>;
+	/** The rate limits, when it holds one instance. `never` when it holds several. */
+	readonly limits: SoleLimits<C>;
+	/** The idempotent operations, when it holds one instance. `never` likewise. */
+	readonly idempotency: SoleIdempotency<C>;
 	readonly instances: {
 		readonly [N in InstanceName<C>]: InstanceScope<
 			CachesIn<C, N>,
-			ChannelsIn<C, N>
+			ChannelsIn<C, N>,
+			LimitsIn<C, N>,
+			IdempotencyIn<C, N>
 		>;
 	};
 	readonly clients: { readonly [N in InstanceName<C>]: RedisClient };
@@ -167,3 +221,5 @@ export type RedisOf<Config> =
 /** A definition as this layer handles it: by key, loosely typed. */
 export type AnyCache = CacheDefinition<never, z.ZodType>;
 export type AnyChannel = ChannelDefinition<z.ZodType>;
+export type AnyRateLimit = RateLimitDefinition<never>;
+export type AnyIdempotency = IdempotencyDefinition<never, z.ZodType>;

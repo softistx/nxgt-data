@@ -65,7 +65,7 @@ describe('defineRedis', () => {
 
 	test('refuses an instance that wires nothing', () => {
 		expect(() => defineRedis({ uri })).toThrow(
-			'defineRedis: instance "default" wires no cache and no channel. ' +
+			'defineRedis: instance "default" wires no cache, no channel, no rate limit and no idempotency. ' +
 				'Pass the module that exports them, or drop the instance.',
 		);
 	});

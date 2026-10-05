@@ -2,12 +2,14 @@
 
 Redis on **Bun's own client** — no third-party driver. One connection shared
 per URI, caches and channels described once and typed from their schema, and a
-lock that is safe to release — and rate limits and idempotent operations, each one atomic script timed by the Redis server's clock.
+lock that is safe to release — and rate limits and idempotent operations, wired the same way, each one atomic script timed by the Redis server's clock.
 
 ```ts
 import { defineRedis, openRedis } from '@nxgt/redis';
-import * as caches from './caches';       // every `defineCache` of the app
-import * as channels from './channels';   // every `defineChannel`
+import * as caches from './caches';           // every `defineCache` of the app
+import * as channels from './channels';       // every `defineChannel`
+import * as limits from './limits';           // every `defineRateLimit`
+import * as idempotency from './idempotency'; // every `defineIdempotency`
 
 export const redis = await openRedis(
 	defineRedis({
@@ -15,19 +17,24 @@ export const redis = await openRedis(
 		prefix: 'myapp:prod',
 		caches,
 		channels,
+		limits,
+		idempotency,
 	}),
 );
 
 const user = await redis.cache.users.remember(id, () => loadUser(id));
 await redis.channels.created.publish(user);
 await redis.lock('import', () => importEverything());
+await redis.limits.login.enforce({ ip });
+const order = await redis.idempotency.orders.run({ user, key }, () => placeOrder());
 ```
 
 `redis.cache.users` is the bound cache `bindCache(client, users)` gives, and
-`redis.channels.created` the same for a channel — each under the key its
-definition is exported by, with the deployment's prefix already in front of
-everything it writes. Nothing else has to be passed around: no client, no
-`bindCache` at a call site, no prefix spelled by hand.
+`redis.channels.created`, `redis.limits.login` and `redis.idempotency.orders`
+the same for a channel, a rate limit and an idempotent operation — each under
+the key its definition is exported by, with the deployment's prefix already in
+front of everything it writes. Nothing else has to be passed around: no client,
+no `bindCache` or `bindRateLimit` at a call site, no prefix spelled by hand.
 
 `redis.instances.default.client` is Bun's `RedisClient`, untouched: everything
 this package does not wrap is still there. The pieces `defineRedis` and
@@ -83,8 +90,13 @@ await withLock(redis.client, 'invoices:nightly', sendInvoices, {
 
 ## Rate limits and idempotency
 
-Two guards on any Bun `RedisClient` — the `redis.instances.default.client` of
-a wiring, or one you opened — each described once, keyed by a typed function,
+Two guards, **wired, or bound by hand**. Wired, they are `redis.limits.<name>`
+and `redis.idempotency.<name>`, bound by `openRedis` under the instance's
+prefix (see Wiring); by hand, `bindRateLimit` and `bindIdempotency` take any
+Bun `RedisClient` — the `redis.instances.default.client` of a wiring, or one
+you opened — and write no prefix. **The two write different keys under a
+prefix**, so an application that moves from by hand to wired starts with new
+counts and no stored result. Each is described once, keyed by a typed function,
 and checked by an atomic script on the server, timed by the **Redis server's
 clock**, so every process sharing the Redis agrees. Their error is
 `GuardError`, with its own codes (see Errors).
@@ -193,6 +205,9 @@ the lease and its renewals, `wait`, the storage, and the HTTP recipe in full;
 | `defineIdempotency({ name, key, ttl, lease?, schema })` | describes an idempotent operation; talks to nothing. Frozen. `ttl` in **seconds**, `lease` in **milliseconds** (default `10_000`) |
 | `bindIdempotency(client, definition)` | binds it to a `RedisClient`: `keyFor`, `run(params, work, { fingerprint?, wait? })` resolving to `{ value, replayed }`, and `forget(params)` |
 
+Wired, the same two are `redis.limits.<name>` and `redis.idempotency.<name>`
+(above); the functions here are the by-hand way.
+
 The types are `RateLimitDefinition`, `BoundRateLimit`, `LimitResult`,
 `IdempotencyDefinition`, `BoundIdempotency`, `Idempotent` and `RunOptions`.
 
@@ -223,27 +238,55 @@ export const users = defineCache({
 });
 ```
 
+```ts
+// src/redis/limits.ts and src/redis/idempotency.ts
+export const login = defineRateLimit({
+	name: 'login',
+	key: (p: { ip: string }) => p.ip,
+	limit: 5,
+	per: 60_000,                           // milliseconds
+});
+export const orders = defineIdempotency({
+	name: 'orders.create',
+	key: (p: { user: string; key: string }) => `${p.user}/${p.key}`,
+	ttl: 86_400,                           // seconds
+	schema: z.object({ orderId: z.string() }),
+});
+
+// elsewhere: defineRedis({ uri, prefix: 'myapp:prod', caches, limits, idempotency })
+await redis.limits.login.enforce({ ip });         // key: myapp:prod:login:<ip>
+await redis.idempotency.orders.run({ user, key }, () => placeOrder());
+```
+
 Every export that is a `defineCache` becomes a key on `redis.cache`, every
-`defineChannel` a key on `redis.channels`, under the name it is **exported** by;
-a schema, a type or a constant in the same file is left where it is. One
-definition exported under two keys is refused: both would write the same keys.
-`redis.cache` and `redis.channels` are two scopes, not one client with names on
-it: nothing falls through to the driver, and a key wired nowhere is plainly
-`undefined`.
+`defineChannel` a key on `redis.channels`, every `defineRateLimit` one on
+`redis.limits` and every `defineIdempotency` one on `redis.idempotency`, under
+the name it is **exported** by; a schema, a type or a constant in the same file
+is left where it is. One definition exported under two keys is refused: both
+would write the same keys. A name shared by a cache, a rate limit and an
+idempotency on one instance is refused too — all three write `<name>:<key>` —
+at wiring time only, comparing names (a rename is the fix); channels are exempt.
+Each slot keeps only its own kind, so one module may be passed to several.
+These are scopes, not
+one client with names on it: nothing falls through to the driver, and a key
+wired nowhere is plainly `undefined`. A guard written by hand keeps no prefix:
+**wired, its keys are `myapp:prod:login:<ip>`, so moving an application from
+`bindRateLimit` to the wiring restarts its counts and its stored
+results** — see [the guards' wiring page](docs/guide/wiring/guards.md).
 
 | Key of `defineRedis` | Default | |
 | --- | --- | --- |
 | `uri` | — | Where to connect. One of `uri` and `client`, never both |
 | `client` | — | A client the application opened. **Never closed** by `openRedis` |
 | `clientOptions` | `{}` | Bun's `RedisOptions`, passed with `uri`. Refused beside `client` |
-| `prefix` | — | Put in front of every key, channel and lock this instance writes |
-| `caches`, `channels` | — | `import * as caches from './caches'`, as it is |
+| `prefix` | — | Put in front of every key, channel, lock, rate-limit key and idempotency key this instance writes |
+| `caches`, `channels`, `limits`, `idempotency` | — | `import * as caches from './caches'`, as it is |
 | `instances` | — | Several Redis instances, each taking the keys above. Written *instead* of them |
 
 `defineRedis` **connects to nothing and reads no environment variable**; what
 is wrong with the wiring throws there, where the application starts. A single
 instance is named `default`; with several, `redis.cache` and `redis.channels`
-are `never` and `redis.instances.<name>` says which, as does `{ on: 'cache' }`
+are `never` (as are `redis.limits` and `redis.idempotency`) and `redis.instances.<name>` says which, as does `{ on: 'cache' }`
 on `redis.lock`.
 
 ```ts
@@ -264,7 +307,8 @@ Each of these is a `@ts-expect-error` case in the type tests: `redis.cache.nope`
 a cache read or written with the wrong params or a field its schema does not
 have; a payload a channel's schema does not describe; `redis.cache` on several
 instances, and `{ on: 'nowhere' }` on `lock`; a cache read off an instance that
-wires only channels; an option the configuration does not have.
+wires only channels; a limit or an idempotency that is not wired, including a cache
+read from `redis.limits`; an option the configuration does not have.
 
 ### Connection
 
@@ -580,7 +624,8 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
   locks and pub/sub, each with its options and a worked example, and the
   wiring pages for `defineRedis` and `openRedis`.
 - [Wiring guides](docs/guide/wiring/configuration.md) — the configuration and
-  its prefix, `redis.cache`, `redis.channels`, `redis.lock` and `redis.ping`,
+  its prefix, `redis.cache`, `redis.channels`, [`redis.limits` and
+  `redis.idempotency`](docs/guide/wiring/guards.md), `redis.lock` and `redis.ping`,
   several Redis instances, and who closes what.
 - [Rate limit and idempotency guides](docs/guide/guard/rate-limits.md) — GCRA,
   choosing a rate and the HTTP recipe; [idempotency](docs/guide/guard/idempotency.md),

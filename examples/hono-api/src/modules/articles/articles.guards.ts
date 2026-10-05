@@ -1,14 +1,6 @@
-import {
-	type BoundIdempotency,
-	type BoundRateLimit,
-	bindIdempotency,
-	bindRateLimit,
-	defineIdempotency,
-	defineRateLimit,
-} from '@nxgt/redis';
-import type { RedisClient } from 'bun';
-import type { z } from 'zod';
+import { defineIdempotency, defineRateLimit } from '@nxgt/redis';
 import { zArticle } from '../../generated/zod';
+import type { AppRedis } from '../../redis';
 
 /**
  * Five writes a minute per author. The key is the **user the request
@@ -46,26 +38,23 @@ export const articleCreation = defineIdempotency({
 export const IDEMPOTENCY_WAIT = 2_000;
 
 /**
- * The article guards, bound to the application's Redis. Binding reaches
- * nothing, so this is built once per app, not per request.
+ * The article guards, read off the application's Redis, which bound them
+ * under its prefix when it opened: the definitions above are wired in
+ * `redis.ts`, and nothing here is bound by hand.
  */
 export class ArticleGuards {
-	readonly writes: BoundRateLimit<{ user: string }>;
-	readonly creation: BoundIdempotency<
-		{ user: string; key: string },
-		z.output<typeof articleCreation.schema>,
-		z.input<typeof articleCreation.schema>
-	>;
+	readonly writes: AppRedis['limits']['articleWrites'];
+	readonly creation: AppRedis['idempotency']['articleCreation'];
 
 	/**
 	 * @param wait how long, in milliseconds, a repeat of a running key waits
 	 *   for its replay before it is a 409. `0` answers 409 at once.
 	 */
 	constructor(
-		redis: RedisClient,
+		redis: AppRedis,
 		readonly wait: number = IDEMPOTENCY_WAIT,
 	) {
-		this.writes = bindRateLimit(redis, articleWrites);
-		this.creation = bindIdempotency(redis, articleCreation);
+		this.writes = redis.limits.articleWrites;
+		this.creation = redis.idempotency.articleCreation;
 	}
 }

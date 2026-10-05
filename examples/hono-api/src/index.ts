@@ -1,8 +1,10 @@
 import { openMongo } from '@nxgt/mongo';
-import { RedisClient, serve } from 'bun';
+import { openRedis } from '@nxgt/redis';
+import { serve } from 'bun';
 import { buildApp } from './app';
 import { config } from './db';
 import { env } from './env';
+import { config as redisConfig } from './redis';
 
 /**
  * The server: `bun run dev`, then
@@ -13,10 +15,9 @@ import { env } from './env';
  */
 const mongo = await openMongo(config);
 
-// Bun's own client, opened once like the Mongo. the guards open no
-// connection of their own: every guard is bound to this one.
-const redis = new RedisClient(env.REDIS_URL);
-await redis.connect();
+// The Redis, opened once like the Mongo: it binds every guard the modules
+// export, under the deployment's prefix, and closes the client it opened.
+const redis = await openRedis(redisConfig);
 
 const server = serve({
 	fetch: buildApp(mongo, redis).fetch,
@@ -43,8 +44,8 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 	process.on(signal, () => {
 		void server
 			.stop()
-			.then(() => {
-				redis.close();
+			.then(async () => {
+				await redis.close();
 				return mongo.close();
 			})
 			.finally(() => process.exit(0));

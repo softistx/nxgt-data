@@ -1,7 +1,12 @@
 import type { RedisClient } from 'bun';
 import type { Subscription } from '../channel/pubsub';
 import type { RedisConnection } from '../connection/connect';
-import type { AnyCache, AnyChannel } from './types';
+import type {
+	AnyCache,
+	AnyChannel,
+	AnyIdempotency,
+	AnyRateLimit,
+} from './types';
 
 /** A definition and the key it is wired under. */
 export type Wired<D> = readonly [key: string, definition: D];
@@ -22,6 +27,8 @@ export interface InstanceContext {
 	readonly prefix: string | undefined;
 	readonly caches: readonly Wired<AnyCache>[];
 	readonly channels: readonly Wired<AnyChannel>[];
+	readonly limits: readonly Wired<AnyRateLimit>[];
+	readonly idempotency: readonly Wired<AnyIdempotency>[];
 	/**
 	 * The connection the Redis opened, or `undefined` when the configuration
 	 * gave a client: what it did not open is not its to close.
@@ -43,6 +50,10 @@ export interface WiringContext {
 	readonly caches: Map<string, Map<string, unknown>>;
 	/** The bound channels already built, per instance name then per key. */
 	readonly channels: Map<string, Map<string, unknown>>;
+	/** The bound rate limits already built, per instance name then per key. */
+	readonly limits: Map<string, Map<string, unknown>>;
+	/** The bound idempotent operations already built, likewise. */
+	readonly idempotency: Map<string, Map<string, unknown>>;
 	/**
 	 * Every subscription this Redis started and nobody has closed.
 	 *
@@ -83,7 +94,8 @@ export function instanceAt(
 /**
  * A key with this instance's prefix in front of it.
  *
- * The same function for a cache name, a channel name and a lock key, so a
+ * The same function for a cache name, a channel name, a lock key and a guard's
+ * name, so a
  * deployment's prefix covers everything the Redis writes and there is no third
  * place to remember.
  */

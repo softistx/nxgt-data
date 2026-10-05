@@ -27,6 +27,17 @@ const again = await orders.run({ user: 'u1', key: 'k-123' }, () => placeOrder())
 // { value: { orderId: 'o_1', status: 'placed' }, replayed: true } — placeOrder not called
 ```
 
+## Wired, or bound by hand
+
+Two ways to get a bound operation. **Wired**: export the definition from a
+module, hand the module to `defineRedis` as `idempotency`, and `openRedis`
+binds it under the instance's `prefix` — `redis.idempotency.orders`, see
+[the wiring](../wiring/guards.md). **By hand**: `bindIdempotency(client,
+definition)`, as in the example above, on any client, with no prefix. The two
+write different keys under a prefix, so moving an application from one to the
+other starts with no stored result: a retry of a request that ran just before
+the deploy runs again.
+
 ## Describing an operation
 
 `defineIdempotency` describes; it talks to nothing, and gives back a frozen
@@ -77,7 +88,7 @@ result.
 
 ## Binding it
 
-`bindIdempotency(client, definition)` takes any Bun `RedisClient` — one you
+`bindIdempotency(client, definition)` — the by-hand way — takes any Bun `RedisClient` — one you
 made, or the `client` of an `@nxgt/redis` connection — and checks the
 definition again, so one written by hand is refused the same way, with
 `bindIdempotency` in the message.
