@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { startMongo, type TestServer } from '../../test/server';
-import { ConnectionError } from '../errors/data-error';
-import { closeMongo, connectMongo, type PingResult } from './connect';
+import { closeMongo, connectMongo } from './connect';
 
 let t: TestServer;
 let stopped = false;
@@ -25,11 +24,13 @@ test('a ping right after the server is lost answers within its deadline, each ti
 	stopped = true;
 	await t.stop();
 
-	// Measured on mongodb 7.6.0: one ping fails fast on the dead socket, and one
-	// of the next waits serverSelectionTimeoutMS (30 s) with timeoutMS ignored.
-	// Which one varies, so ping up to five times: the wait is reached by one of
-	// them, and the timer in `ping` must answer it.
-	const results: PingResult[] = [];
+	// Measured on mongodb 7.6.0: one ping fails fast on the dead socket, and
+	// one of the next may wait serverSelectionTimeoutMS (30 s) with timeoutMS
+	// ignored. Whether and when that wait comes varies with the machine — on
+	// CI's two cores all five failed fast (2026-10-05) — so this asserts the
+	// bound on every ping, which holds either way. That the timer's own answer
+	// is a `ConnectionError` is pinned in `wiring/ping.spec.ts`, which reaches
+	// the timer every time.
 	for (const attempt of [1, 2, 3, 4, 5]) {
 		const started = performance.now();
 		const result = await mongo.ping({ timeoutMS: TIMEOUT_MS });
@@ -38,15 +39,6 @@ test('a ping right after the server is lost answers within its deadline, each ti
 		expect(took, `ping ${attempt} took ${Math.round(took)} ms`).toBeLessThan(
 			BOUND_MS,
 		);
-		results.push(result);
 	}
-	// At least one reached the timer, whatever the attempt it landed on.
-	const timer = results.some(
-		(r) =>
-			!r.ok &&
-			r.error instanceof ConnectionError &&
-			r.error.message === `ping: no answer in ${TIMEOUT_MS}ms`,
-	);
-	expect(timer, 'one ping was answered by the timer').toBe(true);
 	// `close()` would wait on the driver's own teardown; the client is gone.
 }, 20_000);
