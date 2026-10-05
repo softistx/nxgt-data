@@ -1,5 +1,11 @@
 # @nxgt/redis
 
+## 0.7.0
+
+### Minor Changes
+
+- [#186](https://github.com/softistx/nxgt-data/pull/186) [`142488c`](https://github.com/softistx/nxgt-data/commit/142488cc7c5b833ca138bfe9ad6b9d99bf4f08d8) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Bound caches, rate limits and idempotency expose their `definition`, read-only: `redis.limits.api.definition.limit`, `.per`, `.ttl`, `.lease`. A consumer handed a bound guard no longer needs the definition passed a second time. Bound by hand it is the given definition; wired through `openRedis` it is a frozen copy with the prefix in its name, so `definition.name` is the name actually written. A wired channel carries it too. Additive: the bound types stay as loose in their parameter as before, so `BoundRateLimit<{ ip: string }>` still assigns to `BoundRateLimit<unknown>`.
+
 ## 0.6.0
 
 ### Minor Changes
