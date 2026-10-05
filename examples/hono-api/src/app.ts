@@ -1,4 +1,3 @@
-import type { RedisClient } from 'bun';
 import { Hono } from 'hono';
 import { api } from './api';
 import { bindGuards, type Env, type GuardOptions } from './context';
@@ -6,6 +5,7 @@ import type { AppMongo } from './db';
 import { operations } from './generated/operations';
 import { provideGuards, provideServices } from './middlewares';
 import { routes } from './modules';
+import type { AppRedis } from './redis';
 
 /**
  * Throws unless the assembled app answers at every path the spec declares.
@@ -39,7 +39,7 @@ export function assertServed(app: Hono<Env>): void {
  */
 export function buildApp(
 	mongo: AppMongo,
-	redis: RedisClient,
+	redis: AppRedis,
 	options: GuardOptions = {},
 ): Hono<Env> {
 	const app = new Hono<Env>();

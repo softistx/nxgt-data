@@ -1,8 +1,8 @@
-import type { RedisClient } from 'bun';
 import type { AppMongo } from './db';
 import { ArticleGuards } from './modules/articles/articles.guards';
 import { ArticleService } from './modules/articles/articles.service';
 import { UserService } from './modules/users/users.service';
+import type { AppRedis } from './redis';
 
 /**
  * What a handler is given: the services of this request, each built on the
@@ -54,9 +54,9 @@ export function buildServices(mongo: AppMongo): Services {
 	};
 }
 
-/** Binds the guards once, for the app: binding sends nothing to Redis. */
+/** Reads the guards off the app's Redis, once: it bound them when it opened. */
 export function bindGuards(
-	redis: RedisClient,
+	redis: AppRedis,
 	options: GuardOptions = {},
 ): Guards {
 	return {

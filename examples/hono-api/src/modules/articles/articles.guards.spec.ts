@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
-import { bindRateLimit } from '@nxgt/redis';
 import { stranger, useApi } from '../../../test/api';
 import type { NewArticle } from '../../generated/types';
-import { articleWrites } from './articles.guards';
 import { ArticleService } from './articles.service';
 
 /**
@@ -10,11 +8,21 @@ import { ArticleService } from './articles.service';
  * before every test. `idempotencyWait: 0` answers a repeat of a running key
  * with 409 at once; the one spec about waiting builds a second app.
  */
-const { call, callWith, newUser, redis } = useApi('blog-articles-guards', {
-	idempotencyWait: 0,
-});
+const { call, callWith, newUser, redis, wired } = useApi(
+	'blog-articles-guards',
+	{
+		idempotencyWait: 0,
+	},
+);
 
 const draft = JSON.stringify({ title: 'On wiring', body: 'One object.' });
+
+/**
+ * Where `user`'s `k-1` is stored: the wired guard says it, prefix included —
+ * `blog:articles.create:<user>/k-1` — so no spec spells a key by hand.
+ */
+const creationKey = (user: string) =>
+	wired.redis.idempotency.articleCreation.keyFor({ user, key: 'k-1' });
 
 /** The writes still in flight, which `afterEach` waits for. */
 const inflight = new Set<Promise<Response>>();
@@ -122,7 +130,7 @@ describe('the write limit', () => {
 
 		// Refill this user's bucket, and only it: the key was never taken,
 		// so the same request now writes rather than replaying.
-		await bindRateLimit(redis.redis.client, articleWrites).reset({ user });
+		await wired.redis.limits.articleWrites.reset({ user });
 		const written = await post(user, draft, 'k-1');
 		expect(written.status).toBe(201);
 		expect(written.headers.get('Idempotent-Replayed')).toBeNull();
@@ -199,18 +207,14 @@ describe('the Idempotency-Key', () => {
 		const user = await newUser();
 		// A hash `run` could not have written — one field of three — under
 		// this user's key: `INVALID`, which no status of the guide's answers.
-		await redis.redis.client.send('HSET', [
-			`articles.create:${user}/k-1`,
-			'state',
-			'done',
-		]);
+		await redis.redis.client.send('HSET', [creationKey(user), 'state', 'done']);
 		const answer = await post(user, draft, 'k-1');
 		expect(answer.status).toBe(500);
 		expect(answer.headers.get('Idempotent-Replayed')).toBeNull();
 		expect(await countOf(user)).toBe(0);
 		// Kept as it was: `INVALID` never frees the key.
 		expect(
-			await redis.redis.client.send('HGETALL', [`articles.create:${user}/k-1`]),
+			await redis.redis.client.send('HGETALL', [creationKey(user)]),
 		).toEqual({ state: 'done' });
 	});
 
@@ -271,7 +275,7 @@ describe('the Idempotency-Key', () => {
 		// finds the key running; a second is a poll, which only a repeat that
 		// waits sends — so the first is let go only then, however loaded the
 		// machine. A repeat that does not wait answers first, and fails below.
-		const key = `articles.create:${user}/k-1`;
+		const key = creationKey(user);
 		const scripts = spyOn(redis.redis.client, 'evalsha');
 		const onKey = () =>
 			scripts.mock.calls.filter((call) => call.includes(key)).length;
