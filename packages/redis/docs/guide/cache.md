@@ -50,6 +50,7 @@ function bindCache<P, S extends z.ZodType>(
 ): BoundCache<P, z.output<S>, z.input<S>>;
 
 interface BoundCache<P, T, I = T> {
+	readonly definition: CacheDefinition<P, z.ZodType<T, I>>;
 	keyFor(params: P): string;
 	get(params: P): Promise<T | undefined>;
 	set(params: P, value: I, options?: { ttl?: number }): Promise<void>;

@@ -201,12 +201,21 @@ the lease and its renewals, `wait`, the storage, and the HTTP recipe in full;
 | Function | |
 | --- | --- |
 | `defineRateLimit({ name, key, limit, per, burst? })` | describes a rate limit; talks to nothing. Frozen. A definition that could never work is a bare `TypeError`, normally at import |
-| `bindRateLimit(client, definition)` | binds it to a `RedisClient`: `keyFor`, `consume(params, cost = 1)`, `enforce` (throws `RATE_LIMITED`), `peek` (counts nothing; `cost` may be `0`) and `reset`. Every duration is a delay in milliseconds, rounded up — never a date |
+| `bindRateLimit(client, definition)` | binds it to a `RedisClient`: `definition` (read-only: `limit`, `per`, as bound), `keyFor`, `consume(params, cost = 1)`, `enforce` (throws `RATE_LIMITED`), `peek` (counts nothing; `cost` may be `0`) and `reset`. Every duration is a delay in milliseconds, rounded up — never a date |
 | `defineIdempotency({ name, key, ttl, lease?, schema })` | describes an idempotent operation; talks to nothing. Frozen. `ttl` in **seconds**, `lease` in **milliseconds** (default `10_000`) |
-| `bindIdempotency(client, definition)` | binds it to a `RedisClient`: `keyFor`, `run(params, work, { fingerprint?, wait? })` resolving to `{ value, replayed }`, and `forget(params)` |
+| `bindIdempotency(client, definition)` | binds it to a `RedisClient`: `definition` (read-only: `ttl`, `lease`), `keyFor`, `run(params, work, { fingerprint?, wait? })` resolving to `{ value, replayed }`, and `forget(params)` |
 
 Wired, the same two are `redis.limits.<name>` and `redis.idempotency.<name>`
 (above); the functions here are the by-hand way.
+
+A bound guard exposes the definition it was bound with, read-only, so code that
+receives it need not be handed the policy a second time. Wired, it is the copy
+with the prefix, frozen: `definition.name` is the name actually written.
+
+```ts
+redis.limits.api.definition.limit; // 100
+redis.limits.api.definition.per;   // 60_000
+```
 
 The types are `RateLimitDefinition`, `BoundRateLimit`, `LimitResult`,
 `IdempotencyDefinition`, `BoundIdempotency`, `Idempotent` and `RunOptions`.
@@ -359,6 +368,7 @@ site and a renamed parameter is a compile error. A stored key is
 
 | `BoundCache<P, T, I>` | |
 | --- | --- |
+| `definition` | the `CacheDefinition` it was bound with, read-only — `definition.ttl`; wired, its `name` carries the prefix |
 | `keyFor(params)` | the key it would use, for a caller that needs the string |
 | `get(params)` | the value, or `undefined` — a miss, an expiry, or a stale shape |
 | `set(params, value, { ttl })` | the value as the schema **accepts** it — a `.default()` field may be left out — checked, then stored as the schema gives it back |

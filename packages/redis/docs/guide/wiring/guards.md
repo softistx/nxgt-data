@@ -65,7 +65,8 @@ wired one writes the instance's prefix in front, like a cache does:
 | a rate limit `login` | `login:203.0.113.7` | `myapp:prod:login:203.0.113.7` |
 | an idempotency `orders.create` | `orders.create:u1/k1` | `myapp:prod:orders.create:u1/k1` |
 
-`keyFor` says the string, and `redis.instances.<name>.prefix` the prefix.
+`redis.limits.login.definition.name` is `myapp:prod:login`, and `.limit` and `.per`
+are the original's; `keyFor` says the string, and `redis.instances.<name>.prefix` the prefix.
 
 > **A trap when an application moves from by hand to wired.** The keys change,
 > so what is stored under the old ones is **not seen any more**: every caller's

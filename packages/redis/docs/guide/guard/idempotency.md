@@ -100,6 +100,7 @@ function bindIdempotency<P, S extends z.ZodType>(
 ): BoundIdempotency<P, z.output<S>, z.input<S>>;
 
 interface BoundIdempotency<P, T, I = T> {
+	readonly definition: IdempotencyDefinition<P, z.ZodType<T, I>>;
 	keyFor(params: P): string;
 	run(params: P, work: () => Promise<I> | I, options?: RunOptions): Promise<Idempotent<T>>;
 	forget(params: P): Promise<boolean>;
@@ -110,6 +111,11 @@ interface Idempotent<T> {
 	readonly replayed: boolean; // true when an earlier run stored it
 }
 ```
+
+`definition` is the one it was bound with, read-only: `orders.definition.ttl`
+and `.lease` give the policy without passing the definition a second time.
+Wired through `openRedis`, it is the frozen copy with the instance's prefix in
+its name, so `definition.name` is what is actually written.
 
 `forget(params)` deletes the key whether it is done or still running, and
 resolves `true` when something was there — the deliberate way to let a key

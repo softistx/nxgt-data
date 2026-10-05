@@ -32,7 +32,10 @@ function underPrefix<D extends { name: string }>(
 	instance: InstanceContext,
 	definition: D,
 ): D {
-	return { ...definition, name: prefixed(instance, definition.name) };
+	return Object.freeze({
+		...definition,
+		name: prefixed(instance, definition.name),
+	});
 }
 
 /** One bound channel: publish, and a subscribe the Redis keeps track of. */
@@ -43,6 +46,7 @@ function channelOf(
 ): BoundChannel<AnyChannel> {
 	const prefixedDefinition = underPrefix(instance, definition);
 	return {
+		definition: prefixedDefinition,
 		name: prefixedDefinition.name,
 		publish: (payload) =>
 			publish(instance.client, prefixedDefinition, payload as never),
