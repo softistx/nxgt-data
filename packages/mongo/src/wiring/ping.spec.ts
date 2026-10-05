@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { MongoClient } from 'mongodb';
 import { collections, events, useMongo } from '../../test/wiring';
+import { ConnectionError } from '../errors/data-error';
 import { defineMongo } from './config/define-mongo';
 import { openMongo } from './open-mongo';
 
@@ -75,7 +76,12 @@ describe('ping', () => {
 		const report = await mongo.ping({ timeoutMS: 300 });
 		const took = performance.now() - started;
 		expect(report.default.ok).toBe(false);
-		if (!report.default.ok) expect(report.default.error).toBeInstanceOf(Error);
+		if (!report.default.ok) {
+			expect(report.default.error).toBeInstanceOf(ConnectionError);
+			expect((report.default.error as Error).message).toBe(
+				'ping: no answer in 300ms',
+			);
+		}
 		expect(took).toBeLessThan(2_000);
 		await client.close();
 	});

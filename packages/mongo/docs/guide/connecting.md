@@ -104,6 +104,9 @@ right after the server is lost, when the driver would otherwise wait
 `serverSelectionTimeoutMS` (30 s by default) for a server to select; then the
 result is `{ ok: false }` with a `ConnectionError`, `ping: no answer in 500ms`.
 
+`timeoutMS: 0` is not "no limit" here, as it is for the driver: a health check
+without one makes no sense, so only the 250 ms grace bounds it.
+
 ```ts
 app.get('/health', async (c) => {
 	const result = await mongo.ping({ timeoutMS: 500 });

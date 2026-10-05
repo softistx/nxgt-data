@@ -100,9 +100,11 @@ const PING_GRACE_MS = 250;
  * `timeoutMS` is the driver's deadline for the command, and it does not bound
  * server selection, which waits `serverSelectionTimeoutMS` (30 s by default).
  * Measured on mongodb 7.6.0: on a connected client that has just lost its
- * server, the first ping fails fast with a `MongoNetworkError` and the second
- * waits the 30 s, `timeoutMS` ignored. So the command is raced against a timer
- * of its own, which answers with a `ConnectionError` when it wins.
+ * server, the first ping fails fast with a `MongoNetworkError` and one of the
+ * next pings waits the 30 s, `timeoutMS` ignored. So the command is raced
+ * against a timer of its own, which answers with a `ConnectionError` when it
+ * wins. `timeoutMS: 0` means no limit to the driver, but a health check with
+ * none makes no sense: the timer still bounds it, at the 250 ms grace.
  */
 export async function ping(db: Db, timeoutMS = 2_000): Promise<PingResult> {
 	const started = performance.now();
