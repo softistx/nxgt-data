@@ -1,5 +1,11 @@
 # @nxgt/redis
 
+## 0.4.1
+
+### Patch Changes
+
+- [#179](https://github.com/softistx/nxgt-data/pull/179) [`72b07dd`](https://github.com/softistx/nxgt-data/commit/72b07dd34af44d41a923baac3d039775cd51b552) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The wiring guide compares with `@nxgt/mongo`'s `openMongo`, not the folded `@nxgt/mongo-kit`.
+
 ## 0.4.0
 
 ### Minor Changes
