@@ -18,11 +18,11 @@ import type {
 } from '../sync/types';
 
 /**
- * What a kit's sole database holds, by the name each definition is exported
- * under — the same keys `kit.db` answers to.
+ * What a Mongo's sole database holds, by the name each definition is exported
+ * under — the same keys `mongo.db` answers to.
  *
- * A kit with several databases gives `never`, as `kit.db` itself does: this
- * version follows the collections of one. See the README.
+ * A Mongo with several databases gives `never`, as `mongo.db` itself does:
+ * this version follows the collections of one. See the README.
  */
 export type SoleCollections<C> =
 	DbName<C> extends infer N extends DbName<C>
@@ -33,9 +33,9 @@ export type SoleCollections<C> =
 
 /**
  * One collection's entry: everything `createSearchSync` takes except the
- * collection itself, which the kit already holds.
+ * collection itself, which the Mongo already holds.
  */
-export type SearchEntry<
+export type SearchSyncEntry<
 	Col extends AnyCollectionDefinition,
 	I extends AnyIndexDefinition,
 > = Omit<SearchSyncOptions<Col, I>, 'collection'>;
@@ -44,21 +44,21 @@ export type SearchEntry<
 export type IndexMap<I> = { [K in keyof I]: AnyIndexDefinition };
 
 /**
- * The config `createSearchKit` takes: an entry per collection, under the key
- * the kit wires that collection under.
+ * The config `createSearchSyncs` takes: an entry per collection, under the key
+ * the Mongo wires that collection under.
  *
  * `I` is inferred from each entry's `index` alone, which is what lets a
  * `transform` be written inline — its document is typed by the collection the
- * key names, and its result by that index. A key the kit wires no collection
+ * key names, and its result by that index. A key the Mongo wires no collection
  * for is refused by name.
  */
-export type SearchConfig<C, I extends IndexMap<I>> = {
+export type SearchSyncsConfig<C, I extends IndexMap<I>> = {
 	[K in keyof I]: K extends keyof SoleCollections<C>
 		? SoleCollections<C>[K] extends infer Col extends AnyCollectionDefinition
-			? SearchEntry<Col, I[K]>
+			? SearchSyncEntry<Col, I[K]>
 			: never
 		: {
-				index: `mongo-search-kit: this kit wires no collection called "${K & string}"`;
+				index: `createSearchSyncs: this Mongo wires no collection called "${K & string}"`;
 			};
 };
 
@@ -66,18 +66,18 @@ export type SearchConfig<C, I extends IndexMap<I>> = {
 export type ByKey<S, T> = { readonly [K in keyof S]: T };
 
 /**
- * Every collection's sync, wired to the kit's collections — not started.
+ * Every collection's sync, wired to the Mongo's collections — not started.
  *
  * `syncs` is each one as `@nxgt/mongo-meilisearch` builds it, so anything
- * this kit does not wrap is still reachable under its key.
+ * createSearchSyncs does not wrap is still reachable under its key.
  */
-export interface SearchKit<S> {
+export interface SearchSyncs<S> {
 	/** The syncs, under the keys the config used. */
 	readonly syncs: ByKey<S, SearchSync>;
 	/** Where each sync stands; `undefined` for one that never reindexed. */
 	state(): Promise<ByKey<S, SearchSyncState | undefined>>;
 	/**
-	 * Brings every index the kit wires in line with its definition — created
+	 * Brings every index the Mongo wires in line with its definition — created
 	 * with its primary key, its settings updated where they differ — one
 	 * after another, and reports each under its key. `@nxgt/meilisearch`'s
 	 * `syncIndex`, per entry; the first that throws stops the rest. `dryRun`
@@ -97,11 +97,11 @@ export interface SearchKit<S> {
 	 * that fails closes the ones already started, so a failed `start` leaves
 	 * nothing running.
 	 */
-	start(): Promise<RunningSearchKit<S>>;
+	start(): Promise<RunningSearchSyncs<S>>;
 }
 
-/** Every sync of a started kit. */
-export interface RunningSearchKit<S> extends AsyncDisposable {
+/** Every sync of a started `createSearchSyncs`. */
+export interface RunningSearchSyncs<S> extends AsyncDisposable {
 	/** Each running sync, under the keys the config used. */
 	readonly running: ByKey<S, RunningSearchSync>;
 	/**

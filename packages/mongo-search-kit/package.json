@@ -1,14 +1,13 @@
 {
 	"name": "@nxgt/mongo-search-kit",
 	"version": "0.2.6",
-	"description": "A search kit over @nxgt/mongo-kit: one config naming an index and a transform per collection, and one syncIndexes, reindexAll, start and close for all of them",
+	"description": "Deprecated: moved into @nxgt/mongo-meilisearch. Re-exports it under the old names",
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
 	"files": [
 		"dist",
-		"docs",
 		"README.md",
 		"package.json",
 		"LICENSE"
@@ -24,10 +23,7 @@
 	"keywords": [
 		"mongodb",
 		"meilisearch",
-		"search",
-		"sync",
-		"kit",
-		"typescript"
+		"deprecated"
 	],
 	"repository": {
 		"type": "git",
@@ -40,7 +36,7 @@
 	},
 	"scripts": {
 		"build": "bun run ../../build.ts",
-		"test": "bun run ../../scripts/meilisearch.ts && bun test --timeout 30000 src",
+		"test": "bun test src",
 		"typecheck": "tsc --noEmit"
 	},
 	"nxgt": {
@@ -49,23 +45,11 @@
 		]
 	},
 	"devDependencies": {
-		"@nxgt/meilisearch": "workspace:^",
-		"@nxgt/mongo": "workspace:^",
-		"@nxgt/mongo-kit": "workspace:^",
 		"@nxgt/mongo-meilisearch": "workspace:^",
-		"@types/bun": "^1.4.0",
-		"meilisearch": "0.62.0",
-		"mongodb": "7.6.0",
-		"mongodb-memory-server-core": "11.2.0",
-		"zod": "4.6.5"
+		"@types/bun": "^1.4.0"
 	},
 	"peerDependencies": {
-		"@nxgt/meilisearch": "workspace:^",
-		"@nxgt/mongo": "workspace:^",
-		"@nxgt/mongo-kit": "workspace:^",
 		"@nxgt/mongo-meilisearch": "workspace:^",
-		"meilisearch": ">=0.62.0 <1",
-		"mongodb": ">=7.0.0 <8",
 		"typescript": "^6.0.3"
 	}
 }

@@ -9,7 +9,9 @@ Everything this package throws is a `SearchSyncError` carrying a `code`
 (`HISTORY_LOST`, `ID_MISMATCH`, `NOT_A_DOCUMENT`, `RUNNING`, `LEASE_LOST`,
 `FAILED`), the
 sync's `name`, and the original error as `cause` — except the options, which
-are refused with a `TypeError` before anything is opened.
+are refused with a `TypeError` before anything is opened, and the
+refusals of `createSearchSyncs`, which are a `TypeError` too — see
+[Several collections](#several-collections-createsearchsyncs).
 
 | Area | Entries |
 | --- | --- |
@@ -19,6 +21,7 @@ are refused with a `TypeError` before anything is opened.
 | [The transform](#the-transform) | [an id that is not the index's](#search-sync-articlesarticles-transform-gave-id-other-for-the-document--whose-index-id-is-) · [not a document](#search-sync-articlesarticles-transform-gave-a-string-for-the-document-) · [it threw](#search-sync-articlesarticles-failed-following-changes-boom) |
 | [Sending](#sending) | [an id Meilisearch refuses](#search-sync-articlesarticles-failed-sending-changes-task-3-add-on-index-articles-failed-invalid_document_id) |
 | [Stopping](#stopping) | [lease lost](#search-sync-articlesarticles-lost-its-lease-another-process-holds-the-name-now-or-the-lease-was-removed-it-lapses-when-not-renewed-within-30000-ms-it-stopped-rather-than-run-beside-it) · [a dropped collection](#the-sync-stops-and-closed-resolves-with-invalidated) |
+| [Several collections](#several-collections-createsearchsyncs) | [a key the Mongo does not wire](#type-typedindex-is-not-assignable-to-type-createsearchsyncs-this-mongo-wires-no-collection-called-comments) · [the same, at run time](#createsearchsyncs-this-mongo-wires-no-collection-called-comments) · [several databases](#createsearchsyncs-this-mongo-holds-2-databases-main-analytics-and-createsearchsyncs-follows-the-collections-of-one) · [a partial reindex](#search-sync-authorsauthors-failed-reindexing-) · [a silent failure](#one-index-stops-updating-and-nothing-is-thrown) · [`failed` never resolves](#await-runningfailed-never-resolves) · [a dropped collection is silent](#a-sync-stops-and-nothing-settles) · [`close()` rejects](#closing-rejects-with-an-error-failed-never-reported) |
 
 ## Install
 
@@ -542,3 +545,212 @@ running.closed.then(
 
 Whatever the collection holds after it is recreated is indexed by the reindex
 the next `start()` runs.
+
+## Several collections: `createSearchSyncs`
+
+These are the entries of `createSearchSyncs`, which wires one `createSearchSync`
+per collection over what `openMongo` returned and starts and stops them
+together. Each sync's own errors are the ones above; what is here is the
+config, and the syncs run as one.
+
+### `Type 'TypedIndex<…>' is not assignable to type '"createSearchSyncs: this Mongo wires no collection called \"comments\""'`
+
+The whole line is a `TS2322`:
+
+```
+error TS2322: Type 'TypedIndex<IndexDefinition<…>>' is not assignable to type
+'"createSearchSyncs: this Mongo wires no collection called \"comments\""'.
+```
+
+**When:** compiling the `createSearchSyncs` call. The refusal lands on that
+entry's `index`, which is why the message reads as a type. A key the Mongo
+wires as a GridFS **bucket** is refused the same way: a bucket is not a
+collection, and has nothing to follow.
+
+**Why:** a config key is the name a collection is **exported** under — the same
+key `mongo.db.<key>` answers to. `comments` is not one of them: either the model
+is not exported from the module the Mongo's config passes as `collections`, or
+the export was renamed.
+
+**Fix:** use the Mongo's own key:
+
+```ts
+const search = createSearchSyncs(mongo, {
+	articles: { index: bindIndex(meili, articleIndex), transform: toArticleHit },
+	//  ^ `mongo.db.articles`, so `export const articles = defineCollection(…)`
+});
+```
+
+A key that is a member of the driver's `Db` — `command`, `watch` — is refused
+the same way: `@nxgt/mongo` never wires a collection under one of those.
+
+### `createSearchSyncs: this Mongo wires no collection called "comments"`
+
+**When:** calling `createSearchSyncs`, when the types were bypassed — an `as
+never`, a config built at run time, or JavaScript.
+
+**Why:** the same cause as the
+[type error above](#type-typedindex-is-not-assignable-to-type-createsearchsyncs-this-mongo-wires-no-collection-called-comments).
+It is checked again at run time because a `Db` answers to its own members: a
+key that is one would give something that is not a collection rather than
+`undefined`. The same holds for a key the Mongo wires a **GridFS bucket**
+under (`@nxgt/mongo` 0.19.0 and later): a bucket sits on the scope beside
+the collections, but there is nothing in it to search.
+
+**Fix:** write the config as a literal argument to `createSearchSyncs`, so the
+compiler refuses it first — a config assigned to a variable of a wider type
+loses the refusal.
+
+### `createSearchSyncs: this Mongo holds 2 databases (main, analytics), and createSearchSyncs follows the collections of one`
+
+The message ends: *Build one `createSearchSyncs` per database, from a Mongo that wires
+that database alone*.
+
+**When:** calling `createSearchSyncs` with a Mongo built from a `databases` config.
+
+**Why:** the config's keys come from the Mongo's **sole** database, the same way
+`mongo.db` does. With several there is no sole one, so the key type is already
+`never` — this is what the call gets at run time.
+
+**Fix:** open one Mongo per database, and one `createSearchSyncs` over each:
+
+```ts
+const mainMongo = await openMongo(defineMongo({ uri, collections }));
+const search = createSearchSyncs(mainMongo, {
+	articles: { index: bindIndex(meili, articleIndex), transform: toArticleHit },
+});
+```
+
+### `Search sync "authors:authors" failed reindexing: …`
+
+**When:** `reindexAll()`, on the first key that fails. The keys after it in the
+config are not run, and the reports of the keys already done are **lost with
+the rejection**.
+
+**Why:** a reindex removes what a collection no longer gives, so a half-finished
+run is not a state to carry on from. The error names the sync that stopped it;
+what it stopped on is its `cause`.
+
+**Fix:** read the error, fix it, and run it again — the reindexes that succeeded
+are idempotent:
+
+```ts
+try {
+	await search.reindexAll();
+} catch (error) {
+	log.error(error);            // `error.sync` names the key that failed
+	throw error;
+}
+```
+
+For a report per key whatever happens, reindex the syncs one at a time through
+`search.syncs`:
+
+```ts
+for (const [key, sync] of Object.entries(search.syncs)) {
+	const report = await sync.reindex().catch((error: unknown) => error);
+	log.info({ key, report });
+}
+```
+
+### One index stops updating, and nothing is thrown
+
+The error that stopped it is
+`Search sync "articles:articles" failed following changes: boom`, and it is
+never printed: nothing in your process asked for it.
+
+**When:** while the search syncs are running, after one sync stops on an error — a
+transform that threw, a batch Meilisearch refused, a server that went away.
+The other syncs carry on, so the symptom is one index falling behind.
+
+**Why:** `failed` is a promise that **rejects** with the first sync that stops.
+`createSearchSyncs` takes every rejection it makes so that none of them ends the process —
+each sync's own `closed`, and `failed` itself — which means a failure nobody
+took is a failure nobody hears about. `close()` will not report it either: it
+deliberately stays quiet about the one `failed` carried.
+
+**Fix:** take `failed` the moment you have it:
+
+```ts
+const running = await search.start();
+running.failed.catch((error: unknown) => {
+	log.error(error);
+	void shutdown();
+});
+```
+
+Or race it against your own shutdown, which is the other shape:
+
+```ts
+await Promise.race([running.failed, stopSignal]);
+await running.close();
+```
+
+### `await running.failed` never resolves
+
+Not an error: the line simply never returns.
+
+**When:** awaiting `failed` after a clean `close()`, or on syncs where nothing
+goes wrong.
+
+**Why:** `failed` rejects on the first failure and **never resolves**: a clean
+stop is not an event, so there is nothing for it to settle with.
+
+**Fix:** use it for `catch`, or race it — never as the last `await` of a
+shutdown:
+
+```ts
+running.failed.catch(exit);     // handled, not awaited
+await running.close();          // this is what resolves when the syncs stop
+```
+
+### A sync stops and nothing settles
+
+**When:** the collection behind one sync is dropped or renamed while the search syncs
+are running.
+
+**Why:** the bridge treats an invalidated change stream as a **clean stop** —
+that sync's `closed` *resolves* with `'invalidated'` — and `createSearchSyncs` forwards
+failures only. So `failed` stays quiet, `close()` throws nothing, and that one
+sync is dead while the others carry on.
+
+**Fix:** watch the sync's own `closed` when a drop has to be noticed:
+
+```ts
+const running = await search.start();
+for (const [key, one] of Object.entries(running.running)) {
+	one.closed.then((reason) => {
+		if (reason === 'invalidated') log.warn({ key }, 'collection dropped');
+	}, () => undefined);          // failures are `failed`'s to report
+}
+```
+
+What the collection holds after it is recreated is indexed by the reindex the
+next `start()` runs for that sync.
+
+### Closing rejects with an error `failed` never reported
+
+**When:** `await running.close()` — including the implicit one of
+`await using` — after something has already gone wrong.
+
+**Why:** `close()` deliberately swallows the failure `failed` already carried,
+so you do not have to hear the same error twice. Every **other** failure is
+thrown: a second sync that fell over after `failed` had settled, and anything
+that goes wrong while closing — the last flush of a sync that cannot reach
+Meilisearch, for one. If more than one throws, `close()` reports the first.
+
+**Fix:** handle both, and treat `close()` as able to fail:
+
+```ts
+const running = await search.start();
+running.failed.catch((error: unknown) => log.error(error)); // the first failure
+try {
+	await running.close();
+} catch (error) {
+	log.error(error);            // a second one, or a failure while closing
+}
+```
+
+`close()` is idempotent, and it keeps going past a sync that fails, so the
+others are still flushed and stopped. The Mongo is **not** closed with it:
+`mongo.close()` stays yours to call.

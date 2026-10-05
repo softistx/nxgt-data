@@ -14,26 +14,27 @@ import type {
 import type {
 	ByKey,
 	IndexMap,
-	RunningSearchKit,
-	SearchConfig,
-	SearchKit,
+	RunningSearchSyncs,
+	SearchSyncs,
+	SearchSyncsConfig,
 } from './types';
 
-/** The kit's sole scope, or a refusal naming what to do instead. */
-function soleScope(kit: Mongo<unknown>): Record<string, unknown> {
-	const names = Object.keys(kit.databases);
+/** The Mongo's sole scope, or a refusal naming what to do instead. */
+function soleScope(mongo: Mongo<unknown>): Record<string, unknown> {
+	const names = Object.keys(mongo.databases);
 	if (names.length !== 1) {
 		throw new TypeError(
-			'createSearchKit: this kit holds ' +
-				`${names.length} databases (${names.join(', ')}), and a search kit ` +
-				'follows the collections of one. Build one search kit per database, ' +
-				'from a kit that wires that database alone',
+			'createSearchSyncs: this Mongo holds ' +
+				`${names.length} databases (${names.join(', ')}), and ` +
+				'createSearchSyncs follows the collections of one. Build one ' +
+				'`createSearchSyncs` per database, from a Mongo that wires that ' +
+				'database alone',
 		);
 	}
-	return kit.db as unknown as Record<string, unknown>;
+	return mongo.db as unknown as Record<string, unknown>;
 }
 
-/** The collection a key names, refused by name when the kit wires none. */
+/** The collection a key names, refused by name when the Mongo wires none. */
 function collectionAt(
 	scope: Record<string, unknown>,
 	key: string,
@@ -41,7 +42,7 @@ function collectionAt(
 	const collection = scope[key];
 	// A `Db` answers to its own members, so a key that is one would give
 	// something that is not a collection rather than `undefined`. A GridFS
-	// bucket the kit wires has a `definition` too, so it is the definition's
+	// bucket the Mongo wires has a `definition` too, so it is the definition's
 	// shape that decides: a collection's has a schema, a bucket's has none.
 	const definition =
 		typeof collection === 'object' && collection !== null
@@ -53,26 +54,26 @@ function collectionAt(
 		!('schema' in definition)
 	) {
 		throw new TypeError(
-			`createSearchKit: this kit wires no collection called "${key}"`,
+			`createSearchSyncs: this Mongo wires no collection called "${key}"`,
 		);
 	}
 	return collection as TypedCollection<AnyCollectionDefinition>;
 }
 
 /**
- * The search kit: one `createSearchSync` per entry, over the collections the
- * Mongo kit already holds.
+ * The search syncs: one `createSearchSync` per entry, over the collections
+ * the Mongo already holds.
  *
- * It is an object of its own rather than something added to the kit: the
- * Mongo kit stays as `createKit` returned it, and each of the two is closed
- * by whoever opened it. The search kit closes only what it started — the
- * collections, the client and the database are the Mongo kit's.
+ * It is an object of its own rather than something added to the Mongo: the
+ * Mongo stays as `openMongo` returned it, and each of the two is closed by
+ * whoever opened it. The search syncs close only what they started — the
+ * collections, the client and the database are the Mongo's.
  */
-export function createSearchKit<C, const I extends IndexMap<I>>(
-	kit: Mongo<C>,
-	config: SearchConfig<C, I>,
-): SearchKit<I> {
-	const scope = soleScope(kit as Mongo<unknown>);
+export function createSearchSyncs<C, const I extends IndexMap<I>>(
+	mongo: Mongo<C>,
+	config: SearchSyncsConfig<C, I>,
+): SearchSyncs<I> {
+	const scope = soleScope(mongo as Mongo<unknown>);
 	const keys = Object.keys(config) as (keyof I & string)[];
 
 	const syncs = {} as Record<keyof I & string, SearchSync>;
@@ -128,16 +129,16 @@ export function createSearchKit<C, const I extends IndexMap<I>>(
 				running[key] = one;
 				started.push(one);
 			}
-			return runningKit(running as ByKey<I, RunningSearchSync>, started);
+			return runningSyncs(running as ByKey<I, RunningSearchSync>, started);
 		},
 	};
 }
 
-/** The started kit: what `start` hands over. */
-function runningKit<S>(
+/** The started syncs: what `start` hands over. */
+function runningSyncs<S>(
 	running: ByKey<S, RunningSearchSync>,
 	started: RunningSearchSync[],
-): RunningSearchKit<S> {
+): RunningSearchSyncs<S> {
 	let closing: Promise<void> | undefined;
 
 	// `closed` resolves on a clean stop and rejects on a failure. Only the
