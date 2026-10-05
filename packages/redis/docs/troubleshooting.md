@@ -39,17 +39,21 @@ application can handle.
 - **Wiring** (`defineRedis` and `openRedis`)
   - [`Property 'users' does not exist on type 'never'.`](#property-users-does-not-exist-on-type-never)
   - [`Property 'users' does not exist on type 'CacheScope<Record<never, never>>'.`](#property-users-does-not-exist-on-type-cachescoperecordnever-never)
+  - [`Property 'login' does not exist on type 'LimitScope<Record<never, never>>'.`](#property-login-does-not-exist-on-type-limitscoperecordnever-never)
+  - [`"users" is not a rate limit`](#users-is-not-a-rate-limit)
   - [`defineRedis: instance "default" has neither uri nor client. Give it one.`](#defineredis-instance-default-has-neither-uri-nor-client-give-it-one)
   - [`defineRedis: instance "default" has both uri and client. Pass the URI to connect to, or the client you already opened.`](#defineredis-instance-default-has-both-uri-and-client-pass-the-uri-to-connect-to-or-the-client-you-already-opened)
   - [`defineRedis: instance "default" has clientOptions beside a client. The client was opened with its own; pass a uri, or drop the options.`](#defineredis-instance-default-has-clientoptions-beside-a-client-the-client-was-opened-with-its-own-pass-a-uri-or-drop-the-options)
   - [`defineRedis: instance "default" has an empty prefix. Leave it out, or give it a name.`](#defineredis-instance-default-has-an-empty-prefix-leave-it-out-or-give-it-a-name)
-  - [`defineRedis: instance "default" wires no cache and no channel. Pass the module that exports them, or drop the instance.`](#defineredis-instance-default-wires-no-cache-and-no-channel-pass-the-module-that-exports-them-or-drop-the-instance)
+  - [`defineRedis: instance "default" wires no cache, no channel, no rate limit and no idempotency. Pass the module that exports them, or drop the instance.`](#defineredis-instance-default-wires-no-cache-no-channel-no-rate-limit-and-no-idempotency-pass-the-module-that-exports-them-or-drop-the-instance)
+  - [`defineRedis: instance "default" has "users" under limits, which is a cache, not a rate limit. Wire it under caches, or keep it out of this module.`](#defineredis-instance-default-has-users-under-limits-which-is-a-cache-not-a-rate-limit-wire-it-under-caches-or-keep-it-out-of-this-module)
   - [`defineRedis: instance "default" wires the cache named "user" twice, under "users" and "people". They would share every key in Redis. Export one of them, or give it a name of its own.`](#defineredis-instance-default-wires-the-cache-named-user-twice-under-users-and-people-they-would-share-every-key-in-redis-export-one-of-them-or-give-it-a-name-of-its-own)
   - [``defineRedis: `instances` is empty. Give it one, or write the single instance as the configuration itself.``](#defineredis-instances-is-empty-give-it-one-or-write-the-single-instance-as-the-configuration-itself)
   - [`openRedis: instance "main" has neither uri nor client. Give it one.`](#openredis-instance-main-has-neither-uri-nor-client-give-it-one)
   - [`cache: this Redis holds 2 Redis instances, and this call lives on one. Name it, as { on: 'cache' }.`](#cache-this-redis-holds-2-redis-instances-and-this-call-lives-on-one-name-it-as--on-cache-)
   - [`lock: this Redis has no instance named "events". It wires "cache", "pubsub".`](#lock-this-redis-has-no-instance-named-events-it-wires-cache-pubsub)
   - [A key, a channel or a lock is not where you expect it in `redis-cli`](#a-key-a-channel-or-a-lock-is-not-where-you-expect-it-in-redis-cli)
+  - [Every rate limit starts full again, or a retried request ran twice, after moving to the wired guards](#every-rate-limit-starts-full-again-or-a-retried-request-ran-twice-after-moving-to-the-wired-guards)
   - [The process does not exit, or the connection count climbs](#the-process-does-not-exit-or-the-connection-count-climbs)
   - [A client the configuration handed in is still open after `redis.close()`](#a-client-the-configuration-handed-in-is-still-open-after-redisclose)
 - **Rate limits and idempotency** (`GuardError`)
@@ -467,7 +471,7 @@ if (delivered === 0) await queue.add(payload); // a stream or a queue, where it 
 
 ## Wiring: `defineRedis` and `openRedis`
 
-Everything in this part is a bare `TypeError` raised at **wiring time**, or a type error on the object `openRedis` gives back; the sentence names the instance and what to do, and no request produces one. What a *call* on a wired cache, channel or lock throws is the `RedisError` described above, with the instance's prefix in the key it names: a value refused by `redis.cache.users.set` reads `This value does not match the schema "myapp:prod:user" stores:`, a lock `The lock "myapp:import" is held by somebody else …`, a message `A message on "myapp:prod:user.created" does not match its schema:`.
+Everything in this part is a bare `TypeError` raised at **wiring time**, or a type error on the object `openRedis` gives back; the sentence names the instance and what to do, and no request produces one. What a *call* on a wired cache, channel, lock, rate limit or idempotency throws is the `RedisError` described above, with the instance's prefix in the key it names: a value refused by `redis.cache.users.set` reads `This value does not match the schema "myapp:prod:user" stores:`, a lock `The lock "myapp:import" is held by somebody else …`, a message `A message on "myapp:prod:user.created" does not match its schema:`. A wired guard's `GuardError` carries the prefixed name, as a cache's `RedisError` does: `enforce on "myapp:prod:login": the limit of 5 per 60000ms is spent; …`, with `definition` `myapp:prod:login`. The headings of the guard entries below say `login`, the name without a prefix.
 
 `redis.ping()` never throws: it answers `{ ok: false, error }`, and that `error` is the same `RedisError`, `code: 'PING_TIMEOUT'`, message `ping: no answer in 2000ms`, whether `openRedis` opened the client or the configuration handed one in.
 
@@ -519,6 +523,45 @@ await redis.instances.pubsub.channels.created.publish(user);  // the channels th
 `RedisOf<typeof config>` is the type of that object, for a function that takes it
 as a parameter; it carries the same keys, so the two errors above are what it
 refuses too.
+
+#### `Property 'login' does not exist on type 'LimitScope<Record<never, never>>'.`
+
+**When:** compiling `redis.limits.login` — or `redis.idempotency.orders`, whose
+mirror image reads `Property 'orders' does not exist on type
+'IdempotencyScope<Record<never, never>>'.` — on an instance that wires no
+rate limit (no idempotency). With several instances `redis.limits` is `never`
+instead: the first entry above, with `limits` for `cache`.
+**Why:** the same as for caches: every instance is typed by the modules *it* was
+given, and one with no `limits` has an empty scope. Usually the wrong instance
+named, `limits` left out of the configuration, or an export of another kind: a
+rate limit is only wired from `limits` and an idempotency only from
+`idempotency` — an idempotent operation passed as `caches` is not a cache.
+**Fix:** wire it, and read it off the instance that wires it:
+
+```ts
+const config = defineRedis({ uri, prefix: 'myapp', limits, idempotency });
+await redis.limits.login.enforce({ ip });
+await redis.idempotency.orders.run({ user, key }, () => placeOrder());
+```
+
+#### `"users" is not a rate limit`
+
+**When:** compiling `defineRedis({ uri, limits })` where the module holds an
+export that is a definition of another kind — here `users`, a cache. The
+mirror image under `idempotency` reads `"login" is not an idempotency`;
+TypeScript puts it on the export, as
+`Type 'CacheDefinition<…>' is not assignable to type '"\"users\" is not a rate limit"'`.
+**Why:** `limits` and `idempotency` take **only their own kind**: a cache
+there would otherwise be skipped without a word, and a rate limit nobody
+enforces is the failure that looks like success. It is the compile-time half of
+[the refusal below](#defineredis-instance-default-has-users-under-limits-which-is-a-cache-not-a-rate-limit-wire-it-under-caches-or-keep-it-out-of-this-module). An export that is no definition at all — a schema, a
+type, a constant — is fine.
+**Fix:** move the definition to the module that wires it, or keep it out of
+this one:
+
+```ts
+defineRedis({ uri, caches, limits });   // `users` is exported from ./caches
+```
 
 ### Wiring configuration
 
@@ -588,13 +631,15 @@ choice; an empty one is a mistake.
 defineRedis({ uri, prefix: process.env.REDIS_PREFIX ?? 'myapp:dev', caches });
 ```
 
-#### `defineRedis: instance "default" wires no cache and no channel. Pass the module that exports them, or drop the instance.`
+#### `defineRedis: instance "default" wires no cache, no channel, no rate limit and no idempotency. Pass the module that exports them, or drop the instance.`
 
-**When:** calling `defineRedis` with no `caches` and no `channels`, or with
-objects that hold no definition in them.
+**When:** calling `defineRedis` with no `caches`, `channels`, `limits` and
+`idempotency`, or with objects that hold no definition in them. (Before 0.6.0
+it read `wires no cache and no channel`.)
 **Why:** definitions are recognised **by shape** — a cache has a `name`, a
 `key` function, a numeric `ttl` and a `schema`; a channel has a `name` and a
-`schema` and no `ttl`. An object that holds none of those is usually a module
+`schema` and no `ttl`; a rate limit has a `name`, a `key` function, a `limit`
+and a `per`; an idempotency is a cache's shape with a numeric `lease`. An object that holds none of those is usually a module
 of types only, a default export read as a namespace, or a barrel that
 re-exports builders rather than definitions.
 **Fix:** pass the module as it is:
@@ -607,16 +652,41 @@ export const users = defineCache({ name: 'user', key: (id: string) => id, ttl: 3
 import * as caches from './caches';
 import * as channels from './channels';
 
-export const config = defineRedis({ uri, caches, channels });
+export const config = defineRedis({ uri, caches, channels, limits, idempotency });
 ```
 
 Anything else in those modules — a schema, a type, a constant — is skipped,
 not refused.
 
+#### `defineRedis: instance "default" has "users" under limits, which is a cache, not a rate limit. Wire it under caches, or keep it out of this module.`
+
+**When:** calling `defineRedis` — or `openRedis`, on a configuration built
+elsewhere — with a definition of another kind under `limits` or `idempotency`.
+The sentence names the kind it found and where it belongs: a rate limit under
+`idempotency` reads `has "login" under idempotency, which is a rate limit, not
+an idempotency. Wire it under limits, …`, and an idempotent operation under
+`limits` `which is an idempotency, not a rate limit. Wire it under idempotency, …`.
+**Why:** each key takes only its own kind, told apart by shape: a rate limit has
+a `limit` and a `per`; an idempotency has a `ttl`, a `lease` and a `schema`; a
+cache has a `ttl` and a `schema` and **no** `lease`. One passed under the wrong
+key would be skipped, and the guard it stood for would never run. An
+idempotency written by hand without `lease` — not through `defineIdempotency`,
+which always fills it — has a cache's shape and is refused as a cache.
+**Fix:** wire it where it belongs, or keep it out of the module you pass:
+
+```ts
+defineRedis({ uri, caches, limits, idempotency });
+```
+
+Only `limits` and `idempotency` refuse: `caches` and `channels` skip what is
+not theirs, as they always have.
+
 #### `defineRedis: instance "default" wires the cache named "user" twice, under "users" and "people". They would share every key in Redis. Export one of them, or give it a name of its own.`
 
 **When:** calling `defineRedis`. The same sentence covers channels, as
-`wires the channel named "user.created" twice`.
+`wires the channel named "user.created" twice`, rate limits, as `wires the rate
+limit named "login" twice`, and idempotent operations, as `wires the
+idempotency named "orders.create" twice`.
 **Why:** two exports point at **one** definition, or at two definitions with
 the same `name`. Both keys would write the same Redis keys, so one of them is
 silently dead: `redis.cache.people.delete(id)` empties what
@@ -632,6 +702,11 @@ export const people = defineCache({ name: 'person', key, ttl: 300, schema });
 The **export** name is what the application reads (`redis.cache.users`); the
 definition's `name` is what Redis holds. Two definitions may share an export
 name across two modules, but never a `name` on one instance.
+
+The check is **within a kind**. A cache, a rate limit and an idempotency all
+write `<name>:<key>`, so a cache `login` and a rate limit `login` share keys
+across kinds, which the wiring does not see: Redis answers `WRONGTYPE` on the
+first call that meets the other's key. Give each its own `name`.
 
 #### ``defineRedis: `instances` is empty. Give it one, or write the single instance as the configuration itself.``
 
@@ -673,9 +748,10 @@ export const redis = await openRedis(config);
 #### `cache: this Redis holds 2 Redis instances, and this call lives on one. Name it, as { on: 'cache' }.`
 
 **When:** reading `redis.cache` on an object built from `instances: { … }` with
-more than one of them. `redis.channels` throws the same sentence under its own
-name, and so does `redis.lock` when no `{ on }` was given.
-**Why:** those three are the shortcut to the **sole** instance. With several
+more than one of them. `redis.channels`, `redis.limits` and `redis.idempotency`
+throw the same sentence under their own names, and so does `redis.lock` when no
+`{ on }` was given.
+**Why:** those five are the shortcut to the **sole** instance. With several
 there is no sole one, and guessing is how a write lands on the wrong Redis —
 so their type is already `never`, and this is what a JavaScript call site, or
 one that went through an `any`, gets at run time.
@@ -684,6 +760,7 @@ one that went through an `any`, gets at run time.
 ```ts
 await redis.instances.cache.cache.users.get(id);
 await redis.instances.pubsub.channels.created.publish(user);
+await redis.instances.cache.limits.login.enforce({ ip });
 await redis.lock('import', importEverything, { on: 'cache' });
 ```
 
@@ -712,7 +789,7 @@ it does not compile, and gives `undefined` where the types were bypassed.
 **When:** looking for a value the application says it wrote, and getting
 `(nil)`.
 **Why:** the instance's prefix is in front of everything it writes, and a
-cache's key is `<name>:<key>` — a cache wired as `users` with `name: 'user'`
+cache's, a rate limit's and an idempotency's key is `<name>:<key>` — a cache wired as `users` with `name: 'user'`
 under `prefix: 'myapp:prod'` writes `myapp:prod:user:ada`, and the channel
 `user.created` is published on `myapp:prod:user.created`. The lock is the one
 that surprises: `withLock` writes `` `lock:${key}` `` itself
@@ -723,6 +800,7 @@ measured in the specs.
 
 ```ts
 redis.cache.users.keyFor('ada');       // 'myapp:prod:user:ada'
+redis.limits.login.keyFor({ ip });     // 'myapp:prod:login:203.0.113.7'
 redis.channels.created.name;           // 'myapp:prod:user.created'
 redis.instances.default.prefix;        // 'myapp:prod'  — a lock is `lock:${prefix}:${key}`
 ```
@@ -730,6 +808,28 @@ redis.instances.default.prefix;        // 'myapp:prod'  — a lock is `lock:${pr
 A definition is never renamed in place: the prefix is applied to a copy, so
 two objects may wire one definition under two prefixes, and a staging process
 and a production one share the module without sharing a keyspace.
+
+#### Every rate limit starts full again, or a retried request ran twice, after moving to the wired guards
+
+**When:** right after an application moves a guard from
+`bindRateLimit(client, login)` / `bindIdempotency(client, orders)` to
+`redis.limits.login` / `redis.idempotency.orders`, on an instance with a
+`prefix`. Callers who were at their limit get through; a client's retry of a
+request that ran just before the deploy runs **again**.
+**Why:** a guard bound by hand writes `login:<ip>`; a wired one writes
+`<prefix>:login:<ip>`. The new code looks under keys the old code never wrote,
+so it sees no count and no stored result. Nothing is lost — the old keys sit
+there until they expire — they are simply not read.
+**Fix:** none is needed beyond knowing it: the counts rebuild within `per`, and
+an idempotency record is only needed for a retry that arrives within its `ttl`.
+Move at a quiet moment. To carry on *without* the restart, leave the instance
+without a `prefix` (the keys are then the same), or keep binding by hand. Check
+what was written with `keyFor`:
+
+```ts
+redis.limits.login.keyFor({ ip });      // 'myapp:prod:login:203.0.113.7'
+bindRateLimit(client, login).keyFor({ ip });  // 'login:203.0.113.7'
+```
 
 ### Closing
 

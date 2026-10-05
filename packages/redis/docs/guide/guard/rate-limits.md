@@ -22,6 +22,16 @@ const result = await login.consume({ ip: '203.0.113.7' });
 // { allowed: true, limit: 5, remaining: 4, resetAfter: 12000, retryAfter: 0 }
 ```
 
+## Wired, or bound by hand
+
+Two ways to get a bound limit. **Wired**: export the definition from a module,
+hand the module to `defineRedis` as `limits`, and `openRedis` binds it under
+the instance's `prefix` — `redis.limits.login`, see
+[the wiring](../wiring/guards.md). **By hand**: `bindRateLimit(client, definition)`,
+as in the example above, on any client, with no prefix. The two write
+different keys under a prefix (`myapp:prod:login:…` against `login:…`), so
+moving an application from one to the other restarts its counts.
+
 ## Describing a limit
 
 `defineRateLimit` describes; it talks to nothing, and gives back a frozen copy
@@ -60,7 +70,7 @@ A stored key is `` `<name>:<key(params)>` `` — the same shape as an
 login.keyFor({ ip: '203.0.113.7' });   // 'login:203.0.113.7'
 ```
 
-`bindRateLimit(client, definition)` takes any Bun `RedisClient`: one you made,
+`bindRateLimit(client, definition)` — the by-hand way — takes any Bun `RedisClient`: one you made,
 or the `client` of an `@nxgt/redis` connection. It checks the definition
 again, so one written by hand, without `defineRateLimit`, is refused the same
 way — with `bindRateLimit` in the message instead.

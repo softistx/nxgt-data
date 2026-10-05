@@ -35,10 +35,12 @@ one shape underneath and two ways to say the same thing:
 ```ts
 redis.cache === redis.instances.default.cache;        // true
 redis.channels === redis.instances.default.channels;  // true
+redis.limits === redis.instances.default.limits;      // true
+redis.idempotency === redis.instances.default.idempotency;  // true
 redis.clients.default === redis.instances.default.client;  // true
 ```
 
-`redis.cache` and `redis.channels` are the shortcut; the long way is always
+`redis.cache`, `redis.channels`, `redis.limits` and `redis.idempotency` are the shortcut; the long way is always
 there, and it is what a helper written over any configuration uses.
 
 ## What is on an instance
@@ -47,6 +49,8 @@ there, and it is what a helper written over any configuration uses.
 | --- | --- | --- |
 | `cache` | `CacheScope` | the caches wired on this Redis, under their keys |
 | `channels` | `ChannelScope` | the channels, likewise |
+| `limits` | `LimitScope` | the [rate limits](guards.md), likewise, under this instance's prefix |
+| `idempotency` | `IdempotencyScope` | the [idempotent operations](guards.md), likewise |
 | `client` | `RedisClient` | Bun's own client, for a command the wiring does not wrap |
 | `prefix` | `string \| undefined` | what goes in front of every key it writes |
 | `lock(key, work, options?)` | `Promise<T>` | `withLock` on a key this instance's prefix is in front of |
@@ -231,8 +235,15 @@ function openRedis<C>(config: RedisConfig<C>): Promise<Redis<C>>;
 interface Redis<C> extends AsyncDisposable {
 	readonly cache: SoleCache<C>;
 	readonly channels: SoleChannels<C>;
+	readonly limits: SoleLimits<C>;
+	readonly idempotency: SoleIdempotency<C>;
 	readonly instances: {
-		readonly [N in InstanceName<C>]: InstanceScope<CachesIn<C, N>, ChannelsIn<C, N>>;
+		readonly [N in InstanceName<C>]: InstanceScope<
+			CachesIn<C, N>,
+			ChannelsIn<C, N>,
+			LimitsIn<C, N>,
+			IdempotencyIn<C, N>
+		>;
 	};
 	readonly clients: { readonly [N in InstanceName<C>]: RedisClient };
 	lock<T>(key: string, work: () => Promise<T> | T, options?: RedisLockOptions<C>): Promise<T>;
@@ -246,8 +257,8 @@ Redis has neither an actor to stamp nor a session to carry, so the object is the
 same for every request and is never derived. That is also why `close()`
 always belongs to the one you are holding.
 
-`SoleInstance<C>` is the only instance's whole scope, and `SoleCache<C>` and
-`SoleChannels<C>` are the two halves of it put at the top level; all three are
+`SoleInstance<C>` is the only instance's whole scope, and `SoleCache<C>`,
+`SoleChannels<C>`, `SoleLimits<C>` and `SoleIdempotency<C>` are its parts put at the top level; all of them are
 `never` when it holds more than one instance. `InstanceScope`,
-`CacheScope`, `ChannelScope` and `BoundChannel` are exported for an
+`CacheScope`, `ChannelScope`, `LimitScope`, `IdempotencyScope` and `BoundChannel` are exported for an
 application that names them in its own signatures.

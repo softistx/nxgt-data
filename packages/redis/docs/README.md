@@ -9,7 +9,7 @@ each one atomic script on the server, timed by the server's clock, on any Bun
 `RedisClient` — the one `openRedis` opened, or your own.
 
 Start with the **wiring** pages if you want the whole thing in one object —
-`defineRedis` and `openRedis`, with every cache and channel typed under the
+`defineRedis` and `openRedis`, with every cache, channel, rate limit and idempotency typed under the
 name it is exported as — and with the lower-level pages (connections, caches,
 locks, pub/sub) for the pieces it is made of. The rate-limit and idempotency
 pages are under `guide/guard/`.
@@ -19,6 +19,7 @@ pages are under `guide/guard/`.
 | [Wiring: configuration](guide/wiring/configuration.md) | you are describing where Redis is and what is wired on it with `defineRedis`, and deciding what the deployment's prefix should be |
 | [Wiring: caches](guide/wiring/caches.md) | you are reading `redis.cache.users`, and want the keys it writes, what `remember` promises, and what the types refuse |
 | [Wiring: channels](guide/wiring/channels.md) | one process publishes an event and another reacts to it, and somebody has to close the subscription |
+| [Wiring: rate limits and idempotency](guide/wiring/guards.md) | you want `redis.limits.login` and `redis.idempotency.orders`, bound under the deployment's prefix — and are moving from guards bound by hand, whose keys carry none |
 | [Wiring: locks and health](guide/wiring/locks-and-health.md) | a job must run once, or a health route has to say whether Redis answers |
 | [Wiring: instances and closing](guide/wiring/instances.md) | an application talks to more than one Redis, or you are deciding who closes which client |
 | [Connections](guide/connections.md) | you are opening a client, sharing it between modules, checking its health, or closing it on shutdown |

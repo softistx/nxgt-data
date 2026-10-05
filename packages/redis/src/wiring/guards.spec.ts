@@ -36,6 +36,16 @@ describe('wired rate limits', () => {
 		expect((denied as GuardError).code).toBe('RATE_LIMITED');
 	});
 
+	test('a refusal names the prefixed definition, as a cache error does', async () => {
+		const redis = track(await openRedis(one('myapp')));
+		for (let i = 0; i < 5; i += 1) await redis.limits.login.consume(ada);
+		const denied = (await rejection(
+			redis.limits.login.enforce(ada),
+		)) as GuardError;
+		expect(denied.definition).toBe('myapp:login');
+		expect(denied.message).toContain('enforce on "myapp:login"');
+	});
+
 	test('without a prefix the key is the hand-bound one', async () => {
 		const redis = track(await openRedis(one()));
 		await redis.limits.login.consume(ada);

@@ -8,12 +8,16 @@ anything connects.
 import { defineRedis } from '@nxgt/redis';
 import * as caches from './caches';
 import * as channels from './channels';
+import * as idempotency from './idempotency';
+import * as limits from './limits';
 
 export const config = defineRedis({
 	uri: process.env.REDIS_URL!,
 	prefix: 'myapp:prod',
 	caches,
 	channels,
+	limits,        // every `defineRateLimit` of the app
+	idempotency,   // every `defineIdempotency`
 });
 ```
 
@@ -25,7 +29,8 @@ the first `get`. [`openRedis`](instances.md) is what connects.
 
 ## What gets wired
 
-`caches` and `channels` are module objects, the ones `import * as` gives:
+`caches`, `channels`, `limits` and `idempotency` are module objects, the ones
+`import * as` gives:
 
 ```ts
 // src/redis/caches.ts
@@ -55,7 +60,9 @@ export const CACHE_NOTE = 'exported beside the definitions, on purpose';
 ```
 
 Every export that is a `defineCache` becomes a key on `redis.cache`, every
-`defineChannel` a key on `redis.channels`, under the name it is **exported** by.
+`defineChannel` a key on `redis.channels`, every `defineRateLimit` one on
+`redis.limits` and every `defineIdempotency` one on `redis.idempotency`, under
+the name it is **exported** by ([the guards](guards.md) have their own page).
 A schema, a type, a helper or a constant in the same file is left where it is,
 so the module is passed as it is and nothing has to be filtered by hand.
 
@@ -92,13 +99,15 @@ the refusal is about one definition under two keys.
 | `uri` | `string` | — | Where to connect. One of `uri` and `client`, never both |
 | `client` | `RedisClient` | — | A client the application opened. The wiring uses it and **never closes it** |
 | `clientOptions` | `RedisOptions` | `{}` | Bun's own options, passed to the driver with `uri`. Refused beside `client`, which was opened with its own |
-| `prefix` | `string` | — | Put in front of every cache key, channel name and lock key this instance writes |
+| `prefix` | `string` | — | Put in front of every cache key, channel name, lock key, rate-limit key and idempotency key this instance writes |
 | `caches` | module object | — | `import * as caches from './caches'` |
 | `channels` | module object | — | `import * as channels from './channels'` |
+| `limits` | module object | — | `import * as limits from './limits'`: every `defineRateLimit`. A definition of another kind is refused |
+| `idempotency` | module object | — | `import * as idempotency from './idempotency'`: every `defineIdempotency`. Likewise |
 | `instances` | `Record<string, …>` | — | Several Redis instances, each taking the keys above. Written *instead* of them |
 
-An instance needs a `uri` **or** a `client`, and wires at least one cache or
-one channel — an instance with nothing on it is a leftover, not a
+An instance needs a `uri` **or** a `client`, and wires at least one cache,
+channel, rate limit or idempotency — an instance with nothing on it is a leftover, not a
 configuration. An option this table does not list does not compile.
 
 ### `client`: a Redis the application already opened
@@ -127,12 +136,15 @@ defineRedis({ uri: process.env.REDIS_URL!, prefix: 'myapp:prod', caches });
 | a cache key | `user:ada` | `myapp:prod:user:ada` |
 | a channel name | `user.created` | `myapp:prod:user.created` |
 | a lock key | `lock:import` | `lock:myapp:prod:import` |
+| a rate-limit key | `login:203.0.113.7` | `myapp:prod:login:203.0.113.7` |
+| an idempotency key | `orders.create:u1/k1` | `myapp:prod:orders.create:u1/k1` |
 
 It belongs to the wiring and not to the definition, because a definition says
 what a value *is* while a prefix says which deployment owns it — and one
 definition, imported by a staging process and a production one, cannot know
-that. One prefix covers the caches, the channels and the locks, so there is no
-third place to remember.
+that. One prefix covers the caches, the channels, the locks and the guards, so there is no
+third place to remember. A guard bound by hand has no prefix: moving it here
+[starts new keys](guards.md#the-prefix-and-moving-from-a-guard-bound-by-hand).
 
 On a lock it lands **inside** `lock:`: `@nxgt/redis`'s `withLock` writes
 `` `lock:${key}` `` itself, and the wiring does not reorder it. Two deployments are still kept apart, which is the point.
@@ -164,8 +176,9 @@ there are few enough to tell apart by their sentence.
 | both | `has both uri and client. Pass the URI to connect to, or the client you already opened.` |
 | `clientOptions` beside `client` | `has clientOptions beside a client. …` |
 | `prefix: '   '` | `has an empty prefix. Leave it out, or give it a name.` |
-| nothing wired | `wires no cache and no channel. …` |
-| one definition, two keys | `wires the cache named "user" twice, under … and …` |
+| nothing wired | `wires no cache, no channel, no rate limit and no idempotency. …` |
+| a cache under `limits`, a rate limit under `idempotency`, … | `has "users" under limits, which is a cache, not a rate limit. Wire it under caches, or keep it out of this module.` |
+| one definition, two keys | `wires the cache named "user" twice, under … and …` (also a channel, a rate limit, an idempotency) |
 | `instances: {}` | ``defineRedis: `instances` is empty. …`` |
 
 Each one in full, with its fix, is in
@@ -197,12 +210,17 @@ function defineRedis<const C extends RedisConfigInput>(
 ): RedisConfig<C>;
 
 type RedisConfigInput =
-	| InstanceConfig<object, object>
-	| { instances: Record<string, InstanceConfig<object, object>> };
+	| InstanceConfig<object, object, object, object>
+	| { instances: Record<string, InstanceConfig<object, object, object, object>> };
 
 interface RedisConfig<C> {
 	readonly instances: {
-		readonly [N in InstanceName<C>]: InstanceConfig<CachesIn<C, N>, ChannelsIn<C, N>>;
+		readonly [N in InstanceName<C>]: InstanceConfig<
+			CachesIn<C, N>,
+			ChannelsIn<C, N>,
+			LimitsIn<C, N>,
+			IdempotencyIn<C, N>
+		>;
 	};
 }
 ```
@@ -217,5 +235,6 @@ object literal gets no excess-property check of its own, the literal *being*
 the inferred type. It is internal, and nothing has to name it.
 
 `RedisConfig`, `RedisConfigInput`, `InstanceConfig`, `InstanceName`,
-`InstancesOf`, `CachesIn`, `ChannelsIn`, `CachesOf` and `ChannelsOf` are
+`InstancesOf`, `CachesIn`, `ChannelsIn`, `LimitsIn`, `IdempotencyIn`,
+`CachesOf`, `ChannelsOf`, `LimitsOf` and `IdempotencyOf` are
 exported for an application that writes its own helper over a configuration.
