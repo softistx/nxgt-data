@@ -47,14 +47,21 @@ interface IdempotencyDefinition<P, S extends z.ZodType> {
 	readonly name: string;
 	readonly key: (params: P) => string;
 	readonly ttl: number;
-	readonly lease?: number;
+	readonly lease: number; // `defineIdempotency` fills 10_000
 	readonly schema: S;
 }
 
 function defineIdempotency<P, S extends z.ZodType>(
-	definition: IdempotencyDefinition<P, S>,
+	definition: Omit<IdempotencyDefinition<P, S>, 'lease'> & {
+		readonly lease?: number;
+	},
 ): IdempotencyDefinition<P, S>;
 ```
+
+The returned definition always has a `lease`, and a cache definition has none
+(`lease?: never`): so `bindIdempotency(client, someCache)` and
+`bindCache(client, someIdempotency)` do not compile. Both write under
+`<name>:<key>`, but a string and a hash, which is `WRONGTYPE` at run time.
 
 A stored key is `` `<name>:<key(params)>` `` — the same shape as a rate
 limit's and an `@nxgt/redis` cache's:

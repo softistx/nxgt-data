@@ -63,6 +63,7 @@ describe('bindIdempotency', () => {
 		const client = new RedisClient('redis://127.0.0.1:1');
 		const byHand: IdempotencyDefinition<string, z.ZodString> = {
 			...base,
+			lease: 10_000,
 			ttl: 0,
 		};
 		expect(() => bindIdempotency(client, byHand)).toThrow(

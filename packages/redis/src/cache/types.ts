@@ -16,6 +16,13 @@ export interface CacheDefinition<P, S extends z.ZodType> {
 	readonly ttl: number;
 	/** What is stored. Checked on the way in *and* on the way out. */
 	readonly schema: S;
+	/**
+	 * A cache has none: it holds a value, not a lease. It is declared as
+	 * `never` because an `IdempotencyDefinition` is otherwise structurally a
+	 * cache, and `bindCache(client, someIdempotency)` would compile and write
+	 * a string where the idempotency writes a hash, which is `WRONGTYPE`.
+	 */
+	readonly lease?: never;
 }
 
 /** What the definition's `key` takes, so a bound cache can ask for it. */

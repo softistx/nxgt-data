@@ -4,13 +4,21 @@ import { RedisClient } from 'bun';
 import { z } from 'zod';
 import {
 	type BoundIdempotency,
+	bindCache,
 	bindIdempotency,
 	bindRateLimit,
 	defineIdempotency,
 	type GuardErrorCode,
 	type Idempotent,
+	publish,
 } from '../../src';
-import { chargeCard, createOrder, loginLimit } from '../fixtures';
+import {
+	chargeCard,
+	createOrder,
+	loginLimit,
+	userCache,
+	userCreated,
+} from '../fixtures';
 
 const client = new RedisClient('redis://127.0.0.1:1');
 const orders = bindIdempotency(client, createOrder);
@@ -123,3 +131,37 @@ const codes: GuardErrorCode[] = [
 	'LEASE_LOST',
 ];
 void codes;
+
+// The definitions of one package must not be assignable to each other: a
+// cache and an idempotency share `name:key`, and bound to the wrong one they
+// would write different Redis types under the same key (`WRONGTYPE`).
+
+// @ts-expect-error an idempotency is not a cache: `lease` is `never` there
+bindCache(client, createOrder);
+
+// @ts-expect-error a cache is not an idempotency: it has no `lease`
+bindIdempotency(client, userCache);
+
+// @ts-expect-error a rate limit has no `ttl` or `schema`: not a cache
+bindCache(client, loginLimit);
+
+// @ts-expect-error nor an idempotency: no `limit`, no `per`
+bindRateLimit(client, createOrder);
+
+// @ts-expect-error nor is a cache a rate limit
+bindRateLimit(client, userCache);
+
+// @ts-expect-error a rate limit has no `schema`: not an idempotency
+bindIdempotency(client, loginLimit);
+
+// @ts-expect-error a rate limit is not a channel
+void publish(client, loginLimit, {});
+
+// @ts-expect-error nor is an idempotency: `ttl` is `never` on a channel
+void publish(client, createOrder, {});
+
+// @ts-expect-error a channel is not an idempotency: it has no `ttl` or `key`
+bindIdempotency(client, userCreated);
+
+// @ts-expect-error a channel is not a rate limit
+bindRateLimit(client, userCreated);

@@ -444,6 +444,10 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
 - A cache or a channel with no schema, a channel with no name.
 - A cache definition passed to `publish`, or a channel definition to
   `bindCache` — they are otherwise structurally alike.
+- A cache definition passed to `bindIdempotency`, or an idempotency to
+  `bindCache`: both write `<name>:<key>`, as different Redis types, which
+  would be `WRONGTYPE`. A rate limit, a cache, a channel and an idempotency
+  are each refused by every other (`test/types/idempotency.ts`).
 - A published payload the channel's schema does not describe, and a field a
   subscriber's handler reads that is not on it.
 - An option `withLock` does not have.
