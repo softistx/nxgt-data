@@ -24,7 +24,7 @@ import {
 	defineIdempotency,
 	defineRateLimit,
 	GuardError,
-} from '@nxgt/redis-guard';
+} from '@nxgt/redis';
 
 // A Redis of its own, or a database nobody else uses: FLUSHDB empties it.
 const redis = new RedisClient(process.env.REDIS_URL ?? 'redis://localhost:6379/15');
@@ -41,7 +41,7 @@ afterAll(() => {
 - **There is no mock to swap in.** Every check is a Lua script the server
   runs — sent with `EVALSHA`, or `EVAL` when the server does not hold it yet —
   and the rate-limit script reads the server's `TIME` inside it. A stub of
-  `RedisClient` would have to run Lua. This package is tested against
+  `RedisClient` would have to run Lua. `@nxgt/redis` is tested against
   Redis 7.4.
 - **Empty it before each test.** A bucket or an idempotency key left by one
   test changes what the next one sees: a limit already spent, a result
@@ -49,8 +49,9 @@ afterAll(() => {
   above); on a Redis used by nothing else, `FLUSHALL` does as well. To clear
   one key rather than everything, `reset(params)` refills a bucket and
   `forget(params)` deletes an idempotency key, running or done.
-- **One client is enough for a spec.** This package opens no connection of
-  its own — each `bind*` takes yours — so closing yours is the only cleanup.
+- **One client is enough for a spec.** `bindRateLimit` and `bindIdempotency` open no
+  connection of their own — each takes yours — so closing yours is the only
+  cleanup.
 
 ## Idempotency
 

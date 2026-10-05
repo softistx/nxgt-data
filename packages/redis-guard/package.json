@@ -1,14 +1,13 @@
 {
 	"name": "@nxgt/redis-guard",
 	"version": "0.3.2",
-	"description": "Guards on Bun's own Redis client: rate limits and idempotency, each one atomic script timed by the Redis server's clock",
+	"description": "Deprecated: moved into @nxgt/redis. Re-exports its rate limits and idempotency under the same names",
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
 	"files": [
 		"dist",
-		"docs",
 		"README.md",
 		"package.json",
 		"LICENSE"
@@ -23,11 +22,7 @@
 	},
 	"keywords": [
 		"redis",
-		"bun",
-		"typescript",
-		"rate-limit",
-		"gcra",
-		"idempotency"
+		"deprecated"
 	],
 	"repository": {
 		"type": "git",
@@ -40,7 +35,7 @@
 	},
 	"scripts": {
 		"build": "bun run ../../build.ts",
-		"test": "bun run ../../scripts/redis.ts && bun test --timeout 30000 src",
+		"test": "bun test src",
 		"typecheck": "tsc --noEmit"
 	},
 	"nxgt": {
@@ -49,12 +44,11 @@
 		]
 	},
 	"devDependencies": {
-		"@types/bun": "^1.4.0",
-		"redis-memory-server": "0.17.1",
-		"zod": "4.6.5"
+		"@nxgt/redis": "workspace:^",
+		"@types/bun": "^1.4.0"
 	},
 	"peerDependencies": {
-		"typescript": "^6.0.3",
-		"zod": ">=4.6.5 <5"
+		"@nxgt/redis": "workspace:^",
+		"typescript": "^6.0.3"
 	}
 }

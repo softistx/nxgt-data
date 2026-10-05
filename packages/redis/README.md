@@ -2,7 +2,7 @@
 
 Redis on **Bun's own client** — no third-party driver. One connection shared
 per URI, caches and channels described once and typed from their schema, and a
-lock that is safe to release.
+lock that is safe to release — and rate limits and idempotent operations, each one atomic script timed by the Redis server's clock.
 
 ```ts
 import { defineRedis, openRedis } from '@nxgt/redis';
@@ -80,6 +80,121 @@ await withLock(redis.client, 'invoices:nightly', sendInvoices, {
 ```
 
 `redis.client` is Bun's `RedisClient`, untouched.
+
+## Rate limits and idempotency
+
+Two guards on any Bun `RedisClient` — the `redis.instances.default.client` of
+a wiring, or one you opened — each described once, keyed by a typed function,
+and checked by an atomic script on the server, timed by the **Redis server's
+clock**, so every process sharing the Redis agrees. Their error is
+`GuardError`, with its own codes (see Errors).
+
+**A rate limit** — so many requests per window, per caller:
+
+```ts
+import { bindRateLimit, defineRateLimit, GuardError } from '@nxgt/redis';
+
+export const exportLimit = defineRateLimit({
+	name: 'export',
+	key: (p: { org: string; user: string }) => `${p.org}/${p.user}`,
+	limit: 10,          // ten requests…
+	per: 60_000,        // …a minute, in MILLISECONDS — see Traps
+	burst: 20,          // and up to twenty at once from a full bucket
+});
+
+const exports = bindRateLimit(client, exportLimit);   // `client`: a Bun RedisClient
+
+async function startExport(who: { org: string; user: string }): Promise<Response> {
+	try {
+		await exports.enforce(who);   // consume() answers { allowed, retryAfter, … } instead
+	} catch (error) {
+		if (error instanceof GuardError && error.code === 'RATE_LIMITED') {
+			const seconds = Math.ceil((error.retryAfter ?? 0) / 1000);
+			return new Response('Too many exports', {
+				status: 429,
+				headers: { 'Retry-After': String(seconds) },
+			});
+		}
+		throw error;
+	}
+	return new Response('Export started', { status: 202 });
+}
+```
+
+It is **GCRA**, one Lua script over one key, in exact integers; a denial and a
+`peek` write nothing, and an idle limit leaves no key. The
+[rate limits guide](docs/guide/guard/rate-limits.md) has the algorithm, choosing
+`burst`, costs, and the `RateLimit-*` headers.
+
+**An idempotent operation** — run once per key, and replay the result to every
+repeat:
+
+```ts
+import { z } from 'zod';
+import { bindIdempotency, defineIdempotency, GuardError } from '@nxgt/redis';
+
+export const createOrder = defineIdempotency({
+	name: 'orders.create',
+	key: (p: { user: string; key: string }) => `${p.user}/${p.key}`,
+	ttl: 86_400,        // SECONDS a finished result is replayed
+	lease: 30_000,      // MILLISECONDS a crashed run holds the key — see Traps
+	schema: z.object({
+		orderId: z.string(),
+		status: z.string().default('placed'),
+	}),
+});
+
+const orders = bindIdempotency(client, createOrder);
+
+async function postOrder(request: Request, user: string): Promise<Response> {
+	const key = request.headers.get('Idempotency-Key');
+	if (!key) return new Response('Idempotency-Key is required', { status: 400 });
+	const body = await request.text();
+	try {
+		const { value, replayed } = await orders.run(
+			{ user, key },
+			() => placeOrder(JSON.parse(body)),   // returns { orderId }
+			{ fingerprint: body, wait: 2_000 },  // the raw body, hashed; ms to wait
+		);
+		return Response.json(value, {
+			status: 201,
+			headers: replayed ? { 'Idempotent-Replayed': 'true' } : {},
+		});
+	} catch (error) {
+		if (error instanceof GuardError && error.code === 'IN_PROGRESS') {
+			const seconds = Math.ceil((error.retryAfter ?? 0) / 1000);
+			return new Response('Still running', {
+				status: 409,
+				headers: { 'Retry-After': String(seconds) },
+			});
+		}
+		if (error instanceof GuardError && error.code === 'MISMATCH') {
+			return new Response('This key was used for another request', { status: 422 });
+		}
+		throw error;
+	}
+}
+```
+
+A repeat within `ttl` gets the stored result, `replayed: true`, without
+calling `work`; one during the first run waits up to `wait` ms for it, and
+gets `IN_PROGRESS` if it is still running. **A thrown error is never stored**,
+so a failure the client must get back on every repeat is returned as a union
+member of the schema — see
+[a failure worth replaying](docs/guide/guard/idempotency.md#a-failure-worth-replaying-is-a-result).
+The [idempotency guide](docs/guide/guard/idempotency.md) has the fingerprint,
+the lease and its renewals, `wait`, the storage, and the HTTP recipe in full;
+[testing](docs/guide/guard/testing.md) shows specs for both.
+
+| Function | |
+| --- | --- |
+| `defineRateLimit({ name, key, limit, per, burst? })` | describes a rate limit; talks to nothing. Frozen. A definition that could never work is a bare `TypeError`, normally at import |
+| `bindRateLimit(client, definition)` | binds it to a `RedisClient`: `keyFor`, `consume(params, cost = 1)`, `enforce` (throws `RATE_LIMITED`), `peek` (counts nothing; `cost` may be `0`) and `reset`. Every duration is a delay in milliseconds, rounded up — never a date |
+| `defineIdempotency({ name, key, ttl, lease?, schema })` | describes an idempotent operation; talks to nothing. Frozen. `ttl` in **seconds**, `lease` in **milliseconds** (default `10_000`) |
+| `bindIdempotency(client, definition)` | binds it to a `RedisClient`: `keyFor`, `run(params, work, { fingerprint?, wait? })` resolving to `{ value, replayed }`, and `forget(params)` |
+
+The types are `RateLimitDefinition`, `BoundRateLimit`, `LimitResult`,
+`IdempotencyDefinition`, `BoundIdempotency`, `Idempotent` and `RunOptions`.
 
 ## What it does not do
 
@@ -299,6 +414,26 @@ number above zero, and `defineChannel` refuses an empty `name`.
 `connectRedis` throws a `TypeError` when a URI is already connected with other
 options. Redis's own failures come back as they are, from Bun's client.
 
+`GuardError` is what the rate limits and idempotency throw, with a `code` and
+the `definition` it happened on — its `name`, never the key it built nor the
+params, which came from a request. It is its own class, not a `RedisError`.
+
+| `GuardErrorCode` | |
+| --- | --- |
+| `RATE_LIMITED` | `enforce` found the limit spent. Carries `retryAfter`, in milliseconds |
+| `COST` | a cost that is not a whole number from 1 (0 for `peek`) to the burst |
+| `IN_PROGRESS` | `run` found the key still running — at once, or when its `wait` ran out. Carries `retryAfter`: milliseconds until that run's lease lapses **unless renewed**, which a live run does |
+| `MISMATCH` | `run` found the key first used with a different fingerprint — or with one where this call has none, or the reverse |
+| `INVALID` | what `work` returned does not match the schema — not stored, key given back; or what was stored no longer does — kept, and `work` **not** run again; or the record at the key is not one `run` wrote |
+| `LEASE_LOST` | the key was taken from the run before it finished — `forget`, or its lease lapsed because no renewal reached Redis for a whole lease — so a repeat may have run `work` too. Its result was not stored |
+
+An `INVALID` message lists zod's issue **codes** only — never zod's messages
+nor the paths, which can quote what the value held. `defineRateLimit` and
+`defineIdempotency` (and their `bind*`, for a definition written by hand)
+refuse a definition that could never work with a `TypeError`, and `run` a
+`fingerprint` or a `wait` of the wrong kind. Every message is in
+[troubleshooting](docs/troubleshooting.md#rate-limits-and-idempotency).
+
 ## What does not compile
 
 Each is a `@ts-expect-error` case in `test/types/redis.ts`.
@@ -312,6 +447,7 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
 - A published payload the channel's schema does not describe, and a field a
   subscriber's handler reads that is not on it.
 - An option `withLock` does not have.
+- The guards' own refusals, in `test/types/guard.ts` and `test/types/idempotency.ts`: a call with the wrong params or a `cost` that is a string, a definition without `per`, `limit`, `key`, `ttl` or `schema`, a `work` that returns what the schema does not accept, a `fingerprint` that is a number, a `GuardErrorCode` it does not have, and a rate limit handed to `bindIdempotency` or the reverse.
 
 ## Traps
 
@@ -387,6 +523,52 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
   shutdown a request still connecting fails rather than get a closed client;
   connecting again opens a fresh one, since the failure was the race and not
   the URI.
+- **Rate limits.**
+
+  - **GCRA is a rate, not a window count**: after an idle spell, the first
+    `per` allows up to `burst + limit − 1` requests (9 for 5 a minute).
+    `burst: 2` holds it down — [why](docs/troubleshooting.md#a-limit-allows-more-than-limit-requests-in-its-first-per).
+  - **`per` is milliseconds**, and nothing can refuse `per: 60`, which limits
+    almost nothing. `per: 60_000` is a minute — [more](docs/troubleshooting.md#a-limit-barely-limits-anything).
+  - **`burst × per` is at most 9,007,199,254,740**, and `burst` defaults to
+    `limit`, or the definition throws. `limit: 1_000, per: 86_400_000` rather
+    than a million a year — [more](docs/troubleshooting.md#defineratelimit-archive-has-a-burst-of-1000000-and-a-per-of-31536000000ms-burst--per-must-be-at-most-9007199254740-for-the-script-to-count-exactly).
+  - **The clock is the Redis server's**, so a failover to a server whose clock
+    is behind holds spent buckets until it catches up, and more than one full
+    refill behind allows an extra burst. Keep the servers on NTP — [more](docs/troubleshooting.md#every-limited-caller-has-to-wait-much-longer-than-per).
+  - **Every process must use the same definition**: two rates under one `name`
+    share one key. `name: 'login.v2'` when the rate changes a lot —
+    [the key](docs/guide/guard/rate-limits.md#describing-a-limit).
+  - **A cost beyond what is left is denied and counts nothing; one beyond the
+    burst rejects with `COST`.** Check `cost <= (exportLimit.burst ?? exportLimit.limit)`
+    where a request sets it — [more](docs/troubleshooting.md#consume-on-login-a-cost-must-be-a-whole-number-from-1-to-the-burst-of-5).
+
+- **Idempotency.**
+
+  - **Synchronous work can lose the lease**: the renewal timer cannot fire
+    while the event loop is blocked, so after a whole `lease` a repeat runs
+    `work` again and the first rejects with `LEASE_LOST`. `await Bun.sleep(0)`
+    between chunks, or a `Worker` — [the lease](docs/guide/guard/idempotency.md#the-lease).
+  - **`ttl` is seconds; `lease` is milliseconds.** `ttl: 86_400` is a day;
+    `lease: 86_400` is under a minute and a half — [choosing them](docs/guide/guard/idempotency.md#choosing-ttl-and-lease).
+  - **A thrown error is not stored**, so the next repeat runs again. Return a
+    failure that must replay as a union member of the schema — [example](docs/guide/guard/idempotency.md#a-failure-worth-replaying-is-a-result).
+  - **A replay parses with today's schema**, and a stored result it refuses is
+    `INVALID`, not run again. Add fields with `.optional()` or `.default()` —
+    [changing the schema](docs/guide/guard/idempotency.md#changing-the-schema).
+  - **A result must survive JSON**: a `z.date()` or a `bigint` is refused on
+    the first run. `z.iso.datetime()` and a string — [more](docs/troubleshooting.md#run-on-orderscreate-the-result-does-not-match-the-schema-once-stored-as-json-so-it-was-not-stored-invalid_type).
+  - **Fingerprint the raw body**, not `JSON.stringify` of a parsed one, or
+    identical requests can mismatch. `{ fingerprint: await request.text() }` —
+    [the fingerprint](docs/guide/guard/idempotency.md#the-fingerprint).
+  - **Scope the key**: an `Idempotency-Key` is unique only to its client.
+    `` key: (p) => `${p.user}/${p.key}` `` —
+    [describing an operation](docs/guide/guard/idempotency.md#describing-an-operation).
+  - **A Redis error after `work` means the work happened**, and the key may stay
+    running until its lease lapses, then runs again. Make `work` safe to repeat
+    where it can be — [the same request ran twice](docs/troubleshooting.md#the-same-request-ran-twice).
+  - **`wait` holds the request open** while it polls. Keep it under your HTTP
+    timeout: `wait: 2_000` — [waiting](docs/guide/guard/idempotency.md#waiting-for-a-running-key).
 
 ## Documentation
 
@@ -396,6 +578,10 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
 - [Wiring guides](docs/guide/wiring/configuration.md) — the configuration and
   its prefix, `redis.cache`, `redis.channels`, `redis.lock` and `redis.ping`,
   several Redis instances, and who closes what.
+- [Rate limit and idempotency guides](docs/guide/guard/rate-limits.md) — GCRA,
+  choosing a rate and the HTTP recipe; [idempotency](docs/guide/guard/idempotency.md),
+  the storage, the fingerprint, `ttl` and `lease`;
+  [testing](docs/guide/guard/testing.md) against a real Redis.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — every error this
   package can raise, by the message you will see.
 - [docs/roadmap.md](docs/roadmap.md) — what is coming, and what has been

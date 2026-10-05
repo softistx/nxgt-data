@@ -1,7 +1,7 @@
 {
 	"name": "@nxgt/redis",
 	"version": "0.4.1",
-	"description": "Redis on Bun's own client: one connection shared per URI, typed caches, locks, and typed pub/sub",
+	"description": "Redis on Bun's own client: one connection shared per URI, typed caches, locks, typed pub/sub, rate limits and idempotency",
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -27,7 +27,9 @@
 		"typescript",
 		"cache",
 		"lock",
-		"pubsub"
+		"pubsub",
+		"rate-limit",
+		"idempotency"
 	],
 	"repository": {
 		"type": "git",

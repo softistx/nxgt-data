@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
-import { bindRateLimit } from '@nxgt/redis-guard';
+import { bindRateLimit } from '@nxgt/redis';
 import { stranger, useApi } from '../../../test/api';
 import type { NewArticle } from '../../generated/types';
 import { articleWrites } from './articles.guards';
@@ -40,7 +40,7 @@ async function countOf(user: string): Promise<number> {
 
 /**
  * Holds `ArticleService.write` until `release()` — a gate inside
- * the work, as `@nxgt/redis-guard`'s own specs hold theirs: `work` is called
+ * the work, as `@nxgt/redis`'s own specs hold theirs: `work` is called
  * only once `run` holds the key, so `started` is the moment a repeat finds
  * it running.
  */

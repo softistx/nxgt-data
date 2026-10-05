@@ -18,7 +18,7 @@
       "dependencies": {
         "@nxgt/mongo": "workspace:^",
         "@nxgt/openapi-hono": "^0.3.0",
-        "@nxgt/redis-guard": "workspace:^",
+        "@nxgt/redis": "workspace:^",
         "hono": "^4.13.8",
         "mongodb": "7.6.0",
         "zod": "4.6.5",
@@ -176,13 +176,12 @@
       "name": "@nxgt/redis-guard",
       "version": "0.3.2",
       "devDependencies": {
+        "@nxgt/redis": "workspace:^",
         "@types/bun": "^1.4.0",
-        "redis-memory-server": "0.17.1",
-        "zod": "4.6.5",
       },
       "peerDependencies": {
+        "@nxgt/redis": "workspace:^",
         "typescript": "^6.0.3",
-        "zod": ">=4.6.5 <5",
       },
     },
     "packages/s3": {

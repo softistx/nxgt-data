@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { useRedis } from '../../test/fixtures';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { RedisError } from '../errors/redis-error';
 import { closeRedis, connectRedis } from './connect';
 
@@ -46,9 +47,11 @@ describe('connectRedis', () => {
 	test('refuses the same URI with other options', async () => {
 		const one = await connectRedis(servers.redis.uri, { maxRetries: 3 });
 		try {
-			await expect(
-				connectRedis(servers.redis.uri, { maxRetries: 9 }),
-			).rejects.toThrow('already connected with other options');
+			expect(
+				await rejectionMessage(
+					connectRedis(servers.redis.uri, { maxRetries: 9 }),
+				),
+			).toContain('already connected with other options');
 			// The same options, built again, are the same options.
 			const again = await connectRedis(servers.redis.uri, { maxRetries: 3 });
 			expect(again.client).toBe(one.client);
@@ -108,10 +111,10 @@ describe('connectRedis', () => {
 		// connection, and the default retries for about 31 seconds first.
 		const dead = 'redis://127.0.0.1:1';
 		const options = { autoReconnect: false };
-		await expect(connectRedis(dead, options)).rejects.toThrow();
+		await rejection(connectRedis(dead, options));
 		// Were it remembered, this would resolve to the broken one instead of
 		// trying again — and the error would be the *first* call's.
-		await expect(connectRedis(dead, options)).rejects.toThrow();
+		await rejection(connectRedis(dead, options));
 	});
 
 	test('closeRedis takes every client, whoever holds one', async () => {

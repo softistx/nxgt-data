@@ -27,8 +27,9 @@ export type GuardErrorCode =
 	| 'LEASE_LOST';
 
 /**
- * This package's only error. Redis's own failures come back as they are, from
- * Bun's client; this is for what *this* package decides.
+ * The error of the rate limits and idempotency, apart from `RedisError`.
+ * Redis's own failures come back as they are, from Bun's client; this is for
+ * what a limit or an idempotent operation decides.
  *
  * It names the **definition** it happened on, never the key it built nor the
  * params it built it from, a fingerprint or a result: those came from a

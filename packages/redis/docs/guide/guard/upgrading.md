@@ -1,4 +1,8 @@
-# Upgrading
+# Upgrading from `@nxgt/redis-guard`
+
+`@nxgt/redis-guard` is deprecated: its API is `@nxgt/redis`'s now, under the
+same names, and moving over is changing the import. This page keeps what the
+earlier minors of `@nxgt/redis-guard` asked for, for code still on 0.2.
 
 What to change in your code when you move `@nxgt/redis-guard` from one minor
 to the next. Each minor is a `0.x` release, so each can ask for something;
@@ -20,7 +24,7 @@ Redis unreachable before a live run loses it.
 
 ```ts
 import { z } from 'zod';
-import { defineIdempotency } from '@nxgt/redis-guard';
+import { defineIdempotency } from '@nxgt/redis';
 
 export const createReport = defineIdempotency({
 	name: 'reports.create',
@@ -32,7 +36,7 @@ export const createReport = defineIdempotency({
 });
 ```
 
-The [lease](guide/idempotency.md#the-lease) has what it bounds in full.
+The [lease](idempotency.md#the-lease) has what it bounds in full.
 
 ### Match on `code`, not on the message
 
@@ -46,7 +50,7 @@ Two messages changed. Code that tested their text stops matching:
 The `code` is the contract, and did not change:
 
 ```ts
-import { GuardError } from '@nxgt/redis-guard';
+import { GuardError } from '@nxgt/redis';
 
 function isStillRunning(error: unknown): boolean {
 	// Not: error.message.includes('its lease ends')
@@ -57,7 +61,7 @@ function isStillRunning(error: unknown): boolean {
 `IN_PROGRESS`'s `retryAfter` also means something else now: when the running
 call's lease lapses **unless renewed**. A live run renews it, so a retry after
 `retryAfter` can still find the key running. Give `run` a `wait` to get the
-replay instead — see [Waiting for a running key](guide/idempotency.md#waiting-for-a-running-key).
+replay instead — see [Waiting for a running key](idempotency.md#waiting-for-a-running-key).
 
 ### A rolling deploy can mix the two versions
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { eventually, useRedis, userCreated } from '../../test/fixtures';
+import { rejection } from '../../test/rejection';
 import { RedisError } from '../errors/redis-error';
 import { publish, subscribe } from './pubsub';
 
@@ -47,9 +48,9 @@ describe('pub/sub', () => {
 
 	test('refuses a message the schema does not accept', async () => {
 		const wrong = { id: 'u1' } as unknown as typeof ada;
-		await expect(
-			publish(servers.redis.client, userCreated, wrong),
-		).rejects.toThrow(RedisError);
+		expect(
+			await rejection(publish(servers.redis.client, userCreated, wrong)),
+		).toBeInstanceOf(RedisError);
 	});
 
 	test('a message that does not match reaches onError, not the handler', async () => {

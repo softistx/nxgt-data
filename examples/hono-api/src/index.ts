@@ -13,7 +13,7 @@ import { env } from './env';
  */
 const mongo = await openMongo(config);
 
-// Bun's own client, opened once like the Mongo. `@nxgt/redis-guard` opens no
+// Bun's own client, opened once like the Mongo. `@nxgt/redis` opens no
 // connection of its own: every guard is bound to this one.
 const redis = new RedisClient(env.REDIS_URL);
 await redis.connect();

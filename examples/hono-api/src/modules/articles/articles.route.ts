@@ -1,4 +1,4 @@
-import { GuardError } from '@nxgt/redis-guard';
+import { GuardError } from '@nxgt/redis';
 import { Hono } from 'hono';
 import { api } from '../../api';
 import type { Env } from '../../context';

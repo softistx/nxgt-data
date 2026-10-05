@@ -8,7 +8,7 @@ order.
 ```ts
 import { RedisClient } from 'bun';
 import { z } from 'zod';
-import { bindIdempotency, defineIdempotency } from '@nxgt/redis-guard';
+import { bindIdempotency, defineIdempotency } from '@nxgt/redis';
 
 export const createOrder = defineIdempotency({
 	name: 'orders.create',
@@ -137,7 +137,7 @@ When `work` has run:
   before then gets `IN_PROGRESS`, and one after it runs `work` again. If
   only the reply was lost, the result **may** have been stored, and a repeat
   replays it. See
-  [troubleshooting](../troubleshooting.md#the-same-request-ran-twice).
+  [troubleshooting](../../troubleshooting.md#the-same-request-ran-twice).
 
 ### The value is what the schema gives back
 
@@ -289,11 +289,11 @@ request itself has.
   clear. The default, 10 s, suits most.
 
 The units differ on purpose: `ttl` is Redis's `EXPIRE` and `@nxgt/redis`'s
-`defineCache`; `lease` is every other duration in this package, and
+`defineCache`; `lease` is every other duration in these two functions, and
 `retryAfter` with it. `lease: 86_400` is under a minute and a half.
 
 Coming from 0.2.0, where the lease was not renewed and had to cover the
-whole work: [Upgrading](../upgrading.md#020--030) says how to shorten it,
+whole work: [Upgrading](upgrading.md#020--030) says how to shorten it,
 including during a rolling deploy.
 
 ## Changing the schema
@@ -362,7 +362,7 @@ client makes up a key per operation and sends it with every retry.
 | no header | 400, or run without `run` | your choice per route |
 
 ```ts
-import { GuardError, type BoundIdempotency } from '@nxgt/redis-guard';
+import { GuardError, type BoundIdempotency } from '@nxgt/redis';
 
 export async function idempotent<T>(
 	request: Request,
@@ -432,4 +432,4 @@ the key, the fingerprint or the value, which came from a request. An
 `INVALID` lists zod's issue codes, `(invalid_type, unrecognized_keys)`, and
 not zod's messages or paths: measured on zod 4.6.5, `unrecognized_keys`
 quotes the stray key, and a `z.record`'s keys appear in the path. Every
-message is in [troubleshooting](../troubleshooting.md).
+message is in [troubleshooting](../../troubleshooting.md).
