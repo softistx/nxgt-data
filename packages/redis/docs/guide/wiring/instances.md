@@ -241,7 +241,7 @@ interface Redis<C> extends AsyncDisposable {
 }
 ```
 
-There is **no `as(actor)` and no `withSession`**, as `@nxgt/mongo-kit` has:
+There is **no `as(actor)` and no `withSession`**, as `@nxgt/mongo`'s `openMongo` has:
 Redis has neither an actor to stamp nor a session to carry, so the object is the
 same for every request and is never derived. That is also why `close()`
 always belongs to the one you are holding.
