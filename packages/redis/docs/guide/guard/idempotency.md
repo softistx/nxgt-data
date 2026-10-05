@@ -81,6 +81,13 @@ limit's and an `@nxgt/redis` cache's:
 orders.keyFor({ user: 'u1', key: 'k-123' });   // 'orders.create:u1/k-123'
 ```
 
+The policy is readable from the bound object, without the definition:
+
+```ts
+orders.definition.ttl;    // 86_400, seconds
+orders.definition.lease;  // 30_000, milliseconds
+```
+
 **Scope the key to whoever chose it.** An `Idempotency-Key` header is unique
 only to the client that made it up. Key on the user, the tenant or the API
 key as well, or two clients that happen to pick the same key would share one

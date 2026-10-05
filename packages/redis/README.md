@@ -201,7 +201,7 @@ the lease and its renewals, `wait`, the storage, and the HTTP recipe in full;
 | Function | |
 | --- | --- |
 | `defineRateLimit({ name, key, limit, per, burst? })` | describes a rate limit; talks to nothing. Frozen. A definition that could never work is a bare `TypeError`, normally at import |
-| `bindRateLimit(client, definition)` | binds it to a `RedisClient`: `definition` (read-only: `limit`, `per`, as bound), `keyFor`, `consume(params, cost = 1)`, `enforce` (throws `RATE_LIMITED`), `peek` (counts nothing; `cost` may be `0`) and `reset`. Every duration is a delay in milliseconds, rounded up — never a date |
+| `bindRateLimit(client, definition)` | binds it to a `RedisClient`: `definition` (read-only: `limit`, `per`; bound by hand it is the given definition, wired it is a frozen copy with the prefixed name), `keyFor`, `consume(params, cost = 1)`, `enforce` (throws `RATE_LIMITED`), `peek` (counts nothing; `cost` may be `0`) and `reset`. Every duration is a delay in milliseconds, rounded up — never a date |
 | `defineIdempotency({ name, key, ttl, lease?, schema })` | describes an idempotent operation; talks to nothing. Frozen. `ttl` in **seconds**, `lease` in **milliseconds** (default `10_000`) |
 | `bindIdempotency(client, definition)` | binds it to a `RedisClient`: `definition` (read-only: `ttl`, `lease`), `keyFor`, `run(params, work, { fingerprint?, wait? })` resolving to `{ value, replayed }`, and `forget(params)` |
 
@@ -215,6 +215,9 @@ with the prefix, frozen: `definition.name` is the name actually written.
 ```ts
 redis.limits.api.definition.limit; // 100
 redis.limits.api.definition.per;   // 60_000
+redis.cache.users.definition.ttl;  // 60 (seconds)
+redis.idempotency.orders.definition.ttl;   // 86_400 (seconds)
+redis.idempotency.orders.definition.lease; // 30_000 (milliseconds)
 ```
 
 The types are `RateLimitDefinition`, `BoundRateLimit`, `LimitResult`,
