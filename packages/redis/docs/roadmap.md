@@ -95,8 +95,9 @@ _Nothing in progress._
   definitions exported from a module and handed to `defineRedis` as `limits`
   and `idempotency`, bound by `openRedis` under the instance's `prefix` and
   typed from the configuration: `redis.limits.login.enforce(…)`,
-  `redis.idempotency.orders.run(…)`, as the caches are. A definition of the
-  wrong kind under either key is refused by the types and at run time. A guard
+  `redis.idempotency.orders.run(…)`, as the caches are. Each slot keeps only its own
+  kind, and a name shared by a cache, a rate limit and an idempotency on one
+  instance is refused. A guard
   still bound by hand writes no prefix, so moving one to the wiring starts new
   keys — counts restart and stored results are not replayed. New exports:
   `LimitsOf`, `IdempotencyOf`, `LimitsIn`, `IdempotencyIn`, `LimitScope`,

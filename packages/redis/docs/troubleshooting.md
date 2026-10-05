@@ -40,14 +40,15 @@ application can handle.
   - [`Property 'users' does not exist on type 'never'.`](#property-users-does-not-exist-on-type-never)
   - [`Property 'users' does not exist on type 'CacheScope<Record<never, never>>'.`](#property-users-does-not-exist-on-type-cachescoperecordnever-never)
   - [`Property 'login' does not exist on type 'LimitScope<Record<never, never>>'.`](#property-login-does-not-exist-on-type-limitscoperecordnever-never)
-  - [`"users" is not a rate limit`](#users-is-not-a-rate-limit)
   - [`defineRedis: instance "default" has neither uri nor client. Give it one.`](#defineredis-instance-default-has-neither-uri-nor-client-give-it-one)
   - [`defineRedis: instance "default" has both uri and client. Pass the URI to connect to, or the client you already opened.`](#defineredis-instance-default-has-both-uri-and-client-pass-the-uri-to-connect-to-or-the-client-you-already-opened)
   - [`defineRedis: instance "default" has clientOptions beside a client. The client was opened with its own; pass a uri, or drop the options.`](#defineredis-instance-default-has-clientoptions-beside-a-client-the-client-was-opened-with-its-own-pass-a-uri-or-drop-the-options)
   - [`defineRedis: instance "default" has an empty prefix. Leave it out, or give it a name.`](#defineredis-instance-default-has-an-empty-prefix-leave-it-out-or-give-it-a-name)
   - [`defineRedis: instance "default" wires no cache, no channel, no rate limit and no idempotency. Pass the module that exports them, or drop the instance.`](#defineredis-instance-default-wires-no-cache-no-channel-no-rate-limit-and-no-idempotency-pass-the-module-that-exports-them-or-drop-the-instance)
-  - [`defineRedis: instance "default" has "users" under limits, which is a cache, not a rate limit. Wire it under caches, or keep it out of this module.`](#defineredis-instance-default-has-users-under-limits-which-is-a-cache-not-a-rate-limit-wire-it-under-caches-or-keep-it-out-of-this-module)
+  - [`openRedis: instance "main" wires no cache, no channel, no rate limit and no idempotency. …`](#defineredis-instance-default-wires-no-cache-no-channel-no-rate-limit-and-no-idempotency-pass-the-module-that-exports-them-or-drop-the-instance) — the same, from `openRedis`
   - [`defineRedis: instance "default" wires the cache named "user" twice, under "users" and "people". They would share every key in Redis. Export one of them, or give it a name of its own.`](#defineredis-instance-default-wires-the-cache-named-user-twice-under-users-and-people-they-would-share-every-key-in-redis-export-one-of-them-or-give-it-a-name-of-its-own)
+  - [`defineRedis: instance "default" wires the rate limit named "login" twice, …` (and `wires the idempotency named …`, `wires the channel named …`)](#defineredis-instance-default-wires-the-cache-named-user-twice-under-users-and-people-they-would-share-every-key-in-redis-export-one-of-them-or-give-it-a-name-of-its-own)
+  - [`defineRedis: instance "default" wires the cache "users" and the rate limit "login" under one name, "user". They would share every key in Redis. Give one of them a name of its own.`](#defineredis-instance-default-wires-the-cache-users-and-the-rate-limit-login-under-one-name-user-they-would-share-every-key-in-redis-give-one-of-them-a-name-of-its-own)
   - [``defineRedis: `instances` is empty. Give it one, or write the single instance as the configuration itself.``](#defineredis-instances-is-empty-give-it-one-or-write-the-single-instance-as-the-configuration-itself)
   - [`openRedis: instance "main" has neither uri nor client. Give it one.`](#openredis-instance-main-has-neither-uri-nor-client-give-it-one)
   - [`cache: this Redis holds 2 Redis instances, and this call lives on one. Name it, as { on: 'cache' }.`](#cache-this-redis-holds-2-redis-instances-and-this-call-lives-on-one-name-it-as--on-cache-)
@@ -533,34 +534,17 @@ rate limit (no idempotency). With several instances `redis.limits` is `never`
 instead: the first entry above, with `limits` for `cache`.
 **Why:** the same as for caches: every instance is typed by the modules *it* was
 given, and one with no `limits` has an empty scope. Usually the wrong instance
-named, `limits` left out of the configuration, or an export of another kind: a
-rate limit is only wired from `limits` and an idempotency only from
-`idempotency` — an idempotent operation passed as `caches` is not a cache.
+named, `limits` left out of the configuration, or a definition of another kind:
+each slot keeps only its own — a rate limit is wired from `limits` alone, an
+idempotency from `idempotency` alone, and a cache from `caches`, so
+`redis.limits.users` for a cache `users` is this error, whichever slot the
+module was passed to.
 **Fix:** wire it, and read it off the instance that wires it:
 
 ```ts
 const config = defineRedis({ uri, prefix: 'myapp', limits, idempotency });
 await redis.limits.login.enforce({ ip });
 await redis.idempotency.orders.run({ user, key }, () => placeOrder());
-```
-
-#### `"users" is not a rate limit`
-
-**When:** compiling `defineRedis({ uri, limits })` where the module holds an
-export that is a definition of another kind — here `users`, a cache. The
-mirror image under `idempotency` reads `"login" is not an idempotency`;
-TypeScript puts it on the export, as
-`Type 'CacheDefinition<…>' is not assignable to type '"\"users\" is not a rate limit"'`.
-**Why:** `limits` and `idempotency` take **only their own kind**: a cache
-there would otherwise be skipped without a word, and a rate limit nobody
-enforces is the failure that looks like success. It is the compile-time half of
-[the refusal below](#defineredis-instance-default-has-users-under-limits-which-is-a-cache-not-a-rate-limit-wire-it-under-caches-or-keep-it-out-of-this-module). An export that is no definition at all — a schema, a
-type, a constant — is fine.
-**Fix:** move the definition to the module that wires it, or keep it out of
-this one:
-
-```ts
-defineRedis({ uri, caches, limits });   // `users` is exported from ./caches
 ```
 
 ### Wiring configuration
@@ -656,34 +640,37 @@ export const config = defineRedis({ uri, caches, channels, limits, idempotency }
 ```
 
 Anything else in those modules — a schema, a type, a constant — is skipped,
-not refused.
+not refused, and so is a definition of another kind: each slot keeps only its
+own, so one module may be passed to several slots. A cache passed as `limits`
+alone, an idempotency whose `lease` was overwritten with something that is not
+a number, a rate limit with no `per`: none is wired, and an instance left with
+nothing is this error.
 
-#### `defineRedis: instance "default" has "users" under limits, which is a cache, not a rate limit. Wire it under caches, or keep it out of this module.`
+#### `defineRedis: instance "default" wires the cache "users" and the rate limit "login" under one name, "user". They would share every key in Redis. Give one of them a name of its own.`
 
 **When:** calling `defineRedis` — or `openRedis`, on a configuration built
-elsewhere — with a definition of another kind under `limits` or `idempotency`.
-The sentence names the kind it found and where it belongs: a rate limit under
-`idempotency` reads `has "login" under idempotency, which is a rate limit, not
-an idempotency. Wire it under limits, …`, and an idempotent operation under
-`limits` `which is an idempotency, not a rate limit. Wire it under idempotency, …`.
-**Why:** each key takes only its own kind, told apart by shape: a rate limit has
-a `limit` and a `per`; an idempotency has a `ttl`, a `lease` and a `schema`; a
-cache has a `ttl` and a `schema` and **no** `lease`. One passed under the wrong
-key would be skipped, and the guard it stood for would never run. An
-idempotency written by hand without `lease` — not through `defineIdempotency`,
-which always fills it — has a cache's shape and is refused as a cache.
-**Fix:** wire it where it belongs, or keep it out of the module you pass:
+elsewhere — with a cache, a rate limit and an idempotency, any two of them,
+that have one `name` on one instance. The sentence names both kinds, and the
+export keys they are wired under.
+**Why:** all three write `<name>:<key>` — a cache a string, a rate limit a
+string, an idempotency a hash — so one name is one keyspace. An idempotency
+meets the other's string as `WRONGTYPE`, and a cache and a rate limit read and
+overwrite each other's values: a cache entry that is not a bucket reads as a
+full one, and the bucket's next write replaces the cache entry. Only **names** are compared,
+never what a key function would build: two names that differ are fine whatever
+their keys look like. Channels are not in this check — a pub/sub name is not a
+key — so a channel may be named like a cache. The check is per instance, and
+runs at wiring time only; nothing is compared while the application runs.
+**Fix:** rename one of them — the **definition's** `name`, not its export:
 
 ```ts
-defineRedis({ uri, caches, limits, idempotency });
+export const sessions = defineCache({ name: 'session', /* … */ });
+export const sessionLimit = defineRateLimit({ name: 'session.limit', /* … */ });
 ```
-
-Only `limits` and `idempotency` refuse: `caches` and `channels` skip what is
-not theirs, as they always have.
 
 #### `defineRedis: instance "default" wires the cache named "user" twice, under "users" and "people". They would share every key in Redis. Export one of them, or give it a name of its own.`
 
-**When:** calling `defineRedis`. The same sentence covers channels, as
+**When:** calling `defineRedis` (or `openRedis`: the same sentence, from it). The same sentence covers channels, as
 `wires the channel named "user.created" twice`, rate limits, as `wires the rate
 limit named "login" twice`, and idempotent operations, as `wires the
 idempotency named "orders.create" twice`.
@@ -703,10 +690,8 @@ The **export** name is what the application reads (`redis.cache.users`); the
 definition's `name` is what Redis holds. Two definitions may share an export
 name across two modules, but never a `name` on one instance.
 
-The check is **within a kind**. A cache, a rate limit and an idempotency all
-write `<name>:<key>`, so a cache `login` and a rate limit `login` share keys
-across kinds, which the wiring does not see: Redis answers `WRONGTYPE` on the
-first call that meets the other's key. Give each its own `name`.
+The check is also **across** the cache, rate-limit and idempotency kinds, which
+share `<name>:<key>`: see [the entry above](#defineredis-instance-default-wires-the-cache-users-and-the-rate-limit-login-under-one-name-user-they-would-share-every-key-in-redis-give-one-of-them-a-name-of-its-own).
 
 #### ``defineRedis: `instances` is empty. Give it one, or write the single instance as the configuration itself.``
 

@@ -101,8 +101,7 @@ describe('config refusals', () => {
 			).toThrow(
 				'defineRedis: instance "default" wires the cache "users" and the rate ' +
 					'limit "login" under one name, "user". They would share every key in ' +
-					'Redis, and the second to run gets WRONGTYPE. Give one of them a name ' +
-					'of its own.',
+					'Redis. Give one of them a name of its own.',
 			);
 		});
 

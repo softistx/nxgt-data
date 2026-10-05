@@ -69,7 +69,8 @@ so the module is passed as it is and nothing has to be filtered by hand.
 A cache and a channel are told apart by shape, not by identity: a
 `CacheDefinition` has a `ttl` and a `key` function, and `ChannelDefinition`
 declares `ttl?: never` for exactly this reason. Both kinds may therefore be
-exported from one file.
+exported from one file — and so may all four: pass the module to every slot, and
+each keeps only its own.
 
 The key is what the application reads and the definition's own `name` is what
 Redis holds, so they are free to differ:
@@ -102,7 +103,7 @@ the refusal is about one definition under two keys.
 | `prefix` | `string` | — | Put in front of every cache key, channel name, lock key, rate-limit key and idempotency key this instance writes |
 | `caches` | module object | — | `import * as caches from './caches'` |
 | `channels` | module object | — | `import * as channels from './channels'` |
-| `limits` | module object | — | `import * as limits from './limits'`: every `defineRateLimit`. A definition of another kind is refused |
+| `limits` | module object | — | `import * as limits from './limits'`: every `defineRateLimit`; any other export is skipped |
 | `idempotency` | module object | — | `import * as idempotency from './idempotency'`: every `defineIdempotency`. Likewise |
 | `instances` | `Record<string, …>` | — | Several Redis instances, each taking the keys above. Written *instead* of them |
 
@@ -177,7 +178,7 @@ there are few enough to tell apart by their sentence.
 | `clientOptions` beside `client` | `has clientOptions beside a client. …` |
 | `prefix: '   '` | `has an empty prefix. Leave it out, or give it a name.` |
 | nothing wired | `wires no cache, no channel, no rate limit and no idempotency. …` |
-| a cache under `limits`, a rate limit under `idempotency`, … | `has "users" under limits, which is a cache, not a rate limit. Wire it under caches, or keep it out of this module.` |
+| one name across a cache, a rate limit and an idempotency | `wires the cache "users" and the rate limit "login" under one name, "user". …` |
 | one definition, two keys | `wires the cache named "user" twice, under … and …` (also a channel, a rate limit, an idempotency) |
 | `instances: {}` | ``defineRedis: `instances` is empty. …`` |
 

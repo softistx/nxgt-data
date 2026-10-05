@@ -92,29 +92,24 @@ const b = await openRedis(defineRedis({ uri, prefix: 'b', limits }));
 
 ## What the wiring checks
 
-- **A definition of another kind under `limits` or `idempotency` is refused**,
-  by the types and at run time — a cache passed as `limits`, a rate limit as
-  `idempotency`:
-
-  ```
-  defineRedis: instance "default" has "users" under limits, which is a cache,
-  not a rate limit. Wire it under caches, or keep it out of this module.
-  ```
-
-  The compiler says `"users" is not a rate limit` on that export. A module that
-  also exports other things — a schema, a type, a constant — is still taken as
-  it is: only a definition of another kind is refused. (`caches` and `channels`
-  skip what is not theirs, as they always have.)
+- **Each slot keeps only its own kind**, as `caches` and `channels` do: a
+  module that exports a cache, a rate limit and an idempotency can be passed as
+  all of them — `defineRedis({ uri, caches: m, limits: m, idempotency: m })` —
+  and every export is wired where it belongs. A definition under a slot of
+  another kind is simply not wired there: `redis.limits.users` for a cache
+  does not compile, and an instance left with nothing to wire is refused
+  (`wires no cache, no channel, no rate limit and no idempotency`).
 - **One definition under two keys is refused**, as for caches: `wires the rate
   limit named "login" twice, under …`, and `wires the idempotency named …`.
 - **An instance that wires only guards is fine**; one that wires nothing at all
   is refused (`wires no cache, no channel, no rate limit and no idempotency`).
 
-A cache, a rate limit and an idempotency write `<name>:<key>`, so **one `name`
-shared across kinds shares keys** — a cache `login` and a rate limit `login`
-would meet in Redis as a `WRONGTYPE`. The wiring checks one definition under
-two keys, not names across kinds: give each its own, as
-[the guides](../guard/rate-limits.md) say.
+- **One name across a cache, a rate limit and an idempotency is refused.**
+  All three write `<name>:<key>`, so a cache `login` and a rate limit `login`
+  would meet in Redis (an idempotency's hash as a `WRONGTYPE`, the strings of a cache and a limit overwriting each other): `wires the cache "users" and the rate
+  limit "login" under one name, "user". …`. The check compares **names** — a
+  rename is the fix — runs at wiring time only, and does not include channels:
+  pub/sub is another namespace.
 
 Each message is in
 [troubleshooting](../../troubleshooting.md#wiring-defineredis-and-openredis).
@@ -125,7 +120,7 @@ Each message is in
 redis.limits.nope;                                  // not wired: does not compile
 await redis.limits.login.consume('10.0.0.1');       // keyed by { ip }, not a string
 await redis.idempotency.orders.run(p, () => ({ id: 'x' }));  // not what the schema accepts
-defineRedis({ uri, limits: caches });               // a cache is not a rate limit
+redis.limits.users;                                 // a cache is not wired on `limits`
 ```
 
 With several instances `redis.limits` and `redis.idempotency` are `never`, as

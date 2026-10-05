@@ -263,8 +263,11 @@ Every export that is a `defineCache` becomes a key on `redis.cache`, every
 `redis.limits` and every `defineIdempotency` one on `redis.idempotency`, under
 the name it is **exported** by; a schema, a type or a constant in the same file
 is left where it is. One definition exported under two keys is refused: both
-would write the same keys. A cache under `limits`, or a rate limit under
-`idempotency`, is refused by the types and at run time. These are scopes, not
+would write the same keys. A name shared by a cache, a rate limit and an
+idempotency on one instance is refused too — all three write `<name>:<key>` —
+at run time only, comparing names (a rename is the fix); channels are exempt.
+Each slot keeps only its own kind, so one module may be passed to several.
+These are scopes, not
 one client with names on it: nothing falls through to the driver, and a key
 wired nowhere is plainly `undefined`. A guard written by hand keeps no prefix:
 **wired, its keys are `myapp:prod:login:<ip>`, so moving an application from
@@ -304,8 +307,8 @@ Each of these is a `@ts-expect-error` case in the type tests: `redis.cache.nope`
 a cache read or written with the wrong params or a field its schema does not
 have; a payload a channel's schema does not describe; `redis.cache` on several
 instances, and `{ on: 'nowhere' }` on `lock`; a cache read off an instance that
-wires only channels; a limit or an idempotency that is not wired, and a cache
-passed as `limits` (or a rate limit as `idempotency`); an option the configuration does not have.
+wires only channels; a limit or an idempotency that is not wired, including a cache
+read from `redis.limits`; an option the configuration does not have.
 
 ### Connection
 

@@ -164,7 +164,8 @@ type Group = readonly [
  *
  * Two definitions of different kinds with one name, in the same group list:
  * a cache, a rate limit and an idempotency all write `<name>:<key>`, so they
- * would meet in Redis as a `WRONGTYPE` on whichever runs second. Only names
+ * would meet in Redis: an idempotency's hash as `WRONGTYPE`, and a cache's
+ * and a rate limit's strings overwriting each other. Only names
  * are compared — never what a key function would build.
  */
 function refuseClash(where: string, groups: readonly Group[]): void {
@@ -184,8 +185,7 @@ function refuseClash(where: string, groups: readonly Group[]): void {
 				throw new TypeError(
 					`${where} wires the ${first.kind} "${first.key}" and the ${kind} ` +
 						`"${key}" under one name, "${definition.name}". They would share ` +
-						'every key in Redis, and the second to run gets WRONGTYPE. Give ' +
-						'one of them a name of its own.',
+						'every key in Redis. Give one of them a name of its own.',
 				);
 			}
 		}

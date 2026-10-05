@@ -148,13 +148,13 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   take no prefix option and the hand-bound API did not change; the wired key is
   `<prefix>:<name>:<key(params)>` and a hand-bound one has no prefix, so moving
   an application from one to the other restarts its counts and its stored
-  results (documented as a trap). `limits` and `idempotency` refuse a
-  definition of another kind, by type (`Misplaced` in `config/types.ts`) and at
-  run time (`checkKinds` in `config/checks.ts`); `caches` and `channels` still
-  skip what is not theirs. The duplicate check is within a kind: a cache and a
-  rate limit named alike would share `<name>:<key>` and meet as `WRONGTYPE`, and
-  nothing checks it. Its last version, 0.4.0, stays on npm as a deprecated
-  re-export.
+  results (documented as a trap). Every slot keeps only its own kind, as `caches`
+  and `channels` always did, so one module can be passed to several slots (and
+  `isCache` now requires no `lease`, so an idempotency is not wired as a cache).
+  `checkNoClash` (`config/checks.ts`) refuses one name shared by a cache, a rate
+  limit and an idempotency on one instance — they all write `<name>:<key>` —
+  comparing names, at run time only; channels are checked among themselves. Its
+  last version, 0.4.0, stays on npm as a deprecated re-export.
 
 **There are no cycles and there must not be one**, devDependencies included.
 
@@ -943,7 +943,7 @@ meilisearch 130, mongo 667, drizzle-meilisearch 42, mongo-meilisearch 75,
 redis 247, s3 104, backup 196, mongo-backup 68, `mongo-backup-job-example` 2,
 hono-api-example 43 and the scripts' 93. The total is the earlier 1812 plus the
 22 specs of the wired guards (`wiring/guards.spec.ts` and
-`wiring/config/guard-refusals.spec.ts`); no other spec changed. (1812 was
+`wiring/config/guard-refusals.spec.ts`); no other spec was added. (1812 was
 measured on 2026-10-04, after `@nxgt/redis-guard` was dropped: the earlier 1815
 less the 3 identity specs of `redis-guard`'s deprecated re-exports.)
 The three kits (`@nxgt/redis-kit`, `@nxgt/mongo-kit` and `@nxgt/mongo-search-kit`)
