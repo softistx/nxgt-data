@@ -13,14 +13,16 @@ releasing works, and the duplications that are deliberate.
 ## Skills
 
 The skills come from the `nxgt-core` marketplace, enabled in the committed
-`.claude/settings.json`: `nxgt-workflow` (`large-feature-branch-workflow`,
-`write-a-repo-script`), `nxgt-package` (`create-a-package`,
-`release-a-package-change`), `nxgt-docs` (`keep-docs-current`, and the
+`.claude/settings.json`: `nxgt-base`, a bundle that brings `nxgt-monorepo`
+(`lay-out-a-library-monorepo`), `nxgt-docs`, `nxgt-review`, `nxgt-autonomy`
+and `nxgt-economy`; plus `nxgt-workflow` (`large-feature-branch-workflow`,
+`write-a-repo-script`) and `nxgt-package` (`create-a-package`,
+`release-a-package-change`). `nxgt-docs` brings `keep-docs-current` and the
 agents `documentation-auditor`, `documentation-writer`,
-`troubleshooting-writer` and `roadmap-keeper`), `nxgt-review`
-(`review-before-a-pr`, and the `code-reviewer` agent, which reads
-`references/nxgt-data.md`) and `nxgt-autonomy` (`work-autonomously`, and the
-agents `work-queue-auditor`, `improvement-scout` and `green-bar-verifier`).
+`troubleshooting-writer` and `roadmap-keeper`; `nxgt-review` brings
+`review-before-a-pr` and the `code-reviewer` agent, which reads
+`references/nxgt-data.md`; `nxgt-autonomy` brings `work-autonomously` and the
+agents `work-queue-auditor`, `improvement-scout` and `green-bar-verifier`.
 They are authored in `softistx/nxgt-core`, under
 `plugins/`; nothing is copied here, and there is no local agent.
 
