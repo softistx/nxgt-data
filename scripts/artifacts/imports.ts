@@ -39,7 +39,7 @@ function isRuntime(specifier: string): boolean {
 function specifiersOf(rel: string, text: string): string[] {
 	if (rel.endsWith('.d.ts')) return declarationSpecifiers(text);
 	// A bin's built file starts with `#!/usr/bin/env bun`, which the scanner
-	// refuses as a syntax error, measured on bun 1.4.2 with the generator's
+	// refuses as a syntax error, measured on bun 1.4.2 with a built bin's
 	// `dist/cli.js`. It is no code: read what follows it.
 	return new Bun.Transpiler({ loader: 'js' })
 		.scanImports(text.replace(/^#![^\n]*/, ''))
