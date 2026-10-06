@@ -183,10 +183,19 @@ matching key in `exports` — except a `bin` target (`@nxgt/mongo-backup`'s
 - **A build that exits 0 is not evidence the artifact loads.**
   `bun run verify:artifacts` packs every package, installs the tarballs as a
   consumer does, imports every subpath in `exports`, runs every bin with
-  `--help`, and rejects a manifest that would break an install: a `link:` or
-  `file:` in a field a consumer resolves, a **required** peer on no registry,
-  a sibling range that leaves out the sibling released beside it, an exact pin
-  on a sibling, or a package that is not MIT or ships no `LICENSE`. It fails
+  `--help`, and rejects a manifest that would break an install: a `link:`,
+  `file:` or unresolved `workspace:` in a field a consumer resolves, a
+  **required** peer on no registry, a sibling range other than **exactly** the
+  one its `workspace:` spec produces beside the sibling's version in the
+  workspace (`workspace:^` → `^<version>`, `workspace:~` → `~<version>`,
+  `workspace:*` → `<version>`), an exact pin on a sibling, or a package that is
+  not MIT or ships no `LICENSE`. The sibling check is `siblings.ts`, which
+  reads each source `package.json` for the spec, and it is exact rather than
+  `Bun.semver.satisfies`: a lock stale within one minor packs `^0.19.0` beside
+  0.19.1, which satisfies it and lets a consumer keep 0.19.0 (measured by
+  setting `bun.lock`'s `@nxgt/mongo` back to 0.19.0), and `satisfies` answers
+  `true` for `garbage!!`, `latest` and `''`. A sibling written as a plain range
+  still has to let in the version beside it. It fails
   a `files` entry the tarball holds nothing under, with
   `<package>: files lists <entry>, which the tarball does not hold` — npm
   skips such an entry without a word, and every package here lists `dist`
@@ -229,7 +238,8 @@ matching key in `exports` — except a `bin` target (`@nxgt/mongo-backup`'s
   the first that fails; each lives in `scripts/artifacts/`, one module per
   responsibility, with a spec beside each pure one: `packages.ts` reads the
   workspace, `tarball.ts` a tarball's entries, `manifest.ts` its dependency
-  fields, `registry.ts` asks npm, then `stale.ts`, `install.ts`, `load.ts`,
+  fields, `siblings.ts` its sibling ranges against the workspace's
+  `workspace:` specs, `registry.ts` asks npm, then `stale.ts`, `install.ts`, `load.ts`,
   `classes.ts`, `imports.ts`, which `declarations.ts` serves, and
   `emit.ts`. An unbuilt package stops at the first stage with
   `<package>: no dist/` and a hint to run `bun run build`: `stale.ts` checks
@@ -675,7 +685,8 @@ publishes to npm.
   held 0.11.0, because `changeset version` bumps manifests and leaves the
   lockfile alone. `changeset:version` therefore ends with
   `bun install --lockfile-only`, and a stale `bun.lock` in a release is a bug,
-  not noise.
+  not noise: `verify:artifacts` refuses any packed sibling range other than
+  the one the spec produces, so a release cannot carry one.
 - **A new `@nxgt/*` release is found by a schedule, not by memory.** The
   `@nxgt/*` packages from outside this repository are `examples/hono-api`'s
   `@nxgt/openapi-codegen` and `@nxgt/openapi-hono`, from nxgt-http, and the
