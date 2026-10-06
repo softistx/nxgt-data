@@ -227,13 +227,19 @@ matching key in `exports` — except a `bin` target (`@nxgt/mongo-backup`'s
   `peerDependencies` or `optionalDependencies`, found in the install by
   Node's lookup (`<package>: dist/<file> imports "<specifier>", which ships
   no types, and @types/<name> is not declared`). Its own types are read for
-  the import's subpath, as tsc under `bundler` or `node16` does: with
-  `exports`, only that subpath's entry counts (the exact key, then the
-  longest `*` pattern), through a `types` condition whose file is there or a
-  declaration file beside a target (`.d.mts` beside `.mjs`). yargs 18 types
-  `./browser` alone, so `yargs` itself fails. Without `exports`,
-  `typesVersions`, then `types`, `typings`, `main` or an `index.d.ts`, an
-  extensionless path read as `<path>.d.ts` or `<path>/index.d.ts`. An
+  the import's subpath, close to how tsc under `bundler`, Bun's resolution,
+  reads them, not by tsc itself: with `exports`, only that subpath's entry
+  counts (the exact key, then the longest `*` pattern, the longer key at a
+  tie), and in it only the conditions tsc matches there (`import`, `types`,
+  `types@…` and `default`, in order, stopping at a `null`), never `node`,
+  which only `node16` adds, nor `require` or `browser`. A target passes as
+  a declaration file or TypeScript source that is there, or with a
+  declaration file beside it (`.d.mts` beside `.mjs`). yargs 18 types
+  `./browser` alone, so `yargs` itself fails. Without `exports`, `types`,
+  `typings`, `main` or an `index.d.ts`, an extensionless path read as
+  `<path>.d.ts` or `<path>/index.d.ts`; a `typesVersions` there counts as
+  typed unresolved, since its ranges match the consumer's TypeScript.
+  An
   `@types` left in `devDependencies` passes everything else, since the
   workspace installs it, and gives a consumer TS7016, or a silent `any`
   under `skipLibCheck`: nxgt-core's `@nxgt/shared` shipped that with

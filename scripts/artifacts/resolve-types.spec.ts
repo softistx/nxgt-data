@@ -177,3 +177,65 @@ describe('shipsTypes, with exports', () => {
 		).toBe(false);
 	});
 });
+
+describe('shipsTypes, the conditions tsc matches under bundler', () => {
+	const at = (entry: unknown, files: string[]) =>
+		shipsTypes(installed({ exports: { '.': entry } }, files));
+
+	test('counts types under import or default', () => {
+		expect(at({ import: { types: './x.d.ts' } }, ['x.d.ts'])).toBe(true);
+		expect(at({ default: { types: './x.d.ts' } }, ['x.d.ts'])).toBe(true);
+	});
+
+	test('ignores types only under require, browser or node', () => {
+		expect(at({ require: { types: './x.d.ts' } }, ['x.d.ts'])).toBe(false);
+		expect(at({ browser: './x.js' }, ['x.js', 'x.d.ts'])).toBe(false);
+		expect(at({ node: { types: './x.d.ts' } }, ['x.d.ts'])).toBe(false);
+	});
+
+	test('stops at a matched null, as @mswjs/interceptors 0.41.9 has', () => {
+		const pkg = installed(
+			{
+				exports: {
+					'./presets/browser': {
+						browser: './lib/browser/presets/browser.mjs',
+						node: null,
+						import: null,
+						default: './lib/browser/presets/browser.mjs',
+					},
+				},
+			},
+			['lib/browser/presets/browser.mjs', 'lib/browser/presets/browser.d.mts'],
+		);
+		expect(shipsTypes(pkg, './presets/browser')).toBe(false);
+	});
+
+	test('reads a types condition whose value is conditions, as fraction.js 5.3.4', () => {
+		const entry = {
+			types: { import: './x.d.mts', require: './x.d.ts' },
+			default: './x.cjs',
+		};
+		expect(at(entry, ['x.cjs', 'x.d.mts'])).toBe(true);
+		expect(at(entry, ['x.cjs', 'x.d.ts'])).toBe(false);
+	});
+
+	test('takes a TypeScript source as a target, as @react-router/dev 8.4.0', () => {
+		expect(at('./src/index.ts', ['src/index.ts'])).toBe(true);
+		expect(at({ types: './src/index.tsx' }, ['src/index.tsx'])).toBe(true);
+		expect(at({ import: './src/index.mts' }, ['src/index.mts'])).toBe(true);
+		expect(at('./src/index.ts', [])).toBe(false);
+	});
+
+	test('breaks a tie of prefixes by the longer key, as comparePatternKeys', () => {
+		const pkg = installed(
+			{
+				exports: {
+					'./a/*': { types: './t/*.d.ts' },
+					'./a/*.js': './a/*.js',
+				},
+			},
+			['t/x.js.d.ts', 'a/x.js'],
+		);
+		expect(shipsTypes(pkg, './a/x.js')).toBe(false);
+	});
+});
