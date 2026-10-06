@@ -1,10 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import {
-	type Installed,
-	shipsTypes,
-	typelessImports,
-	typesPackageOf,
-} from './types';
+import { type Installed, typelessImports, typesPackageOf } from './types';
 
 /** A package as installed: its manifest and the files its folder holds. */
 function installed(
@@ -19,64 +14,6 @@ describe('typesPackageOf', () => {
 	test('maps a plain name and a scoped one to their @types package', () => {
 		expect(typesPackageOf('nodemailer')).toBe('@types/nodemailer');
 		expect(typesPackageOf('@babel/core')).toBe('@types/babel__core');
-	});
-});
-
-describe('shipsTypes', () => {
-	test('reads a types or typings field whose file is there', () => {
-		expect(
-			shipsTypes(
-				installed({ types: './dist/index.d.ts' }, ['dist/index.d.ts']),
-			),
-		).toBe(true);
-		expect(
-			shipsTypes(installed({ typings: 'lib/main.d.ts' }, ['lib/main.d.ts'])),
-		).toBe(true);
-		expect(shipsTypes(installed({ types: './dist/index.d.ts' }))).toBe(false);
-	});
-
-	test('reads a types condition anywhere in exports', () => {
-		expect(
-			shipsTypes(
-				installed({
-					exports: {
-						'.': { import: { types: './a.d.mts', default: './a.mjs' } },
-					},
-				}),
-			),
-		).toBe(true);
-	});
-
-	test('reads a declaration file beside an exports target or main', () => {
-		expect(
-			shipsTypes(
-				installed({ exports: { '.': './dist/index.js' } }, [
-					'dist/index.js',
-					'dist/index.d.ts',
-				]),
-			),
-		).toBe(true);
-		expect(
-			shipsTypes(
-				installed({ main: 'lib/x.cjs' }, ['lib/x.cjs', 'lib/x.d.cts']),
-			),
-		).toBe(true);
-	});
-
-	test('reads an index.d.ts at the root and typesVersions', () => {
-		expect(shipsTypes(installed({}, ['index.d.ts']))).toBe(true);
-		expect(shipsTypes(installed({ typesVersions: { '*': {} } }))).toBe(true);
-	});
-
-	test('refuses a package that ships JavaScript alone', () => {
-		expect(
-			shipsTypes(
-				installed(
-					{ main: 'lib/index.js', exports: { '.': './lib/index.js' } },
-					['lib/index.js'],
-				),
-			),
-		).toBe(false);
 	});
 });
 
@@ -128,7 +65,10 @@ describe('typelessImports', () => {
 			typelessImports(
 				{ ...shared, peerDependencies: { zod: '^4.0.0' } },
 				[['dist/a.d.ts', "export type { ZodType } from 'zod/v4';"]],
-				() => installed({ types: 'index.d.ts' }, ['index.d.ts']),
+				() =>
+					installed({ exports: { './v4': { types: './v4/index.d.ts' } } }, [
+						'v4/index.d.ts',
+					]),
 			),
 		).toEqual([]);
 	});
@@ -189,5 +129,38 @@ describe('typelessImports', () => {
 				() => undefined,
 			),
 		).toEqual([['dist/a.d.ts', 'ghost', 'not installed']]);
+	});
+	test('flags an import of a subpath that is untyped, as yargs is', () => {
+		const yargs = installed(
+			{
+				exports: {
+					'.': { import: './index.mjs' },
+					'./browser': { types: './browser.d.ts', import: './browser.mjs' },
+				},
+			},
+			['index.mjs', 'browser.mjs', 'browser.d.ts'],
+		);
+		expect(
+			typelessImports(
+				{ ...shared, dependencies: { yargs: '^18' } },
+				[
+					[
+						'dist/cli.d.ts',
+						"import type { Argv } from 'yargs';\nexport type { B } from 'yargs/browser';",
+					],
+				],
+				() => yargs,
+			),
+		).toEqual([['dist/cli.d.ts', 'yargs', 'no types']]);
+	});
+
+	test('leaves /// <reference types="node" /> to the consumer', () => {
+		expect(
+			typelessImports(
+				shared,
+				[['dist/a.d.ts', '/// <reference types="node" />\nexport {};']],
+				() => undefined,
+			),
+		).toEqual([]);
 	});
 });

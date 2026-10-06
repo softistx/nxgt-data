@@ -3,19 +3,9 @@ import { dirname, join } from 'node:path';
 import { declarationSpecifiers } from './declarations';
 import { isRuntime, packageOf, RUNTIME_FIELDS } from './imports';
 import type { Pkg } from './packages';
+import { type Installed, shipsTypes, subpathOf } from './resolve-types';
 
-/** A JavaScript file and the declaration file tsc looks for beside it. */
-const BESIDE: readonly (readonly [js: string, dts: string])[] = [
-	['.js', '.d.ts'],
-	['.mjs', '.d.mts'],
-	['.cjs', '.d.cts'],
-];
-
-/** An installed package: its manifest, and whether its folder holds a file. */
-export type Installed = {
-	manifest: Record<string, unknown>;
-	has: (rel: string) => boolean;
-};
+export type { Installed };
 
 /** Why an import's types do not reach a consumer. */
 export type Reason = 'no types' | 'not installed';
@@ -25,56 +15,18 @@ export function typesPackageOf(name: string): string {
 	return `@types/${name.startsWith('@') ? name.slice(1).replace('/', '__') : name}`;
 }
 
-/** Whether a declaration file sits beside a JavaScript path tsc would load. */
-function besideJs(target: unknown, has: Installed['has']): boolean {
-	if (typeof target !== 'string' || target.includes('*')) return false;
-	return BESIDE.some(
-		([js, dts]) =>
-			target.endsWith(js) && has(target.slice(0, -js.length) + dts),
-	);
-}
-
-/** Whether an `exports` value names types: a `types` condition, or a declaration file beside a target. */
-function exportsTypes(value: unknown, has: Installed['has']): boolean {
-	if (typeof value === 'string') return besideJs(value, has);
-	if (Array.isArray(value))
-		return value.some((each) => exportsTypes(each, has));
-	if (value === null || typeof value !== 'object') return false;
-	return Object.entries(value as Record<string, unknown>).some(
-		([key, each]) =>
-			key === 'types' || key.startsWith('types@') || exportsTypes(each, has),
-	);
-}
-
-/**
- * Whether a package ships its own declarations, as tsc finds them: a `types`
- * or `typings` field whose file is there, `typesVersions`, a `types`
- * condition anywhere in `exports`, a declaration file beside an `exports`
- * target or `main`, or an `index.d.ts` at the root. It answers for the
- * package, not for each subpath of it.
- */
-export function shipsTypes({ manifest, has }: Installed): boolean {
-	for (const field of ['types', 'typings']) {
-		const value = manifest[field];
-		if (typeof value === 'string' && has(value)) return true;
-	}
-	return (
-		manifest['typesVersions'] !== undefined ||
-		exportsTypes(manifest['exports'], has) ||
-		besideJs(manifest['main'], has) ||
-		has('index.d.ts')
-	);
-}
-
 /**
  * Every package a built declaration file imports whose types would not reach
  * a consumer: it ships none, and its `@types` package is not in
  * `dependencies`, `peerDependencies` or `optionalDependencies`. A
  * devDependency never counts: no consumer installs it. The runtime's own
  * (`bun`, `bun:*`, Node's built-ins) is left to the consumer's `@types/bun`
- * or `@types/node`, as every package here assumes; relative imports and the
- * package itself pass. One `lookup` cannot find is reported as not
- * installed. Only `.d.ts` files are read. Pure, so it has specs.
+ * or `@types/node`, as every package here assumes, and so is
+ * `/// <reference types="node" />`; relative imports and the package itself
+ * pass. Each import is read for its own subpath (`shipsTypes`). One
+ * `lookup` cannot find is reported as not installed. Only `.d.ts` files are
+ * read, not a `.d.mts` or `.d.cts` a build emits, as in `imports.ts`. Pure,
+ * so it has specs.
  */
 export function typelessImports(
 	manifest: { name: string } & Partial<
@@ -91,7 +43,12 @@ export function typelessImports(
 	for (const [rel, text] of bundles) {
 		if (!rel.endsWith('.d.ts')) continue;
 		for (const path of declarationSpecifiers(text)) {
-			if (path.startsWith('.') || path.startsWith('/') || isRuntime(path)) {
+			if (
+				path.startsWith('.') ||
+				path.startsWith('/') ||
+				path === 'node' ||
+				isRuntime(path)
+			) {
 				continue;
 			}
 			const name = packageOf(path);
@@ -100,7 +57,8 @@ export function typelessImports(
 			}
 			const pkg = lookup(name);
 			if (!pkg) found.push([rel, path, 'not installed']);
-			else if (!shipsTypes(pkg)) found.push([rel, path, 'no types']);
+			else if (!shipsTypes(pkg, subpathOf(path)))
+				found.push([rel, path, 'no types']);
 		}
 	}
 	return found;
