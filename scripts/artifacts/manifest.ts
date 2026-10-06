@@ -52,10 +52,7 @@ export async function manifestProblems(
 	const problems = [
 		...tarballs.flatMap(tarballProblems),
 		...manifestShapeProblems(manifests),
-		...siblingRangeProblems(
-			manifests as unknown as readonly SiblingManifest[],
-			sources,
-		),
+		...siblingRangeProblems(manifests, sources),
 		...manifests.flatMap(accessProblems),
 	];
 	const own = new Set(manifests.map((m) => m.name as string));

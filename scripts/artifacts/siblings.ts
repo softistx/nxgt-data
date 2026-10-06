@@ -30,13 +30,28 @@
  */
 
 /** A package's manifest, as packed or as it is in the repository. */
-export interface SiblingManifest {
+export type SiblingManifest = {
 	readonly name: string;
 	readonly version: string;
 	readonly dependencies?: Readonly<Record<string, string>>;
 	readonly peerDependencies?: Readonly<Record<string, string>>;
 	readonly optionalDependencies?: Readonly<Record<string, string>>;
-}
+};
+
+/** A manifest read from JSON: nothing about its fields is known yet. */
+type RawManifest = Readonly<Record<string, unknown>>;
+
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** The `field` dependency map of a manifest; empty when it is not an object. */
+const depsOf = (
+	manifest: RawManifest | undefined,
+	field: (typeof INSTALLED_FIELDS)[number],
+): Readonly<Record<string, unknown>> => {
+	const deps = manifest?.[field];
+	return isRecord(deps) ? deps : {};
+};
 
 /** The fields a consumer's install resolves. */
 const INSTALLED_FIELDS = [
@@ -68,31 +83,49 @@ export function expectedRange(
 }
 
 /**
- * @param packed the manifests as they are in the tarballs
+ * @param packed the manifests as they are in the tarballs, as read from JSON:
+ *   a range that is not a string is reported, not trusted
  * @param sources the same packages' `package.json` as they are in the
  *   workspace, which is where the `workspace:` specs and the versions being
  *   released still are
  */
 export function siblingRangeProblems(
-	packed: readonly SiblingManifest[],
-	sources: readonly SiblingManifest[],
+	packed: readonly RawManifest[],
+	sources: readonly RawManifest[],
 ): string[] {
-	const source = new Map(sources.map((m) => [m.name, m]));
-	return packed.flatMap((manifest) =>
-		INSTALLED_FIELDS.flatMap((field) =>
-			Object.entries(manifest[field] ?? {}).flatMap(([dep, range]) => {
-				const version = source.get(dep)?.version;
-				if (version === undefined || range.startsWith('workspace:')) {
+	const source = new Map<string, RawManifest>();
+	for (const m of sources) {
+		if (typeof m.name === 'string') {
+			source.set(m.name, m);
+		}
+	}
+	return packed.flatMap((manifest) => {
+		const name = String(manifest.name);
+		return INSTALLED_FIELDS.flatMap((field) =>
+			Object.entries(depsOf(manifest, field)).flatMap(([dep, range]) => {
+				const sibling = source.get(dep)?.version;
+				const version = typeof sibling === 'string' ? sibling : undefined;
+				if (version === undefined) {
 					return [];
 				}
-				const spec = source.get(manifest.name)?.[field]?.[dep];
+				if (typeof range !== 'string') {
+					return [
+						`${name}: ${field}.${dep} = ${JSON.stringify(range)}, ` +
+							'which is not a version range',
+					];
+				}
+				if (range.startsWith('workspace:')) {
+					return [];
+				}
+				const raw = depsOf(source.get(name), field)[dep];
+				const spec = typeof raw === 'string' ? raw : undefined;
 				const expected =
 					spec === undefined ? undefined : expectedRange(spec, version);
 				if (expected !== undefined) {
 					return range === expected
 						? []
 						: [
-								`${manifest.name}: ${field}.${dep} = ${range}, but ${spec} ` +
+								`${name}: ${field}.${dep} = ${range}, but ${spec} ` +
 									`beside ${dep}@${version} packs as ${expected}; ` +
 									'bun.lock is stale: run `bun install --lockfile-only`',
 							];
@@ -100,11 +133,11 @@ export function siblingRangeProblems(
 				return Bun.semver.satisfies(version, range)
 					? []
 					: [
-							`${manifest.name}: ${field}.${dep} = ${range} leaves out ` +
+							`${name}: ${field}.${dep} = ${range} leaves out ` +
 								`${dep}@${version}, the version beside it; run ` +
 								'`bun install --lockfile-only`',
 						];
 			}),
-		),
-	);
+		);
+	});
 }

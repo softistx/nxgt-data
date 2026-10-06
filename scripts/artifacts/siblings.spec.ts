@@ -69,6 +69,32 @@ describe('siblingRangeProblems', () => {
 		).toEqual([]);
 	});
 
+	/** `workspace:>=0.2.0` packs as `>=0.2.0`, whatever the version beside it. */
+	test('takes an explicit range after workspace: as it is', () => {
+		const sources = [mongo('0.2.1'), adapter('workspace:>=0.2.0')];
+		expect(
+			siblingRangeProblems([mongo('0.2.1'), adapter('>=0.2.0')], sources),
+		).toEqual([]);
+		for (const other of ['^0.2.1', '>=0.2.1', '^0.2.0', '0.2.1']) {
+			expect(
+				siblingRangeProblems([mongo('0.2.1'), adapter(other)], sources),
+			).toEqual([expect.stringContaining('packs as >=0.2.0')]);
+		}
+	});
+
+	/** A manifest is JSON: a range that is not a string is reported, not a crash. */
+	test('reports a range that is not a string', () => {
+		const packed = {
+			name: '@nxgt/mongo-meilisearch',
+			version: '0.1.0',
+			peerDependencies: { '@nxgt/mongo': 1 },
+		};
+		expect(siblingRangeProblems([mongo('0.2.1'), packed], SOURCES)).toEqual([
+			'@nxgt/mongo-meilisearch: peerDependencies.@nxgt/mongo = 1, ' +
+				'which is not a version range',
+		]);
+	});
+
 	test('follows ~ and * as well as ^, in every field a consumer installs', () => {
 		const packed: SiblingManifest = {
 			name: '@nxgt/a',
