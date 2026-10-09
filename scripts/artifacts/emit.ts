@@ -65,18 +65,30 @@ export async function declarationsEmit(
 			recursive: true,
 			filter: (source) => !source.endsWith('tsconfig.json'),
 		});
-		await Bun.write(join(dir, 'tsconfig.json'), JSON.stringify(TSCONFIG));
-		const { exitCode, output } = await tsc(dir);
-		const ok = exitCode === 0;
-		if (!ok) broken++;
-		console.log(`  ${ok ? 'ok  ' : 'FAIL'}    ${pkg.name}`);
-		if (!ok) console.log(indent(output));
+		// Under `bundler`, as Bun resolves, then `nodenext`, as Node does:
+		// a declaration's extensionless relative import passes the first and
+		// loses every name it re-exports under the second (TS2305).
+		await Bun.write(join(dir, 'package.json'), '{ "type": "module" }');
+		let failed = false;
+		for (const [resolution, tsconfig] of [
+			['bundler', TSCONFIG],
+			['nodenext', NODENEXT],
+		] as const) {
+			await Bun.write(join(dir, 'tsconfig.json'), JSON.stringify(tsconfig));
+			const { exitCode, output } = await tsc(dir);
+			const ok = exitCode === 0;
+			if (!ok) failed = true;
+			console.log(`  ${ok ? 'ok  ' : 'FAIL'}    ${pkg.name} (${resolution})`);
+			if (!ok) console.log(indent(output));
+		}
+		if (failed) broken++;
 	}
 	if (broken > 0) {
 		console.error(
 			`\n${broken} package(s)' fixtures do not emit their declarations.\n` +
-				'A TS2883 names a type the package entry must export; any other\n' +
-				'error is a fixture that no longer compiles. See AGENTS.md.',
+				'A TS2883 names a type the package entry must export; a TS2305\n' +
+				'under nodenext only, a declaration import Node cannot resolve;\n' +
+				'any other error is a fixture that no longer compiles. See AGENTS.md.',
 		);
 		return false;
 	}
@@ -109,6 +121,16 @@ export const TSCONFIG = {
 	},
 	include: ['**/*.ts'],
 	exclude: ['out'],
+};
+
+/** The same consumer, resolving as Node does. */
+export const NODENEXT = {
+	...TSCONFIG,
+	compilerOptions: {
+		...TSCONFIG.compilerOptions,
+		module: 'NodeNext',
+		moduleResolution: 'NodeNext',
+	},
 };
 
 function indent(text: string): string {
