@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, spyOn, test } from 'bun:test';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +7,7 @@ import {
 	declarationsEmit,
 	type Emitted,
 	FIXTURES,
+	NODENEXT,
 	TSCONFIG,
 	withFixtures,
 } from './emit';
@@ -101,21 +102,32 @@ describe('declarationsEmit', () => {
 			'nested/more.ts': 'export const b = 2;',
 			'tsconfig.json': '{"compilerOptions":{"strict":false}}',
 		});
-		const { ok, ran } = await emit(workdir, [a], () => ({
-			exitCode: 0,
-			output: '',
-		}));
+		const resolutions: string[] = [];
+		const { ok, ran } = await emit(workdir, [a], (dir) => {
+			resolutions.push(
+				JSON.parse(readFileSync(join(dir, 'tsconfig.json'), 'utf8'))
+					.compilerOptions.moduleResolution,
+			);
+			return { exitCode: 0, output: '' };
+		});
 		expect(ok).toBe(true);
+		expect(resolutions).toEqual(['bundler', 'NodeNext']);
 		const dir = join(workdir, 'declarations', '@nxgt__a');
-		expect(ran).toEqual([dir]);
+		// Once as Bun resolves, once as Node does.
+		expect(ran).toEqual([dir, dir]);
 		expect((await readdir(dir)).sort()).toEqual([
 			'app.ts',
 			'nested',
+			'package.json',
 			'tsconfig.json',
 		]);
 		expect(existsSync(join(dir, 'nested', 'more.ts'))).toBe(true);
 		// The fixture's own tsconfig never loosens the consumer's.
-		expect(await Bun.file(join(dir, 'tsconfig.json')).json()).toEqual(TSCONFIG);
+		expect(await Bun.file(join(dir, 'tsconfig.json')).json()).toEqual(NODENEXT);
+		expect(NODENEXT.compilerOptions.moduleResolution).toBe('NodeNext');
+		expect(await Bun.file(join(dir, 'package.json')).json()).toEqual({
+			type: 'module',
+		});
 	});
 
 	test('fails, naming each broken package with what tsc said', async () => {
@@ -131,14 +143,16 @@ describe('declarationsEmit', () => {
 				: { exitCode: 0, output: '' },
 		);
 		expect(ok).toBe(false);
-		expect(printed).toContain('ok      @nxgt/good');
-		expect(printed).toContain('FAIL    @nxgt/bad');
+		expect(printed).toContain('ok      @nxgt/good (bundler)');
+		expect(printed).toContain('ok      @nxgt/good (nodenext)');
+		expect(printed).toContain('FAIL    @nxgt/bad (bundler)');
+		expect(printed).toContain('FAIL    @nxgt/bad (nodenext)');
 		expect(printed).toContain(`            ${ts2883}`);
 		expect(printed).toContain(
 			"1 package(s)' fixtures do not emit their declarations.",
 		);
 		expect(printed).toContain(
-			'any other\nerror is a fixture that no longer compiles',
+			'any other error is a fixture that no longer compiles',
 		);
 	});
 });

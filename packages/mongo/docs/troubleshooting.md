@@ -174,6 +174,22 @@ Keep one `mongodb` in the tree and let every package take it as a peer. This
 package reads error **fields** rather than classes for the same reason, so
 `ConflictError` and the rest still work when a tree does hold two.
 
+### `TS2305: Module '"@nxgt/mongo"' has no exported member 'defineCollection'.`
+
+**When:** typechecking under `moduleResolution` `nodenext` or `node16`, with
+`@nxgt/mongo` 0.19.1 or earlier. Every name the entry re-exports is reported
+missing, not only `defineCollection`. The same holds for every `@nxgt/*`
+package of this repository at the versions released alongside it.
+**Why:** those versions' declaration files import each other without an
+extension (`'./definition/define-collection'`), which Node's resolution does
+not complete.
+`bundler` completes it, so nothing failed there.
+**Fix:** upgrade to 0.19.2 or later, or use `bundler` until then.
+
+```sh
+bun add @nxgt/mongo@latest
+```
+
 ## Definition
 
 ### `defineCollection: "users"'s schema has no _id.`
