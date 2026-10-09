@@ -1,5 +1,14 @@
 # @nxgt/mongo-meilisearch
 
+## 0.5.1
+
+### Patch Changes
+
+- [#197](https://github.com/softistx/nxgt-data/pull/197) [`0895cc1`](https://github.com/softistx/nxgt-data/commit/0895cc1735181ba6ee624534b052f794d801433a) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The declaration files now import each other with a `.js` extension, so a project with `moduleResolution: "nodenext"` (or `node16`) sees every export. Before, a name re-exported through a relative module was missing there (TS2305), as `@nxgt/mongo`'s were.
+- Updated dependencies [[`0895cc1`](https://github.com/softistx/nxgt-data/commit/0895cc1735181ba6ee624534b052f794d801433a)]:
+  - @nxgt/meilisearch@0.6.2
+  - @nxgt/mongo@0.19.2
+
 ## 0.5.0
 
 ### Minor Changes
