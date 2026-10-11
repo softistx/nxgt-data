@@ -91,6 +91,20 @@ _Nothing in progress._
 
 ## Shipped
 
+- **`@nxgt/redis/testing`** — `startTestRedis()` starts a real Redis for a
+  suite, on a free port with no Docker, at the version this package is tested
+  against, and resolves to `{ uri, reset, stop }` (`reset` is `FLUSHALL`);
+  `buildTestRedis()` builds it ahead of the suite, and `$REDIS_BIN` (or
+  `binary`) skips the build. `redis-memory-server` is an **optional** peer,
+  so an application that never imports the subpath never installs it —
+  0.8.0.
+- **A deadline per guard call** — `{ timeoutMs }` on `consume`, `enforce` and
+  `peek`, and on `run` beside `fingerprint` and `wait`: a Redis that has not
+  answered by then rejects the call with `GuardError` `TIMEOUT`, naming the
+  definition and never the key. The command is not withdrawn, so a timed-out
+  `consume` may still count its cost, and a `run` whose store timed out may
+  still store its result — 0.8.0.
+
 - **Bound caches, rate limits and idempotency expose their definition** —
   `definition` on each, read-only: `redis.limits.api.definition.limit`, `.per`,
   `.ttl`, `.lease`, so a consumer handed a bound guard need not be handed its

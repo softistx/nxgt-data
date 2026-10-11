@@ -70,6 +70,17 @@ orders.run(who, () => ({ orderId: 'o1', total: 1 }), { wait: true });
 // @ts-expect-error there is no `timeout`: waiting for a running key is `wait`
 orders.run(who, () => ({ orderId: 'o1', total: 1 }), { timeout: 2_000 });
 
+// How long each command waits for Redis is `timeoutMs`, in milliseconds,
+// and a value that may be missing passes as it is.
+declare const maybeTimeout: number | undefined;
+orders.run(who, () => ({ orderId: 'o1', total: 1 }), {
+	timeoutMs: maybeTimeout,
+	wait: 2_000,
+});
+
+// @ts-expect-error `timeoutMs` is a number of milliseconds, not a string
+orders.run(who, () => ({ orderId: 'o1', total: 1 }), { timeoutMs: '50ms' });
+
 // @ts-expect-error the params are the key function's: `key` is missing
 orders.run({ user: 'u1' }, () => ({ orderId: 'o1', total: 1 }));
 

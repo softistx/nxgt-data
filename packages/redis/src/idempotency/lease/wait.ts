@@ -37,6 +37,7 @@ export function checkWait(name: string, wait: unknown): number {
  * The host's clock only paces the sleeps between polls and says when `wait`
  * is spent; whether the key is free, done or running is the server's answer
  * every time. A `MISMATCH` or an `INVALID` found mid-wait ends it at once.
+ * `bounded` waits for each `BEGIN` at most the run's `timeoutMs`.
  */
 export async function beginOrWait(
 	client: RedisClient,
@@ -45,11 +46,12 @@ export async function beginOrWait(
 	fingerprint: string,
 	lease: number,
 	wait: number,
+	bounded: <T>(pending: Promise<T>) => Promise<T> = (pending) => pending,
 ): Promise<Begun> {
 	const deadline = performance.now() + wait;
 	let pause = FIRST_POLL;
 	for (;;) {
-		const found = await begin(client, key, token, fingerprint, lease);
+		const found = await bounded(begin(client, key, token, fingerprint, lease));
 		const left = deadline - performance.now();
 		if (found.state !== 'running' || left <= 0) return found;
 		await Bun.sleep(Math.max(1, Math.min(found.pttl, pause, left)));

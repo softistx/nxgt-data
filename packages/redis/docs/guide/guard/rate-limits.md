@@ -84,9 +84,9 @@ function bindRateLimit<P>(
 interface BoundRateLimit<P> {
 	readonly definition: RateLimitDefinition<P>;
 	keyFor(params: P): string;
-	consume(params: P, cost?: number): Promise<LimitResult>;
-	enforce(params: P, cost?: number): Promise<LimitResult>;
-	peek(params: P, cost?: number): Promise<LimitResult>;
+	consume(params: P, cost?: number, options?: LimitCallOptions): Promise<LimitResult>;
+	enforce(params: P, cost?: number, options?: LimitCallOptions): Promise<LimitResult>;
+	peek(params: P, cost?: number, options?: LimitCallOptions): Promise<LimitResult>;
 	reset(params: P): Promise<boolean>;
 }
 ```
@@ -268,6 +268,43 @@ async function signIn(ip: string, user: string, password: string) {
 }
 ```
 
+## A deadline per call
+
+`consume`, `enforce` and `peek` take a third argument, `{ timeoutMs }`: how
+long to wait for Redis before rejecting with `GuardError` `TIMEOUT`. Without
+it a call waits as long as Bun's client does — through a reconnect, say —
+which can hold a request open far longer than a limit is worth.
+
+```ts
+import { GuardError } from '@nxgt/redis';
+
+async function allowLogin(ip: string): Promise<boolean> {
+	try {
+		return (await login.consume({ ip }, 1, { timeoutMs: 200 })).allowed;
+	} catch (error) {
+		// Fail open: a slow Redis lets the login through rather than block it.
+		if (error instanceof GuardError && error.code === 'TIMEOUT') return true;
+		throw error;
+	}
+}
+```
+
+- **The script may still run.** The timeout stops the wait, not the command:
+  it was sent, Bun's client cannot withdraw it, and Redis runs it whenever
+  it gets to it. So a `consume` or an `enforce` that timed out **may still
+  have counted its cost** — failing open lets the request through *and* may
+  spend a token for it; failing closed refuses a request that may not have
+  been counted. A `peek` counts nothing either way.
+- **It is per call, not per definition or per Redis.** The same limit is
+  usually checked with different stakes — a login page that fails open, an
+  export that fails closed — and the call site is where that is decided. A
+  value that may be missing passes as it is: `{ timeoutMs: config.redisTimeout }`.
+- `timeoutMs` is a whole number of milliseconds, 1 or more; anything else —
+  0, a fraction, `NaN`, a string — rejects with a `TypeError` before anything
+  is sent. Left out, or `undefined`, there is no deadline.
+- `TIMEOUT` names the definition, never the key: `consume on "login": Redis
+  did not answer within 200ms; the script may still run, and count this cost`.
+
 ## HTTP: headers for any framework
 
 A 429 should say when to come back. The recipe below turns a `LimitResult`
@@ -364,6 +401,7 @@ app.onError((error, c) => {
 | --- | --- | --- |
 | `RATE_LIMITED` | `enforce` found the limit spent | `enforce on "login": the limit of 5 per 60000ms is spent; retryAfter says when to try again` |
 | `COST` | a cost outside 1 (0 for `peek`) to the burst | `consume on "login": a cost must be a whole number from 1 to the burst of 5` |
+| `TIMEOUT` | Redis did not answer within the call's `timeoutMs` | `consume on "login": Redis did not answer within 200ms; the script may still run, and count this cost` (`peek`: `… nothing was counted`) |
 
 A `GuardError` names the **definition**, never the key or the params: those
 came from a request — an address, a user id — and a log line is no place for

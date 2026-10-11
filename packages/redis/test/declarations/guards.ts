@@ -12,6 +12,7 @@ import {
 	defineRedis,
 	openRedis,
 } from '@nxgt/redis';
+import { startTestRedis } from '@nxgt/redis/testing';
 import type { RedisClient } from 'bun';
 import { z } from 'zod';
 
@@ -89,3 +90,6 @@ export const wiredWithChannel = await openRedis(
 /** The wired channel and cache, and their definitions, exported by value. */
 export const wiredChannel = wiredWithChannel.channels.userCreated;
 export const wiredCache = wiredWithChannel.cache.userCache;
+
+/** A suite's Redis, from the testing subpath: its type names `TestRedis`. */
+export const testRedis = startTestRedis({ downloadDir: '.cache/redis' });

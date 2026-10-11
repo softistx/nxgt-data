@@ -65,6 +65,26 @@ export interface RunOptions {
 	 * once. A whole number of 0 or more, or `run` rejects with a `TypeError`.
 	 */
 	wait?: number;
+	/**
+	 * How long to wait for Redis, **in milliseconds**, on each command `run`
+	 * sends — taking the key (and each poll of `wait`), storing the result,
+	 * giving the key back — before rejecting with `GuardError` `TIMEOUT`
+	 * (default: as long as Bun's client waits). It does not bound `work`,
+	 * which is yours, nor the pauses of `wait`, nor the lease's renewals. A
+	 * whole number of 1 or more, or `run` rejects with a `TypeError`.
+	 *
+	 * A command that timed out is not withdrawn, and Redis may still run it:
+	 * - **taking the key** timed out: `work` is not called. A release is sent
+	 *   right behind it on the same connection, so a key it took is given
+	 *   back; failing that, the key lapses with its `lease`.
+	 * - **storing the result** timed out: `work` ran, and its result may or
+	 *   may not be stored. A repeat replays it if it was; if not, the key
+	 *   lapses with its `lease` and a repeat after that runs `work` again.
+	 * - **giving the key back** after `work` threw: the error `work` threw
+	 *   passes through, as without a timeout, and the key lapses with its
+	 *   `lease` if the release never lands.
+	 */
+	timeoutMs?: number | undefined;
 }
 
 /** What `run` gives back. */

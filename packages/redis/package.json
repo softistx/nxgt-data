@@ -19,6 +19,11 @@
 			"import": "./dist/index.js",
 			"default": "./dist/index.js"
 		},
+		"./testing": {
+			"types": "./dist/testing/index.d.ts",
+			"import": "./dist/testing/index.js",
+			"default": "./dist/testing/index.js"
+		},
 		"./package.json": "./package.json"
 	},
 	"keywords": [
@@ -47,7 +52,8 @@
 	},
 	"nxgt": {
 		"entrypoints": [
-			"src/index.ts"
+			"src/index.ts",
+			"src/testing/index.ts"
 		]
 	},
 	"devDependencies": {
@@ -56,7 +62,13 @@
 		"zod": "4.6.5"
 	},
 	"peerDependencies": {
+		"redis-memory-server": ">=0.17.1 <0.18",
 		"typescript": "^6.0.3 || ^7.0.0",
 		"zod": ">=4.6.5 <5"
+	},
+	"peerDependenciesMeta": {
+		"redis-memory-server": {
+			"optional": true
+		}
 	}
 }

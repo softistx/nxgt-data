@@ -141,7 +141,7 @@ of 0 or more: negative, fractional, `NaN` or `Infinity`.
 
 ## What `run` does
 
-`run(params, work, { fingerprint, wait })` answers in one of five ways:
+`run(params, work, { fingerprint, wait, timeoutMs })` answers in one of five ways:
 
 | The key holds | `run` |
 | --- | --- |
@@ -169,6 +169,8 @@ When `work` has run:
   only the reply was lost, the result **may** have been stored, and a repeat
   replays it. See
   [troubleshooting](../../troubleshooting.md#the-same-request-ran-twice).
+  A store that outlasts `timeoutMs` is the same case, rejected with
+  `TIMEOUT` — see [a deadline per command](#a-deadline-per-command).
 
 ### The value is what the schema gives back
 
@@ -308,6 +310,48 @@ or running is the server's answer every time.
 other value — a negative number, a fraction, `NaN`, a string — rejects with
 a `TypeError` before anything is sent. Keep it below whatever timeout the
 request itself has.
+
+## A deadline per command
+
+`run` takes `timeoutMs` beside `fingerprint` and `wait`: how long each
+command it sends may wait for Redis before `run` rejects with `GuardError`
+`TIMEOUT`. It bounds the commands — taking the key, each poll of `wait`,
+storing the result, giving the key back — and not `work`, which is yours,
+nor the pauses of `wait`, nor the lease's renewals, which try again at the
+next beat on their own.
+
+```ts
+try {
+	const { value } = await orders.run(who, () => placeOrder(body), {
+		fingerprint: body,
+		timeoutMs: 500,
+	});
+	return Response.json(value, { status: 201 });
+} catch (error) {
+	if (error instanceof GuardError && error.code === 'TIMEOUT') {
+		return new Response('Try again', { status: 503, headers: { 'Retry-After': '1' } });
+	}
+	throw error;
+}
+```
+
+A command that timed out was still sent, and Redis may still run it. What
+that leaves depends on which one it was:
+
+| Timed out | `work` | The key |
+| --- | --- | --- |
+| taking the key (or a poll of `wait`) | not called | a release under this run's token is sent right behind it on the same connection, so a key the late `BEGIN` took is given back; if that never lands either, the key lapses with its `lease` |
+| storing the result | **ran** | the result may be stored — a repeat replays it — or not, and the key lapses with its `lease`, after which a repeat runs `work` again |
+| giving the key back after `work` threw | ran and threw | the error `work` threw passes through, not `TIMEOUT`; the key lapses with its `lease` if the release never lands |
+
+So a `TIMEOUT` is safe to answer with "try again" — the retry replays,
+waits, or runs — except that, as with any Redis failure after `work`, a
+result that was never stored means `work` runs a second time
+([the same request ran twice](../../troubleshooting.md#the-same-request-ran-twice)).
+
+`timeoutMs` is a whole number of milliseconds, 1 or more; any other value
+rejects with a `TypeError` before anything is sent. Left out, or
+`undefined`, each command waits as long as Bun's client does.
 
 ## Choosing `ttl` and `lease`
 
@@ -457,6 +501,7 @@ the standard `Request` (`c.req.raw` in Hono).
 | `INVALID` | `work`'s result refused | given back |
 | `INVALID` | the stored result refused, or a record `run` could not have written | kept; `work` not called |
 | `LEASE_LOST` | the key was taken from the run: `forget`, or no renewal reached Redis for a whole lease | whatever the run that took over made of it |
+| `TIMEOUT` | Redis did not answer one of `run`'s commands within `timeoutMs` | see [a deadline per command](#a-deadline-per-command) |
 
 Each message names the operation — `run on "orders.create": …` — and never
 the key, the fingerprint or the value, which came from a request. An

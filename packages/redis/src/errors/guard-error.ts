@@ -24,7 +24,14 @@ export type GuardErrorCode =
 	 * lease lapsed because no renewal reached Redis for a whole lease — so a
 	 * repeat may have run `work` too. Its result was not stored.
 	 */
-	| 'LEASE_LOST';
+	| 'LEASE_LOST'
+	/**
+	 * Redis did not answer within the call's `timeoutMs`. The command was
+	 * sent and is not withdrawn: the server may still run it — a `consume`
+	 * may still count its cost, a `run` may still take its key or store its
+	 * result.
+	 */
+	| 'TIMEOUT';
 
 /**
  * The error of the rate limits and idempotency, apart from `RedisError`.
