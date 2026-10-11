@@ -63,7 +63,7 @@
 	"peerDependencies": {
 		"@nxgt/backup": "workspace:^",
 		"mongodb": ">=7.0.0 <8",
-		"typescript": "^6.0.3"
+		"typescript": "^6.0.3 || ^7.0.0"
 	},
 	"dependencies": {
 		"age-encryption": "~0.3.1"

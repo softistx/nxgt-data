@@ -45,8 +45,8 @@ bun add @nxgt/drizzle-meilisearch @nxgt/drizzle @nxgt/meilisearch drizzle-orm@rc
   neither.
 - `drizzle-orm` `>=1.0.0-rc.4 <2` and `meilisearch` `>=0.62.0 <1`: required
   peers, as the two packages above need them.
-- `typescript` `^6.0.3`: required peer, the version every `@nxgt` package
-  pins.
+- `typescript` `^6.0.3 || ^7.0.0`: required peer, the range every `@nxgt` package
+  accepts.
 - A PostgreSQL database, reached through any Drizzle driver, and a
   Meilisearch server, 1.x. Tested against Meilisearch 1.53.
 

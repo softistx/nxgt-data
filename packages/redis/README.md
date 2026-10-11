@@ -56,7 +56,8 @@ bun add @nxgt/redis zod typescript @types/bun
   variadic `set` overload, all of which Bun 1.4 has.
 - `zod` `>=4.6.5 <5`: required peer. A cache and a channel are described by a
   schema, and nothing is stored or published unchecked.
-- `typescript` `^6.0.3`: required peer, the version every `@nxgt` package pins.
+- `typescript` `^6.0.3 || ^7.0.0`: required peer, the range every `@nxgt` package
+  accepts.
 - `@types/bun`: required to typecheck. The shipped declarations name Bun's own
   `RedisClient` and `RedisOptions`, so without Bun's types the first `tsc`
   fails with `Cannot find module 'bun'`.

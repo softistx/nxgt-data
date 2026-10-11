@@ -43,8 +43,8 @@ bun add @nxgt/mongo mongodb zod
 ```
 
 `mongodb` (>=7) and `zod` (>=4.6.5) are peer dependencies, so your application
-decides their versions and there is only ever one copy of each. `typescript` 6
-is a required peer too, the version every `@nxgt` package pins.
+decides their versions and there is only ever one copy of each. `typescript` 6 or 7
+is a required peer too, the range every `@nxgt` package accepts.
 
 ## Setup
 

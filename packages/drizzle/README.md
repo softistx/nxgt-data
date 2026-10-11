@@ -31,7 +31,7 @@ bun add @nxgt/drizzle drizzle-orm@rc
 
 - `drizzle-orm` `>=1.0.0-rc.4 <2`: required peer. This package builds on
   Drizzle 1.0; it does not run on 0.x.
-- `typescript` 6: required peer, the version every `@nxgt` package pins.
+- `typescript` 6 or 7: required peer, the range every `@nxgt` package accepts.
 - A driver for Drizzle: yours.
 
 ## Setup

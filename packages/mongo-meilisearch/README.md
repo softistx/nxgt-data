@@ -80,7 +80,7 @@ bun add @nxgt/mongo-meilisearch @nxgt/mongo @nxgt/meilisearch mongodb meilisearc
   neither client.
 - `mongodb` `>=7.0.0 <8` and `meilisearch` `>=0.62.0 <1`: required peers,
   as the two packages above need them. `zod` is `@nxgt/mongo`'s.
-- `typescript` 6: required peer, the version every `@nxgt` package pins.
+- `typescript` 6 or 7: required peer, the range every `@nxgt` package accepts.
 - A MongoDB **replica set** or sharded cluster, since change streams need
   one, and a Meilisearch server, 1.x. Tested against MongoDB 8.2 and
   Meilisearch 1.53.
