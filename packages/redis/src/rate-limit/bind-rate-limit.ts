@@ -1,8 +1,14 @@
 import type { RedisClient } from 'bun';
 import { GuardError } from '../errors/guard-error';
+import { checkTimeout, timedOut, withinTimeout } from '../scripts/timeout';
 import { checkRateLimit } from './define-rate-limit';
 import { checkRate, type Rate } from './gcra';
-import type { BoundRateLimit, RateLimitDefinition } from './types';
+import type {
+	BoundRateLimit,
+	LimitCallOptions,
+	LimitResult,
+	RateLimitDefinition,
+} from './types';
 
 /**
  * Refuses a cost that is not a whole number from `min` to the burst. A cost
@@ -46,17 +52,41 @@ export function bindRateLimit<P>(
 	const rate: Rate = { limit, per, burst: definition.burst ?? limit };
 	const keyFor = (params: P) => `${name}:${definition.key(params)}`;
 
-	const consume = async (call: string, params: P, cost = 1) => {
-		checkCost(call, name, cost, 1, rate.burst);
-		return await checkRate(client, keyFor(params), rate, cost, true);
+	/**
+	 * One check: the cost and the timeout refused before anything is sent,
+	 * then the script, waited for at most `timeoutMs`.
+	 */
+	const check = async (
+		call: string,
+		params: P,
+		cost: number,
+		write: boolean,
+		options: LimitCallOptions | undefined,
+	): Promise<LimitResult> => {
+		checkCost(call, name, cost, write ? 1 : 0, rate.burst);
+		const timeoutMs = checkTimeout(call, name, options?.timeoutMs);
+		return await withinTimeout(
+			checkRate(client, keyFor(params), rate, cost, write),
+			timeoutMs,
+			(ms) =>
+				timedOut(
+					call,
+					name,
+					ms,
+					write
+						? 'the script may still run, and count this cost'
+						: 'nothing was counted',
+				),
+		);
 	};
 
 	return {
 		definition,
 		keyFor,
-		consume: (params, cost) => consume('consume', params, cost),
-		async enforce(params, cost) {
-			const result = await consume('enforce', params, cost);
+		consume: (params, cost = 1, options) =>
+			check('consume', params, cost, true, options),
+		async enforce(params, cost = 1, options) {
+			const result = await check('enforce', params, cost, true, options);
 			if (result.allowed) return result;
 			throw new GuardError(
 				'RATE_LIMITED',
@@ -66,10 +96,8 @@ export function bindRateLimit<P>(
 				{ retryAfter: result.retryAfter },
 			);
 		},
-		async peek(params, cost = 1) {
-			checkCost('peek', name, cost, 0, rate.burst);
-			return await checkRate(client, keyFor(params), rate, cost, false);
-		},
+		peek: (params, cost = 1, options) =>
+			check('peek', params, cost, false, options),
 		reset: async (params) => (await client.del(keyFor(params))) > 0,
 	};
 }

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-This package throws two errors of its own. `GuardError` is the rate limits' and idempotency's, in
+This package throws two errors of its own. `GuardError` is the rate limits' and idempotency's (`TIMEOUT` among its codes, for a call given `timeoutMs`), in
 [its own part](#rate-limits-and-idempotency) of this page. `RedisError`, for everything else, has a `code` of
 `LOCK_HELD`, `LOCK_LOST`, `INVALID`, `CONNECTION` or `PING_TIMEOUT`, and the
 key or channel it happened on as `key` — never the value. `CONNECTION` and
@@ -18,6 +18,8 @@ application can handle.
   - [`Cannot find package 'bun'`](#cannot-find-package-bun)
   - [`Cannot find module 'bun' or its corresponding type declarations.`](#cannot-find-module-bun-or-its-corresponding-type-declarations)
   - [`Cannot find module 'zod' or its corresponding type declarations.`](#cannot-find-module-zod-or-its-corresponding-type-declarations)
+  - [`Cannot find package 'redis-memory-server'`](#cannot-find-package-redis-memory-server) — importing `@nxgt/redis/testing`
+  - [The first `startTestRedis` takes minutes, or its `beforeAll` times out](#the-first-starttestredis-takes-minutes-or-its-beforeall-times-out)
 - **Types**
   - [`Argument of type 'Date' is not assignable to parameter of type 'string'.`](#argument-of-type-date-is-not-assignable-to-parameter-of-type-string)
 - **Configuration**
@@ -75,6 +77,8 @@ application can handle.
     - [`enforce on "login": the limit of 5 per 60000ms is spent; retryAfter says when to try again`](#enforce-on-login-the-limit-of-5-per-60000ms-is-spent-retryafter-says-when-to-try-again)
     - [`consume on "login": a cost must be a whole number from 1 to the burst of 5`](#consume-on-login-a-cost-must-be-a-whole-number-from-1-to-the-burst-of-5)
     - [`peek on "login": a cost must be a whole number from 0 to the burst of 5`](#peek-on-login-a-cost-must-be-a-whole-number-from-0-to-the-burst-of-5)
+    - [`consume on "login": Redis did not answer within 200ms; the script may still run, and count this cost`](#consume-on-login-redis-did-not-answer-within-200ms-the-script-may-still-run-and-count-this-cost) (and `peek on "login": … nothing was counted`)
+    - [`consume on "login": timeoutMs is a whole number of milliseconds, 1 or more`](#consume-on-login-timeoutms-is-a-whole-number-of-milliseconds-1-or-more) (and `enforce`, `peek`, `run`)
     - [A limit allows more than `limit` requests in its first `per`](#a-limit-allows-more-than-limit-requests-in-its-first-per)
     - [A limit barely limits anything](#a-limit-barely-limits-anything)
     - [Every limited caller has to wait much longer than `per`](#every-limited-caller-has-to-wait-much-longer-than-per)
@@ -90,6 +94,8 @@ application can handle.
     - [`run on "orders.create": the key was taken from this run before it finished (forgotten, or its lease of 30000ms went unrenewed), so a repeat may have run it too; its result was not stored`](#run-on-orderscreate-the-key-was-taken-from-this-run-before-it-finished-forgotten-or-its-lease-of-30000ms-went-unrenewed-so-a-repeat-may-have-run-it-too-its-result-was-not-stored)
     - [`run: a fingerprint is a string or an ArrayBufferView, such as the raw body`](#run-a-fingerprint-is-a-string-or-an-arraybufferview-such-as-the-raw-body)
     - [`run on "orders.create": wait is a whole number of milliseconds, 0 or more`](#run-on-orderscreate-wait-is-a-whole-number-of-milliseconds-0-or-more)
+    - [``run on "orders.create": Redis did not answer within 500ms; `work` was not called; a key it took is released``](#run-on-orderscreate-redis-did-not-answer-within-500ms-work-was-not-called-a-key-it-took-is-released)
+    - [``run on "orders.create": Redis did not answer within 500ms; `work` ran, and its result may or may not be stored: …``](#run-on-orderscreate-redis-did-not-answer-within-500ms-work-ran-and-its-result-may-or-may-not-be-stored-a-repeat-replays-it-if-it-was-or-runs-work-again-once-the-lease-lapses)
     - [The same request ran twice](#the-same-request-ran-twice)
     - [`WRONGTYPE Operation against a key holding the wrong kind of value`](#wrongtype-operation-against-a-key-holding-the-wrong-kind-of-value) — a key that is not a hash; the entry is under rate limits
   - *Runtime: Redis itself*
@@ -147,6 +153,44 @@ declarations resolve the same copy:
 ```sh
 bun add zod
 ```
+
+### `Cannot find package 'redis-memory-server'`
+
+**When:** importing `@nxgt/redis/testing` — the full line ends `from
+'…/node_modules/@nxgt/redis/dist/testing/index.js'` — in a project that has
+not installed `redis-memory-server`. Measured on Bun 1.4.2; the root
+`@nxgt/redis` loads without it.
+**Why:** it is an **optional** peer, used by that subpath alone, so that an
+application which never imports `/testing` never installs a package that
+compiles Redis. Nothing installs it for you.
+**Fix:** add it where your suites run, as a devDependency:
+
+```sh
+REDISMS_DISABLE_POSTINSTALL=1 bun add -d redis-memory-server
+```
+
+`REDISMS_DISABLE_POSTINSTALL=1` skips its postinstall, which would build the
+*latest* Redis — a binary `startTestRedis` does not use.
+
+### The first `startTestRedis` takes minutes, or its `beforeAll` times out
+
+**When:** the first suite on a machine, or every CI run without a cache.
+**Why:** neither redis/redis nor valkey publishes a prebuilt binary, so
+`startTestRedis` **compiles** the pinned version from source the first time:
+about two minutes, then 23 ms a start once it is cached in `downloadDir`.
+Inside a hook, the build runs against the hook's timeout.
+**Fix:** build before the suite, in a script your `test` runs first, and
+cache the folder in CI (`node_modules/.cache/redis-memory-server` by
+default, or the `downloadDir` you pass to both calls):
+
+```ts
+// test/redis.ts — "test": "bun run test/redis.ts && bun test"
+import { buildTestRedis } from '@nxgt/redis/testing';
+console.log(await buildTestRedis());
+```
+
+Or point `$REDIS_BIN` at a `redis-server` you already have — a system one —
+and nothing is built.
 
 ## Types
 
@@ -1057,6 +1101,47 @@ bucket as it is.
 **Fix:** `peek(params, 0)` for the state, `peek(params, n)` for whether a
 cost of `n` would be allowed.
 
+### `consume on "login": Redis did not answer within 200ms; the script may still run, and count this cost`
+
+**When:** `consume` or `enforce` (the message names which) was given
+`{ timeoutMs: 200 }`, and Redis had not answered by then — a slow or busy
+server, a failover, a reconnect. A `GuardError` with code `TIMEOUT`;
+`definition` is the limit's name, and the message never holds the key. For
+`peek` it ends `… nothing was counted`.
+**Why:** the timeout stops the wait, not the script: it was sent, Bun's
+client cannot withdraw it, and Redis runs it when it gets to it. So the cost
+**may have been counted** after all — or not, if the connection was lost.
+**Fix:** decide per route what a limit that could not be checked in time
+means, and remember the request may have been counted either way:
+
+```ts
+try {
+	await login.enforce({ ip }, 1, { timeoutMs: 200 });
+} catch (error) {
+	if (!(error instanceof GuardError)) throw error;
+	if (error.code !== 'TIMEOUT') throw error; // RATE_LIMITED: answer 429
+	// Fail open, and log it: Redis is slow, the login goes through.
+	console.warn(error.message);
+}
+```
+
+If timeouts are frequent, the deadline is shorter than the round trip under
+load: measure the server's latency (`redis-cli --latency`) before lowering
+the stakes of the limit.
+
+### `consume on "login": timeoutMs is a whole number of milliseconds, 1 or more`
+
+**When:** `consume`, `enforce`, `peek` or `run` (the message names which)
+got a `timeoutMs` of 0, a negative number, a fraction, `NaN`, `Infinity` or
+a string such as `'200ms'`, past the types. A bare `TypeError`: the promise
+rejects before anything is sent. The message quotes no value.
+**Fix:** milliseconds as a whole number, or leave it out — `undefined` too —
+for no deadline:
+
+```ts
+await login.consume({ ip }, 1, { timeoutMs: 200 });
+```
+
 ### A limit allows more than `limit` requests in its first `per`
 
 **When:** `limit: 5, per: 60_000`, and a caller makes 9 requests in the first
@@ -1328,6 +1413,33 @@ sent. The message quotes no value.
 await orders.run(who, work, { wait: 2_000 });
 ```
 
+### ``run on "orders.create": Redis did not answer within 500ms; `work` was not called; a key it took is released``
+
+**When:** `run` was given `timeoutMs`, and taking the key — or one poll of
+`wait` — got no answer in time. A `GuardError` with code `TIMEOUT`, naming
+the operation and never the key.
+**Why:** the `BEGIN` script was sent and may still run, and take the key for
+this run. `run` sends a release under this run's token right behind it, on
+the same connection, which Redis runs after it: a key the late `BEGIN` took
+is given back, and nothing else is touched. If the release never lands
+either — the connection was lost — the key lapses with its `lease`, and a
+repeat meanwhile gets `IN_PROGRESS`.
+**Fix:** `work` did not run, so the request is safe to retry: answer 503
+with a `Retry-After`, and let the client send it again with the same key.
+
+### ``run on "orders.create": Redis did not answer within 500ms; `work` ran, and its result may or may not be stored: a repeat replays it if it was, or runs `work` again once the lease lapses``
+
+**When:** `run` was given `timeoutMs`, `work` returned, and storing its
+result got no answer in time. A `GuardError` with code `TIMEOUT`.
+**Why:** the store was sent and may still land. If it does, a repeat replays
+the result; if not, the key stays running until its `lease` lapses — a
+repeat before then gets `IN_PROGRESS` — and a repeat after that runs `work`
+again. It is the case of [the same request ran twice](#the-same-request-ran-twice)
+with a deadline on it.
+**Fix:** answer 503 and let the client retry with the same key, after the
+lease if it gets `IN_PROGRESS`; and make `work` safe to repeat where it can
+be, as below.
+
 ### The same request ran twice
 
 **When:** two requests with the same key both ran `work`.
@@ -1340,7 +1452,8 @@ await orders.run(who, work, { wait: 2_000 });
 - the first **threw**, which gives the key back, so the second ran again (by
   design: an error is not a result);
 - **Redis failed between `work` and storing its result** — the connection
-  dropped, or the server refused the write. The first `run` rejected with
+  dropped, the server refused the write, or the store outlasted `timeoutMs`
+  (`TIMEOUT`). The first `run` rejected with
   Redis's own error (see [`Connection closed`](#connection-closed)), after
   `work` had done what it does. Nothing renews the key any more and nothing
   gives it back, so it **may** stay running until its lease lapses: a repeat
@@ -1403,7 +1516,10 @@ On a limit, a failed check may or may not have counted: the script is one
 atomic step, but its reply can be lost after it ran.
 **Fix:** answer it where the request is answered — a 503 rather than a 500,
 since the request itself was fine — and decide per route whether a limit
-that cannot be checked lets the caller through:
+that cannot be checked lets the caller through. To fail fast rather than
+wait out the reconnects, give the call a `timeoutMs`: it then rejects with
+`GuardError` `TIMEOUT` (see
+[`… Redis did not answer within 200ms …`](#consume-on-login-redis-did-not-answer-within-200ms-the-script-may-still-run-and-count-this-cost)).
 
 ```ts
 /** A 503 when Redis cannot be reached; undefined for anything else. */

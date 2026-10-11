@@ -42,9 +42,25 @@ export interface LimitResult {
 	readonly retryAfter: number;
 }
 
+/** Options for one `consume`, `enforce` or `peek`. */
+export interface LimitCallOptions {
+	/**
+	 * How long to wait for Redis, **in milliseconds**, before rejecting with
+	 * `GuardError` `TIMEOUT` (default: as long as Bun's client waits). A whole
+	 * number of 1 or more, or the call rejects with a `TypeError`.
+	 *
+	 * The script is sent all the same and is not withdrawn: Redis may still
+	 * run it after the call gave up. A `consume` or an `enforce` that timed
+	 * out may therefore still have **counted its cost**; a `peek` counts
+	 * nothing either way.
+	 */
+	timeoutMs?: number | undefined;
+}
+
 /**
  * A rate limit bound to a client. `cost` is how many requests a call counts
- * for — a whole number from 1 to the burst, and from 0 for `peek`.
+ * for — a whole number from 1 to the burst, and from 0 for `peek`. `options`
+ * bounds how long a call waits for Redis.
  */
 export interface BoundRateLimit<P> {
 	/**
@@ -58,14 +74,26 @@ export interface BoundRateLimit<P> {
 	/** The key this would use, for a caller that needs the string itself. */
 	keyFor(params: P): string;
 	/** Counts the call if it is allowed. A denial counts nothing. */
-	consume(params: P, cost?: number): Promise<LimitResult>;
+	consume(
+		params: P,
+		cost?: number,
+		options?: LimitCallOptions,
+	): Promise<LimitResult>;
 	/**
 	 * `consume`, throwing `GuardError` with `RATE_LIMITED` and its
 	 * `retryAfter` when the call is denied.
 	 */
-	enforce(params: P, cost?: number): Promise<LimitResult>;
+	enforce(
+		params: P,
+		cost?: number,
+		options?: LimitCallOptions,
+	): Promise<LimitResult>;
 	/** What `consume` would answer, without counting anything. */
-	peek(params: P, cost?: number): Promise<LimitResult>;
+	peek(
+		params: P,
+		cost?: number,
+		options?: LimitCallOptions,
+	): Promise<LimitResult>;
 	/** Refills the bucket. `true` when something was counted. */
 	reset(params: P): Promise<boolean>;
 }

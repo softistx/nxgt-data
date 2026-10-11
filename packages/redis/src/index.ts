@@ -31,6 +31,7 @@ export { bindRateLimit } from './rate-limit/bind-rate-limit';
 export { defineRateLimit } from './rate-limit/define-rate-limit';
 export type {
 	BoundRateLimit,
+	LimitCallOptions,
 	LimitResult,
 	RateLimitDefinition,
 } from './rate-limit/types';

@@ -1,24 +1,30 @@
 import { join } from 'node:path';
 import { RedisClient } from 'bun';
-import RedisMemoryServer from 'redis-memory-server';
-import RedisBinary from 'redis-memory-server/lib/util/RedisBinary';
+import {
+	buildTestRedis,
+	startTestRedis,
+	TEST_REDIS_VERSION,
+} from '../src/testing';
 
 /**
- * The Redis the specs run against. Pinned, like the mongod and the
- * Meilisearch the other packages use, so a release of the server does not
- * quietly change what is measured here.
+ * The Redis the specs run against: `@nxgt/redis/testing`'s
+ * `startTestRedis`, which a consumer's suites run too, at the version it
+ * pins (`TEST_REDIS_VERSION`, in `src/testing/test-redis.ts` — raise it
+ * there). Pinned, like the mongod and the Meilisearch the other packages
+ * use, so a release of the server does not quietly change what is measured
+ * here.
  *
  * `redis-memory-server` does not download a binary: neither redis/redis nor
  * valkey publishes one, so it **compiles** Redis from source on the first
  * start. **This is the one place that measurement is written down**, and
  * `scripts/redis.ts`, `AGENTS.md` and the CI cache step all point here
- * rather than repeat it:
+ * rather than repeat it (`buildTestRedis`'s comment quotes it for consumers):
  *
  * - building 7.4.1 the first time: **about two minutes**;
  * - starting it once built: **23 ms**;
  * - what that leaves on disk: **18 MB**, in `REDIS_CACHE`.
  */
-export const REDIS_VERSION = '7.4.1';
+export const REDIS_VERSION = TEST_REDIS_VERSION;
 
 /**
  * Where that build is cached: the repository's git-ignored `.cache`, beside
@@ -37,12 +43,7 @@ export const REDIS_CACHE = join(
  * build happens before any test's timeout can run out.
  */
 export async function redisBinary(): Promise<string> {
-	const given = process.env['REDIS_BIN'];
-	if (given) return given;
-	return await RedisBinary.getPath({
-		version: REDIS_VERSION,
-		downloadDir: REDIS_CACHE,
-	});
+	return await buildTestRedis({ downloadDir: REDIS_CACHE });
 }
 
 export interface TestServer {
@@ -61,24 +62,14 @@ export interface TestServer {
  * normally happens before any test starts.
  */
 export async function startRedis(): Promise<TestServer> {
-	const server = await RedisMemoryServer.create({
-		binary: process.env['REDIS_BIN']
-			? { systemBinary: process.env['REDIS_BIN'] }
-			: { version: REDIS_VERSION, downloadDir: REDIS_CACHE },
-	});
-	const host = await server.getHost();
-	const port = await server.getPort();
-	const uri = `redis://${host}:${port}`;
-
-	const client = new RedisClient(uri);
+	const server = await startTestRedis({ downloadDir: REDIS_CACHE });
+	const client = new RedisClient(server.uri);
 	await client.connect();
 
 	return {
-		uri,
+		uri: server.uri,
 		client,
-		reset: async () => {
-			await client.send('FLUSHALL', []);
-		},
+		reset: server.reset,
 		stop: async () => {
 			client.close();
 			await server.stop();

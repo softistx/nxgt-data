@@ -168,9 +168,13 @@
         "zod": "4.6.5",
       },
       "peerDependencies": {
+        "redis-memory-server": ">=0.17.1 <0.18",
         "typescript": "^6.0.3 || ^7.0.0",
         "zod": ">=4.6.5 <5",
       },
+      "optionalPeers": [
+        "redis-memory-server",
+      ],
     },
     "packages/s3": {
       "name": "@nxgt/s3",

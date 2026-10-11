@@ -30,8 +30,10 @@
  * this and passes the path it prints to the specs as `$REDIS_BIN`, so its
  * `test/redis.ts` only starts the binary it is given.
  *
- * Raise the version in `packages/redis/test/server.ts`, the one place
- * `REDIS_VERSION` is pinned: CI keys its cache on the hash of that file and
+ * Raise the version in `packages/redis/src/testing/test-redis.ts`
+ * (`TEST_REDIS_VERSION`, which `@nxgt/redis/testing` ships and
+ * `test/server.ts` re-exports as `REDIS_VERSION`), the one place it is
+ * pinned: CI keys its cache on the hash of that file, `test/server.ts` and
  * this one.
  */
 

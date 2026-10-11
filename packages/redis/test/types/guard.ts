@@ -39,6 +39,22 @@ login.peek({ ip: '10.0.0.1' }, '0');
 // @ts-expect-error reset takes the params only
 login.reset({ ip: '10.0.0.1' }, 1);
 
+// How long a call waits for Redis is `timeoutMs`, in milliseconds, after the
+// cost; a value that may be missing passes as it is.
+declare const maybeTimeout: number | undefined;
+login.consume({ ip: '10.0.0.1' }, 1, { timeoutMs: 50 });
+login.enforce({ ip: '10.0.0.1' }, undefined, { timeoutMs: maybeTimeout });
+login.peek({ ip: '10.0.0.1' }, 0, { timeoutMs: 50 });
+
+// @ts-expect-error `timeoutMs` is a number of milliseconds, not a string
+login.consume({ ip: '10.0.0.1' }, 1, { timeoutMs: '50ms' });
+
+// @ts-expect-error the options come after the cost, not in its place
+login.enforce({ ip: '10.0.0.1' }, { timeoutMs: 50 });
+
+// @ts-expect-error there is no `timeout`: it is `timeoutMs`
+login.peek({ ip: '10.0.0.1' }, 1, { timeout: 50 });
+
 // @ts-expect-error a result is read-only
 (await login.consume({ ip: '10.0.0.1' })).allowed = true;
 
@@ -89,6 +105,8 @@ bindRateLimit(loginLimit);
 // The codes are a closed set.
 const code: GuardErrorCode = 'RATE_LIMITED';
 void code;
+const timedOut: GuardErrorCode = 'TIMEOUT';
+void timedOut;
 // @ts-expect-error not a code this package has
 const unknown: GuardErrorCode = 'LIMITED';
 void unknown;

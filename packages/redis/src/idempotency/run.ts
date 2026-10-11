@@ -1,6 +1,7 @@
 import type { RedisClient } from 'bun';
 import type { z } from 'zod';
 import { GuardError } from '../errors/guard-error';
+import { checkTimeout, timedOut, withinTimeout } from '../scripts/timeout';
 import { keepLease } from './lease/heartbeat';
 import { beginOrWait, checkWait } from './lease/wait';
 import { corrupt, fromStored, toStored } from './result';
@@ -83,9 +84,53 @@ function leaseLost(ctx: Context): GuardError {
 }
 
 /**
+ * Waits for one of `run`'s commands at most `timeoutMs`, then rejects with
+ * `TIMEOUT`, saying what the command left behind.
+ */
+function bound(ctx: Context, timeoutMs: number | undefined) {
+	return <T>(pending: Promise<T>, consequence: string): Promise<T> =>
+		withinTimeout(pending, timeoutMs, (ms) =>
+			timedOut('run', ctx.name, ms, consequence),
+		);
+}
+
+/**
+ * Takes the key, or finds what holds it. A `BEGIN` that fails — timed out
+ * above all — may still take the key on the server, so a release under this
+ * run's token is sent behind it, not awaited: Redis runs one connection's
+ * commands in order, so it frees a key the late `BEGIN` took, and touches
+ * nothing else.
+ */
+async function take(
+	ctx: Context,
+	key: string,
+	token: string,
+	fingerprint: string,
+	wait: number,
+	bounded: ReturnType<typeof bound>,
+) {
+	try {
+		return await beginOrWait(
+			ctx.client,
+			key,
+			token,
+			fingerprint,
+			ctx.lease,
+			wait,
+			(pending) =>
+				bounded(pending, '`work` was not called; a key it took is released'),
+		);
+	} catch (error) {
+		release(ctx.client, key, token).catch(() => undefined);
+		throw error;
+	}
+}
+
+/**
  * One `run`: take the key — waiting up to `wait` for a running one — or
  * replay or refuse what holds it; run `work`, renewing the lease every third
- * of it; store its result if this run still holds the key.
+ * of it; store its result if this run still holds the key. Each command
+ * waits at most `timeoutMs`, when it is given.
  *
  * Whatever `work` throws, and a result the schema refuses, gives the key
  * back before the error leaves — never stored, so the next call runs again.
@@ -101,9 +146,10 @@ export async function run<T, I>(
 ): Promise<Idempotent<T>> {
 	const fingerprint = fingerprintOf(options?.fingerprint);
 	const wait = checkWait(ctx.name, options?.wait);
+	const bounded = bound(ctx, checkTimeout('run', ctx.name, options?.timeoutMs));
 	const token = newToken();
 	const { client, lease } = ctx;
-	const found = await beginOrWait(client, key, token, fingerprint, lease, wait);
+	const found = await take(ctx, key, token, fingerprint, wait, bounded);
 	if (found.state !== 'started') return await notStarted<T>(ctx, found);
 
 	const heartbeat = keepLease(client, key, token, lease);
@@ -112,7 +158,7 @@ export async function run<T, I>(
 		stored = await toStored<T>(ctx.name, ctx.schema, await work());
 	} catch (error) {
 		heartbeat.stop();
-		await release(client, key, token).catch(() => undefined);
+		await bounded(release(client, key, token), '').catch(() => undefined);
 		throw error;
 	} finally {
 		heartbeat.stop();
@@ -122,7 +168,11 @@ export async function run<T, I>(
 	// to find.
 	if (
 		heartbeat.lost ||
-		!(await complete(client, key, token, stored.json, ctx.ttl))
+		!(await bounded(
+			complete(client, key, token, stored.json, ctx.ttl),
+			'`work` ran, and its result may or may not be stored: a repeat ' +
+				'replays it if it was, or runs `work` again once the lease lapses',
+		))
 	) {
 		throw leaseLost(ctx);
 	}

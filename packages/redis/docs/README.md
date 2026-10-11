@@ -2,7 +2,8 @@
 
 Redis on Bun's own `RedisClient`. There is no third-party driver to install —
 `RedisClient` is built into Bun — which is also why this package does not run
-on Node. Its only peers are `zod` and `typescript`.
+on Node. Its only required peers are `zod` and `typescript`;
+`redis-memory-server` is an optional one, for `@nxgt/redis/testing` alone.
 
 The same package holds the guards: rate limits and idempotent operations,
 each one atomic script on the server, timed by the server's clock, on any Bun
@@ -26,9 +27,9 @@ pages are under `guide/guard/`.
 | [Caches](guide/cache.md) | you want a value kept for a while, keyed by what identifies it and checked against a schema both ways |
 | [Locks](guide/locks.md) | one job, one worker: a cron that must not run twice, a migration, anything that must happen once |
 | [Pub/sub](guide/channels.md) | one process publishes an event and others react to it, with the payload typed by a schema |
-| [Rate limits](guide/guard/rate-limits.md) | you want to hold a caller to so many requests per window — logins per address, exports per user — with the algorithm, choosing `burst`, costs, and an HTTP recipe for any framework |
-| [Idempotency](guide/guard/idempotency.md) | an operation must happen once per client key however often it is retried — an order, a charge — with the fingerprint, the lease and its heartbeat, waiting for a running key with `wait`, `ttl` and `lease`, changing the schema, the storage, and an HTTP recipe for the `Idempotency-Key` header in any framework |
-| [Testing rate limits and idempotency](guide/guard/testing.md) | you are writing `bun test` specs for code that uses a limit or an idempotent operation: a real Redis, emptying it between specs, and why moving the clock refills nothing |
+| [Rate limits](guide/guard/rate-limits.md) | you want to hold a caller to so many requests per window — logins per address, exports per user — with the algorithm, choosing `burst`, costs, a deadline per call (`timeoutMs`), and an HTTP recipe for any framework |
+| [Idempotency](guide/guard/idempotency.md) | an operation must happen once per client key however often it is retried — an order, a charge — with the fingerprint, the lease and its heartbeat, waiting for a running key with `wait`, a deadline per command (`timeoutMs`), `ttl` and `lease`, changing the schema, the storage, and an HTTP recipe for the `Idempotency-Key` header in any framework |
+| [Testing rate limits and idempotency](guide/guard/testing.md) | you are writing `bun test` specs for code that uses a limit or an idempotent operation: a real Redis from `@nxgt/redis/testing` (`startTestRedis`, building it ahead with `buildTestRedis` or `$REDIS_BIN`), emptying it between specs, why moving the clock refills nothing, and a Redis that does not answer in time |
 | [Upgrading from `@nxgt/redis-guard`](guide/guard/upgrading.md) | you are on `@nxgt/redis-guard` 0.2 or earlier: installing `zod`, shortening `lease`, matching on `code`, and a rolling deploy |
 | [Troubleshooting](troubleshooting.md) | a call threw — a `RedisError` or a `GuardError` — a connect hung, a cached value came back `undefined`, a limit allows more or less than you expected, or the same request ran twice, and you want the reason |
 | [Roadmap](roadmap.md) | you want to know what is coming, and what has been ruled out |

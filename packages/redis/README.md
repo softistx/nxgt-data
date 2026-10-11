@@ -62,6 +62,10 @@ bun add @nxgt/redis zod typescript @types/bun
   `RedisClient` and `RedisOptions`, so without Bun's types the first `tsc`
   fails with `Cannot find module 'bun'`.
 - Tested against Redis 7.4.
+- `redis-memory-server` `>=0.17.1 <0.18`: **optional** peer, for
+  `@nxgt/redis/testing` alone (see Testing). Install it as a devDependency
+  only where a suite imports that subpath; nothing else loads it, so an
+  application that never imports `/testing` never installs it.
 
 ## The pieces underneath
 
@@ -199,12 +203,33 @@ The [idempotency guide](docs/guide/guard/idempotency.md) has the fingerprint,
 the lease and its renewals, `wait`, the storage, and the HTTP recipe in full;
 [testing](docs/guide/guard/testing.md) shows specs for both.
 
+**A deadline per call.** `consume`, `enforce` and `peek` take
+`{ timeoutMs }` after the cost, and `run` takes it beside `fingerprint` and
+`wait`. A Redis that has not answered by then rejects the call with
+`GuardError` `TIMEOUT`, naming the definition, never the key — so a slow
+Redis can fail a request fast, open or closed as you decide:
+
+```ts
+try {
+	await redis.limits.login.enforce({ ip }, 1, { timeoutMs: 200 });
+} catch (error) {
+	if (!(error instanceof GuardError)) throw error;
+	if (error.code === 'TIMEOUT') console.warn(error.message); // fail open: let the login through
+	else return tooManyRequests(error.retryAfter);
+}
+```
+
+**A timed-out script may still run**: the command was sent, and Redis runs it
+whenever it gets to it. A `consume` or `enforce` that timed out may still have
+**counted its cost**; a `run` whose result could not be stored in time may
+still store it — see Traps.
+
 | Function | |
 | --- | --- |
 | `defineRateLimit({ name, key, limit, per, burst? })` | describes a rate limit; talks to nothing. Frozen. A definition that could never work is a bare `TypeError`, normally at import |
-| `bindRateLimit(client, definition)` | binds it to a `RedisClient`: `definition` (read-only: `limit`, `per`; bound by hand it is the given definition, wired it is a frozen copy with the prefixed name), `keyFor`, `consume(params, cost = 1)`, `enforce` (throws `RATE_LIMITED`), `peek` (counts nothing; `cost` may be `0`) and `reset`. Every duration is a delay in milliseconds, rounded up — never a date |
+| `bindRateLimit(client, definition)` | binds it to a `RedisClient`: `definition` (read-only: `limit`, `per`; bound by hand it is the given definition, wired it is a frozen copy with the prefixed name), `keyFor`, `consume(params, cost = 1, { timeoutMs? })`, `enforce` (throws `RATE_LIMITED`), `peek` (counts nothing; `cost` may be `0`) — all three take the same `{ timeoutMs? }` — and `reset`. Every duration is a delay in milliseconds, rounded up — never a date |
 | `defineIdempotency({ name, key, ttl, lease?, schema })` | describes an idempotent operation; talks to nothing. Frozen. `ttl` in **seconds**, `lease` in **milliseconds** (default `10_000`) |
-| `bindIdempotency(client, definition)` | binds it to a `RedisClient`: `definition` (read-only: `ttl`, `lease`), `keyFor`, `run(params, work, { fingerprint?, wait? })` resolving to `{ value, replayed }`, and `forget(params)` |
+| `bindIdempotency(client, definition)` | binds it to a `RedisClient`: `definition` (read-only: `ttl`, `lease`), `keyFor`, `run(params, work, { fingerprint?, wait?, timeoutMs? })` resolving to `{ value, replayed }`, and `forget(params)` |
 
 Wired, the same two are `redis.limits.<name>` and `redis.idempotency.<name>`
 (above); the functions here are the by-hand way.
@@ -222,7 +247,71 @@ redis.idempotency.orders.definition.lease; // 30_000 (milliseconds)
 ```
 
 The types are `RateLimitDefinition`, `BoundRateLimit`, `LimitResult`,
-`IdempotencyDefinition`, `BoundIdempotency`, `Idempotent` and `RunOptions`.
+`LimitCallOptions`, `IdempotencyDefinition`, `BoundIdempotency`, `Idempotent`
+and `RunOptions`.
+
+## Testing
+
+`@nxgt/redis/testing` starts a real Redis for a suite — the version this
+package is tested against, on a free port, with no Docker:
+
+```sh
+bun add -d redis-memory-server   # the subpath's optional peer
+```
+
+```ts
+import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test';
+import { RedisClient } from 'bun';
+import { bindRateLimit } from '@nxgt/redis';
+import { startTestRedis, type TestRedis } from '@nxgt/redis/testing';
+import { loginLimit } from '../src/limits';
+
+let server: TestRedis;
+let client: RedisClient;
+
+beforeAll(async () => {
+	server = await startTestRedis();   // builds Redis on a cold cache — see below
+	client = new RedisClient(server.uri);
+}, 180_000);
+
+beforeEach(() => server.reset());     // FLUSHALL: each test starts from nothing
+
+afterAll(async () => {
+	client.close();
+	await server.stop();
+});
+
+test('five logins a minute', async () => {
+	const login = bindRateLimit(client, loginLimit);
+	for (let i = 0; i < 5; i += 1) await login.enforce({ ip: '203.0.113.7' });
+	expect((await login.consume({ ip: '203.0.113.7' })).allowed).toBe(false);
+});
+```
+
+- **Redis is compiled from source the first time** — neither redis/redis nor
+  valkey publishes a binary — which takes about two minutes, then 23 ms a
+  start. Build it before the suite rather than inside a hook's timeout, with
+  a script your `test` runs first:
+
+  ```ts
+  // test/redis.ts — "test": "bun run test/redis.ts && bun test"
+  import { buildTestRedis } from '@nxgt/redis/testing';
+  console.log(await buildTestRedis());
+  ```
+
+  Or set **`$REDIS_BIN`** to a `redis-server` you already have, and nothing
+  is built.
+- `startTestRedis({ binary?, version?, downloadDir? })` and
+  `buildTestRedis` take the same options: `binary` wins over `$REDIS_BIN`;
+  `version` defaults to `TEST_REDIS_VERSION` (7.4.1); `downloadDir`, where
+  the build is cached, defaults to `node_modules/.cache/redis-memory-server`
+  — cache it in CI. It resolves to `{ uri, reset, stop }`.
+- `redis-memory-server`'s own postinstall builds the *latest* Redis on
+  `bun add`, a binary `startTestRedis` does not use: set
+  `REDISMS_DISABLE_POSTINSTALL=1` for the install to skip it.
+
+The [testing guide](docs/guide/guard/testing.md) has whole specs for a rate
+limit and an idempotent operation.
 
 ## What it does not do
 
@@ -484,12 +573,14 @@ params, which came from a request. It is its own class, not a `RedisError`.
 | `MISMATCH` | `run` found the key first used with a different fingerprint — or with one where this call has none, or the reverse |
 | `INVALID` | what `work` returned does not match the schema — not stored, key given back; or what was stored no longer does — kept, and `work` **not** run again; or the record at the key is not one `run` wrote |
 | `LEASE_LOST` | the key was taken from the run before it finished — `forget`, or its lease lapsed because no renewal reached Redis for a whole lease — so a repeat may have run `work` too. Its result was not stored |
+| `TIMEOUT` | Redis did not answer within the call's `timeoutMs`. The script was sent and may still run: a `consume` or `enforce` may still count its cost, a `run` may still take its key or store its result |
 
 An `INVALID` message lists zod's issue **codes** only — never zod's messages
 nor the paths, which can quote what the value held. `defineRateLimit` and
 `defineIdempotency` (and their `bind*`, for a definition written by hand)
 refuse a definition that could never work with a `TypeError`, and `run` a
-`fingerprint` or a `wait` of the wrong kind. Every message is in
+`fingerprint` or a `wait` of the wrong kind; every guard call refuses a
+`timeoutMs` that is not a whole number of 1 or more the same way. Every message is in
 [troubleshooting](docs/troubleshooting.md#rate-limits-and-idempotency).
 
 ## What does not compile
@@ -509,7 +600,7 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
 - A published payload the channel's schema does not describe, and a field a
   subscriber's handler reads that is not on it.
 - An option `withLock` does not have.
-- The guards' own refusals, in `test/types/guard.ts` and `test/types/idempotency.ts`: a call with the wrong params or a `cost` that is a string, a definition without `per`, `limit`, `key`, `ttl` or `schema`, a `work` that returns what the schema does not accept, a `fingerprint` that is a number, a `GuardErrorCode` it does not have, and a rate limit handed to `bindIdempotency` or the reverse.
+- The guards' own refusals, in `test/types/guard.ts` and `test/types/idempotency.ts`: a call with the wrong params or a `cost` that is a string, a definition without `per`, `limit`, `key`, `ttl` or `schema`, a `work` that returns what the schema does not accept, a `fingerprint` that is a number, a `timeoutMs` that is a string or given in place of the cost, a `GuardErrorCode` it does not have, and a rate limit handed to `bindIdempotency` or the reverse.
 
 ## Traps
 
@@ -604,6 +695,9 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
   - **A cost beyond what is left is denied and counts nothing; one beyond the
     burst rejects with `COST`.** Check `cost <= (exportLimit.burst ?? exportLimit.limit)`
     where a request sets it — [more](docs/troubleshooting.md#consume-on-login-a-cost-must-be-a-whole-number-from-1-to-the-burst-of-5).
+  - **A `consume` that timed out may still have counted.** `timeoutMs` stops
+    the wait, not the script: Redis runs it once it gets to it. Failing open
+    on `TIMEOUT` lets that request through *and* may spend its cost — [more](docs/troubleshooting.md#consume-on-login-redis-did-not-answer-within-200ms-the-script-may-still-run-and-count-this-cost).
 
 - **Idempotency.**
 
@@ -631,6 +725,9 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
     where it can be — [the same request ran twice](docs/troubleshooting.md#the-same-request-ran-twice).
   - **`wait` holds the request open** while it polls. Keep it under your HTTP
     timeout: `wait: 2_000` — [waiting](docs/guide/guard/idempotency.md#waiting-for-a-running-key).
+  - **`timeoutMs` bounds each command, not `work`.** A `TIMEOUT` while storing
+    the result means `work` ran: a repeat replays it if the store landed, or
+    runs `work` again once the lease lapses — [a deadline per command](docs/guide/guard/idempotency.md#a-deadline-per-command).
 
 ## Documentation
 
@@ -644,7 +741,8 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
 - [Rate limit and idempotency guides](docs/guide/guard/rate-limits.md) — GCRA,
   choosing a rate and the HTTP recipe; [idempotency](docs/guide/guard/idempotency.md),
   the storage, the fingerprint, `ttl` and `lease`;
-  [testing](docs/guide/guard/testing.md) against a real Redis.
+  [testing](docs/guide/guard/testing.md) against a real Redis, started by
+  `@nxgt/redis/testing`.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — every error this
   package can raise, by the message you will see.
 - [docs/roadmap.md](docs/roadmap.md) — what is coming, and what has been
