@@ -1,5 +1,13 @@
 # @nxgt/mongo-backup
 
+## 0.3.3
+
+### Patch Changes
+
+- [#199](https://github.com/softistx/nxgt-data/pull/199) [`8a288ae`](https://github.com/softistx/nxgt-data/commit/8a288ae71d014c5637cf2ddb8a83053a8a3b6292) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Accept TypeScript 7 as a peer: the `typescript` peer range is now `^6.0.3 || ^7.0.0`.
+- Updated dependencies [[`8a288ae`](https://github.com/softistx/nxgt-data/commit/8a288ae71d014c5637cf2ddb8a83053a8a3b6292)]:
+  - @nxgt/backup@0.6.3
+
 ## 0.3.2
 
 ### Patch Changes
