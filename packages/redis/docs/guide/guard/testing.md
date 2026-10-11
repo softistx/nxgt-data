@@ -9,7 +9,7 @@ order. The Redis comes from `@nxgt/redis/testing`, whose optional peer is
 installed as a devDependency:
 
 ```sh
-bun add -d redis-memory-server
+REDISMS_DISABLE_POSTINSTALL=1 bun add -d redis-memory-server
 bun test guards.spec.ts
 ```
 
@@ -57,13 +57,15 @@ afterAll(async () => {
   console.log(await buildTestRedis());
   ```
 
+- **`startTestRedis(options?: TestRedisOptions)`** takes `{ binary?,
+  version?, downloadDir? }`, as `buildTestRedis` does, and resolves to a
+  `TestRedis`: `{ uri, reset, stop }`.
 - **`$REDIS_BIN` skips the build**: when it names a `redis-server` — a system
   one, or a build kept from earlier — `startTestRedis` runs it, and
   `buildTestRedis` gives it back as it is. `{ binary }` does the same and
   wins over the variable.
 - **`redis-memory-server` builds a Redis of its own on install** — the latest,
-  by its postinstall, which Bun runs since the package is on its trusted list —
-  and `startTestRedis` never uses it. `REDISMS_DISABLE_POSTINSTALL=1 bun install`
+  by its postinstall — and `startTestRedis` never uses it. `REDISMS_DISABLE_POSTINSTALL=1 bun install`
   skips it.
 - **Against a Redis you already run**, skip the subpath: a
   `new RedisClient('redis://localhost:6379/15')` on a database nobody else

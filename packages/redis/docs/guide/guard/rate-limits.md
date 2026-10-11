@@ -84,9 +84,9 @@ function bindRateLimit<P>(
 interface BoundRateLimit<P> {
 	readonly definition: RateLimitDefinition<P>;
 	keyFor(params: P): string;
-	consume(params: P, cost?: number): Promise<LimitResult>;
-	enforce(params: P, cost?: number): Promise<LimitResult>;
-	peek(params: P, cost?: number): Promise<LimitResult>;
+	consume(params: P, cost?: number, options?: LimitCallOptions): Promise<LimitResult>;
+	enforce(params: P, cost?: number, options?: LimitCallOptions): Promise<LimitResult>;
+	peek(params: P, cost?: number, options?: LimitCallOptions): Promise<LimitResult>;
 	reset(params: P): Promise<boolean>;
 }
 ```

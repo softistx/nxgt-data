@@ -248,7 +248,8 @@ redis.idempotency.orders.definition.lease; // 30_000 (milliseconds)
 
 The types are `RateLimitDefinition`, `BoundRateLimit`, `LimitResult`,
 `LimitCallOptions`, `IdempotencyDefinition`, `BoundIdempotency`, `Idempotent`
-and `RunOptions`.
+and `RunOptions`; `@nxgt/redis/testing` exports `TestRedis` and
+`TestRedisOptions`.
 
 ## Testing
 
@@ -256,7 +257,8 @@ and `RunOptions`.
 package is tested against, on a free port, with no Docker:
 
 ```sh
-bun add -d redis-memory-server   # the subpath's optional peer
+# the subpath's optional peer; the variable skips its postinstall build
+REDISMS_DISABLE_POSTINSTALL=1 bun add -d redis-memory-server
 ```
 
 ```ts
@@ -301,7 +303,7 @@ test('five logins a minute', async () => {
 
   Or set **`$REDIS_BIN`** to a `redis-server` you already have, and nothing
   is built.
-- `startTestRedis({ binary?, version?, downloadDir? })` and
+- `startTestRedis(options?: TestRedisOptions)` — `{ binary?, version?, downloadDir? }` — and
   `buildTestRedis` take the same options: `binary` wins over `$REDIS_BIN`;
   `version` defaults to `TEST_REDIS_VERSION` (7.4.1); `downloadDir`, where
   the build is cached, defaults to `node_modules/.cache/redis-memory-server`

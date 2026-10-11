@@ -94,6 +94,7 @@ application can handle.
     - [`run on "orders.create": the key was taken from this run before it finished (forgotten, or its lease of 30000ms went unrenewed), so a repeat may have run it too; its result was not stored`](#run-on-orderscreate-the-key-was-taken-from-this-run-before-it-finished-forgotten-or-its-lease-of-30000ms-went-unrenewed-so-a-repeat-may-have-run-it-too-its-result-was-not-stored)
     - [`run: a fingerprint is a string or an ArrayBufferView, such as the raw body`](#run-a-fingerprint-is-a-string-or-an-arraybufferview-such-as-the-raw-body)
     - [`run on "orders.create": wait is a whole number of milliseconds, 0 or more`](#run-on-orderscreate-wait-is-a-whole-number-of-milliseconds-0-or-more)
+    - [`run on "orders.create": timeoutMs is a whole number of milliseconds, 1 or more`](#run-on-orderscreate-timeoutms-is-a-whole-number-of-milliseconds-1-or-more)
     - [``run on "orders.create": Redis did not answer within 500ms; `work` was not called; a key it took is released``](#run-on-orderscreate-redis-did-not-answer-within-500ms-work-was-not-called-a-key-it-took-is-released)
     - [``run on "orders.create": Redis did not answer within 500ms; `work` ran, and its result may or may not be stored: …``](#run-on-orderscreate-redis-did-not-answer-within-500ms-work-ran-and-its-result-may-or-may-not-be-stored-a-repeat-replays-it-if-it-was-or-runs-work-again-once-the-lease-lapses)
     - [The same request ran twice](#the-same-request-ran-twice)
@@ -1411,6 +1412,19 @@ sent. The message quotes no value.
 
 ```ts
 await orders.run(who, work, { wait: 2_000 });
+```
+
+### `run on "orders.create": timeoutMs is a whole number of milliseconds, 1 or more`
+
+**When:** `run`'s `timeoutMs` was 0, negative, a fraction, `NaN`, `Infinity`
+or a string, past the types. A bare `TypeError`, before anything is sent and
+before `work` is called; the message quotes no value. The same check as for
+the rate limits —
+[`consume on "login": timeoutMs is …`](#consume-on-login-timeoutms-is-a-whole-number-of-milliseconds-1-or-more).
+**Fix:** milliseconds as a whole number, or leave it out for no deadline:
+
+```ts
+await orders.run(who, work, { fingerprint: body, timeoutMs: 500 });
 ```
 
 ### ``run on "orders.create": Redis did not answer within 500ms; `work` was not called; a key it took is released``

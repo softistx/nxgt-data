@@ -158,7 +158,12 @@ export async function run<T, I>(
 		stored = await toStored<T>(ctx.name, ctx.schema, await work());
 	} catch (error) {
 		heartbeat.stop();
-		await bounded(release(client, key, token), '').catch(() => undefined);
+		// A release that fails or times out never replaces `work`'s error: the
+		// marker then lapses with its lease.
+		await bounded(
+			release(client, key, token),
+			'the key lapses with its lease',
+		).catch(() => undefined);
 		throw error;
 	} finally {
 		heartbeat.stop();
