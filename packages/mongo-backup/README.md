@@ -55,7 +55,7 @@ bun add -d @types/bun typescript
 - **Bun only**, as `@nxgt/backup` is: zstd, hashing, the files a restore
   stages and the `nxgt-mongo-backup` bin are Bun's own.
 - **Required peers:** `@nxgt/backup` 0.6, `mongodb` `>=7.0.0 <8` (the
-  Node.js driver), `typescript` `^6.0.3`.
+  Node.js driver), `typescript` `^6.0.3 || ^7.0.0`.
 - **`age-encryption` is a dependency**, installed with it: the key file
   holds an age identity.
 - **A replica set.** A snapshot read and a change stream need one; a

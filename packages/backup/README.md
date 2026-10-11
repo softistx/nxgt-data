@@ -61,8 +61,8 @@ bun add -d @types/bun typescript
   `CompressionStream('zstd')`, hashing is `Bun.CryptoHasher`, and files are
   read with `Bun.file`. On Node, `defineBackup` and `bindBackup` load, and
   the first `create` rejects with `ReferenceError: Bun is not defined`.
-- `typescript` `^6.0.3`: required peer, the version every `@nxgt` package
-  pins.
+- `typescript` `^6.0.3 || ^7.0.0`: required peer, the range every `@nxgt` package
+  accepts.
 - `age-encryption` `~0.3.1` is a **dependency**, installed with it — the
   TypeScript age implementation by Filippo Valsorda, BSD-3-Clause. You never
   hand it an age object, only key strings.
