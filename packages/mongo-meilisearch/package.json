@@ -62,6 +62,6 @@
 		"@nxgt/mongo": "workspace:^",
 		"meilisearch": ">=0.62.0 <1",
 		"mongodb": ">=7.0.0 <8",
-		"typescript": "^6.0.3"
+		"typescript": "^6.0.3 || ^7.0.0"
 	}
 }

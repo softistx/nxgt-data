@@ -60,6 +60,6 @@
 	},
 	"peerDependencies": {
 		"drizzle-orm": ">=1.0.0-rc.4 <2",
-		"typescript": "^6.0.3"
+		"typescript": "^6.0.3 || ^7.0.0"
 	}
 }

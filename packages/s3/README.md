@@ -39,7 +39,8 @@ bun add @nxgt/s3 typescript @types/bun
 
 - **Bun 1.4 or later, and Bun only.** `S3Client` is built into Bun, which is
   why there is no SDK to install — and why this package does not run on Node.
-- `typescript` `^6.0.3`: required peer, the version every `@nxgt` package pins.
+- `typescript` `^6.0.3 || ^7.0.0`: required peer, the range every `@nxgt` package
+  accepts.
 - `@types/bun`: required to typecheck. The shipped declarations name Bun's own
   `S3Client`, `S3File` and `S3Options`, so without Bun's types the first `tsc`
   fails with `Cannot find module 'bun'`.

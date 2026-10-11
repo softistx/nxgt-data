@@ -56,7 +56,7 @@
         "@types/bun": "^1.4.0",
       },
       "peerDependencies": {
-        "typescript": "^6.0.3",
+        "typescript": "^6.0.3 || ^7.0.0",
       },
     },
     "packages/drizzle": {
@@ -69,7 +69,7 @@
       },
       "peerDependencies": {
         "drizzle-orm": ">=1.0.0-rc.4 <2",
-        "typescript": "^6.0.3",
+        "typescript": "^6.0.3 || ^7.0.0",
       },
     },
     "packages/drizzle-meilisearch": {
@@ -88,7 +88,7 @@
         "@nxgt/meilisearch": "workspace:^",
         "drizzle-orm": ">=1.0.0-rc.4 <2",
         "meilisearch": ">=0.62.0 <1",
-        "typescript": "^6.0.3",
+        "typescript": "^6.0.3 || ^7.0.0",
       },
     },
     "packages/meilisearch": {
@@ -100,7 +100,7 @@
       },
       "peerDependencies": {
         "meilisearch": ">=0.62.0 <1",
-        "typescript": "^6.0.3",
+        "typescript": "^6.0.3 || ^7.0.0",
       },
     },
     "packages/mongo": {
@@ -114,7 +114,7 @@
       },
       "peerDependencies": {
         "mongodb": ">=7.0.0 <8",
-        "typescript": "^6.0.3",
+        "typescript": "^6.0.3 || ^7.0.0",
         "zod": ">=4.6.5 <5",
       },
     },
@@ -136,7 +136,7 @@
       "peerDependencies": {
         "@nxgt/backup": "workspace:^",
         "mongodb": ">=7.0.0 <8",
-        "typescript": "^6.0.3",
+        "typescript": "^6.0.3 || ^7.0.0",
       },
     },
     "packages/mongo-meilisearch": {
@@ -156,7 +156,7 @@
         "@nxgt/mongo": "workspace:^",
         "meilisearch": ">=0.62.0 <1",
         "mongodb": ">=7.0.0 <8",
-        "typescript": "^6.0.3",
+        "typescript": "^6.0.3 || ^7.0.0",
       },
     },
     "packages/redis": {
@@ -168,7 +168,7 @@
         "zod": "4.6.5",
       },
       "peerDependencies": {
-        "typescript": "^6.0.3",
+        "typescript": "^6.0.3 || ^7.0.0",
         "zod": ">=4.6.5 <5",
       },
     },
@@ -179,7 +179,7 @@
         "@types/bun": "^1.4.0",
       },
       "peerDependencies": {
-        "typescript": "^6.0.3",
+        "typescript": "^6.0.3 || ^7.0.0",
       },
     },
   },

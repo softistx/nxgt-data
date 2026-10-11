@@ -61,6 +61,6 @@
 		"@nxgt/meilisearch": "workspace:^",
 		"drizzle-orm": ">=1.0.0-rc.4 <2",
 		"meilisearch": ">=0.62.0 <1",
-		"typescript": "^6.0.3"
+		"typescript": "^6.0.3 || ^7.0.0"
 	}
 }

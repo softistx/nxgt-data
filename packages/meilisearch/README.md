@@ -35,7 +35,7 @@ bun add @nxgt/meilisearch meilisearch
 
 - `meilisearch` `>=0.62.0 <1`: required peer, the official SDK. You create
   its client; this package never creates one.
-- `typescript` 6: required peer, the version every `@nxgt` package pins.
+- `typescript` 6 or 7: required peer, the range every `@nxgt` package accepts.
 - A Meilisearch server, 1.x. Tested against 1.53.
 
 ## Setup
