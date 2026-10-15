@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	test,
+} from 'bun:test';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -45,17 +52,59 @@ const notes = defineBucket({
 	key: (id: string) => `${id}.txt`,
 });
 
-describe('startTestS3', () => {
+describe('on one running server', () => {
+	// These only need a server that answers: one is shared, not one each.
+	let s3: TestS3;
+	beforeAll(async () => {
+		s3 = await startTestS3({ cacheDir: SEAWEEDFS_CACHE });
+	}, 120_000);
+	afterAll(async () => {
+		await s3.stop();
+	});
+
 	test('createBucket, then bindBucket puts and reads through options', async () => {
-		const s3 = await start();
 		await s3.createBucket('notes');
 		const store = bindBucket(notes, s3.options);
 		await store.put('a', 'hello');
 		expect(await store.text('a')).toBe('hello');
 		expect(s3.region).toBe(s3.options.region);
 		expect(s3.endpoint).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
-	}, 120_000);
+	});
 
+	test('reset empties a bucket and leaves the others', async () => {
+		await s3.createBucket('notes');
+		await s3.createBucket('other');
+		const store = bindBucket(notes, s3.options);
+		for (const id of ['a', 'b', 'c']) await store.put(id, id);
+		const other = new S3Client({ ...s3.options, bucket: 'other' });
+		await other.write('keep', 'x');
+		await s3.reset('notes');
+		expect(await store.text('a')).toBeUndefined();
+		expect(await store.text('c')).toBeUndefined();
+		expect(await other.file('keep').text()).toBe('x');
+	});
+
+	test('createBucket refuses a name S3 would not accept, at once', async () => {
+		for (const name of [
+			'x',
+			'Upper',
+			'a'.repeat(64),
+			'-lead',
+			'trail-',
+			'un_der',
+		]) {
+			expect(await rejectionMessage(s3.createBucket(name))).toContain(
+				'is not a bucket name S3 accepts',
+			);
+		}
+	});
+
+	test('reset throws for a bucket that was never created', async () => {
+		expect(await rejection(s3.reset('never-created'))).toBeInstanceOf(Error);
+	});
+});
+
+describe('startTestS3', () => {
 	test('uses the binary $WEED_BIN names', async () => {
 		const binary = await seaweedfsBinary({ cacheDir: SEAWEEDFS_CACHE });
 		// A wrapper that proves it ran, then execs the real one.
@@ -93,20 +142,6 @@ describe('startTestS3', () => {
 		expect(await bindBucket(notes, b.options).text('only-a')).toBeUndefined();
 	}, 120_000);
 
-	test('reset empties a bucket and leaves the others', async () => {
-		const s3 = await start();
-		await s3.createBucket('notes');
-		await s3.createBucket('other');
-		const store = bindBucket(notes, s3.options);
-		for (const id of ['a', 'b', 'c']) await store.put(id, id);
-		const other = new S3Client({ ...s3.options, bucket: 'other' });
-		await other.write('keep', 'x');
-		await s3.reset('notes');
-		expect(await store.text('a')).toBeUndefined();
-		expect(await store.text('c')).toBeUndefined();
-		expect(await other.file('keep').text()).toBe('x');
-	}, 120_000);
-
 	test('stop refuses connections, is a no-op the second time, and removes the temp dir', async () => {
 		// A temp directory of its own, so no other process's server is counted.
 		const mine = await mkdtemp(join(tmpdir(), 'stop-spec-'));
@@ -125,22 +160,6 @@ describe('startTestS3', () => {
 			if (before === undefined) delete process.env['TMPDIR'];
 			else process.env['TMPDIR'] = before;
 			await rm(mine, { recursive: true, force: true });
-		}
-	}, 120_000);
-
-	test('createBucket refuses a name S3 would not accept, at once', async () => {
-		const s3 = await start();
-		for (const name of [
-			'x',
-			'Upper',
-			'a'.repeat(64),
-			'-lead',
-			'trail-',
-			'un_der',
-		]) {
-			expect(await rejectionMessage(s3.createBucket(name))).toContain(
-				'is not a bucket name S3 accepts',
-			);
 		}
 	}, 120_000);
 
@@ -172,11 +191,6 @@ describe('startTestS3', () => {
 			await rejectionMessage(startTestS3({ binary: '/nowhere/weed' })),
 		).toContain('binary is /nowhere/weed, which does not exist');
 	});
-
-	test('reset throws for a bucket that was never created', async () => {
-		const s3 = await start();
-		expect(await rejection(s3.reset('never-created'))).toBeInstanceOf(Error);
-	}, 120_000);
 
 	test('stop removes the exit and signal handlers it added', async () => {
 		const count = () =>
