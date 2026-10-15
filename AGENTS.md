@@ -879,7 +879,7 @@ the file.
   from **9.1 s** to **10.5-15.4 s** over five runs, 2.1 s of it the expiry
   spec's own wait, against a file that would have taken `bind-bucket.spec.ts`
   past 850 lines. Measure before splitting, and say the number. Today (2026-10-15, 11 files,
-  154 tests, 1-min load 4-5) `packages/s3` takes **57 s** (82 s before
+  157 tests, 1-min load 4-5) `packages/s3` takes **57 s** (82 s before
   `test-s3.spec.ts` shared one server across the four specs that only need one
   running), 36 s of it `test-s3.spec.ts` alone: 15 specs, most starting a
   SeaweedFS of their own, about 3.7 s each. `collection/` has

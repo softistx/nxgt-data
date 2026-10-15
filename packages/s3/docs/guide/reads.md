@@ -126,7 +126,10 @@ own HEAD does). A refused or dropped connection, even in the middle of the body,
 `S3Error` Bun gives without a deadline (`ConnectionRefused` or
 `ConnectionClosed`, `DNSResolveFailed` for a host that does not resolve, `path`
 the key; any other failure nobody mapped is reported as `ConnectionClosed`) and never carries the signed URL. The
-deadline path does not retry; Bun's client does, per `retry`.
+deadline path does not retry; Bun's client does, per `retry`. A redirect is
+followed on both paths, to whatever `location` the service names: the deadline
+path sends a plain request there, without the signed query, and Bun's sends no
+`Authorization` either.
 `TIMEOUT` is raised **after** the request was sent.
 
 `put` and `list` take no deadline yet.
