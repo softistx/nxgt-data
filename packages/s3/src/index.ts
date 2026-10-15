@@ -2,6 +2,7 @@ export type {
 	BindOptions,
 	BoundBucket,
 	PresignedPost,
+	PresignGetOptions,
 	PresignOptions,
 	PresignPostOptions,
 } from './bucket/bind-bucket';

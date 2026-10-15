@@ -5,6 +5,11 @@ shipped in is the only number on this page.
 
 ## Now
 
+- **A download with a filename** — `presignGet(params, { contentDisposition })`
+  signs `response-content-disposition`, so a link saves the object under a
+  name you choose; `presignPost` can pin a `Content-Disposition` field in its
+  policy. `put`'s `contentDisposition` is now held to one printable header
+  value too. Ships with the rest of this effort.
 - **A deadline on the calls that wait on the service** — `timeoutMs` on
   `stat`, `exists`, `bytes`, `text` and `delete`, or as the bucket's default on
   `bindBucket`: no answer in time rejects with `S3Error` `TIMEOUT` and aborts

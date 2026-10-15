@@ -71,6 +71,14 @@ void store.stat({ id: 'u1' });
 // @ts-expect-error a delete is for an object this bucket can name
 void store.delete({ id: 'u1' });
 
+// A signed GET can ask for a download name; a signed PUT has no use for one.
+store.presignGet({ userId: 'u1' }, { contentDisposition: 'attachment' });
+store.presignPut(
+	{ userId: 'u1' },
+	// @ts-expect-error a presigned PUT signs no response header; it takes none
+	{ contentDisposition: 'attachment' },
+);
+
 // @ts-expect-error a presigned PUT is for one object, so it needs its params
 store.presignPut();
 

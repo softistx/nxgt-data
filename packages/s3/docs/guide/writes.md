@@ -67,7 +67,7 @@ region and the credentials belong to the bound bucket.
 | `type` | `string` | the body's own, for a `Blob` | the content type. It is the one the guard checks **and** the one the service receives — they can never be two different answers |
 | `acl` | `'private' \| 'public-read' \| 'public-read-write' \| 'aws-exec-read' \| 'authenticated-read' \| 'bucket-owner-read' \| 'bucket-owner-full-control' \| 'log-delivery-write'` | the client's, else the service's | who may read the object, where the service implements ACLs |
 | `storageClass` | `'STANDARD' \| 'STANDARD_IA' \| 'ONEZONE_IA' \| 'INTELLIGENT_TIERING' \| 'GLACIER' \| 'GLACIER_IR' \| 'DEEP_ARCHIVE' \| 'REDUCED_REDUNDANCY' \| 'EXPRESS_ONEZONE' \| 'OUTPOSTS' \| 'SNOW'` | the client's, else `STANDARD` | what it costs to keep it; comes back as `x-amz-storage-class` |
-| `contentDisposition` | `string` | none | how a reader should present it; comes back on a `GET` |
+| `contentDisposition` | `string` | none | how a reader should present it; comes back on a `GET`. A non-empty string of printable ASCII, no line break or control character (a non-ASCII filename is `filename*=UTF-8''…`), else `WRONG_OPTION` |
 | `contentEncoding` | `string` | none | how the body is encoded; comes back on a `GET` |
 
 ```ts
@@ -116,8 +116,9 @@ Bun checks both values as well, and refuses with a plain `TypeError`
 (measured on bun 1.4.2). That left one `put` with two classes of refusal —
 an `S3Error` with a code for the content type and the size, a `TypeError`
 with only a sentence for these two. Checking here means one `put` has one
-class of refusal, with a code to switch on. `contentDisposition` and `contentEncoding` are free strings
-and are never refused, by this package or by Bun.
+class of refusal, with a code to switch on. `contentDisposition` is held to
+one printable-ASCII header value (a line break would split the header), and `contentEncoding` stays a free
+string, never refused by this package or by Bun.
 
 The same allowlist holds `acl` on a
 [presigned URL](presigned-urls.md#options), so a wrong value is the same
@@ -177,7 +178,7 @@ try {
 | `WRONG_TYPE` | the type is not one this bucket accepts — or the write named none and the body carries none, while the bucket names some |
 | `TOO_LARGE` | the body is bigger than `maxSize`. The limit is inclusive: with `maxSize: 1024`, 1024 bytes passes and 1025 does not |
 | `UNMEASURABLE` | `maxSize` is set and the body's size cannot be known before sending |
-| `WRONG_OPTION` | the write's `acl` or `storageClass` is not a value the service accepts — see [above](#an-options-value-is-checked-here-too) — or a `timeoutMs` that is not a whole number of milliseconds, 1 or more |
+| `WRONG_OPTION` | the write's `acl` or `storageClass` is not a value the service accepts, or its `contentDisposition` is not a non-empty string of printable ASCII — see [above](#an-options-value-is-checked-here-too) — or a `timeoutMs` that is not a whole number of milliseconds, 1 or more |
 | `TIMEOUT` | `delete` with a `timeoutMs` got no answer in time. The request was sent and aborted; see [Deadlines](reads.md#deadlines) |
 
 A content type is compared on its **essence**: parameters and case are

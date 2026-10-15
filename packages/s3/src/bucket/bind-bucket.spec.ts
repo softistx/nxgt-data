@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { avatars, bytes, reports, uploads, useS3 } from '../../test/fixtures';
 import { S3Error } from '../errors/s3-error';
 import { bindBucket } from './bind-bucket';
-import type { PresignOptions } from './operations/presign';
+import type { PresignGetOptions, PresignOptions } from './operations/presign';
 import type { PutOptions } from './types';
 
 const servers = useS3();
@@ -417,8 +417,8 @@ describe('what a single write may say about the object', () => {
 		// It used to reach Bun, which refused it with a `TypeError` — a second
 		// class to catch for one `put`, and one this package could not even
 		// tell apart by name, because Bun calls its errors `S3Error` too.
-		// `contentDisposition` and `contentEncoding` have no union, so there is
-		// nothing there to refuse and they are still forwarded as they come.
+		// `contentEncoding` has no union, so it is still forwarded as it comes;
+		// `contentDisposition` is held to a shape (the next test).
 		const bucket = anything();
 		// `as unknown` because the types do refuse this one outright, where a
 		// bag with an extra `bucket` key still overlaps `PutOptions`.
@@ -432,6 +432,37 @@ describe('what a single write may say about the object', () => {
 		expect(error).toBeInstanceOf(S3Error);
 		expect(error.code).toBe('WRONG_OPTION');
 		expect(await bucket.exists({ folder: 'a', name: 'bad.txt' })).toBe(false);
+	});
+
+	test('refuses a `contentDisposition` that is not one header value, before sending', async () => {
+		const bucket = anything();
+		for (const bad of [
+			'attachment\r\nSet-Cookie: a=b',
+			'attachment\n',
+			'a\0b',
+			'',
+			'attachment; filename="é.pdf"',
+			42,
+		]) {
+			const error = (await bucket
+				.put({ folder: 'a', name: 'cd.txt' }, 'x', {
+					type: 'text/plain',
+					contentDisposition: bad,
+				} as unknown as PutOptions)
+				.catch((reason: unknown) => reason)) as S3Error;
+			expect(error).toBeInstanceOf(S3Error);
+			expect(error.code).toBe('WRONG_OPTION');
+			expect(error.message).toContain('contentDisposition must be');
+			const shape =
+				bad === ''
+					? 'an empty string'
+					: bad === 42
+						? 'a number'
+						: 'a string with other';
+			expect(error.message).toContain(`got ${shape}`);
+			expect(error.message).not.toContain('Set-Cookie');
+			expect(await bucket.exists({ folder: 'a', name: 'cd.txt' })).toBe(false);
+		}
 	});
 
 	test('still guards the type when other options are given', async () => {
@@ -485,6 +516,64 @@ describe('presigned URLs', () => {
 		const answer = await fetch(url);
 		expect(answer.status).toBe(200);
 		expect(new Uint8Array(await answer.arrayBuffer())).toEqual(png);
+	});
+
+	test('a signed GET with `contentDisposition` is served as that download', async () => {
+		const bucket = anything();
+		const params = { folder: 'a', name: 'r.txt' };
+		await bucket.put(params, 'hello', {
+			type: 'text/plain',
+			contentDisposition: 'inline',
+		});
+		const disposition = "attachment; filename*=UTF-8''report.pdf";
+		const url = bucket.presignGet(params, {
+			expiresIn: 300,
+			contentDisposition: disposition,
+		});
+		expect(new URL(url).searchParams.get('response-content-disposition')).toBe(
+			disposition,
+		);
+		const answer = await fetch(url);
+		expect(answer.status).toBe(200);
+		expect(answer.headers.get('content-disposition')).toBe(disposition);
+		expect(await answer.text()).toBe('hello');
+		// The override is per link: the stored header is untouched.
+		const plain = await fetch(bucket.presignGet(params, { expiresIn: 300 }));
+		expect(plain.headers.get('content-disposition')).toBe('inline');
+	});
+
+	test('refuses a `contentDisposition` that is not one header value, signing nothing', () => {
+		const bucket = anything();
+		for (const bad of [
+			'attachment\r\nSet-Cookie: a=b',
+			'attachment\n',
+			'a\0b',
+			'',
+			'attachment; filename="é.pdf"',
+			42,
+		]) {
+			let caught: unknown;
+			try {
+				bucket.presignGet({ folder: 'a', name: 'r.txt' }, {
+					contentDisposition: bad,
+				} as unknown as PresignGetOptions);
+			} catch (error) {
+				caught = error;
+			}
+			expect(caught).toBeInstanceOf(S3Error);
+			expect((caught as S3Error).code).toBe('WRONG_OPTION');
+			expect((caught as S3Error).message).not.toContain('Set-Cookie');
+		}
+	});
+
+	test('a signed PUT does not sign a `contentDisposition` a bag carries', () => {
+		// The types refuse it (`test/types/s3.ts`); a bag off a request body
+		// never met them, and the header would mean nothing to a write.
+		const url = anything().presignPut({ folder: 'a', name: 'r.txt' }, {
+			expiresIn: 60,
+			contentDisposition: 'attachment',
+		} as PresignOptions);
+		expect(url).not.toContain('response-content-disposition');
 	});
 
 	test('a signed PUT really writes the object', async () => {
