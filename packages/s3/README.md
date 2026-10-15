@@ -55,9 +55,14 @@ ports, with no Docker and no dependency to install:
 
 ```ts
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test';
-import { bindBucket } from '@nxgt/s3';
+import { bindBucket, defineBucket } from '@nxgt/s3';
 import { startTestS3, type TestS3 } from '@nxgt/s3/testing';
-import { avatars } from '../src/buckets';
+
+const avatars = defineBucket({
+	bucket: 'avatars',
+	key: (params: { userId: string }) => `${params.userId}.png`,
+	contentType: 'image/png',
+});
 
 let s3: TestS3;
 
@@ -72,17 +77,17 @@ afterAll(() => s3.stop());
 
 test('stores an avatar', async () => {
 	const store = bindBucket(avatars, s3.options);   // credentials and endpoint
+	const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 	await store.put({ userId: 'u1' }, png, { type: 'image/png' });
 	expect(await store.exists({ userId: 'u1' })).toBe(true);
 });
 ```
 
-- **The first run downloads SeaweedFS** (about 45 MB, once) and checks it
+- **The first run downloads SeaweedFS** (once) and checks it
   against a SHA-256 pinned in the package for every platform it ships; a
   download that does not match is refused and never cached. Give `beforeAll`
   a generous timeout (120 s above), or fetch it ahead with
-  `await seaweedfsBinary()` from a script your `test` runs first. Starting a
-  cached server takes about five seconds.
+  `await seaweedfsBinary()` from a script your `test` runs first.
 - **`$WEED_BIN`** names a `weed` binary you already have, and nothing is
   downloaded.
 - `startTestS3(options?: TestS3Options)` — `{ binary?, cacheDir? }`: `binary`
@@ -93,8 +98,9 @@ test('stores an avatar', async () => {
 - It resolves to `{ endpoint, accessKeyId, secretAccessKey, region, options,
   createBucket(name), reset(bucket), stop() }`. `options` goes straight to
   `bindBucket`. `stop()` kills the server and removes its files; calling it
-  twice does nothing, and a server nobody stopped is killed when the process
-  exits.
+  twice does nothing. A server nobody stopped does not keep the process alive,
+  and is killed when it exits or gets SIGINT or SIGTERM (which then ends the
+  process with `128 + n`, unless you have a handler of your own).
 
 The [testing guide](docs/guide/testing.md) has the details.
 

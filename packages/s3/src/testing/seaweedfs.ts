@@ -93,8 +93,11 @@ export function assetFor(platform: string, arch: string): string {
  * Refuses an archive whose SHA-256 is not the pinned one. The message names
  * both, so a tampered download and a stale table read differently.
  */
-export function verifyArchive(asset: string, bytes: Uint8Array): void {
-	const expected = TEST_SEAWEEDFS_SHA256[asset];
+export function verifyArchive(
+	asset: string,
+	bytes: Uint8Array,
+	expected = TEST_SEAWEEDFS_SHA256[asset],
+): void {
 	if (!expected) {
 		throw new Error(
 			`No pinned SHA-256 for SeaweedFS ${TEST_SEAWEEDFS_VERSION} ${asset}: ` +
@@ -125,13 +128,27 @@ export function defaultCacheDir(cwd = process.cwd()): string {
 	return join(dir, 'node_modules', '.cache', '@nxgt', 's3', 'seaweedfs');
 }
 
-async function download(asset: string, target: string): Promise<void> {
+/** What `download` takes from outside; the specs replace both. */
+export interface DownloadDeps {
+	fetch?: typeof fetch;
+	/** The SHA-256 the archive must have. Defaults to the pinned one. */
+	sha256?: string;
+}
+
+export async function download(
+	asset: string,
+	target: string,
+	deps: DownloadDeps = {},
+): Promise<void> {
 	const url = `https://github.com/seaweedfs/seaweedfs/releases/download/${TEST_SEAWEEDFS_VERSION}/${asset}`;
-	console.error(`Downloading SeaweedFS ${TEST_SEAWEEDFS_VERSION} (${asset})…`);
-	const response = await fetch(url);
+	process.emitWarning(
+		`Downloading SeaweedFS ${TEST_SEAWEEDFS_VERSION} (${asset}) into ${dirname(target)}`,
+		{ code: 'NxgtS3Download' },
+	);
+	const response = await (deps.fetch ?? fetch)(url);
 	if (!response.ok) throw new Error(`GET ${url} answered ${response.status}`);
 	const bytes = new Uint8Array(await response.arrayBuffer());
-	verifyArchive(asset, bytes);
+	verifyArchive(asset, bytes, deps.sha256 ?? TEST_SEAWEEDFS_SHA256[asset]);
 
 	// Unpacked into a directory of this process's own, then renamed: two runs
 	// starting at once never see half a binary. The archive holds one file.

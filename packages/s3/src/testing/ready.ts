@@ -8,6 +8,27 @@ export interface ServerAddress {
 	virtualHostedStyle: false;
 }
 
+export interface ServerHandle {
+	logPath: string;
+	/** Settles when the server process ends. */
+	exited: Promise<unknown>;
+}
+
+/** The interesting lines of the server's own log, or its last ones. */
+async function logTail(logPath: string): Promise<string> {
+	// Its own words, or the failure is unreadable: `weed` reports a bad
+	// `-dir`, a taken port and a refused config all on stderr.
+	const said = await Bun.file(logPath)
+		.text()
+		.catch(() => '');
+	const interesting = said
+		.split('\n')
+		.filter((line) => /error|fatal|^F\d|refus|denied/i.test(line));
+	return (interesting.length > 0 ? interesting : said.split('\n'))
+		.slice(-8)
+		.join('\n');
+}
+
 /**
  * Creates `bucket` and waits until it takes writes.
  *
@@ -19,37 +40,36 @@ export interface ServerAddress {
  * bucket on that first write; `Bun.S3Client` has no `createBucket`, and
  * `presign('')` is refused (`ERR_S3_INVALID_PATH`), so there is nothing more
  * direct to call.
+ *
+ * A server that dies while this waits is reported at once, with its log.
  */
 export async function createBucketOn(
 	address: ServerAddress,
 	bucket: string,
-	logPath: string,
+	server: ServerHandle,
 	timeoutMs = 90_000,
 ): Promise<void> {
 	const scoped = new S3Client({ ...address, bucket });
 	const deadline = Date.now() + timeoutMs;
+	let dead = false;
+	void server.exited.then(() => {
+		dead = true;
+	});
 	for (;;) {
 		const ok = await scoped
 			.write('.nxgt-ready', 'ok')
 			.then(() => true)
 			.catch(() => false);
 		if (ok) break;
-		if (Date.now() > deadline) {
-			// Its own words, or the failure is unreadable: `weed` reports a bad
-			// `-dir`, a taken port and a refused config all on stderr.
-			const said = await Bun.file(logPath)
-				.text()
-				.catch(() => '');
-			const interesting = said
-				.split('\n')
-				.filter((line) => /error|fatal|^F\d|refus|denied/i.test(line));
+		const failed = dead
+			? 'SeaweedFS exited before it served S3'
+			: Date.now() > deadline
+				? `SeaweedFS did not serve S3 on ${address.endpoint} in ${Math.round(timeoutMs / 1000)}s`
+				: undefined;
+		if (failed) {
 			throw new Error(
-				`SeaweedFS did not serve S3 on ${address.endpoint} in ` +
-					`${Math.round(timeoutMs / 1000)}s (bucket "${bucket}"). Its log, ` +
-					`${logPath}, says:\n` +
-					`${(interesting.length > 0 ? interesting : said.split('\n'))
-						.slice(-8)
-						.join('\n')}`,
+				`${failed} (bucket "${bucket}"). Its log, ${server.logPath}, says:\n` +
+					(await logTail(server.logPath)),
 			);
 		}
 		await Bun.sleep(250);
@@ -57,21 +77,22 @@ export async function createBucketOn(
 	await scoped.delete('.nxgt-ready').catch(() => undefined);
 }
 
-/** Deletes every object of `bucket`, so a test starts from nothing. */
+/**
+ * Deletes every object of `bucket`, so a test starts from nothing. A failure
+ * of the listing or of a delete (a bucket that was never created included) is
+ * thrown, not hidden: a test must not run on objects a reset missed.
+ */
 export async function emptyBucket(
 	address: ServerAddress,
 	bucket: string,
 ): Promise<void> {
 	const scoped = new S3Client({ ...address, bucket });
 	for (let page = 0; page < 1000; page++) {
-		const listed = await scoped.list({ maxKeys: 1000 }).catch(() => null);
-		const keys = (listed?.contents ?? []).flatMap((found) =>
+		const listed = await scoped.list({ maxKeys: 1000 });
+		const keys = (listed.contents ?? []).flatMap((found) =>
 			found.key ? [found.key] : [],
 		);
-		if (keys.length === 0) return;
-		await Promise.all(
-			keys.map((key) => scoped.delete(key).catch(() => undefined)),
-		);
-		if (!listed?.isTruncated) return;
+		await Promise.all(keys.map((key) => scoped.delete(key)));
+		if (keys.length === 0 || !listed.isTruncated) return;
 	}
 }

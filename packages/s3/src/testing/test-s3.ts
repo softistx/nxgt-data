@@ -4,11 +4,15 @@ import { join } from 'node:path';
 import type { Subprocess } from 'bun';
 import { freePorts } from './ports';
 import { createBucketOn, emptyBucket, type ServerAddress } from './ready';
+import { reapOnExit } from './reaper';
 import { type SeaweedfsOptions, seaweedfsBinary } from './seaweedfs';
-
-/** The credentials the server signs with. Local only, and never a real key. */
-const ACCESS_KEY_ID = 'nxgt-test-key';
-const SECRET_ACCESS_KEY = 'nxgt-test-secret';
+import {
+	ACCESS_KEY_ID,
+	identities,
+	SECRET_ACCESS_KEY,
+	socketsOf,
+	spawnWeed,
+} from './weed';
 
 export type TestS3Options = SeaweedfsOptions;
 
@@ -28,77 +32,12 @@ export interface TestS3 {
 }
 
 /**
- * `weed server -s3` on free ports. Each flag is a measured trap; see
- * AGENTS.md, Tests.
- */
-function spawnWeed(
-	binary: string,
-	data: string,
-	config: string,
-	ports: number[],
-	log: ReturnType<typeof Bun.file>,
-): Subprocess {
-	const [s3Port, master, volume, filer] = ports as [
-		number,
-		number,
-		number,
-		number,
-	];
-	const [s3Grpc, masterGrpc, volumeGrpc, filerGrpc] = ports.slice(4) as [
-		number,
-		number,
-		number,
-		number,
-	];
-	return Bun.spawn(
-		[
-			binary,
-			'server',
-			`-dir=${data}`,
-			'-s3',
-			`-s3.port=${s3Port}`,
-			`-s3.config=${config}`,
-			// 4.47 starts two more listeners beside the S3 one, each on a
-			// **fixed** port: an Iceberg REST Catalog on 8181 and a Lance
-			// Namespace on 9101. Either one collides with a second server or a
-			// leftover one and kills the whole process — `bind: address already
-			// in use`, fatal, whatever the ports above were. Nothing uses them.
-			'-s3.port.iceberg=0',
-			'-s3.port.lance=0',
-			// Each bucket is a *collection*, and a collection needs a volume of
-			// its own. The defaults are a production shape — 8 volumes of 30 GB —
-			// and on a normal disk the master then finds nothing it can
-			// allocate: `No writable volumes and no free volumes left`. Small
-			// volumes, and enough of them for a suite's buckets.
-			'-master.volumeSizeLimitMB=64',
-			'-volume.max=100',
-			`-master.port=${master}`,
-			`-volume.port=${volume}`,
-			`-filer.port=${filer}`,
-			`-s3.port.grpc=${s3Grpc}`,
-			`-master.port.grpc=${masterGrpc}`,
-			`-volume.port.grpc=${volumeGrpc}`,
-			`-filer.port.grpc=${filerGrpc}`,
-			'-ip=127.0.0.1',
-		],
-		{ stdout: 'ignore', stderr: log },
-	);
-}
-
-/** The unix sockets `weed` leaves in the temp directory, one per port. */
-function socketsOf(ports: number[]): string[] {
-	return ['s3', 'master', 'volume', 'filer'].flatMap((service, index) => [
-		join(tmpdir(), `seaweedfs-${service}-${ports[index]}.sock`),
-		join(tmpdir(), `seaweedfs-${service}-grpc-${ports[index + 4]}.sock`),
-	]);
-}
-
-/**
  * A real S3 API for a suite: SeaweedFS's own gateway, started by
- * `weed server -s3` on free ports, with no Docker. Starting it takes about
- * five seconds once the binary is cached; the first run downloads it.
+ * `weed server -s3` on free ports, with no Docker. The first run downloads
+ * the binary into the cache.
  *
- * A server nobody stops is killed when the process exits.
+ * A server nobody stops does not keep the process alive, and is killed when
+ * the process exits or receives SIGINT or SIGTERM.
  */
 export async function startTestS3(
 	options: TestS3Options = {},
@@ -111,23 +50,8 @@ export async function startTestS3(
 	// it, and says so only on stderr, which is why that is captured below.
 	const data = join(dir, 'data');
 	await mkdir(data, { recursive: true });
-	// Without an identities file there are no credentials, and every signed
-	// request is refused.
 	const config = join(dir, 's3.json');
-	await Bun.write(
-		config,
-		JSON.stringify({
-			identities: [
-				{
-					name: 'test',
-					credentials: [
-						{ accessKey: ACCESS_KEY_ID, secretKey: SECRET_ACCESS_KEY },
-					],
-					actions: ['Admin', 'Read', 'Write', 'List', 'Tagging'],
-				},
-			],
-		}),
-	);
+	await Bun.write(config, identities());
 
 	// Its log goes to a file, not a pipe: SeaweedFS is chatty enough to fill
 	// the 64 KB pipe buffer in well under a minute, and a pipe nobody drains
@@ -135,22 +59,47 @@ export async function startTestS3(
 	// starts, serves briefly and then hangs.
 	const logPath = join(dir, 'weed.log');
 	const child = spawnWeed(binary, data, config, ports, Bun.file(logPath));
-	const killOnExit = () => child.kill('SIGKILL');
-	process.on('exit', killOnExit);
+	const stop = makeStop(child, dir, ports);
 
-	const endpoint = `http://127.0.0.1:${ports[0]}`;
 	const address: ServerAddress = {
-		endpoint,
+		endpoint: `http://127.0.0.1:${ports[0]}`,
 		accessKeyId: ACCESS_KEY_ID,
 		secretAccessKey: SECRET_ACCESS_KEY,
 		region: 'us-east-1',
 		virtualHostedStyle: false,
 	};
+	const server = { logPath, exited: child.exited };
 
+	try {
+		await createBucketOn(address, 'health', server);
+	} catch (error) {
+		await stop();
+		throw error;
+	}
+
+	return {
+		endpoint: address.endpoint,
+		accessKeyId: ACCESS_KEY_ID,
+		secretAccessKey: SECRET_ACCESS_KEY,
+		region: address.region,
+		options: address,
+		createBucket: (name) => createBucketOn(address, name, server),
+		reset: (bucket) => emptyBucket(address, bucket),
+		stop,
+	};
+}
+
+/** `stop()`: kills the server, removes its files, and is safe to repeat. */
+function makeStop(
+	child: Subprocess,
+	dir: string,
+	ports: number[],
+): () => Promise<void> {
+	const unreap = reapOnExit(child);
 	let stopped: Promise<void> | undefined;
-	const stop = (): Promise<void> => {
+	return () => {
 		stopped ??= (async () => {
-			process.off('exit', killOnExit);
+			unreap();
 			// `SIGKILL`, not the default `SIGTERM`. Measured on SeaweedFS 4.47:
 			// `weed server` takes **20 s** to exit on either SIGTERM or SIGINT —
 			// 20078 / 20024 ms and 20015 / 20102 ms over two runs each — and
@@ -166,23 +115,5 @@ export async function startTestS3(
 			);
 		})();
 		return stopped;
-	};
-
-	try {
-		await createBucketOn(address, 'health', logPath);
-	} catch (error) {
-		await stop();
-		throw error;
-	}
-
-	return {
-		endpoint,
-		accessKeyId: ACCESS_KEY_ID,
-		secretAccessKey: SECRET_ACCESS_KEY,
-		region: address.region,
-		options: address,
-		createBucket: (name) => createBucketOn(address, name, logPath),
-		reset: (bucket) => emptyBucket(address, bucket),
-		stop,
 	};
 }

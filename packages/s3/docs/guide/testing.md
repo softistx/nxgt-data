@@ -60,8 +60,17 @@ write, and readiness is per bucket, so `createBucket` is what waits for it.
 Two servers started at once are separate: each has its own ports, data and
 buckets.
 
-Forgetting `stop()` does not leave a process behind: a server still running
-when the test process exits is killed.
+Forgetting `stop()` does not leave a process behind. The server does not keep
+your process alive, so a script that never stops it still ends on its own, and
+the server is killed with it. On SIGINT or SIGTERM the server is killed too,
+and when yours is the only handler for that signal the process then ends with
+the exit code the default would give (`128 + n`). If you register your own
+handler, the process keeps your policy: the server is still killed, and
+ending the process is yours to do. A `SIGKILL` of your process cannot be
+caught and does leave the `weed` running: stop it yourself.
+
+`reset` throws if it cannot list or delete, for a bucket that was never
+created included, so create each bucket first.
 
 ## Where the binary comes from
 
@@ -77,7 +86,7 @@ In this order:
 nearest `node_modules` found from `process.cwd()`. Pass `cacheDir` to put it
 elsewhere, and cache that folder in CI so the download happens once.
 
-The first run downloads about 45 MB. Give `beforeAll` a timeout that allows
+The first run downloads the release archive. Give `beforeAll` a timeout that allows
 it (120 s above), or download ahead of the suite from a script your `test`
 runs first:
 
@@ -86,8 +95,6 @@ runs first:
 import { seaweedfsBinary } from '@nxgt/s3/testing';
 console.log(await seaweedfsBinary());
 ```
-
-Starting a server from a cached binary takes about five seconds.
 
 ## The download is checked
 

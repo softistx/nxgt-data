@@ -126,6 +126,35 @@ describe('startTestS3', () => {
 		}
 	}, 120_000);
 
+	test('says so when binary points at nothing', async () => {
+		await expect(startTestS3({ binary: '/nowhere/weed' })).rejects.toThrow(
+			'binary is /nowhere/weed, which does not exist',
+		);
+	});
+
+	test('reset throws for a bucket that was never created', async () => {
+		const s3 = await start();
+		await expect(s3.reset('never-created')).rejects.toThrow();
+	}, 120_000);
+
+	test('stop removes the exit and signal handlers it added', async () => {
+		const count = () =>
+			['exit', 'SIGINT', 'SIGTERM'].map((name) => process.listenerCount(name));
+		const before = count();
+		const s3 = await start();
+		expect(count().every((n, i) => n === (before[i] ?? 0) + 1)).toBe(true);
+		await s3.stop();
+		expect(count()).toEqual(before);
+	}, 120_000);
+
+	test('createBucket on a stopped server says it exited, with its log', async () => {
+		const s3 = await start();
+		await s3.stop();
+		await expect(s3.createBucket('late')).rejects.toThrow(
+			'SeaweedFS exited before it served S3',
+		);
+	}, 120_000);
+
 	test('says so when WEED_BIN points at nothing', async () => {
 		await withBin('/nowhere/weed', async () => {
 			await expect(startTestS3()).rejects.toThrow(
@@ -133,4 +162,49 @@ describe('startTestS3', () => {
 			);
 		});
 	});
+});
+
+describe('a server nobody stops', () => {
+	/** Runs a script that starts a server and then does `after`, as a child. */
+	async function run(after: string) {
+		const dir = await mkdtemp(join(tmpdir(), 'forgot-'));
+		const script = join(dir, 'forgot.ts');
+		const testing = new URL('./index.ts', import.meta.url).pathname;
+		await Bun.write(
+			script,
+			`import { startTestS3 } from ${JSON.stringify(testing)};
+const s3 = await startTestS3({ cacheDir: ${JSON.stringify(SEAWEEDFS_CACHE)} });
+console.log(s3.endpoint);
+${after}`,
+		);
+		const child = Bun.spawn(['bun', script], {
+			stdout: 'pipe',
+			stderr: 'inherit',
+		});
+		const reader = child.stdout.getReader();
+		const first = await reader.read();
+		const endpoint = new TextDecoder().decode(first.value).trim();
+		return { child, endpoint, dir };
+	}
+
+	test('a script that never calls stop() ends on its own and leaves no weed', async () => {
+		const { child, endpoint, dir } = await run('');
+		try {
+			expect(await child.exited).toBe(0);
+			await expect(fetch(endpoint)).rejects.toThrow();
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	}, 120_000);
+
+	test('SIGTERM kills the server and ends the process as the default would', async () => {
+		const { child, endpoint, dir } = await run('setInterval(() => {}, 1000);');
+		try {
+			child.kill('SIGTERM');
+			expect(await child.exited).toBe(143);
+			await expect(fetch(endpoint)).rejects.toThrow();
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	}, 120_000);
 });

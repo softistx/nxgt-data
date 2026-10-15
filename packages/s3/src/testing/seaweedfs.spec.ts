@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
 	assetFor,
 	defaultCacheDir,
+	download,
 	seaweedfsBinary,
 	TEST_SEAWEEDFS_SHA256,
 	TEST_SEAWEEDFS_VERSION,
@@ -83,5 +84,92 @@ describe('the cache', () => {
 			if (before !== undefined) process.env['WEED_BIN'] = before;
 			await rm(dir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe('the download', () => {
+	/** A gzip tar holding one executable `weed`, and its SHA-256. */
+	async function archiveOf(script: string) {
+		const dir = await mkdtemp(join(tmpdir(), 'weed-archive-'));
+		try {
+			await Bun.write(join(dir, 'weed'), script);
+			await Bun.$`chmod +x ${join(dir, 'weed')}`;
+			await Bun.$`tar czf ${join(dir, 'a.tar.gz')} -C ${dir} weed`.quiet();
+			const bytes = new Uint8Array(
+				await Bun.file(join(dir, 'a.tar.gz')).arrayBuffer(),
+			);
+			return {
+				bytes,
+				sha256: new Bun.CryptoHasher('sha256').update(bytes).digest('hex'),
+			};
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	}
+
+	const serving = (bytes: Uint8Array, status = 200) =>
+		(async () =>
+			new Response(Buffer.from(bytes), { status })) as unknown as typeof fetch;
+
+	test('unpacks a checked archive, renames it into place and leaves no staging', async () => {
+		const { bytes, sha256 } = await archiveOf('#!/bin/sh\necho version\n');
+		const cache = await mkdtemp(join(tmpdir(), 'weed-dl-'));
+		try {
+			const target = join(cache, TEST_SEAWEEDFS_VERSION, 'weed');
+			await download('linux_amd64.tar.gz', target, {
+				fetch: serving(bytes),
+				sha256,
+			});
+			expect(await Bun.file(target).text()).toContain('echo version');
+			expect(await readdir(join(cache, TEST_SEAWEEDFS_VERSION))).toEqual([
+				'weed',
+			]);
+		} finally {
+			await rm(cache, { recursive: true, force: true });
+		}
+	});
+
+	test('refuses an archive that does not match, and caches nothing', async () => {
+		const { bytes } = await archiveOf('#!/bin/sh\n');
+		const cache = await mkdtemp(join(tmpdir(), 'weed-dl-'));
+		try {
+			const target = join(cache, 'v', 'weed');
+			await expect(
+				download('linux_amd64.tar.gz', target, {
+					fetch: serving(bytes),
+					sha256: '0'.repeat(64),
+				}),
+			).rejects.toThrow('refusing to run it');
+			expect(await Bun.file(target).exists()).toBe(false);
+		} finally {
+			await rm(cache, { recursive: true, force: true });
+		}
+	});
+
+	test('refuses a binary that does not run, and cleans up', async () => {
+		const { bytes, sha256 } = await archiveOf(
+			'#!/bin/sh\necho broken >&2\nexit 3\n',
+		);
+		const cache = await mkdtemp(join(tmpdir(), 'weed-dl-'));
+		try {
+			const target = join(cache, 'v', 'weed');
+			await expect(
+				download('linux_amd64.tar.gz', target, {
+					fetch: serving(bytes),
+					sha256,
+				}),
+			).rejects.toThrow('does not run: broken');
+			expect(await readdir(join(cache, 'v'))).toEqual([]);
+		} finally {
+			await rm(cache, { recursive: true, force: true });
+		}
+	});
+
+	test('reports an answer that is not 200', async () => {
+		await expect(
+			download('linux_amd64.tar.gz', '/nowhere/v/weed', {
+				fetch: serving(new Uint8Array(), 404),
+			}),
+		).rejects.toThrow('answered 404');
 	});
 });

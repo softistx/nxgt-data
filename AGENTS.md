@@ -40,7 +40,9 @@ them changes there for a reason that applies here, change it here too.
 ## Layering
 
 Every package is **standalone**: it depends on no sibling, only on the
-library it wraps, as a peer — except the bridges below. A package that would use a sibling declares it
+library it wraps, as a peer — except the bridges below, and one
+devDependency used by specs only: `@nxgt/backup` devDepends on `@nxgt/s3` for
+`@nxgt/s3/testing` (no cycle, and nothing in backup's `dist/` imports s3). A package that would use a sibling declares it
 by `workspace:^` and imports it by its published name, as in nxgt-http; there
 is no tsconfig `paths` to a sibling and no relative import into one.
 
@@ -112,7 +114,9 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   is republished with the new range.
 - **Another database library is another package**, and each keeps its own
   errors, as every package here does.
-- **`@nxgt/backup` is standalone, and `age-encryption` is a dependency, not a
+- **`@nxgt/backup` is standalone** (its only sibling is `@nxgt/s3`, as a
+  devDependency for its S3 spec through `@nxgt/s3/testing`; its `dist/`
+  imports nothing of it), **and `age-encryption` is a dependency, not a
   peer** (`~0.3.1`, BSD-3-Clause, Filippo Valsorda's typage): a caller never
   hands it an age object, only key strings, so there is no second copy whose
   classes could disagree — the reason the drivers here are peers does not
@@ -285,8 +289,9 @@ matching key in `exports` — except a `bin` target (`@nxgt/mongo-backup`'s
   alxia's, which starts a package only once every sibling it names in any
   dependency field has finished, and the ones of one wave in parallel:
   `bun run --filter` started dependents beside their dependencies on a clean
-  checkout in alxia. Two waves here: the standalone packages, then the two
-  bridges and `@nxgt/mongo-backup` (after `@nxgt/backup`). The examples run after them, with
+  checkout in alxia. Three waves here (measured with `waves()`): the standalone packages
+  (`@nxgt/s3` among them), then the two bridges and `@nxgt/backup` (after
+  `@nxgt/s3`, for its specs), then `@nxgt/mongo-backup` (after `@nxgt/backup`). The examples run after them, with
   `--filter './examples/*'`.
 - **CI's "Newest peers" job tests the other end of every peer range.** The
   CI job runs the lockfile: the exact version each package pins as a
@@ -353,7 +358,8 @@ matching key in `exports` — except a `bin` target (`@nxgt/mongo-backup`'s
   in `src/` imports `src/testing/` (`src/testing/entry.spec.ts` checks it).
   `@nxgt/backup` devDepends on `@nxgt/s3` (`workspace:^`) for its S3 spec, so
   it builds in a later wave; `@nxgt/s3` depends on no sibling, so there is no
-  cycle.
+  cycle. `src/testing/reaper.ts` unrefs the child and kills it on exit,
+  SIGINT and SIGTERM, so a forgotten `stop()` neither hangs nor orphans.
 - **`@nxgt/redis` has no client dependency at all.** `RedisClient` is Bun's
   own, which is what makes the package Bun-only and why it declares no driver
   peer — the one place in this repository where the "peers and pins move
