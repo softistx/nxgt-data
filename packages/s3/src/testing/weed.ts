@@ -31,6 +31,7 @@ export function identities(): string {
 export function spawnWeed(
 	binary: string,
 	data: string,
+	logDir: string,
 	config: string,
 	ports: number[],
 	log: ReturnType<typeof Bun.file>,
@@ -50,6 +51,11 @@ export function spawnWeed(
 	const child = Bun.spawn(
 		[
 			binary,
+			// A global flag, so it comes before the subcommand. Without it glog
+			// writes `weed.<host>.<user>.log.*` and `weed.INFO` links into
+			// `$TMPDIR`, outside the server's own directory, and `stop()` would
+			// leave them there.
+			`-logdir=${logDir}`,
 			'server',
 			`-dir=${data}`,
 			'-s3',

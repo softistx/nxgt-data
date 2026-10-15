@@ -71,8 +71,9 @@ async function send<P>(
 }
 
 /** What Bun throws for a failed request: an `Error` named `S3Error`. */
-function failure(response: Exchange, method: Verb, key: string): Error {
-	// A HEAD has no body: Bun itself says only that it was unexpected.
+function failure(response: Exchange, key: string): Error {
+	// A HEAD has no body (read as empty): Bun itself says only that it was
+	// unexpected.
 	const body = new TextDecoder().decode(response.body);
 	const field = (tag: string) =>
 		new RegExp(`<${tag}>([^<]*)</${tag}>`).exec(body)?.[1];
@@ -93,7 +94,7 @@ export async function headObject<P>(
 ): Promise<S3Stats | undefined> {
 	const response = await send(context, key, 'HEAD', signal);
 	if (response.status === 404) return undefined;
-	if (!response.ok) throw failure(response, 'HEAD', key);
+	if (!response.ok) throw failure(response, key);
 	const { headers } = response;
 	return {
 		size: Number(headers.get('content-length') ?? 0),
@@ -111,7 +112,7 @@ export async function getObject<P>(
 ): Promise<Uint8Array | undefined> {
 	const response = await send(context, key, 'GET', signal);
 	if (response.ok) return response.body;
-	const error = failure(response, 'GET', key);
+	const error = failure(response, key);
 	if (
 		response.status === 404 &&
 		(error as { code?: string }).code === 'NoSuchKey'
@@ -128,5 +129,5 @@ export async function removeObject<P>(
 	signal: AbortSignal,
 ): Promise<void> {
 	const response = await send(context, key, 'DELETE', signal);
-	if (!response.ok) throw failure(response, 'DELETE', key);
+	if (!response.ok) throw failure(response, key);
 }

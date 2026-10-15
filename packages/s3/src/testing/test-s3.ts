@@ -58,7 +58,7 @@ export async function startTestS3(
 	// blocks the process that writes to it — measured, that is a server that
 	// starts, serves briefly and then hangs.
 	const logPath = join(dir, 'weed.log');
-	const child = spawnWeed(binary, data, config, ports, Bun.file(logPath));
+	const child = spawnWeed(binary, data, dir, config, ports, Bun.file(logPath));
 	const stop = makeStop(child, dir, ports);
 
 	const address: ServerAddress = {
