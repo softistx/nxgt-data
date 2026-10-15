@@ -10,9 +10,21 @@ export interface PresignOptions {
 	acl?: S3Options['acl'];
 }
 
+/** What a signed GET may add: how the download is presented. */
+export interface PresignGetOptions extends PresignOptions {
+	/**
+	 * Signs `response-content-disposition`: the service answers this URL with
+	 * that `Content-Disposition`, whatever the object stored. A download link
+	 * with a filename: `attachment; filename*=UTF-8''report.pdf`. Printable
+	 * ASCII only. A `presignPut` takes none: the header would mean nothing
+	 * to a write.
+	 */
+	contentDisposition?: string | undefined;
+}
+
 /** What is signed: the options a caller gave, none of them `undefined`. */
-type Signed = {
-	[K in keyof PresignOptions]?: Exclude<PresignOptions[K], undefined>;
+type Signed<O> = {
+	[K in keyof O]?: Exclude<O[K], undefined>;
 };
 
 /**
@@ -26,20 +38,37 @@ type Signed = {
  * endpoint entirely. The types refuse both; a value that never met the types
  * does not.
  */
-const SIGNED = ['expiresIn', 'acl'] as const satisfies readonly Signable[];
+const SIGNED_PUT = [
+	'expiresIn',
+	'acl',
+] as const satisfies readonly (keyof PresignOptions)[];
 
-type Signable = keyof PresignOptions;
-type Unsigned = Exclude<Signable, (typeof SIGNED)[number]>;
-const _nothingForgotten: [Unsigned] extends [never] ? true : Unsigned = true;
-void _nothingForgotten;
+/** A GET signs the same, and `contentDisposition` besides. */
+const SIGNED_GET = [
+	'expiresIn',
+	'acl',
+	'contentDisposition',
+] as const satisfies readonly (keyof PresignGetOptions)[];
 
-function signed(
+type UnsignedPut = Exclude<keyof PresignOptions, (typeof SIGNED_PUT)[number]>;
+const _putForgotten: [UnsignedPut] extends [never] ? true : UnsignedPut = true;
+void _putForgotten;
+
+type UnsignedGet = Exclude<
+	keyof PresignGetOptions,
+	(typeof SIGNED_GET)[number]
+>;
+const _getForgotten: [UnsignedGet] extends [never] ? true : UnsignedGet = true;
+void _getForgotten;
+
+function signed<O extends PresignOptions>(
 	key: string,
-	options: PresignOptions | undefined,
+	options: O | undefined,
+	names: readonly (keyof O & string)[],
 	where: string,
-): Signed {
+): Signed<O> {
 	const forwarded: Record<string, unknown> = {};
-	for (const name of SIGNED) {
+	for (const name of names) {
 		const value = options?.[name];
 		if (value === undefined) continue;
 		// The same allowlist a `put` is held to: a wrong `acl` is an `S3Error`
@@ -48,17 +77,17 @@ function signed(
 		checkOption(key, name, value, where);
 		forwarded[name] = value;
 	}
-	return forwarded as Signed;
+	return forwarded as Signed<O>;
 }
 
 export function presignGetUrl<P>(
 	context: BucketContext<P>,
 	params: P,
-	options?: PresignOptions,
+	options?: PresignGetOptions,
 ): string {
 	const key = keyOf(context, params);
 	return context.client.presign(key, {
-		...signed(key, options, callOf(context, 'presignGet')),
+		...signed(key, options, SIGNED_GET, callOf(context, 'presignGet')),
 		method: 'GET',
 	});
 }
@@ -81,7 +110,7 @@ export function presignPutUrl<P>(
 ): string {
 	const key = keyOf(context, params);
 	return context.client.presign(key, {
-		...signed(key, options, callOf(context, 'presignPut')),
+		...signed(key, options, SIGNED_PUT, callOf(context, 'presignPut')),
 		method: 'PUT',
 	});
 }

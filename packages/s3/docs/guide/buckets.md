@@ -64,7 +64,7 @@ interface BoundBucket<P> {
 		limit?: number;
 		cursor?: string | null;
 	}): Promise<ObjectPage>;
-	presignGet(params: P, options?: PresignOptions): string;
+	presignGet(params: P, options?: PresignGetOptions): string;
 	presignPut(params: P, options?: PresignOptions): string;
 	presignPost(params: P, options?: PresignPostOptions): PresignedPost;
 }

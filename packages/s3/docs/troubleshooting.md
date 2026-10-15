@@ -259,8 +259,9 @@ of those. Both paths go through the same allowlist since 0.3.0; before it,
 package is older than 0.3.0. From 0.3.0 to 0.4.0 this one quoted the value it
 was given (`got "everyone"`); it now gives only its shape.
 **Why:** the same `code: 'WRONG_OPTION'`, before anything is sent or signed.
-The two guarded options are `acl` and `storageClass`; `contentDisposition`
-and `contentEncoding` are plain strings to the service and accept anything.
+The guarded options are `acl` and `storageClass` (a fixed set each) and
+`contentDisposition` (one printable-ASCII header value); `contentEncoding` is a
+plain string to the service and accepts anything.
 `presignGet`, `presignPut` and `presignPost` take no `storageClass` —
 nothing is stored by signing a URL or a form.
 **Fix:**
@@ -268,6 +269,28 @@ nothing is stored by signing a URL or a form.
 ```ts
 await avatars.put({ userId }, bytes, { acl: 'public-read' });
 const url = avatars.presignPut({ userId }, { acl: 'private', expiresIn: 300 });
+```
+
+### `contentDisposition must be a non-empty string of printable ASCII, with no line break or control character (spell a non-ASCII filename as filename*=UTF-8''...); got a string with other characters (presignGet on "avatars")`
+
+**When:** `put`, `presignGet` or `presignPost` with a `contentDisposition`
+that is empty, not a string, or holds a character outside space-to-tilde:
+a CR, LF or NUL, a tab, an accented letter. `got` names the shape (`an empty string`,
+`a string with other characters`, or for a non-string `a number`,
+`an object`, `null`, `undefined`…), never the value, and the line ends with
+the call. `presignPut` takes no `contentDisposition` at all. A `put` refuses
+it too since 0.5.0; before it, any string went through to the service.
+**Why:** an `S3Error` with `code: 'WRONG_OPTION'`, raised before anything is
+sent or signed. The value becomes a header, and a line break in it would split
+that header.
+**Fix:** printable ASCII, with a non-ASCII filename spelled as RFC 6266's
+`filename*`:
+
+```ts
+const url = avatars.presignGet(
+	{ userId },
+	{ expiresIn: 300, contentDisposition: "attachment; filename*=UTF-8''%C3%A9t%C3%A9.png" },
+);
 ```
 
 ### `expiresIn is seconds, and must be above 0 and at most 604800 (seven days, which is S3's own limit); got a number above that (presignGet on "avatars")`

@@ -2,6 +2,7 @@ import { S3Client, type S3File, type S3Options, type S3Stats } from 'bun';
 import { bucketContext, keyOf } from './context';
 import { listObjects } from './operations/list';
 import {
+	type PresignGetOptions,
 	type PresignOptions,
 	presignGetUrl,
 	presignPutUrl,
@@ -25,7 +26,12 @@ import type {
 	PutOptions,
 } from './types';
 
-export type { PresignedPost, PresignOptions, PresignPostOptions };
+export type {
+	PresignedPost,
+	PresignGetOptions,
+	PresignOptions,
+	PresignPostOptions,
+};
 
 /** A bucket bound to credentials: the definition, with somewhere to put it. */
 export interface BoundBucket<P> {
@@ -59,8 +65,11 @@ export interface BoundBucket<P> {
 		limit?: number;
 		cursor?: string | null;
 	}): Promise<ObjectPage>;
-	/** A URL that reads this object, signed. */
-	presignGet(params: P, options?: PresignOptions): string;
+	/**
+	 * A URL that reads this object, signed. `contentDisposition` signs the
+	 * header the download is served with, for a link that saves under a name.
+	 */
+	presignGet(params: P, options?: PresignGetOptions): string;
 	/**
 	 * A URL that writes this object, signed. It constrains the key and the
 	 * deadline, and **nothing else** — not the size, not the content type.
