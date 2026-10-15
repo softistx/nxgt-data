@@ -19,8 +19,9 @@
  * one `make` deleted the files another was installing ("install: cannot stat
  * 'redis-server'"). Built once first, each package's own run finds it there.
  *
- * It holds no logic of its own — `redisBinary` lives beside the server that
- * starts it, so `REDIS_VERSION` and the cache path have one home. Its
+ * It holds no logic of its own — `redisBinary` lives in
+ * `packages/redis/test/server.ts`, and the version in
+ * `packages/redis/src/testing/test-redis.ts` (see below). Its
  * `$REDIS_BIN` branch is covered by `scripts/redis.spec.ts`.
  *
  * `$REDIS_BIN`, when set, names a `redis-server` to use instead — a system
