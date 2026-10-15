@@ -565,9 +565,10 @@ and fifty random blocks between 20000 and 30000 all had one taken.
 ### `timeoutMs is a whole number of milliseconds, 1 or more; got a fraction (stat on "avatars")`
 
 **When:** a `timeoutMs` that is zero, negative, a fraction, `NaN` or not a
-number, on `stat`, `exists`, `bytes`, `text` or `delete` — or on `bindBucket`,
-where it reads `(bindBucket on "avatars")`. `code: 'WRONG_OPTION'`, thrown
-before anything is sent.
+number, on `stat`, `exists`, `bytes`, `text` or `delete`. `code:
+'WRONG_OPTION'`, thrown before anything is sent. On `bindBucket` the same
+mistake is wiring, not a request: a bare `TypeError` reading `bindBucket on
+"avatars": timeoutMs is a whole number of milliseconds, 1 or more; got …`.
 **Fix:** pass whole milliseconds, 1 or more: `{ timeoutMs: 5000 }`.
 
 ### `stat on "avatars": no answer in 5000ms`

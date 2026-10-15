@@ -36,10 +36,9 @@ export async function readBytes<P>(
 	if (timeoutMs === undefined) {
 		return whenPresent(context, params, (file) => file.bytes());
 	}
-	return withDeadline(context, key, 'bytes', timeoutMs, async (signal) => {
-		const found = await getObject(context, key, signal);
-		return found && new Uint8Array(await found.arrayBuffer());
-	});
+	return withDeadline(context, key, 'bytes', timeoutMs, (signal) =>
+		getObject(context, key, signal),
+	);
 }
 
 export async function readText<P>(
@@ -54,7 +53,7 @@ export async function readText<P>(
 	}
 	return withDeadline(context, key, 'text', timeoutMs, async (signal) => {
 		const found = await getObject(context, key, signal);
-		return found?.text();
+		return found && new TextDecoder().decode(found);
 	});
 }
 

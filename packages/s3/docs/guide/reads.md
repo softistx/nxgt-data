@@ -112,7 +112,8 @@ try {
 milliseconds, 1 or more. No answer in time rejects with an `S3Error` coded
 `TIMEOUT`, and the request is aborted. Bind a default for the whole bucket
 with `bindBucket(definition, { ...credentials, timeoutMs })`; a call's own
-value wins. Anything else is a `WRONG_OPTION`, before anything is sent.
+value wins. A bad per-call value is a `WRONG_OPTION`, before anything is sent;
+a bad default on `bindBucket` is a bare `TypeError`, since it is wiring.
 
 Why it is not just Bun's call: measured on Bun 1.4.3, Bun's S3 calls ignore an
 `AbortSignal`, and its own limit is 360 s. So a call that has a deadline signs
