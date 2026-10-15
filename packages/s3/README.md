@@ -48,6 +48,62 @@ bun add @nxgt/s3 typescript @types/bun
   can sign for will do; a service that is not AWS wants
   `virtualHostedStyle: false`.
 
+## Testing
+
+`@nxgt/s3/testing` starts a real S3 API for a suite — SeaweedFS, on free
+ports, with no Docker and no dependency to install:
+
+```ts
+import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test';
+import { bindBucket, defineBucket } from '@nxgt/s3';
+import { startTestS3, type TestS3 } from '@nxgt/s3/testing';
+
+const avatars = defineBucket({
+	bucket: 'avatars',
+	key: (params: { userId: string }) => `${params.userId}.png`,
+	contentType: 'image/png',
+});
+
+let s3: TestS3;
+
+beforeAll(async () => {
+	s3 = await startTestS3();            // downloads SeaweedFS on a cold cache
+	await s3.createBucket('avatars');
+}, 120_000);
+
+beforeEach(() => s3.reset('avatars'));  // each test starts from nothing
+
+afterAll(() => s3.stop());
+
+test('stores an avatar', async () => {
+	const store = bindBucket(avatars, s3.options);   // credentials and endpoint
+	const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+	await store.put({ userId: 'u1' }, png, { type: 'image/png' });
+	expect(await store.exists({ userId: 'u1' })).toBe(true);
+});
+```
+
+- **The first run downloads SeaweedFS** (once) and checks it
+  against a SHA-256 pinned in the package for every platform it ships; a
+  download that does not match is refused and never cached. Give `beforeAll`
+  a generous timeout (120 s above), or fetch it ahead with
+  `await seaweedfsBinary()` from a script your `test` runs first.
+- **`$WEED_BIN`** names a `weed` binary you already have, and nothing is
+  downloaded.
+- `startTestS3(options?: TestS3Options)` — `{ binary?, cacheDir? }`: `binary`
+  wins over `$WEED_BIN`, which wins over the cache. `cacheDir` defaults to
+  `node_modules/.cache/@nxgt/s3/seaweedfs`, under the nearest `node_modules`
+  from the working directory; the binary lives in `<cacheDir>/<version>/weed`
+  (`TEST_SEAWEEDFS_VERSION`). Cache that folder in CI.
+- It resolves to `{ endpoint, accessKeyId, secretAccessKey, region, options,
+  createBucket(name), reset(bucket), stop() }`. `options` goes straight to
+  `bindBucket`. `stop()` kills the server and removes its files; calling it
+  twice does nothing. A server nobody stopped does not keep the process alive,
+  and is killed when it exits or gets SIGINT or SIGTERM (which then ends the
+  process with `128 + n`, unless you have a handler of your own).
+
+The [testing guide](docs/guide/testing.md) has the details.
+
 ## What it does not do
 
 - **No multipart upload.** A body goes in one `put`. Bun's own
@@ -84,21 +140,32 @@ at a call site and a renamed parameter is a compile error.
 environment variables. Each bound bucket holds an `S3Client` of its own: S3 is
 stateless HTTP, so there is no connection to share and nothing to close.
 
+`options` also takes `timeoutMs`, the bucket's default deadline for `stat`,
+`exists`, `bytes`, `text` and `delete`; a call's own `{ timeoutMs }` wins. It
+is not passed to the `S3Client`. A bad value is a `WRONG_OPTION` from
+`bindBucket` itself.
+
+```ts
+const store = bindBucket(avatars, { ...credentials, timeoutMs: 5000 });
+await store.stat({ userId: 'u1' });                    // 5 s
+await store.stat({ userId: 'u1' }, { timeoutMs: 500 }); // 500 ms
+```
+
 | `BoundBucket<P>` | |
 | --- | --- |
 | `client` | the `S3Client` this holds |
 | `keyFor(params)` | the key it would use |
 | `file(params)` | Bun's lazy `S3File`: `.stream()`, `.slice()`, `.writer()` |
 | `put(params, body, options?)` | writes it, once the content type and size have accepted it. See `PutOptions` below |
-| `bytes(params)` | the bytes, or `undefined` when there is no such object |
-| `text(params)` | the body as text, or `undefined` |
-| `exists(params)` | |
-| `stat(params)` | Bun's `S3Stats` — `size`, `lastModified`, `etag`, `type` — or `undefined`. Note `etag`, lower case: that is Bun's field. A listing's `StoredObject` says `eTag` |
-| `delete(params)` | |
+| `bytes(params, { timeoutMs }?)` | the bytes, or `undefined` when there is no such object |
+| `text(params, { timeoutMs }?)` | the body as text, or `undefined` |
+| `exists(params, { timeoutMs }?)` | |
+| `stat(params, { timeoutMs }?)` | Bun's `S3Stats` — `size`, `lastModified`, `etag`, `type` — or `undefined`. Note `etag`, lower case: that is Bun's field. A listing's `StoredObject` says `eTag` |
+| `delete(params, { timeoutMs }?)` | |
 | `list({ prefix, limit, cursor })` | one `ObjectPage` |
-| `presignGet(params, { expiresIn, acl })` | a signed URL that reads it |
+| `presignGet(params, { expiresIn, acl, contentDisposition })` | a signed URL that reads it. `contentDisposition` makes the service serve it as that download, a filename included — see below |
 | `presignPut(params, { expiresIn, acl })` | a signed URL that writes it. It takes no `type` — see the Traps |
-| `presignPost(params, { expiresIn, maxSize, minSize, type, acl })` | `{ url, fields }`, the form a browser posts to upload it. The **service** holds the upload to a size range and a content type — see below |
+| `presignPost(params, { expiresIn, maxSize, minSize, type, acl, contentDisposition })` | `{ url, fields }`, the form a browser posts to upload it. The **service** holds the upload to a size range and a content type — see below |
 
 ### What a write may say
 
@@ -126,6 +193,23 @@ goes, or how it gets there — see the Traps.
 
 Given both here and to `bindBucket`, the one on the write wins: it is the
 last thing handed to the client.
+
+### Download with a filename
+
+```ts
+const url = store.presignGet(
+	{ userId: 'u1' },
+	{ expiresIn: 300, contentDisposition: "attachment; filename*=UTF-8''ada.png" },
+);
+// the service answers this URL with that Content-Disposition, whatever
+// the object was stored with
+```
+
+The value is signed as `response-content-disposition`. Printable ASCII only:
+an empty string, a line break or any other control character, a non-ASCII
+character or a non-string is an `S3Error` with `code: 'WRONG_OPTION'`, and
+nothing is signed (a non-ASCII filename is spelled `filename*=UTF-8''…`,
+percent-encoded, per RFC 6266). A `put` is held to the same shape.
 
 ### Uploading from a browser
 
@@ -160,6 +244,7 @@ const response = await fetch(url, { method: 'POST', body });
 | `minSize` | the smallest body in bytes, `0` by default |
 | `type` | the one content type the form carries, or `{ startsWith: 'image/' }`. Defaults to the bucket's `contentType` when that is a single type; a bucket that names several needs one of them. A prefix is only for a bucket that names none, and the page's code then appends a `Content-Type` field before the file — a browser does not add one to a `FormData` by itself |
 | `acl` | fixed by the policy, from the same list as a write's |
+| `contentDisposition` | the `Content-Disposition` the object is stored with, fixed by the policy: a `Content-Disposition` field in `fields`, which the browser posts as given |
 
 The policy fixes the key with `eq`, the size with `content-length-range`, and
 the content type with `eq` (or `starts-with`). Measured against SeaweedFS 4.47,
@@ -202,10 +287,13 @@ it carries.
 | --- | --- |
 | `BucketDefinition<P>` | what `defineBucket` takes and gives back |
 | `BoundBucket<P>` | what `bindBucket` gives back |
+| `CallOptions` | `{ timeoutMs?: number \| undefined }`, the optional second argument of `stat`, `exists`, `bytes`, `text` and `delete` |
+| `BindOptions` | what `bindBucket` takes: Bun's `S3Options` without `bucket`, plus `timeoutMs` |
 | `ObjectPage` | `{ items: StoredObject[]; nextCursor: string \| null }` |
 | `StoredObject` | `{ key: string; size: number \| undefined; lastModified: Date \| undefined; eTag: string \| undefined }` — S3 does not promise the last three, so they are optional here |
-| `PresignOptions` | `{ expiresIn?: number \| undefined; acl?: … }` |
-| `PresignPostOptions` | `{ expiresIn?; maxSize?; minSize?; type?: string \| { startsWith: string }; acl? }` |
+| `PresignOptions` | `{ expiresIn?: number \| undefined; acl?: … }` — what `presignPut` takes |
+| `PresignGetOptions` | `PresignOptions` and `contentDisposition?: string \| undefined` |
+| `PresignPostOptions` | `{ expiresIn?; maxSize?; minSize?; type?: string \| { startsWith: string }; acl?; contentDisposition? }` |
 | `PresignedPost` | `{ url: string; fields: Record<string, string> }` — post `fields`, then the file |
 | `ParamsOf<D>` | what a definition's `key` takes, for a caller writing its own helper |
 | `PutBody` | everything Bun's `write` takes |
@@ -218,10 +306,12 @@ import it from `bun` where you need to name it.
 
 `S3Error` is this package's error class for **refusals** — a write, a
 presigned URL or a presigned POST whose input the bucket does not accept — and
-**every one of them is thrown before anything is sent**. It carries a `code`
+**every one of them is thrown before anything is sent**, except `TIMEOUT`,
+the one code raised after a request went out. It carries a `code`
 and the object `key` — never the body, never a credential. The package throws
 two other kinds, both below the table: a `TypeError` from `defineBucket` for a
-definition that could never work, and from `presignPost` when its secret is
+definition that could never work, from `bindBucket` for a `timeoutMs` default
+that is not whole milliseconds, and from `presignPost` when its secret is
 not Bun's; and a plain `Error` from `presignPost` when the URL Bun signed
 cannot be read.
 
@@ -236,7 +326,8 @@ if (error instanceof S3Error && error.code === 'TOO_LARGE') {
 | `WRONG_TYPE` | the body's content type is not one this bucket accepts — or the write named none and the bucket names some. From `presignPost` too, and for a `{ startsWith }` on a bucket that names its types |
 | `TOO_LARGE` | the body is bigger than `maxSize` |
 | `UNMEASURABLE` | `maxSize` is set and the body's size cannot be known before sending |
-| `WRONG_OPTION` | an option's own value is not one the service accepts: `acl` or `storageClass` on a write, `acl` or `expiresIn` on a presigned URL. On `presignPost`, also a `maxSize` or `minSize` that is not a whole number of bytes, a `maxSize` above the bucket's own or missing on a bucket without one, a `minSize` above the `maxSize`, and a `type` that is neither a string nor `{ startsWith }` |
+| `TIMEOUT` | a call with a `timeoutMs` (its own, or the bucket's) got no answer in time: `stat on "avatars": no answer in 5000ms`. The request is aborted, but it was **sent**: a `delete` may still have happened. On `stat`, `exists`, `bytes`, `text` and `delete` |
+| `WRONG_OPTION` | an option's own value is not one the service accepts: `acl` or `storageClass` on a write, `acl` or `expiresIn` on a presigned URL, and a `contentDisposition` that is not a non-empty string of printable ASCII on a write, a `presignGet` or a `presignPost`. On `presignPost`, also a `maxSize` or `minSize` that is not a whole number of bytes, a `maxSize` above the bucket's own or missing on a bucket without one, a `minSize` above the `maxSize`, and a `type` that is neither a string nor `{ startsWith }`. A `timeoutMs` that is not a whole number of milliseconds, 1 or more, on any call that takes one (`bindBucket` throws a bare `TypeError` for its default) |
 
 `defineBucket` throws a `TypeError` for a definition that could never work: an
 empty `bucket`, a `maxSize` that is not a positive number, an empty list of
@@ -273,11 +364,30 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   than a string, a `maxSize` that is not a number, or a misspelt option.
 - A presigned URL asked for without the params that identify the object, or
   with an `expiresIn` that is not a number.
+- A `presignPut` given a `contentDisposition`: only `presignGet`, `presignPost`
+  and `put` take one.
+- A `timeoutMs` that is a string, a `timeoutMs` on a `put`, and any option
+  other than `timeoutMs` on `stat`, `exists`, `bytes`, `text` or `delete`.
 - A listing asked for by page number, or a page read for a `total` — it pages
   by cursor, and S3 does not count.
 
 ## Traps
 
+- **A call with a deadline does not retry, and signs for 60 s.** Bun's client
+  retries a failed request (`retry`, passed through on `bindBucket`); the
+  deadline path sends one `fetch` and reports what it got. Its URLs are signed
+  for 60 seconds, so a clock skewed by more than that fails only when a
+  deadline is set. A client-level `acl` or `storageClass` given to `bindBucket`
+  is signed into those HEAD, GET and DELETE URLs too (measured: setting them
+  to `undefined` for one presign does not remove them); SeaweedFS ignores
+  them, AWS and R2 were not measured.
+- **Without `timeoutMs`, a silent service is waited for 360 s.** Measured on
+  Bun 1.4.3, Bun's own S3 calls ignore an `AbortSignal`, and `stat` against a
+  socket that accepts and never answers gives up only after 360 s, with Bun's
+  own error: **also named `S3Error`, `code: 'Timeout'`**. Check
+  `instanceof S3Error` against this package's class, and `code === 'TIMEOUT'`
+  — never the name. With a `timeoutMs`, the call is sent with `fetch` on a
+  URL Bun signs, which does abort. `put` and `list` have no deadline yet.
 - **The guards are `put`'s, not the bucket's.** `contentType` and `maxSize`
   are checked here, in `put`, before the request goes out. They cost nothing
   and they catch the honest mistake, but nothing else on the object goes
@@ -293,6 +403,12 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   bucket stores a zip happily. That is why `presignPut` takes no `type` at
   all: it would read as a guarantee it cannot make. **When the size or the
   type matters, use `presignPost`**, whose policy the service enforces.
+- **`contentDisposition` is a download override on `presignGet`; `presignPut`
+  takes none.** On a signed GET it is signed into the URL
+  (`response-content-disposition`) and wins over the header the object was
+  stored with, for that link only. A signed PUT would carry it as a response
+  override, which means nothing to a write, so the type refuses it. To store
+  a disposition with the object, give it to `put` or `presignPost`.
 - **A presigned POST's type is compared exactly, not on its essence.** The
   service matches the form's `Content-Type` field against the policy byte for
   byte — measured, `IMAGE/PNG` and `image/png;charset=utf-8` are both
@@ -330,8 +446,9 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   `acl` on a presigned URL against the same list — so one `catch` takes every
   refusal:
   `if (error instanceof S3Error) return c.json({ error: error.code }, 400);`.
-  `contentDisposition` and `contentEncoding` are free strings and are never
-  refused. `presignGet` and `presignPut` forward `acl` too, and go through the
+  `contentDisposition` must be a non-empty string of printable ASCII, else
+  `WRONG_OPTION`; `contentEncoding` is a free string and is never refused.
+  `presignGet` and `presignPut` forward `acl` too, and go through the
   same allowlist. The accepted values are listed in
   [docs/guide/writes.md](docs/guide/writes.md).
 - **A string body is measured in bytes, not in characters**, and `maxSize` is
@@ -359,6 +476,8 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
 
 - [docs/README.md](docs/README.md) — the guide index: buckets, reading,
   writing and presigned URLs, each with its options and a worked example.
+- [docs/guide/testing.md](docs/guide/testing.md) — a real S3 API for your
+  suite: `@nxgt/s3/testing`.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — every error this
   package can raise, by the message you will see.
 - [docs/roadmap.md](docs/roadmap.md) — what is coming, and what has been

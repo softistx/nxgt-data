@@ -1,9 +1,10 @@
 # Troubleshooting
 
 This package's error class for refusals is `S3Error`, with a `code` of
-`WRONG_TYPE`, `TOO_LARGE`, `UNMEASURABLE` or `WRONG_OPTION`, and the object
-`key` it was about — never the body. Every one of them is raised **before**
-anything is sent, so a refused write stored nothing. It throws two other
+`WRONG_TYPE`, `TOO_LARGE`, `UNMEASURABLE`, `WRONG_OPTION` or `TIMEOUT`, and
+the object `key` it was about — never the body. Every one of them but
+`TIMEOUT` is raised **before** anything is sent, so a refused write stored
+nothing; `TIMEOUT` is raised after, when a deadline passes. It throws two other
 kinds, for what is not the caller's input: a `TypeError` from `defineBucket`
 for a definition that could never work, and from `presignPost` when its
 secret is not the one Bun signs with (changed or deleted since the process
@@ -40,6 +41,7 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [`"avatars" has a maxSize, and this body's size cannot be known before sending it. …`](#avatars-has-a-maxsize-and-this-bodys-size-cannot-be-known-before-sending-it-)
   - [`storageClass must be one of STANDARD, DEEP_ARCHIVE, EXPRESS_ONEZONE, …; got another string (put on "avatars")`](#storageclass-must-be-one-of-standard-deep_archive-express_onezone--got-another-string-put-on-avatars)
   - [`acl must be one of private, public-read, public-read-write, …; got another string (put on "avatars")`](#acl-must-be-one-of-private-public-read-public-read-write--got-another-string-put-on-avatars)
+  - [`contentDisposition must be a non-empty string of printable ASCII, with no line break or control character (spell a non-ASCII filename as filename*=UTF-8''...); got a string with other characters (presignGet on "avatars")`](#contentdisposition-must-be-a-non-empty-string-of-printable-ascii-with-no-line-break-or-control-character-spell-a-non-ascii-filename-as-filenameutf-8-got-a-string-with-other-characters-presignget-on-avatars)
   - [`expiresIn is seconds, and must be above 0 and at most 604800 …; got a number above that (presignGet on "avatars")`](#expiresin-is-seconds-and-must-be-above-0-and-at-most-604800-seven-days-which-is-s3s-own-limit-got-a-number-above-that-presignget-on-avatars)
 - **Presigned POSTs refused before they are signed**
   - [``presignPost on "uploads": this bucket has no maxSize, … Pass `maxSize`, in bytes``](#presignpost-on-uploads-this-bucket-has-no-maxsize-and-a-presigned-post-is-a-bound-on-what-a-browser-uploads-pass-maxsize-in-bytes)
@@ -52,6 +54,19 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [`presignPost on "avatars": the secret access key this package would sign with is not the one Bun signs with, so the service would refuse the form. …`](#presignpost-on-avatars-the-secret-access-key-this-package-would-sign-with-is-not-the-one-bun-signs-with-so-the-service-would-refuse-the-form-)
   - [`presignPost on "avatars": no secret access key to sign with, while Bun has one. …`](#presignpost-on-avatars-no-secret-access-key-to-sign-with-while-bun-has-one-)
   - [`presignPost on "avatars": the URL Bun signed has no credential scope, …`](#presignpost-on-avatars-the-url-bun-signed-has-no-credential-scope-or-not-the-key-at-the-end-of-its-path-so-there-is-nowhere-to-post-the-form-)
+- **Testing**
+  - [`WEED_BIN is /nowhere/weed, which does not exist`](#weed_bin-is-nowhereweed-which-does-not-exist)
+  - [`binary is /nowhere/weed, which does not exist`](#binary-is-nowhereweed-which-does-not-exist)
+  - [`No SeaweedFS binary for win32/x64: install one and set WEED_BIN to its path.`](#no-seaweedfs-binary-for-win32x64-install-one-and-set-weed_bin-to-its-path)
+  - [`SeaweedFS 4.47 linux_amd64.tar.gz has SHA-256 …, expected …: refusing to run it.`](#seaweedfs-447-linux_amd64targz-has-sha-256--expected--refusing-to-run-it)
+  - [`No pinned SHA-256 for SeaweedFS 4.47 plan9_amd64.tar.gz: refusing to run an unchecked download.`](#no-pinned-sha-256-for-seaweedfs-447-plan9_amd64targz-refusing-to-run-an-unchecked-download)
+  - [`GET https://github.com/seaweedfs/seaweedfs/releases/download/4.47/linux_amd64.tar.gz answered 404`](#get-httpsgithubcomseaweedfsseaweedfsreleasesdownload447linux_amd64targz-answered-404)
+  - [`SeaweedFS did not serve S3 on http://127.0.0.1:24561 in 90s (bucket "avatars"). Its log, …/weed.log, says:`](#seaweedfs-did-not-serve-s3-on-http12700124561-in-90s-bucket-avatars-its-log-weedlog-says)
+  - [`createBucket: "x" is not a bucket name S3 accepts: 3 to 63 characters, lowercase letters, digits, dots and hyphens, starting and ending with a letter or digit`](#createbucket-x-is-not-a-bucket-name-s3-accepts-3-to-63-characters-lowercase-letters-digits-dots-and-hyphens-starting-and-ending-with-a-letter-or-digit)
+  - [`no free block of 8 consecutive ports`](#no-free-block-of-8-consecutive-ports)
+- **Deadlines**
+  - [`timeoutMs is a whole number of milliseconds, 1 or more; got a fraction (stat on "avatars")`](#timeoutms-is-a-whole-number-of-milliseconds-1-or-more-got-a-fraction-stat-on-avatars)
+  - [`stat on "avatars": no answer in 5000ms`](#stat-on-avatars-no-answer-in-5000ms)
 - **The service**
   - [`Missing S3 credentials. 'accessKeyId', 'secretAccessKey', 'bucket', and 'endpoint' are required`](#missing-s3-credentials-accesskeyid-secretaccesskey-bucket-and-endpoint-are-required)
   - [`The AWS Access Key Id you provided does not exist in our records.`](#the-aws-access-key-id-you-provided-does-not-exist-in-our-records)
@@ -259,8 +274,9 @@ of those. Both paths go through the same allowlist since 0.3.0; before it,
 package is older than 0.3.0. From 0.3.0 to 0.4.0 this one quoted the value it
 was given (`got "everyone"`); it now gives only its shape.
 **Why:** the same `code: 'WRONG_OPTION'`, before anything is sent or signed.
-The two guarded options are `acl` and `storageClass`; `contentDisposition`
-and `contentEncoding` are plain strings to the service and accept anything.
+The guarded options are `acl` and `storageClass` (a fixed set each) and
+`contentDisposition` (one printable-ASCII header value); `contentEncoding` is a
+plain string to the service and accepts anything.
 `presignGet`, `presignPut` and `presignPost` take no `storageClass` —
 nothing is stored by signing a URL or a form.
 **Fix:**
@@ -268,6 +284,28 @@ nothing is stored by signing a URL or a form.
 ```ts
 await avatars.put({ userId }, bytes, { acl: 'public-read' });
 const url = avatars.presignPut({ userId }, { acl: 'private', expiresIn: 300 });
+```
+
+### `contentDisposition must be a non-empty string of printable ASCII, with no line break or control character (spell a non-ASCII filename as filename*=UTF-8''...); got a string with other characters (presignGet on "avatars")`
+
+**When:** `put`, `presignGet` or `presignPost` with a `contentDisposition`
+that is empty, not a string, or holds a character outside space-to-tilde:
+a CR, LF or NUL, a tab, an accented letter. `got` names the shape (`an empty string`,
+`a string with other characters`, or for a non-string `a number`,
+`an object`, `null`, `undefined`…), never the value, and the line ends with
+the call. `presignPut` takes no `contentDisposition` at all. A `put` refuses
+it too since 0.5.0; before it, any string went through to the service.
+**Why:** an `S3Error` with `code: 'WRONG_OPTION'`, raised before anything is
+sent or signed. The value becomes a header, and a line break in it would split
+that header.
+**Fix:** printable ASCII, with a non-ASCII filename spelled as RFC 6266's
+`filename*`:
+
+```ts
+const url = avatars.presignGet(
+	{ userId },
+	{ expiresIn: 300, contentDisposition: "attachment; filename*=UTF-8''%C3%A9t%C3%A9.png" },
+);
 ```
 
 ### `expiresIn is seconds, and must be above 0 and at most 604800 (seven days, which is S3's own limit); got a number above that (presignGet on "avatars")`
@@ -439,6 +477,116 @@ without either would post the form somewhere else, or sign it as nobody, so
 it is refused rather than guessed.
 **Fix:** use Bun 1.4.2, the version this package was measured on, and
 [open an issue](https://github.com/softistx/nxgt-data/issues) naming the Bun version that produced it.
+
+## Testing
+
+Errors of `@nxgt/s3/testing`; see the [testing guide](guide/testing.md).
+
+### `WEED_BIN is /nowhere/weed, which does not exist`
+
+**When:** `startTestS3()` or `seaweedfsBinary()`, with `$WEED_BIN` set.
+**Why:** `$WEED_BIN` names a file that is not there. It is used before the
+cache, so a stale value in your shell or CI hides the downloaded binary.
+**Fix:** point it at a `weed` that exists, or unset it:
+
+```sh
+unset WEED_BIN
+```
+
+### `binary is /nowhere/weed, which does not exist`
+
+**When:** `startTestS3({ binary })`.
+**Why:** the `binary` option wins over `$WEED_BIN` and the cache, and it names
+a missing file.
+**Fix:** pass a path that exists, or leave `binary` out.
+
+### `No SeaweedFS binary for win32/x64: install one and set WEED_BIN to its path.`
+
+**When:** the first run, on a platform and architecture the SeaweedFS release
+does not ship (Windows, and 32-bit ARM macOS), with nothing cached.
+**Why:** `startTestS3` downloads a release asset named for `process.platform`
+and `process.arch`, and there is none for this one.
+**Fix:** install or build `weed` yourself and name it:
+
+```sh
+WEED_BIN=/usr/local/bin/weed bun test
+```
+
+### `SeaweedFS 4.47 linux_amd64.tar.gz has SHA-256 …, expected …: refusing to run it.`
+
+**When:** the first run, downloading SeaweedFS.
+**Why:** the archive is not the one this version of `@nxgt/s3` pins. A proxy
+that rewrites downloads, a truncated transfer, or a release asset replaced
+upstream all end here. Nothing was unpacked or cached.
+**Fix:** retry on a clean connection; behind a proxy that serves its own
+copy, install `weed` and set `$WEED_BIN`. If the release itself changed,
+that is a bug to report: do not bypass the check.
+
+### `No pinned SHA-256 for SeaweedFS 4.47 plan9_amd64.tar.gz: refusing to run an unchecked download.`
+
+**When:** the first run; the asset the platform maps to has no pinned hash.
+**Why:** a table and a platform mapping that disagree, which this package's
+own spec rules out for the shipped platforms.
+**Fix:** set `$WEED_BIN`, and report the platform.
+
+### `GET https://github.com/seaweedfs/seaweedfs/releases/download/4.47/linux_amd64.tar.gz answered 404`
+
+**When:** the first run, downloading SeaweedFS.
+**Why:** GitHub did not serve the asset: the network is down or filtered, a
+rate limit answered, or the release was withdrawn.
+**Fix:** retry; in a sandbox without network, download once elsewhere and
+cache `node_modules/.cache/@nxgt/s3/seaweedfs`, or set `$WEED_BIN`.
+
+### `SeaweedFS did not serve S3 on http://127.0.0.1:24561 in 90s (bucket "avatars"). Its log, …/weed.log, says:`
+
+**When:** `startTestS3()` or `createBucket(name)`.
+**Why:** the process started but never took a write. The message ends with
+the interesting lines of its own log: a taken port, a binary that dies on
+start, a disk with no room for the volumes it allocates.
+**Fix:** read those lines first. A machine under heavy load can also need
+longer than 90 s; stop other test servers, and give `beforeAll` a timeout of
+120 s or more.
+
+### `createBucket: "x" is not a bucket name S3 accepts: 3 to 63 characters, lowercase letters, digits, dots and hyphens, starting and ending with a letter or digit`
+
+**When:** `createBucket(name)`.
+**Why:** SeaweedFS refuses every write to a bucket whose name breaks S3's
+rules, so without this check the call would retry for 90 s and time out.
+**Fix:** name the bucket within the rules (`avatars`, `user-uploads`).
+
+### `no free block of 8 consecutive ports`
+
+**When:** `startTestS3()`.
+**Why:** SeaweedFS binds eight ports (four services, each with a gRPC port),
+and fifty random blocks between 20000 and 30000 all had one taken.
+**Fix:** stop what holds ports in that range, or run fewer servers at once.
+
+## Deadlines
+
+### `timeoutMs is a whole number of milliseconds, 1 or more; got a fraction (stat on "avatars")`
+
+**When:** a `timeoutMs` that is zero, negative, a fraction, `NaN` or not a
+number, on `stat`, `exists`, `bytes`, `text` or `delete`. `code:
+'WRONG_OPTION'`, thrown before anything is sent. On `bindBucket` the same
+mistake is wiring, not a request: a bare `TypeError` reading `bindBucket on
+"avatars": timeoutMs is a whole number of milliseconds, 1 or more; got …`.
+**Fix:** pass whole milliseconds, 1 or more: `{ timeoutMs: 5000 }`.
+
+### `stat on "avatars": no answer in 5000ms`
+
+**When:** a call with a `timeoutMs` — its own or the bucket's — got no answer
+in time. `code: 'TIMEOUT'`; the message names the call and the bucket, and the
+`key` is on the error.
+**Why:** the service is down, unreachable, or accepts the connection and never
+answers. The request was **aborted**, but it had been **sent**: a `delete`
+may have happened all the same.
+**Fix:** retry if the call is safe to repeat, or raise the deadline. Without a
+`timeoutMs`, Bun waits 360 s and fails with its own error, named `S3Error`
+too, with `code: 'Timeout'` — test `error instanceof S3Error`, then `code`.
+
+```ts
+if (error instanceof S3Error && error.code === 'TIMEOUT') retryLater();
+```
 
 ## The service
 

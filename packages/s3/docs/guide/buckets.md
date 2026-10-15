@@ -42,11 +42,18 @@ interface BucketDefinition<P> {
 	readonly maxSize?: number;
 }
 
+/** Bun's `S3Options` without `bucket`, plus a default deadline. */
+type BindOptions = Omit<S3Options, 'bucket'> & CallOptions;
+
+interface CallOptions {
+	timeoutMs?: number | undefined;
+}
+
 function defineBucket<P>(definition: BucketDefinition<P>): BucketDefinition<P>;
 
 function bindBucket<P>(
 	definition: BucketDefinition<P>,
-	options?: Omit<S3Options, 'bucket'>,
+	options?: BindOptions,
 ): BoundBucket<P>;
 
 interface BoundBucket<P> {
@@ -54,17 +61,17 @@ interface BoundBucket<P> {
 	keyFor(params: P): string;
 	file(params: P): S3File;
 	put(params: P, body: PutBody, options?: PutOptions): Promise<void>;
-	bytes(params: P): Promise<Uint8Array | undefined>;
-	text(params: P): Promise<string | undefined>;
-	exists(params: P): Promise<boolean>;
-	stat(params: P): Promise<S3Stats | undefined>;
-	delete(params: P): Promise<void>;
+	bytes(params: P, options?: CallOptions): Promise<Uint8Array | undefined>;
+	text(params: P, options?: CallOptions): Promise<string | undefined>;
+	exists(params: P, options?: CallOptions): Promise<boolean>;
+	stat(params: P, options?: CallOptions): Promise<S3Stats | undefined>;
+	delete(params: P, options?: CallOptions): Promise<void>;
 	list(options?: {
 		prefix?: string;
 		limit?: number;
 		cursor?: string | null;
 	}): Promise<ObjectPage>;
-	presignGet(params: P, options?: PresignOptions): string;
+	presignGet(params: P, options?: PresignGetOptions): string;
 	presignPut(params: P, options?: PresignOptions): string;
 	presignPost(params: P, options?: PresignPostOptions): PresignedPost;
 }
@@ -118,8 +125,13 @@ The definition it gives back is frozen, so it cannot drift once it is shared.
 ## Binding it
 
 `options` is Bun's own `S3Options` without `bucket` — the bucket comes from
-the definition, and a call may never change it. It is optional: given none,
-Bun reads its own `S3_*` / `AWS_*` environment variables.
+the definition, and a call may never change it — plus `timeoutMs`, which is
+this package's own. It is optional: given none, Bun reads its own `S3_*` /
+`AWS_*` environment variables.
+
+| option | |
+| --- | --- |
+| `timeoutMs` | `number`, whole milliseconds, 1 or more. Default: none, so Bun's own limit of 360 s (measured). The deadline of `stat`, `exists`, `bytes`, `text` and `delete`: no answer in time is an `S3Error` coded `TIMEOUT`, and the request is aborted. A call's own `{ timeoutMs }` wins. It never reaches the `S3Client`. A bad value is a bare `TypeError` from `bindBucket` (wiring), and a `WRONG_OPTION` on a call — see [Deadlines](reads.md#deadlines) |
 
 ```ts
 const store = bindBucket(avatars); // credentials from the environment

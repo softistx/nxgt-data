@@ -27,10 +27,14 @@ Describing and binding a bucket is [Buckets](buckets.md).
 ```ts
 import type { S3File, S3Stats } from 'bun';
 
-bytes(params: P): Promise<Uint8Array | undefined>;
-text(params: P): Promise<string | undefined>;
-stat(params: P): Promise<S3Stats | undefined>;
-exists(params: P): Promise<boolean>;
+interface CallOptions {
+	timeoutMs?: number | undefined;
+}
+
+bytes(params: P, options?: CallOptions): Promise<Uint8Array | undefined>;
+text(params: P, options?: CallOptions): Promise<string | undefined>;
+stat(params: P, options?: CallOptions): Promise<S3Stats | undefined>;
+exists(params: P, options?: CallOptions): Promise<boolean>;
 file(params: P): S3File;
 
 list(options?: {
@@ -88,6 +92,47 @@ if (found) {
 `stat` is Bun's own `S3Stats`, which this package does not re-export; import
 it from `bun` where you need to name it. A listing's `StoredObject` says
 `eTag`, because that is what S3 calls it there.
+
+## Deadlines
+
+```ts
+import { S3Error } from '@nxgt/s3';
+
+try {
+	await store.stat('q1', { timeoutMs: 5000 });
+} catch (error) {
+	if (error instanceof S3Error && error.code === 'TIMEOUT') {
+		// stat on "reports": no answer in 5000ms
+	}
+	throw error;
+}
+```
+
+`stat`, `exists`, `bytes`, `text` and `delete` take `{ timeoutMs }`: whole
+milliseconds, 1 or more. No answer in time rejects with an `S3Error` coded
+`TIMEOUT`, and the request is aborted. Bind a default for the whole bucket
+with `bindBucket(definition, { ...credentials, timeoutMs })`; a call's own
+value wins. A bad per-call value is a `WRONG_OPTION`, before anything is sent;
+a bad default on `bindBucket` is a bare `TypeError`, since it is wiring.
+
+Why it is not just Bun's call: measured on Bun 1.4.3, Bun's S3 calls ignore an
+`AbortSignal`, and its own limit is 360 s. So a call that has a deadline signs
+a URL with Bun's client and sends it with `fetch`, which does abort — the
+socket is closed. A call without one is Bun's, unchanged. The results are the
+same either way: `undefined` or `false` for a missing object, the same
+`S3Stats` fields, and a service failure comes back as an `Error` named
+`S3Error` with S3's `code` (for a `stat` or `exists`, `UnknownError`, as Bun's
+own HEAD does). A refused or dropped connection, even in the middle of the body, is the same
+`S3Error` Bun gives without a deadline (`ConnectionRefused` or
+`ConnectionClosed`, `DNSResolveFailed` for a host that does not resolve, `path`
+the key; any other failure nobody mapped is reported as `ConnectionClosed`) and never carries the signed URL. The
+deadline path does not retry; Bun's client does, per `retry`. A redirect is
+followed on both paths, to whatever `location` the service names: the deadline
+path sends a plain request there, without the signed query, and Bun's sends no
+`Authorization` either.
+`TIMEOUT` is raised **after** the request was sent.
+
+`put` and `list` take no deadline yet.
 
 ## Big bodies, and everything else
 

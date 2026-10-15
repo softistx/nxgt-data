@@ -71,6 +71,14 @@ void store.stat({ id: 'u1' });
 // @ts-expect-error a delete is for an object this bucket can name
 void store.delete({ id: 'u1' });
 
+// A signed GET can ask for a download name; a signed PUT has no use for one.
+store.presignGet({ userId: 'u1' }, { contentDisposition: 'attachment' });
+store.presignPut(
+	{ userId: 'u1' },
+	// @ts-expect-error a presigned PUT signs no response header; it takes none
+	{ contentDisposition: 'attachment' },
+);
+
 // @ts-expect-error a presigned PUT is for one object, so it needs its params
 store.presignPut();
 
@@ -189,3 +197,17 @@ store.presignPost(
 	// @ts-expect-error an `acl` is one the service accepts, not any string
 	{ acl: 'everyone' },
 );
+
+// A deadline is a number of milliseconds, on the calls that wait on the
+// service and on the bucket's defaults.
+store.stat({ userId: 'u1' }, { timeoutMs: 5000 });
+store.bytes({ userId: 'u1' }, { timeoutMs: undefined });
+// @ts-expect-error `timeoutMs` is a number
+store.text({ userId: 'u1' }, { timeoutMs: '5000' });
+// @ts-expect-error a call takes `timeoutMs` and nothing else (no caller signal)
+store.exists({ userId: 'u1' }, { signal: new AbortController().signal });
+bindBucket(avatars, { timeoutMs: 5000 });
+// @ts-expect-error the bucket's default is a number too
+bindBucket(avatars, { timeoutMs: '5000' });
+// @ts-expect-error a write has no deadline of its own
+store.put({ userId: 'u1' }, 'body', { timeoutMs: 5000 });
