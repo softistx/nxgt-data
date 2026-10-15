@@ -5,7 +5,10 @@ shipped in is the only number on this page.
 
 ## Now
 
-_Nothing in progress._
+- **A deadline on the calls that wait on the service** — `timeoutMs` on
+  `stat`, `exists`, `bytes`, `text` and `delete`, or as the bucket's default on
+  `bindBucket`: no answer in time rejects with `S3Error` `TIMEOUT` and aborts
+  the request, which Bun's own calls (360 s) cannot do.
 
 ## Next
 
@@ -15,6 +18,11 @@ _Nothing queued._
 
 - **Copy and move** — once Bun's own `S3Client` has them. Until then
   `store.client` is where they live.
+- **A deadline on `put` and `list`** — they stay on Bun's own call, which
+  ignores an abort, until they are moved onto a signed `fetch` the way the
+  reads and `delete` are.
+- **A caller's `signal`** — an `AbortSignal` of the caller's own, beside or
+  instead of `timeoutMs`.
 
 ## Not planned
 

@@ -38,7 +38,7 @@ type PutOptions = Pick<
 >;
 
 put(params: P, body: PutBody, options?: PutOptions): Promise<void>;
-delete(params: P): Promise<void>;
+delete(params: P, options?: { timeoutMs?: number | undefined }): Promise<void>;
 ```
 
 ## What a body may be
@@ -225,6 +225,11 @@ await store.delete({ userId: 'u1' });
 
 S3 does not say whether anything was there, and nor does this. Call `exists`
 first when it matters — see [Reading](reads.md).
+
+`delete` takes a deadline: `store.delete(params, { timeoutMs: 5000 })` rejects
+with `S3Error` `TIMEOUT` when the service does not answer, and aborts the
+request. The request was sent, so the object may be gone all the same. See
+[Deadlines](reads.md#deadlines). `put` has none yet.
 
 ## A real one: an upload route
 

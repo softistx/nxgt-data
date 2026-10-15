@@ -1,6 +1,8 @@
 import { type BucketContext, callOf, keyOf } from '../context';
 import { checkOption, checkSize, checkType, effectiveType } from '../guards';
-import type { PutBody, PutOptions } from '../types';
+import type { CallOptions, PutBody, PutOptions } from '../types';
+import { deadlineOf, withDeadline } from './deadline';
+import { removeObject } from './fetch-object';
 
 /**
  * Writes it, once the bucket's content type and size have accepted it. Both
@@ -72,9 +74,18 @@ function passed(key: string, options: PutOptions, where: string): PutOptions {
 }
 
 /** Removes it. S3 does not say whether anything was there, and nor does this. */
-export function deleteObject<P>(
+export async function deleteObject<P>(
 	context: BucketContext<P>,
 	params: P,
+	options?: CallOptions,
 ): Promise<void> {
-	return context.client.delete(keyOf(context, params));
+	const key = keyOf(context, params);
+	const timeoutMs = deadlineOf(context, key, 'delete', options);
+	if (timeoutMs === undefined) {
+		await context.client.delete(key);
+		return;
+	}
+	await withDeadline(context, key, 'delete', timeoutMs, (signal) =>
+		removeObject(context, key, signal),
+	);
 }

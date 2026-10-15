@@ -1,5 +1,6 @@
 import { S3Client, type S3File, type S3Options, type S3Stats } from 'bun';
 import { bucketContext, keyOf } from './context';
+import { checkTimeout } from './operations/deadline';
 import { listObjects } from './operations/list';
 import {
 	type PresignOptions,
@@ -20,10 +21,18 @@ import {
 import { deleteObject, putObject } from './operations/writes';
 import type {
 	BucketDefinition,
+	CallOptions,
 	ObjectPage,
 	PutBody,
 	PutOptions,
 } from './types';
+
+/**
+ * Bun's own `S3Options` without `bucket`, plus the bucket's default
+ * `timeoutMs` for `bytes`, `text`, `exists`, `stat` and `delete`. A call's
+ * own `timeoutMs` wins. It never reaches the `S3Client`.
+ */
+export type BindOptions = Omit<S3Options, 'bucket'> & CallOptions;
 
 export type { PresignedPost, PresignOptions, PresignPostOptions };
 
@@ -45,14 +54,14 @@ export interface BoundBucket<P> {
 	 */
 	put(params: P, body: PutBody, options?: PutOptions): Promise<void>;
 	/** The bytes, or `undefined` when there is no such object. */
-	bytes(params: P): Promise<Uint8Array | undefined>;
+	bytes(params: P, options?: CallOptions): Promise<Uint8Array | undefined>;
 	/** The body as text, or `undefined` when there is no such object. */
-	text(params: P): Promise<string | undefined>;
-	exists(params: P): Promise<boolean>;
+	text(params: P, options?: CallOptions): Promise<string | undefined>;
+	exists(params: P, options?: CallOptions): Promise<boolean>;
 	/** What the service knows about it, or `undefined` when it is not there. */
-	stat(params: P): Promise<S3Stats | undefined>;
+	stat(params: P, options?: CallOptions): Promise<S3Stats | undefined>;
 	/** Removes it. S3 does not say whether anything was there, and nor does this. */
-	delete(params: P): Promise<void>;
+	delete(params: P, options?: CallOptions): Promise<void>;
 	/** One page of the bucket, in this repository's cursor shape. */
 	list(options?: {
 		prefix?: string;
@@ -94,21 +103,32 @@ export interface BoundBucket<P> {
  */
 export function bindBucket<P>(
 	definition: BucketDefinition<P>,
-	options: Omit<S3Options, 'bucket'> = {},
+	options: BindOptions = {},
 ): BoundBucket<P> {
-	const client = new S3Client({ ...options, bucket: definition.bucket });
-	const context = bucketContext(client, definition, options.secretAccessKey);
+	const { timeoutMs, ...clientOptions } = options;
+	const deadline = checkTimeout(
+		'',
+		timeoutMs,
+		`bindBucket on "${definition.bucket}"`,
+	);
+	const client = new S3Client({ ...clientOptions, bucket: definition.bucket });
+	const context = bucketContext(
+		client,
+		definition,
+		options.secretAccessKey,
+		deadline,
+	);
 	return {
 		client,
 		keyFor: (params) => keyOf(context, params),
 		file: (params) => client.file(keyOf(context, params)),
 		put: (params, body, putOptions) =>
 			putObject(context, params, body, putOptions),
-		bytes: (params) => readBytes(context, params),
-		text: (params) => readText(context, params),
-		exists: (params) => objectExists(context, params),
-		stat: (params) => statObject(context, params),
-		delete: (params) => deleteObject(context, params),
+		bytes: (params, callOptions) => readBytes(context, params, callOptions),
+		text: (params, callOptions) => readText(context, params, callOptions),
+		exists: (params, callOptions) => objectExists(context, params, callOptions),
+		stat: (params, callOptions) => statObject(context, params, callOptions),
+		delete: (params, callOptions) => deleteObject(context, params, callOptions),
 		list: (listOptions) => listObjects(context, listOptions),
 		presignGet: (params, presignOptions) =>
 			presignGetUrl(context, params, presignOptions),
