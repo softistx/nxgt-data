@@ -28,7 +28,7 @@ incrementals in between, each verified, the rotation, and a restore drill.
 
 ## Development
 
-Bun 1.4.2.
+Bun 1.4.3.
 
 ```sh
 bun install

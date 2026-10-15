@@ -394,6 +394,15 @@ nothing here is JavaScript or uses a decorator. An application's own
 tsconfig may hold any of these, so the published declarations must compile
 under all of them; a package's `tsconfig.json` turns no check on or off.
 
+`tsc` stays the typechecker; Bun 1.4.3's `bun check` does not replace it. On
+`s3`, `redis`, `meilisearch` and `backup` (measured on 1.4.3) it reports the
+same clean result and the same error on a planted one, in about 0.05 to 0.1 s
+against 0.4 to 0.8 s for `tsc --noEmit`, so it is faster, but: Bun embeds
+TypeScript 6.0.3 while the Newest peers job checks TypeScript 7; `bun check`
+only reports, it emits no `.d.ts`, which `build` needs `tsc` for; and the root
+`check` script (Biome) shadows `bun check` at the repository root, where it
+runs Biome instead.
+
 - **A key off an index signature is read with brackets**: `env['PORT']`,
   `document['_id']`, `options['withDeleted']`. That is what
   `noPropertyAccessFromIndexSignature` asks for, and why Biome's
