@@ -363,11 +363,23 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   than a string, a `maxSize` that is not a number, or a misspelt option.
 - A presigned URL asked for without the params that identify the object, or
   with an `expiresIn` that is not a number.
+- A `presignPut` given a `contentDisposition`: only `presignGet`, `presignPost`
+  and `put` take one.
+- A `timeoutMs` that is a string, a `timeoutMs` on a `put`, and any option
+  other than `timeoutMs` on `stat`, `exists`, `bytes`, `text` or `delete`.
 - A listing asked for by page number, or a page read for a `total` — it pages
   by cursor, and S3 does not count.
 
 ## Traps
 
+- **A call with a deadline does not retry, and signs for 60 s.** Bun's client
+  retries a failed request (`retry`, passed through on `bindBucket`); the
+  deadline path sends one `fetch` and reports what it got. Its URLs are signed
+  for 60 seconds, so a clock skewed by more than that fails only when a
+  deadline is set. A client-level `acl` or `storageClass` given to `bindBucket`
+  is signed into those HEAD, GET and DELETE URLs too (measured: setting them
+  to `undefined` for one presign does not remove them); SeaweedFS ignores
+  them, AWS and R2 were not measured.
 - **Without `timeoutMs`, a silent service is waited for 360 s.** Measured on
   Bun 1.4.3, Bun's own S3 calls ignore an `AbortSignal`, and `stat` against a
   socket that accepts and never answers gives up only after 360 s, with Bun's

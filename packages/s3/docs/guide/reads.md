@@ -122,7 +122,11 @@ socket is closed. A call without one is Bun's, unchanged. The results are the
 same either way: `undefined` or `false` for a missing object, the same
 `S3Stats` fields, and a service failure comes back as an `Error` named
 `S3Error` with S3's `code` (for a `stat` or `exists`, `UnknownError`, as Bun's
-own HEAD does). `TIMEOUT` is raised **after** the request was sent.
+own HEAD does). A refused or dropped connection, even in the middle of the body, is the same
+`S3Error` Bun gives without a deadline (`ConnectionRefused` or
+`ConnectionClosed`, `path` the key) and never carries the signed URL. The
+deadline path does not retry; Bun's client does, per `retry`.
+`TIMEOUT` is raised **after** the request was sent.
 
 `put` and `list` take no deadline yet.
 

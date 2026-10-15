@@ -5,19 +5,7 @@ shipped in is the only number on this page.
 
 ## Now
 
-- **A download with a filename** — `presignGet(params, { contentDisposition })`
-  signs `response-content-disposition`, so a link saves the object under a
-  name you choose; `presignPost` can pin a `Content-Disposition` field in its
-  policy. `put`'s `contentDisposition` is now held to one printable header
-  value too. Ships with the rest of this effort.
-- **A deadline on the calls that wait on the service** — `timeoutMs` on
-  `stat`, `exists`, `bytes`, `text` and `delete`, or as the bucket's default on
-  `bindBucket`: no answer in time rejects with `S3Error` `TIMEOUT` and aborts
-  the request, which Bun's own calls (360 s) cannot do.
-- **`@nxgt/s3/testing`** — `startTestS3()` starts a real S3 API (SeaweedFS) on
-  free ports for a suite, with `createBucket`, `reset` and `stop`, and the
-  options `bindBucket` takes. The binary is checked against a pinned SHA-256
-  before it runs. See the [testing guide](guide/testing.md).
+_Nothing queued._
 
 ## Next
 
@@ -56,6 +44,19 @@ _Nothing queued._
 
 ## Shipped
 
+- **A download with a filename** — `presignGet(params, { contentDisposition })`
+  signs `response-content-disposition`, so a link saves the object under a
+  name you choose; `presignPost` can pin a `Content-Disposition` field in its
+  policy. `put`'s `contentDisposition` is now held to one printable header
+  value too — 0.5.0.
+- **A deadline on the calls that wait on the service** — `timeoutMs` on
+  `stat`, `exists`, `bytes`, `text` and `delete`, or as the bucket's default on
+  `bindBucket`: no answer in time rejects with `S3Error` `TIMEOUT` and aborts
+  the request, which Bun's own calls (360 s) cannot do — 0.5.0.
+- **`@nxgt/s3/testing`** — `startTestS3()` starts a real S3 API (SeaweedFS) on
+  free ports for a suite, with `createBucket`, `reset` and `stop`, and the
+  options `bindBucket` takes. The binary is checked against a pinned SHA-256
+  before it runs. See the [testing guide](guide/testing.md) — 0.5.0.
 - **Uploads the service holds to a size and a type** — `presignPost` signs an
   S3 POST policy, the form a browser posts straight to the bucket: the key
   fixed, the size held to a `content-length-range` that defaults to the
