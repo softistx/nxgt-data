@@ -275,8 +275,8 @@ const url = avatars.presignPut({ userId }, { acl: 'private', expiresIn: 300 });
 
 **When:** `put`, `presignGet` or `presignPost` with a `contentDisposition`
 that is empty, not a string, or holds a character outside space-to-tilde:
-a CR, LF or NUL, a tab, an accented letter. `got` names the shape (`a number`,
-`an empty string`, `a string with other characters`), never the value, and the
+a CR, LF or NUL, a tab, an accented letter. `got` names the shape (`an empty string`,
+`a string with other characters`, or for a non-string `a number`, `an object`, `null`, `undefined`…), never the value, and the
 line ends with the call. `presignPut` takes no `contentDisposition` at all.
 A `put` refuses it too since this release; before it, any string went
 through to the service.

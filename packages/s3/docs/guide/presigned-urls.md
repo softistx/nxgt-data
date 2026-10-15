@@ -30,12 +30,16 @@ which object they mean — see [Buckets](buckets.md).
 ```ts
 import type { S3Options } from 'bun';
 
-presignGet(params: P, options?: PresignOptions): string;
+presignGet(params: P, options?: PresignGetOptions): string;
 presignPut(params: P, options?: PresignOptions): string;
 
 interface PresignOptions {
 	expiresIn?: number | undefined;
 	acl?: S3Options['acl'];
+}
+
+interface PresignGetOptions extends PresignOptions {
+	contentDisposition?: string | undefined;
 }
 ```
 
