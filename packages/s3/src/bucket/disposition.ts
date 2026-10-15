@@ -23,7 +23,7 @@ export function checkDisposition(
 		'contentDisposition must be a non-empty string of printable ASCII, ' +
 			'with no line break or control character (spell a non-ASCII filename ' +
 			`as filename*=UTF-8''...); got ${
-				typeof value === 'string'
+				typeof value === 'string' && value !== ''
 					? 'a string with other characters'
 					: shapeOf(value)
 			} (${where})`,

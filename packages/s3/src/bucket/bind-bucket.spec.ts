@@ -453,6 +453,13 @@ describe('what a single write may say about the object', () => {
 			expect(error).toBeInstanceOf(S3Error);
 			expect(error.code).toBe('WRONG_OPTION');
 			expect(error.message).toContain('contentDisposition must be');
+			const shape =
+				bad === ''
+					? 'an empty string'
+					: bad === 42
+						? 'a number'
+						: 'a string with other';
+			expect(error.message).toContain(`got ${shape}`);
 			expect(error.message).not.toContain('Set-Cookie');
 			expect(await bucket.exists({ folder: 'a', name: 'cd.txt' })).toBe(false);
 		}

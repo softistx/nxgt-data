@@ -431,7 +431,7 @@ describe('a presigned POST with a contentDisposition', () => {
 	});
 
 	test('is refused when it is not one header value, signing nothing', () => {
-		for (const bad of ['a\r\nb', '', 'é', 7]) {
+		for (const bad of ['a\r\nb', '', 'é', 7, 'x\r\nSet-Cookie: a=b']) {
 			let caught: unknown;
 			try {
 				store().presignPost({ userId: 'u1' }, {
@@ -443,6 +443,8 @@ describe('a presigned POST with a contentDisposition', () => {
 			}
 			expect(caught).toBeInstanceOf(S3Error);
 			expect((caught as S3Error).code).toBe('WRONG_OPTION');
+			expect((caught as S3Error).message).not.toContain('Set-Cookie');
+			expect((caught as S3Error).message).not.toContain('é');
 		}
 	});
 });
