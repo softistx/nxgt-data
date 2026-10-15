@@ -310,7 +310,8 @@ presigned URL or a presigned POST whose input the bucket does not accept — and
 the one code raised after a request went out. It carries a `code`
 and the object `key` — never the body, never a credential. The package throws
 two other kinds, both below the table: a `TypeError` from `defineBucket` for a
-definition that could never work, and from `presignPost` when its secret is
+definition that could never work, from `bindBucket` for a `timeoutMs` default
+that is not whole milliseconds, and from `presignPost` when its secret is
 not Bun's; and a plain `Error` from `presignPost` when the URL Bun signed
 cannot be read.
 
@@ -326,7 +327,7 @@ if (error instanceof S3Error && error.code === 'TOO_LARGE') {
 | `TOO_LARGE` | the body is bigger than `maxSize` |
 | `UNMEASURABLE` | `maxSize` is set and the body's size cannot be known before sending |
 | `TIMEOUT` | a call with a `timeoutMs` (its own, or the bucket's) got no answer in time: `stat on "avatars": no answer in 5000ms`. The request is aborted, but it was **sent**: a `delete` may still have happened. On `stat`, `exists`, `bytes`, `text` and `delete` |
-| `WRONG_OPTION` | an option's own value is not one the service accepts: `acl` or `storageClass` on a write, `acl` or `expiresIn` on a presigned URL, and a `contentDisposition` that is not a non-empty string of printable ASCII on a write, a `presignGet` or a `presignPost`. On `presignPost`, also a `maxSize` or `minSize` that is not a whole number of bytes, a `maxSize` above the bucket's own or missing on a bucket without one, a `minSize` above the `maxSize`, and a `type` that is neither a string nor `{ startsWith }` A `timeoutMs` that is not a whole number of milliseconds, 1 or more, on any call that takes one or on `bindBucket` |
+| `WRONG_OPTION` | an option's own value is not one the service accepts: `acl` or `storageClass` on a write, `acl` or `expiresIn` on a presigned URL, and a `contentDisposition` that is not a non-empty string of printable ASCII on a write, a `presignGet` or a `presignPost`. On `presignPost`, also a `maxSize` or `minSize` that is not a whole number of bytes, a `maxSize` above the bucket's own or missing on a bucket without one, a `minSize` above the `maxSize`, and a `type` that is neither a string nor `{ startsWith }`. A `timeoutMs` that is not a whole number of milliseconds, 1 or more, on any call that takes one (`bindBucket` throws a bare `TypeError` for its default) |
 
 `defineBucket` throws a `TypeError` for a definition that could never work: an
 empty `bucket`, a `maxSize` that is not a positive number, an empty list of
@@ -363,11 +364,23 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   than a string, a `maxSize` that is not a number, or a misspelt option.
 - A presigned URL asked for without the params that identify the object, or
   with an `expiresIn` that is not a number.
+- A `presignPut` given a `contentDisposition`: only `presignGet`, `presignPost`
+  and `put` take one.
+- A `timeoutMs` that is a string, a `timeoutMs` on a `put`, and any option
+  other than `timeoutMs` on `stat`, `exists`, `bytes`, `text` or `delete`.
 - A listing asked for by page number, or a page read for a `total` — it pages
   by cursor, and S3 does not count.
 
 ## Traps
 
+- **A call with a deadline does not retry, and signs for 60 s.** Bun's client
+  retries a failed request (`retry`, passed through on `bindBucket`); the
+  deadline path sends one `fetch` and reports what it got. Its URLs are signed
+  for 60 seconds, so a clock skewed by more than that fails only when a
+  deadline is set. A client-level `acl` or `storageClass` given to `bindBucket`
+  is signed into those HEAD, GET and DELETE URLs too (measured: setting them
+  to `undefined` for one presign does not remove them); SeaweedFS ignores
+  them, AWS and R2 were not measured.
 - **Without `timeoutMs`, a silent service is waited for 360 s.** Measured on
   Bun 1.4.3, Bun's own S3 calls ignore an `AbortSignal`, and `stat` against a
   socket that accepts and never answers gives up only after 360 s, with Bun's

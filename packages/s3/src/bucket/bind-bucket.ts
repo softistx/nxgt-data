@@ -1,6 +1,6 @@
 import { S3Client, type S3File, type S3Options, type S3Stats } from 'bun';
 import { bucketContext, keyOf } from './context';
-import { checkTimeout } from './operations/deadline';
+import { isWholeMs } from './operations/deadline';
 import { listObjects } from './operations/list';
 import {
 	type PresignGetOptions,
@@ -20,6 +20,7 @@ import {
 	statObject,
 } from './operations/reads';
 import { deleteObject, putObject } from './operations/writes';
+import { shapeOf } from './shape';
 import type {
 	BucketDefinition,
 	CallOptions,
@@ -115,11 +116,15 @@ export function bindBucket<P>(
 	options: BindOptions = {},
 ): BoundBucket<P> {
 	const { timeoutMs, ...clientOptions } = options;
-	const deadline = checkTimeout(
-		'',
-		timeoutMs,
-		`bindBucket on "${definition.bucket}"`,
-	);
+	// Wiring, not a request: a bare `TypeError`, like the other definition-time
+	// refusals. Only the per-call value, which can come from a request, is coded.
+	if (timeoutMs !== undefined && !isWholeMs(timeoutMs)) {
+		throw new TypeError(
+			`bindBucket on "${definition.bucket}": timeoutMs is a whole number of ` +
+				`milliseconds, 1 or more; got ${shapeOf(timeoutMs)}`,
+		);
+	}
+	const deadline = timeoutMs;
 	const client = new S3Client({ ...clientOptions, bucket: definition.bucket });
 	const context = bucketContext(
 		client,

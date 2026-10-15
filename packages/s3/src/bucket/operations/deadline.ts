@@ -3,6 +3,11 @@ import { type BucketContext, callOf } from '../context';
 import { shapeOf } from '../shape';
 import type { CallOptions } from '../types';
 
+/** A whole number of milliseconds, 1 or more. */
+export function isWholeMs(value: unknown): value is number {
+	return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
+}
+
 /**
  * Refuses a `timeoutMs` that is not a whole number of milliseconds, 1 or
  * more. Reports the value by its shape, never quoted. Before anything is sent.
@@ -13,7 +18,7 @@ export function checkTimeout(
 	where: string,
 ): number | undefined {
 	if (value === undefined) return undefined;
-	if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+	if (!isWholeMs(value)) {
 		throw new S3Error(
 			'WRONG_OPTION',
 			key,

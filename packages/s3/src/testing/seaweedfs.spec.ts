@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { rejectionMessage } from '../../test/rejection';
 import {
 	assetFor,
 	defaultCacheDir,
@@ -134,12 +135,13 @@ describe('the download', () => {
 		const cache = await mkdtemp(join(tmpdir(), 'weed-dl-'));
 		try {
 			const target = join(cache, 'v', 'weed');
-			await expect(
+			const message = await rejectionMessage(
 				download('linux_amd64.tar.gz', target, {
 					fetch: serving(bytes),
 					sha256: '0'.repeat(64),
 				}),
-			).rejects.toThrow('refusing to run it');
+			);
+			expect(message).toContain('refusing to run it');
 			expect(await Bun.file(target).exists()).toBe(false);
 		} finally {
 			await rm(cache, { recursive: true, force: true });
@@ -153,12 +155,13 @@ describe('the download', () => {
 		const cache = await mkdtemp(join(tmpdir(), 'weed-dl-'));
 		try {
 			const target = join(cache, 'v', 'weed');
-			await expect(
+			const message = await rejectionMessage(
 				download('linux_amd64.tar.gz', target, {
 					fetch: serving(bytes),
 					sha256,
 				}),
-			).rejects.toThrow('does not run: broken');
+			);
+			expect(message).toContain('does not run: broken');
 			expect(await readdir(join(cache, 'v'))).toEqual([]);
 		} finally {
 			await rm(cache, { recursive: true, force: true });
@@ -166,10 +169,11 @@ describe('the download', () => {
 	});
 
 	test('reports an answer that is not 200', async () => {
-		await expect(
+		const message = await rejectionMessage(
 			download('linux_amd64.tar.gz', '/nowhere/v/weed', {
 				fetch: serving(new Uint8Array(), 404),
 			}),
-		).rejects.toThrow('answered 404');
+		);
+		expect(message).toContain('answered 404');
 	});
 });

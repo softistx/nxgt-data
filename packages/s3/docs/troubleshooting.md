@@ -41,6 +41,7 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [`"avatars" has a maxSize, and this body's size cannot be known before sending it. …`](#avatars-has-a-maxsize-and-this-bodys-size-cannot-be-known-before-sending-it-)
   - [`storageClass must be one of STANDARD, DEEP_ARCHIVE, EXPRESS_ONEZONE, …; got another string (put on "avatars")`](#storageclass-must-be-one-of-standard-deep_archive-express_onezone--got-another-string-put-on-avatars)
   - [`acl must be one of private, public-read, public-read-write, …; got another string (put on "avatars")`](#acl-must-be-one-of-private-public-read-public-read-write--got-another-string-put-on-avatars)
+  - [`contentDisposition must be a non-empty string of printable ASCII, with no line break or control character (spell a non-ASCII filename as filename*=UTF-8''...); got a string with other characters (presignGet on "avatars")`](#contentdisposition-must-be-a-non-empty-string-of-printable-ascii-with-no-line-break-or-control-character-spell-a-non-ascii-filename-as-filenameutf-8-got-a-string-with-other-characters-presignget-on-avatars)
   - [`expiresIn is seconds, and must be above 0 and at most 604800 …; got a number above that (presignGet on "avatars")`](#expiresin-is-seconds-and-must-be-above-0-and-at-most-604800-seven-days-which-is-s3s-own-limit-got-a-number-above-that-presignget-on-avatars)
 - **Presigned POSTs refused before they are signed**
   - [``presignPost on "uploads": this bucket has no maxSize, … Pass `maxSize`, in bytes``](#presignpost-on-uploads-this-bucket-has-no-maxsize-and-a-presigned-post-is-a-bound-on-what-a-browser-uploads-pass-maxsize-in-bytes)
@@ -565,9 +566,10 @@ and fifty random blocks between 20000 and 30000 all had one taken.
 ### `timeoutMs is a whole number of milliseconds, 1 or more; got a fraction (stat on "avatars")`
 
 **When:** a `timeoutMs` that is zero, negative, a fraction, `NaN` or not a
-number, on `stat`, `exists`, `bytes`, `text` or `delete` — or on `bindBucket`,
-where it reads `(bindBucket on "avatars")`. `code: 'WRONG_OPTION'`, thrown
-before anything is sent.
+number, on `stat`, `exists`, `bytes`, `text` or `delete`. `code:
+'WRONG_OPTION'`, thrown before anything is sent. On `bindBucket` the same
+mistake is wiring, not a request: a bare `TypeError` reading `bindBucket on
+"avatars": timeoutMs is a whole number of milliseconds, 1 or more; got …`.
 **Fix:** pass whole milliseconds, 1 or more: `{ timeoutMs: 5000 }`.
 
 ### `stat on "avatars": no answer in 5000ms`

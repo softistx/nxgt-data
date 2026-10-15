@@ -112,7 +112,8 @@ try {
 milliseconds, 1 or more. No answer in time rejects with an `S3Error` coded
 `TIMEOUT`, and the request is aborted. Bind a default for the whole bucket
 with `bindBucket(definition, { ...credentials, timeoutMs })`; a call's own
-value wins. Anything else is a `WRONG_OPTION`, before anything is sent.
+value wins. A bad per-call value is a `WRONG_OPTION`, before anything is sent;
+a bad default on `bindBucket` is a bare `TypeError`, since it is wiring.
 
 Why it is not just Bun's call: measured on Bun 1.4.3, Bun's S3 calls ignore an
 `AbortSignal`, and its own limit is 360 s. So a call that has a deadline signs
@@ -121,7 +122,15 @@ socket is closed. A call without one is Bun's, unchanged. The results are the
 same either way: `undefined` or `false` for a missing object, the same
 `S3Stats` fields, and a service failure comes back as an `Error` named
 `S3Error` with S3's `code` (for a `stat` or `exists`, `UnknownError`, as Bun's
-own HEAD does). `TIMEOUT` is raised **after** the request was sent.
+own HEAD does). A refused or dropped connection, even in the middle of the body, is the same
+`S3Error` Bun gives without a deadline (`ConnectionRefused` or
+`ConnectionClosed`, `DNSResolveFailed` for a host that does not resolve, `path`
+the key; any other failure nobody mapped is reported as `ConnectionClosed`) and never carries the signed URL. The
+deadline path does not retry; Bun's client does, per `retry`. A redirect is
+followed on both paths, to whatever `location` the service names: the deadline
+path sends a plain request there, without the signed query, and Bun's sends no
+`Authorization` either.
+`TIMEOUT` is raised **after** the request was sent.
 
 `put` and `list` take no deadline yet.
 

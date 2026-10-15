@@ -35,8 +35,8 @@ export type S3ErrorCode =
  * This package's error class for refusals, and every one of them is thrown
  * **before** anything is sent, except `TIMEOUT`, the one code raised after
  * a request went out. The package also throws a `TypeError` for a
- * bucket definition that could never work or a `presignPost` secret that is
- * not Bun's, and a plain `Error` when the URL Bun signed cannot be read. S3's
+ * bucket definition that could never work, a `bindBucket` `timeoutMs` default
+ * that is not whole milliseconds, or a `presignPost` secret that is not Bun's, and a plain `Error` when the URL Bun signed cannot be read. S3's
  * own failures come back as they are, from Bun's client.
  */
 export class S3Error extends Error {

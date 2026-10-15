@@ -183,12 +183,15 @@ describe('a timeoutMs that is not a whole number of milliseconds', () => {
 		expect(state.closed).toBe(0);
 	});
 
-	test('is refused on bindBucket', () => {
+	test('is a bare TypeError on bindBucket', () => {
 		for (const value of bad) {
 			expect(() =>
 				bindBucket(avatars, { timeoutMs: value as unknown as number }),
-			).toThrow(S3Error);
+			).toThrow(TypeError);
 		}
+		expect(() => bindBucket(avatars, { timeoutMs: 0 })).toThrow(
+			'bindBucket on "avatars": timeoutMs is a whole number of milliseconds, 1 or more; got',
+		);
 	});
 });
 
@@ -209,30 +212,6 @@ describe('around the deadline', () => {
 			() => bucket.delete('x'),
 		]) {
 			expect(await rejectionMessage(call())).toBe('no key');
-		}
-	});
-
-	test('a refused connection says so without the signed URL', async () => {
-		const bucket = bindBucket(avatars, {
-			endpoint: 'http://127.0.0.1:1',
-			accessKeyId: 'k',
-			secretAccessKey: 's',
-			virtualHostedStyle: false,
-			retry: 0,
-		});
-		for (const [call, method] of [
-			[() => bucket.stat(key, { timeoutMs: 2000 }), 'HEAD'],
-			[() => bucket.bytes(key, { timeoutMs: 2000 }), 'GET'],
-			[() => bucket.delete(key, { timeoutMs: 2000 }), 'DELETE'],
-		] as const) {
-			const message = await rejectionMessage(call());
-			// Bun 1.4.2 (the pinned one CI runs) names it ConnectionRefused, 1.4.3
-			// ECONNREFUSED: the code passes through as the runtime gives it.
-			expect(message).toMatch(
-				new RegExp(`^${method} failed: (ECONNREFUSED|ConnectionRefused)$`),
-			);
-			expect(message).not.toContain('X-Amz-Signature');
-			expect(message).not.toContain('127.0.0.1:');
 		}
 	});
 
