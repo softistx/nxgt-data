@@ -226,7 +226,11 @@ describe('around the deadline', () => {
 			[() => bucket.delete(key, { timeoutMs: 2000 }), 'DELETE'],
 		] as const) {
 			const message = await rejectionMessage(call());
-			expect(message).toBe(`${method} failed: ECONNREFUSED`);
+			// Bun 1.4.2 (the pinned one CI runs) names it ConnectionRefused, 1.4.3
+			// ECONNREFUSED: the code passes through as the runtime gives it.
+			expect(message).toMatch(
+				new RegExp(`^${method} failed: (ECONNREFUSED|ConnectionRefused)$`),
+			);
 			expect(message).not.toContain('X-Amz-Signature');
 			expect(message).not.toContain('127.0.0.1:');
 		}
