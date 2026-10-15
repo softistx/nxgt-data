@@ -417,8 +417,8 @@ describe('what a single write may say about the object', () => {
 		// It used to reach Bun, which refused it with a `TypeError` — a second
 		// class to catch for one `put`, and one this package could not even
 		// tell apart by name, because Bun calls its errors `S3Error` too.
-		// `contentDisposition` and `contentEncoding` have no union, so there is
-		// nothing there to refuse and they are still forwarded as they come.
+		// `contentEncoding` has no union, so it is still forwarded as it comes;
+		// `contentDisposition` is held to a shape (the next test).
 		const bucket = anything();
 		// `as unknown` because the types do refuse this one outright, where a
 		// bag with an extra `bucket` key still overlaps `PutOptions`.
@@ -432,6 +432,30 @@ describe('what a single write may say about the object', () => {
 		expect(error).toBeInstanceOf(S3Error);
 		expect(error.code).toBe('WRONG_OPTION');
 		expect(await bucket.exists({ folder: 'a', name: 'bad.txt' })).toBe(false);
+	});
+
+	test('refuses a `contentDisposition` that is not one header value, before sending', async () => {
+		const bucket = anything();
+		for (const bad of [
+			'attachment\r\nSet-Cookie: a=b',
+			'attachment\n',
+			'a\0b',
+			'',
+			'attachment; filename="é.pdf"',
+			42,
+		]) {
+			const error = (await bucket
+				.put({ folder: 'a', name: 'cd.txt' }, 'x', {
+					type: 'text/plain',
+					contentDisposition: bad,
+				} as unknown as PutOptions)
+				.catch((reason: unknown) => reason)) as S3Error;
+			expect(error).toBeInstanceOf(S3Error);
+			expect(error.code).toBe('WRONG_OPTION');
+			expect(error.message).toContain('contentDisposition must be');
+			expect(error.message).not.toContain('Set-Cookie');
+			expect(await bucket.exists({ folder: 'a', name: 'cd.txt' })).toBe(false);
+		}
 	});
 
 	test('still guards the type when other options are given', async () => {
