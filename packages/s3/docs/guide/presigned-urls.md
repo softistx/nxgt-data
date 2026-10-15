@@ -169,6 +169,7 @@ interface PresignPostOptions {
 	minSize?: number;                           // bytes; 0 by default
 	type?: string | { startsWith: string };     // the bucket's single type by default
 	acl?: S3Options['acl'];
+	contentDisposition?: string;                // a Content-Disposition field, pinned with eq
 }
 
 interface PresignedPost {
@@ -241,7 +242,8 @@ The bounds can only tighten the definition, never loosen it:
   prefix would let another type through.
 
 Each refusal is an `S3Error`, raised before anything is signed: `WRONG_OPTION`
-for a size, a `type` of the wrong shape, an `expiresIn` or an `acl`, and
+for a size, a `type` of the wrong shape, an `expiresIn`, an `acl` or a
+`contentDisposition`, and
 `WRONG_TYPE` for a type the bucket does not accept. See
 [Troubleshooting](../troubleshooting.md).
 
@@ -305,7 +307,9 @@ None of the three is an `S3Error`: none is the caller's input.
 ## A URL is signed for the bound bucket, whatever the options say
 
 `PresignOptions` carries no `bucket`, `endpoint`, `region` or credential, and
-the run time signs with only the two keys above — anything else is dropped.
+the run time signs with only the keys above — `expiresIn` and `acl`, plus
+`contentDisposition` on `presignGet` (`PresignGetOptions`) — anything else is
+dropped.
 
 ```ts
 import type { PresignOptions } from '@nxgt/s3';

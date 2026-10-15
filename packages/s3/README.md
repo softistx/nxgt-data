@@ -356,7 +356,8 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   refusal:
   `if (error instanceof S3Error) return c.json({ error: error.code }, 400);`.
   `contentDisposition` must be a non-empty string of printable ASCII, else
-  `WRONG_OPTION`; `contentEncoding` is a free string and is never refused. `presignGet` and `presignPut` forward `acl` too, and go through the
+  `WRONG_OPTION`; `contentEncoding` is a free string and is never refused.
+  `presignGet` and `presignPut` forward `acl` too, and go through the
   same allowlist. The accepted values are listed in
   [docs/guide/writes.md](docs/guide/writes.md).
 - **A string body is measured in bytes, not in characters**, and `maxSize` is

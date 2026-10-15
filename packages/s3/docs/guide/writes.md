@@ -116,8 +116,8 @@ Bun checks both values as well, and refuses with a plain `TypeError`
 (measured on bun 1.4.2). That left one `put` with two classes of refusal —
 an `S3Error` with a code for the content type and the size, a `TypeError`
 with only a sentence for these two. Checking here means one `put` has one
-class of refusal, with a code to switch on. `contentDisposition` is held to one printable-ASCII header value
-(a line break would split the header), and `contentEncoding` stays a free
+class of refusal, with a code to switch on. `contentDisposition` is held to
+one printable-ASCII header value (a line break would split the header), and `contentEncoding` stays a free
 string, never refused by this package or by Bun.
 
 The same allowlist holds `acl` on a
