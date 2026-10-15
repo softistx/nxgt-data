@@ -1,5 +1,8 @@
 import type { S3File, S3Stats } from 'bun';
 import { type BucketContext, keyOf } from '../context';
+import type { CallOptions } from '../types';
+import { deadlineOf, withDeadline } from './deadline';
+import { getObject, headObject } from './fetch-object';
 
 /**
  * `undefined` rather than a throw when the object is simply not there.
@@ -23,30 +26,66 @@ async function whenPresent<P, T>(
 	}
 }
 
-export function readBytes<P>(
+export async function readBytes<P>(
 	context: BucketContext<P>,
 	params: P,
+	options?: CallOptions,
 ): Promise<Uint8Array | undefined> {
-	return whenPresent(context, params, (file) => file.bytes());
+	const key = keyOf(context, params);
+	const timeoutMs = deadlineOf(context, key, 'bytes', options);
+	if (timeoutMs === undefined) {
+		return whenPresent(context, params, (file) => file.bytes());
+	}
+	return withDeadline(context, key, 'bytes', timeoutMs, async (signal) => {
+		const found = await getObject(context, key, signal);
+		return found && new Uint8Array(await found.arrayBuffer());
+	});
 }
 
-export function readText<P>(
+export async function readText<P>(
 	context: BucketContext<P>,
 	params: P,
+	options?: CallOptions,
 ): Promise<string | undefined> {
-	return whenPresent(context, params, (file) => file.text());
+	const key = keyOf(context, params);
+	const timeoutMs = deadlineOf(context, key, 'text', options);
+	if (timeoutMs === undefined) {
+		return whenPresent(context, params, (file) => file.text());
+	}
+	return withDeadline(context, key, 'text', timeoutMs, async (signal) => {
+		const found = await getObject(context, key, signal);
+		return found?.text();
+	});
 }
 
-export function statObject<P>(
+export async function statObject<P>(
 	context: BucketContext<P>,
 	params: P,
+	options?: CallOptions,
 ): Promise<S3Stats | undefined> {
-	return whenPresent(context, params, (file) => file.stat());
+	const key = keyOf(context, params);
+	const timeoutMs = deadlineOf(context, key, 'stat', options);
+	if (timeoutMs === undefined) {
+		return whenPresent(context, params, (file) => file.stat());
+	}
+	return withDeadline(context, key, 'stat', timeoutMs, (signal) =>
+		headObject(context, key, signal),
+	);
 }
 
-export function objectExists<P>(
+export async function objectExists<P>(
 	context: BucketContext<P>,
 	params: P,
+	options?: CallOptions,
 ): Promise<boolean> {
-	return context.client.exists(keyOf(context, params));
+	const key = keyOf(context, params);
+	const timeoutMs = deadlineOf(context, key, 'exists', options);
+	if (timeoutMs === undefined) return context.client.exists(key);
+	return withDeadline(
+		context,
+		key,
+		'exists',
+		timeoutMs,
+		async (signal) => (await headObject(context, key, signal)) !== undefined,
+	);
 }

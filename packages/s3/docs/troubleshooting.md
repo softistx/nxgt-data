@@ -1,9 +1,10 @@
 # Troubleshooting
 
 This package's error class for refusals is `S3Error`, with a `code` of
-`WRONG_TYPE`, `TOO_LARGE`, `UNMEASURABLE` or `WRONG_OPTION`, and the object
-`key` it was about — never the body. Every one of them is raised **before**
-anything is sent, so a refused write stored nothing. It throws two other
+`WRONG_TYPE`, `TOO_LARGE`, `UNMEASURABLE`, `WRONG_OPTION` or `TIMEOUT`, and
+the object `key` it was about — never the body. Every one of them but
+`TIMEOUT` is raised **before** anything is sent, so a refused write stored
+nothing; `TIMEOUT` is raised after, when a deadline passes. It throws two other
 kinds, for what is not the caller's input: a `TypeError` from `defineBucket`
 for a definition that could never work, and from `presignPost` when its
 secret is not the one Bun signs with (changed or deleted since the process
@@ -52,6 +53,9 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [`presignPost on "avatars": the secret access key this package would sign with is not the one Bun signs with, so the service would refuse the form. …`](#presignpost-on-avatars-the-secret-access-key-this-package-would-sign-with-is-not-the-one-bun-signs-with-so-the-service-would-refuse-the-form-)
   - [`presignPost on "avatars": no secret access key to sign with, while Bun has one. …`](#presignpost-on-avatars-no-secret-access-key-to-sign-with-while-bun-has-one-)
   - [`presignPost on "avatars": the URL Bun signed has no credential scope, …`](#presignpost-on-avatars-the-url-bun-signed-has-no-credential-scope-or-not-the-key-at-the-end-of-its-path-so-there-is-nowhere-to-post-the-form-)
+- **Deadlines**
+  - [`timeoutMs is a whole number of milliseconds, 1 or more; got a fraction (stat on "avatars")`](#timeoutms-is-a-whole-number-of-milliseconds-1-or-more-got-a-fraction-stat-on-avatars)
+  - [`stat on "avatars": no answer in 5000ms`](#stat-on-avatars-no-answer-in-5000ms)
 - **The service**
   - [`Missing S3 credentials. 'accessKeyId', 'secretAccessKey', 'bucket', and 'endpoint' are required`](#missing-s3-credentials-accesskeyid-secretaccesskey-bucket-and-endpoint-are-required)
   - [`The AWS Access Key Id you provided does not exist in our records.`](#the-aws-access-key-id-you-provided-does-not-exist-in-our-records)
@@ -462,6 +466,32 @@ without either would post the form somewhere else, or sign it as nobody, so
 it is refused rather than guessed.
 **Fix:** use Bun 1.4.2, the version this package was measured on, and
 [open an issue](https://github.com/softistx/nxgt-data/issues) naming the Bun version that produced it.
+
+## Deadlines
+
+### `timeoutMs is a whole number of milliseconds, 1 or more; got a fraction (stat on "avatars")`
+
+**When:** a `timeoutMs` that is zero, negative, a fraction, `NaN` or not a
+number, on `stat`, `exists`, `bytes`, `text` or `delete` — or on `bindBucket`,
+where it reads `(bindBucket on "avatars")`. `code: 'WRONG_OPTION'`, thrown
+before anything is sent.
+**Fix:** pass whole milliseconds, 1 or more: `{ timeoutMs: 5000 }`.
+
+### `stat on "avatars": no answer in 5000ms`
+
+**When:** a call with a `timeoutMs` — its own or the bucket's — got no answer
+in time. `code: 'TIMEOUT'`; the message names the call and the bucket, and the
+`key` is on the error.
+**Why:** the service is down, unreachable, or accepts the connection and never
+answers. The request was **aborted**, but it had been **sent**: a `delete`
+may have happened all the same.
+**Fix:** retry if the call is safe to repeat, or raise the deadline. Without a
+`timeoutMs`, Bun waits 360 s and fails with its own error, named `S3Error`
+too, with `code: 'Timeout'` — test `error instanceof S3Error`, then `code`.
+
+```ts
+if (error instanceof S3Error && error.code === 'TIMEOUT') retryLater();
+```
 
 ## The service
 
