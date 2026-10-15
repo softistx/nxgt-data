@@ -213,6 +213,8 @@ it carries.
 | --- | --- |
 | `BucketDefinition<P>` | what `defineBucket` takes and gives back |
 | `BoundBucket<P>` | what `bindBucket` gives back |
+| `CallOptions` | `{ timeoutMs?: number \| undefined }`, the optional second argument of `stat`, `exists`, `bytes`, `text` and `delete` |
+| `BindOptions` | what `bindBucket` takes: Bun's `S3Options` without `bucket`, plus `timeoutMs` |
 | `ObjectPage` | `{ items: StoredObject[]; nextCursor: string \| null }` |
 | `StoredObject` | `{ key: string; size: number \| undefined; lastModified: Date \| undefined; eTag: string \| undefined }` — S3 does not promise the last three, so they are optional here |
 | `PresignOptions` | `{ expiresIn?: number \| undefined; acl?: … }` |

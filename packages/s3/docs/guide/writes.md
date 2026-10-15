@@ -177,7 +177,8 @@ try {
 | `WRONG_TYPE` | the type is not one this bucket accepts — or the write named none and the body carries none, while the bucket names some |
 | `TOO_LARGE` | the body is bigger than `maxSize`. The limit is inclusive: with `maxSize: 1024`, 1024 bytes passes and 1025 does not |
 | `UNMEASURABLE` | `maxSize` is set and the body's size cannot be known before sending |
-| `WRONG_OPTION` | the write's `acl` or `storageClass` is not a value the service accepts — see [above](#an-options-value-is-checked-here-too) |
+| `WRONG_OPTION` | the write's `acl` or `storageClass` is not a value the service accepts — see [above](#an-options-value-is-checked-here-too) — or a `timeoutMs` that is not a whole number of milliseconds, 1 or more |
+| `TIMEOUT` | `delete` with a `timeoutMs` got no answer in time. The request was sent and aborted; see [Deadlines](reads.md#deadlines) |
 
 A content type is compared on its **essence**: parameters and case are
 ignored, and nothing else is. A bucket that accepts `text/csv` accepts
@@ -269,8 +270,8 @@ app.put('/users/:id/avatar', async (c) => {
 });
 ```
 
-Every `S3Error` is thrown before the request goes out, so a 413 costs no
-bandwidth. Bun names **its own** S3 failures `S3Error` too, with S3's codes:
+Every `S3Error` but `TIMEOUT` is thrown before the request goes out, so a
+413 costs no bandwidth. Bun names **its own** S3 failures `S3Error` too, with S3's codes:
 discriminate with `instanceof S3Error` on this package's class, never with
 `error.name`.
 

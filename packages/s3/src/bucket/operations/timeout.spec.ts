@@ -3,6 +3,7 @@ import { avatars, bytes, uploads, useS3 } from '../../../test/fixtures';
 import { rejection, rejectionMessage } from '../../../test/rejection';
 import { S3Error } from '../../errors/s3-error';
 import { bindBucket } from '../bind-bucket';
+import { defineBucket } from '../define-bucket';
 
 const servers = useS3();
 const png = bytes(64);
@@ -188,5 +189,117 @@ describe('a timeoutMs that is not a whole number of milliseconds', () => {
 				bindBucket(avatars, { timeoutMs: value as unknown as number }),
 			).toThrow(S3Error);
 		}
+	});
+});
+
+describe('around the deadline', () => {
+	test('a key function that throws rejects, on all five calls', async () => {
+		const broken = defineBucket({
+			bucket: 'broken',
+			key: (_: string): string => {
+				throw new Error('no key');
+			},
+		});
+		const bucket = bindBucket(broken, silentEndpoint().options);
+		for (const call of [
+			() => bucket.stat('x'),
+			() => bucket.exists('x'),
+			() => bucket.bytes('x'),
+			() => bucket.text('x'),
+			() => bucket.delete('x'),
+		]) {
+			expect(await rejectionMessage(call())).toBe('no key');
+		}
+	});
+
+	test('a refused connection says so without the signed URL', async () => {
+		const bucket = bindBucket(avatars, {
+			endpoint: 'http://127.0.0.1:1',
+			accessKeyId: 'k',
+			secretAccessKey: 's',
+			virtualHostedStyle: false,
+			retry: 0,
+		});
+		for (const [call, method] of [
+			[() => bucket.stat(key, { timeoutMs: 2000 }), 'HEAD'],
+			[() => bucket.bytes(key, { timeoutMs: 2000 }), 'GET'],
+			[() => bucket.delete(key, { timeoutMs: 2000 }), 'DELETE'],
+		] as const) {
+			const message = await rejectionMessage(call());
+			expect(message).toBe(`${method} failed: ECONNREFUSED`);
+			expect(message).not.toContain('X-Amz-Signature');
+			expect(message).not.toContain('127.0.0.1:');
+		}
+	});
+
+	test('the bucket default applies to every call that takes one', async () => {
+		const { options } = silentEndpoint();
+		const bucket = bindBucket(avatars, { ...options, timeoutMs: 150 });
+		for (const [name, call] of [
+			['exists', () => bucket.exists(key)],
+			['bytes', () => bucket.bytes(key)],
+			['text', () => bucket.text(key)],
+			['delete', () => bucket.delete(key)],
+		] as const) {
+			expect(await rejectionMessage(call())).toBe(
+				`${name} on "avatars": no answer in 150ms`,
+			);
+		}
+	});
+
+	test('a 404 that is not NoSuchKey throws, as on the Bun path', async () => {
+		const listener = Bun.listen({
+			hostname: '127.0.0.1',
+			port: 0,
+			socket: {
+				data(socket) {
+					socket.write(
+						'HTTP/1.1 404 Not Found\r\ncontent-type: application/xml\r\ncontent-length: 80\r\nconnection: close\r\n\r\n' +
+							'<Error><Code>NoSuchBucket</Code><Message>gone</Message></Error>'.padEnd(
+								80,
+							),
+					);
+					socket.end();
+				},
+			},
+		});
+		listeners.push(listener);
+		const missing = bindBucket(avatars, {
+			...servers.s3.options,
+			endpoint: `http://127.0.0.1:${listener.port}`,
+		});
+		const error = (await rejection(
+			missing.bytes(key, { timeoutMs: 2000 }),
+		)) as {
+			code?: string;
+		};
+		expect(error.code).toBe('NoSuchBucket');
+	});
+
+	test('a stall while the body is read is a TIMEOUT too', async () => {
+		const state = { closed: 0 };
+		const listener = Bun.listen({
+			hostname: '127.0.0.1',
+			port: 0,
+			socket: {
+				data(socket) {
+					socket.write('HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\npartial');
+				},
+				close() {
+					state.closed++;
+				},
+			},
+		});
+		listeners.push(listener);
+		const bucket = bindBucket(avatars, {
+			...servers.s3.options,
+			endpoint: `http://127.0.0.1:${listener.port}`,
+			retry: 0,
+		});
+		expect(await rejectionMessage(bucket.bytes(key, { timeoutMs: 300 }))).toBe(
+			'bytes on "avatars": no answer in 300ms',
+		);
+		await settle();
+		expect(state.closed).toBeGreaterThanOrEqual(1);
 	});
 });
