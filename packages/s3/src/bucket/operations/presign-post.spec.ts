@@ -394,6 +394,59 @@ describe('a presigned POST, on a clock of its own', () => {
 	});
 });
 
+describe('a presigned POST with a contentDisposition', () => {
+	const disposition = 'attachment; filename="avatar.png"';
+
+	test('stores it, and a download carries it back', async () => {
+		const bucket = store();
+		const form = bucket.presignPost(
+			{ userId: 'u1' },
+			{ type: 'image/png', contentDisposition: disposition },
+		);
+		expect(form.fields['Content-Disposition']).toBe(disposition);
+		expect(await upload(form, blob(64))).toMatchObject({ status: 204 });
+		const answer = await fetch(bucket.presignGet({ userId: 'u1' }));
+		expect(answer.headers.get('content-disposition')).toBe(disposition);
+	});
+
+	test('pins it in the policy, so another value is refused', async () => {
+		const bucket = store();
+		const form = bucket.presignPost(
+			{ userId: 'u1' },
+			{ type: 'image/png', contentDisposition: disposition },
+		);
+		const policy = JSON.parse(
+			Buffer.from(form.fields['policy'] as string, 'base64').toString(),
+		) as { conditions: unknown[] };
+		expect(policy.conditions).toContainEqual([
+			'eq',
+			'$Content-Disposition',
+			disposition,
+		]);
+		const swapped = await upload(form, blob(64), {
+			'Content-Disposition': 'inline',
+		});
+		expect(swapped.status).toBe(403);
+		expect(await bucket.exists({ userId: 'u1' })).toBe(false);
+	});
+
+	test('is refused when it is not one header value, signing nothing', () => {
+		for (const bad of ['a\r\nb', '', 'é', 7]) {
+			let caught: unknown;
+			try {
+				store().presignPost({ userId: 'u1' }, {
+					type: 'image/png',
+					contentDisposition: bad,
+				} as unknown as PresignPostOptions);
+			} catch (error) {
+				caught = error;
+			}
+			expect(caught).toBeInstanceOf(S3Error);
+			expect((caught as S3Error).code).toBe('WRONG_OPTION');
+		}
+	});
+});
+
 describe('a presigned POST with no secret to sign with', () => {
 	// The environment could supply one; these hold only where it does not.
 	const unset =
