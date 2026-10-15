@@ -48,6 +48,62 @@ bun add @nxgt/s3 typescript @types/bun
   can sign for will do; a service that is not AWS wants
   `virtualHostedStyle: false`.
 
+## Testing
+
+`@nxgt/s3/testing` starts a real S3 API for a suite — SeaweedFS, on free
+ports, with no Docker and no dependency to install:
+
+```ts
+import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test';
+import { bindBucket, defineBucket } from '@nxgt/s3';
+import { startTestS3, type TestS3 } from '@nxgt/s3/testing';
+
+const avatars = defineBucket({
+	bucket: 'avatars',
+	key: (params: { userId: string }) => `${params.userId}.png`,
+	contentType: 'image/png',
+});
+
+let s3: TestS3;
+
+beforeAll(async () => {
+	s3 = await startTestS3();            // downloads SeaweedFS on a cold cache
+	await s3.createBucket('avatars');
+}, 120_000);
+
+beforeEach(() => s3.reset('avatars'));  // each test starts from nothing
+
+afterAll(() => s3.stop());
+
+test('stores an avatar', async () => {
+	const store = bindBucket(avatars, s3.options);   // credentials and endpoint
+	const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+	await store.put({ userId: 'u1' }, png, { type: 'image/png' });
+	expect(await store.exists({ userId: 'u1' })).toBe(true);
+});
+```
+
+- **The first run downloads SeaweedFS** (once) and checks it
+  against a SHA-256 pinned in the package for every platform it ships; a
+  download that does not match is refused and never cached. Give `beforeAll`
+  a generous timeout (120 s above), or fetch it ahead with
+  `await seaweedfsBinary()` from a script your `test` runs first.
+- **`$WEED_BIN`** names a `weed` binary you already have, and nothing is
+  downloaded.
+- `startTestS3(options?: TestS3Options)` — `{ binary?, cacheDir? }`: `binary`
+  wins over `$WEED_BIN`, which wins over the cache. `cacheDir` defaults to
+  `node_modules/.cache/@nxgt/s3/seaweedfs`, under the nearest `node_modules`
+  from the working directory; the binary lives in `<cacheDir>/<version>/weed`
+  (`TEST_SEAWEEDFS_VERSION`). Cache that folder in CI.
+- It resolves to `{ endpoint, accessKeyId, secretAccessKey, region, options,
+  createBucket(name), reset(bucket), stop() }`. `options` goes straight to
+  `bindBucket`. `stop()` kills the server and removes its files; calling it
+  twice does nothing. A server nobody stopped does not keep the process alive,
+  and is killed when it exits or gets SIGINT or SIGTERM (which then ends the
+  process with `128 + n`, unless you have a handler of your own).
+
+The [testing guide](docs/guide/testing.md) has the details.
+
 ## What it does not do
 
 - **No multipart upload.** A body goes in one `put`. Bun's own
@@ -407,6 +463,8 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
 
 - [docs/README.md](docs/README.md) — the guide index: buckets, reading,
   writing and presigned URLs, each with its options and a worked example.
+- [docs/guide/testing.md](docs/guide/testing.md) — a real S3 API for your
+  suite: `@nxgt/s3/testing`.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — every error this
   package can raise, by the message you will see.
 - [docs/roadmap.md](docs/roadmap.md) — what is coming, and what has been
