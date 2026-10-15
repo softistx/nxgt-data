@@ -96,9 +96,9 @@ stateless HTTP, so there is no connection to share and nothing to close.
 | `stat(params)` | Bun's `S3Stats` — `size`, `lastModified`, `etag`, `type` — or `undefined`. Note `etag`, lower case: that is Bun's field. A listing's `StoredObject` says `eTag` |
 | `delete(params)` | |
 | `list({ prefix, limit, cursor })` | one `ObjectPage` |
-| `presignGet(params, { expiresIn, acl })` | a signed URL that reads it |
+| `presignGet(params, { expiresIn, acl, contentDisposition })` | a signed URL that reads it. `contentDisposition` makes the service serve it as that download, a filename included — see below |
 | `presignPut(params, { expiresIn, acl })` | a signed URL that writes it. It takes no `type` — see the Traps |
-| `presignPost(params, { expiresIn, maxSize, minSize, type, acl })` | `{ url, fields }`, the form a browser posts to upload it. The **service** holds the upload to a size range and a content type — see below |
+| `presignPost(params, { expiresIn, maxSize, minSize, type, acl, contentDisposition })` | `{ url, fields }`, the form a browser posts to upload it. The **service** holds the upload to a size range and a content type — see below |
 
 ### What a write may say
 
@@ -126,6 +126,23 @@ goes, or how it gets there — see the Traps.
 
 Given both here and to `bindBucket`, the one on the write wins: it is the
 last thing handed to the client.
+
+### Download with a filename
+
+```ts
+const url = store.presignGet(
+	{ userId: 'u1' },
+	{ expiresIn: 300, contentDisposition: "attachment; filename*=UTF-8''ada.png" },
+);
+// the service answers this URL with that Content-Disposition, whatever
+// the object was stored with
+```
+
+The value is signed as `response-content-disposition`. Printable ASCII only:
+an empty string, a line break or any other control character, a non-ASCII
+character or a non-string is an `S3Error` with `code: 'WRONG_OPTION'`, and
+nothing is signed (a non-ASCII filename is spelled `filename*=UTF-8''…`,
+percent-encoded, per RFC 6266). A `put` is held to the same shape.
 
 ### Uploading from a browser
 
@@ -160,6 +177,7 @@ const response = await fetch(url, { method: 'POST', body });
 | `minSize` | the smallest body in bytes, `0` by default |
 | `type` | the one content type the form carries, or `{ startsWith: 'image/' }`. Defaults to the bucket's `contentType` when that is a single type; a bucket that names several needs one of them. A prefix is only for a bucket that names none, and the page's code then appends a `Content-Type` field before the file — a browser does not add one to a `FormData` by itself |
 | `acl` | fixed by the policy, from the same list as a write's |
+| `contentDisposition` | the `Content-Disposition` the object is stored with, fixed by the policy: a `Content-Disposition` field in `fields`, which the browser posts as given |
 
 The policy fixes the key with `eq`, the size with `content-length-range`, and
 the content type with `eq` (or `starts-with`). Measured against SeaweedFS 4.47,
@@ -204,8 +222,9 @@ it carries.
 | `BoundBucket<P>` | what `bindBucket` gives back |
 | `ObjectPage` | `{ items: StoredObject[]; nextCursor: string \| null }` |
 | `StoredObject` | `{ key: string; size: number \| undefined; lastModified: Date \| undefined; eTag: string \| undefined }` — S3 does not promise the last three, so they are optional here |
-| `PresignOptions` | `{ expiresIn?: number \| undefined; acl?: … }` |
-| `PresignPostOptions` | `{ expiresIn?; maxSize?; minSize?; type?: string \| { startsWith: string }; acl? }` |
+| `PresignOptions` | `{ expiresIn?: number \| undefined; acl?: … }` — what `presignPut` takes |
+| `PresignGetOptions` | `PresignOptions` and `contentDisposition?: string \| undefined` |
+| `PresignPostOptions` | `{ expiresIn?; maxSize?; minSize?; type?: string \| { startsWith: string }; acl?; contentDisposition? }` |
 | `PresignedPost` | `{ url: string; fields: Record<string, string> }` — post `fields`, then the file |
 | `ParamsOf<D>` | what a definition's `key` takes, for a caller writing its own helper |
 | `PutBody` | everything Bun's `write` takes |
@@ -236,7 +255,7 @@ if (error instanceof S3Error && error.code === 'TOO_LARGE') {
 | `WRONG_TYPE` | the body's content type is not one this bucket accepts — or the write named none and the bucket names some. From `presignPost` too, and for a `{ startsWith }` on a bucket that names its types |
 | `TOO_LARGE` | the body is bigger than `maxSize` |
 | `UNMEASURABLE` | `maxSize` is set and the body's size cannot be known before sending |
-| `WRONG_OPTION` | an option's own value is not one the service accepts: `acl` or `storageClass` on a write, `acl` or `expiresIn` on a presigned URL. On `presignPost`, also a `maxSize` or `minSize` that is not a whole number of bytes, a `maxSize` above the bucket's own or missing on a bucket without one, a `minSize` above the `maxSize`, and a `type` that is neither a string nor `{ startsWith }` |
+| `WRONG_OPTION` | an option's own value is not one the service accepts: `acl` or `storageClass` on a write, `acl` or `expiresIn` on a presigned URL, and a `contentDisposition` that is not a non-empty string of printable ASCII on a write, a `presignGet` or a `presignPost`. On `presignPost`, also a `maxSize` or `minSize` that is not a whole number of bytes, a `maxSize` above the bucket's own or missing on a bucket without one, a `minSize` above the `maxSize`, and a `type` that is neither a string nor `{ startsWith }` |
 
 `defineBucket` throws a `TypeError` for a definition that could never work: an
 empty `bucket`, a `maxSize` that is not a positive number, an empty list of
@@ -293,6 +312,12 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   bucket stores a zip happily. That is why `presignPut` takes no `type` at
   all: it would read as a guarantee it cannot make. **When the size or the
   type matters, use `presignPost`**, whose policy the service enforces.
+- **`contentDisposition` is a download override on `presignGet`; `presignPut`
+  takes none.** On a signed GET it is signed into the URL
+  (`response-content-disposition`) and wins over the header the object was
+  stored with, for that link only. A signed PUT would carry it as a response
+  override, which means nothing to a write, so the type refuses it. To store
+  a disposition with the object, give it to `put` or `presignPost`.
 - **A presigned POST's type is compared exactly, not on its essence.** The
   service matches the form's `Content-Type` field against the policy byte for
   byte — measured, `IMAGE/PNG` and `image/png;charset=utf-8` are both
