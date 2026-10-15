@@ -8,6 +8,7 @@ import { bindBucket } from '../bucket/bind-bucket';
 import { defineBucket } from '../bucket/define-bucket';
 import { startTestS3, type TestS3 } from '.';
 import { seaweedfsBinary } from './seaweedfs';
+import { socketsOf } from './weed';
 
 // `@nxgt/s3/testing`, as a consumer's suite uses it. The binary is the one
 // `scripts/seaweedfs.ts` cached before the specs.
@@ -126,6 +127,40 @@ describe('startTestS3', () => {
 		}
 	}, 120_000);
 
+	test('createBucket refuses a name S3 would not accept, at once', async () => {
+		const s3 = await start();
+		for (const name of [
+			'x',
+			'Upper',
+			'a'.repeat(64),
+			'-lead',
+			'trail-',
+			'un_der',
+		]) {
+			await expect(s3.createBucket(name)).rejects.toThrow(
+				'is not a bucket name S3 accepts',
+			);
+		}
+	}, 120_000);
+
+	test('stop leaves none of its socket paths behind', async () => {
+		const s3 = await start();
+		const port = Number(new URL(s3.endpoint).port);
+		const paths = socketsOf([
+			port,
+			port + 1,
+			port + 2,
+			port + 3,
+			port + 4,
+			port + 5,
+			port + 6,
+			port + 7,
+		]);
+		expect(paths).toContain(`/tmp/seaweedfs-s3-${port}.sock`);
+		await s3.stop();
+		for (const path of paths) expect(await Bun.file(path).exists()).toBe(false);
+	}, 120_000);
+
 	test('says so when binary points at nothing', async () => {
 		await expect(startTestS3({ binary: '/nowhere/weed' })).rejects.toThrow(
 			'binary is /nowhere/weed, which does not exist',
@@ -203,6 +238,20 @@ ${after}`,
 			child.kill('SIGTERM');
 			expect(await child.exited).toBe(143);
 			await expect(fetch(endpoint)).rejects.toThrow();
+			// Its temp directory and sockets go with it.
+			const port = Number(new URL(endpoint).port);
+			for (const path of socketsOf([
+				port,
+				port + 1,
+				port + 2,
+				port + 3,
+				port + 4,
+				port + 5,
+				port + 6,
+				port + 7,
+			])) {
+				expect(await Bun.file(path).exists()).toBe(false);
+			}
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}

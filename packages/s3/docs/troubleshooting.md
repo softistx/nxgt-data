@@ -61,6 +61,7 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [`No pinned SHA-256 for SeaweedFS 4.47 plan9_amd64.tar.gz: refusing to run an unchecked download.`](#no-pinned-sha-256-for-seaweedfs-447-plan9_amd64targz-refusing-to-run-an-unchecked-download)
   - [`GET https://github.com/seaweedfs/seaweedfs/releases/download/4.47/linux_amd64.tar.gz answered 404`](#get-httpsgithubcomseaweedfsseaweedfsreleasesdownload447linux_amd64targz-answered-404)
   - [`SeaweedFS did not serve S3 on http://127.0.0.1:24561 in 90s (bucket "avatars"). Its log, …/weed.log, says:`](#seaweedfs-did-not-serve-s3-on-http12700124561-in-90s-bucket-avatars-its-log-weedlog-says)
+  - [`createBucket: "x" is not a bucket name S3 accepts: 3 to 63 characters, lowercase letters, digits, dots and hyphens, starting and ending with a letter or digit`](#createbucket-x-is-not-a-bucket-name-s3-accepts-3-to-63-characters-lowercase-letters-digits-dots-and-hyphens-starting-and-ending-with-a-letter-or-digit)
   - [`no free block of 8 consecutive ports`](#no-free-block-of-8-consecutive-ports)
 - **Deadlines**
   - [`timeoutMs is a whole number of milliseconds, 1 or more; got a fraction (stat on "avatars")`](#timeoutms-is-a-whole-number-of-milliseconds-1-or-more-got-a-fraction-stat-on-avatars)
@@ -544,6 +545,13 @@ start, a disk with no room for the volumes it allocates.
 **Fix:** read those lines first. A machine under heavy load can also need
 longer than 90 s; stop other test servers, and give `beforeAll` a timeout of
 120 s or more.
+
+### `createBucket: "x" is not a bucket name S3 accepts: 3 to 63 characters, lowercase letters, digits, dots and hyphens, starting and ending with a letter or digit`
+
+**When:** `createBucket(name)`.
+**Why:** SeaweedFS refuses every write to a bucket whose name breaks S3's
+rules, so without this check the call would retry for 90 s and time out.
+**Fix:** name the bucket within the rules (`avatars`, `user-uploads`).
 
 ### `no free block of 8 consecutive ports`
 

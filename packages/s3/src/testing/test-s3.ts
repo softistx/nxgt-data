@@ -95,7 +95,7 @@ function makeStop(
 	dir: string,
 	ports: number[],
 ): () => Promise<void> {
-	const unreap = reapOnExit(child);
+	const unreap = reapOnExit(child, [dir, ...socketsOf(ports)]);
 	let stopped: Promise<void> | undefined;
 	return () => {
 		stopped ??= (async () => {

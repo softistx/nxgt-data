@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs';
 import type { Subprocess } from 'bun';
 
 /**
@@ -12,11 +13,23 @@ import type { Subprocess } from 'bun';
  *
  * One set of handlers serves every server; the last `stop()` removes them.
  */
-const live = new Set<Subprocess>();
+/** Each live server, with the paths to remove once it is killed. */
+const live = new Map<Subprocess, string[]>();
 const SIGNALS = { SIGINT: 2, SIGTERM: 15 } as const;
 
 function killAll(): void {
-	for (const child of live) child.kill('SIGKILL');
+	// Best effort, and synchronous: this runs in `exit`, where nothing async
+	// does. The directory and the sockets go with the server.
+	for (const [child, paths] of live) {
+		child.kill('SIGKILL');
+		for (const path of paths) {
+			try {
+				rmSync(path, { recursive: true, force: true });
+			} catch {
+				// Leaving a temp file behind must not hide the original exit.
+			}
+		}
+	}
 }
 
 const handlers = Object.fromEntries(
@@ -30,14 +43,14 @@ const handlers = Object.fromEntries(
 ) as Record<keyof typeof SIGNALS, () => void>;
 
 /** Watches `child`; the function it returns stops watching. */
-export function reapOnExit(child: Subprocess): () => void {
+export function reapOnExit(child: Subprocess, paths: string[]): () => void {
 	if (live.size === 0) {
 		process.on('exit', killAll);
 		for (const name of Object.keys(SIGNALS) as (keyof typeof SIGNALS)[]) {
 			process.on(name, handlers[name]);
 		}
 	}
-	live.add(child);
+	live.set(child, paths);
 	return () => {
 		live.delete(child);
 		if (live.size > 0) return;

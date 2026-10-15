@@ -55,7 +55,10 @@ test('stores and reads back an avatar', async () => {
 | `reset(bucket)` | deletes every object of the bucket, so each test starts from nothing |
 | `stop()` | kills the server and removes its files; a second call does nothing |
 
-A bucket must be created before it is used: SeaweedFS makes one on the first
+A bucket must be created before it is used, and its name must follow S3's
+rules (3 to 63 characters, lowercase letters, digits, dots and hyphens,
+starting and ending with a letter or digit), or `createBucket` throws at
+once. SeaweedFS makes a bucket on the first
 write, and readiness is per bucket, so `createBucket` is what waits for it.
 Two servers started at once are separate: each has its own ports, data and
 buckets.
@@ -66,7 +69,8 @@ the server is killed with it. On SIGINT or SIGTERM the server is killed too,
 and when yours is the only handler for that signal the process then ends with
 the exit code the default would give (`128 + n`). If you register your own
 handler, the process keeps your policy: the server is still killed, and
-ending the process is yours to do. A `SIGKILL` of your process cannot be
+ending the process is yours to do. On those paths the server's temp directory and its unix sockets (which `weed`
+puts in `/tmp`, whatever `$TMPDIR` is) are removed too. A `SIGKILL` of your process cannot be
 caught and does leave the `weed` running: stop it yourself.
 
 `reset` throws if it cannot list or delete, for a bucket that was never

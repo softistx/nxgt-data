@@ -8,6 +8,20 @@ export interface ServerAddress {
 	virtualHostedStyle: false;
 }
 
+/**
+ * S3's rules for a bucket name, which SeaweedFS enforces by refusing every
+ * write: without this check `createBucket` would retry for the whole timeout.
+ */
+export function checkBucketName(name: string): void {
+	if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(name)) {
+		throw new TypeError(
+			`createBucket: "${name.slice(0, 80)}" is not a bucket name S3 accepts: ` +
+				'3 to 63 characters, lowercase letters, digits, dots and hyphens, ' +
+				'starting and ending with a letter or digit',
+		);
+	}
+}
+
 export interface ServerHandle {
 	logPath: string;
 	/** Settles when the server process ends. */
@@ -49,6 +63,7 @@ export async function createBucketOn(
 	server: ServerHandle,
 	timeoutMs = 90_000,
 ): Promise<void> {
+	checkBucketName(bucket);
 	const scoped = new S3Client({ ...address, bucket });
 	const deadline = Date.now() + timeoutMs;
 	let dead = false;

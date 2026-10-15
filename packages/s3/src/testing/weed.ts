@@ -88,8 +88,13 @@ export function spawnWeed(
 
 /** The unix sockets `weed` leaves in the temp directory, one per port. */
 export function socketsOf(ports: number[]): string[] {
-	return ['s3', 'master', 'volume', 'filer'].flatMap((service, index) => [
-		join(tmpdir(), `seaweedfs-${service}-${ports[index]}.sock`),
-		join(tmpdir(), `seaweedfs-${service}-grpc-${ports[index + 4]}.sock`),
-	]);
+	// Measured on macOS: `weed` names its sockets in a literal `/tmp`, whatever
+	// `$TMPDIR` is, so both places are cleaned.
+	const folders = [...new Set(['/tmp', tmpdir()])];
+	return folders.flatMap((folder) =>
+		['s3', 'master', 'volume', 'filer'].flatMap((service, index) => [
+			join(folder, `seaweedfs-${service}-${ports[index]}.sock`),
+			join(folder, `seaweedfs-${service}-grpc-${ports[index + 4]}.sock`),
+		]),
+	);
 }
