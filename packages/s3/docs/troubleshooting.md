@@ -1,9 +1,10 @@
 # Troubleshooting
 
 This package's error class for refusals is `S3Error`, with a `code` of
-`WRONG_TYPE`, `TOO_LARGE`, `UNMEASURABLE` or `WRONG_OPTION`, and the object
-`key` it was about — never the body. Every one of them is raised **before**
-anything is sent, so a refused write stored nothing. It throws two other
+`WRONG_TYPE`, `TOO_LARGE`, `UNMEASURABLE`, `WRONG_OPTION` or `TIMEOUT`, and
+the object `key` it was about — never the body. Every one of them but
+`TIMEOUT` is raised **before** anything is sent, so a refused write stored
+nothing; `TIMEOUT` is raised after, when a deadline passes. It throws two other
 kinds, for what is not the caller's input: a `TypeError` from `defineBucket`
 for a definition that could never work, and from `presignPost` when its
 secret is not the one Bun signs with (changed or deleted since the process
@@ -61,6 +62,9 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [`GET https://github.com/seaweedfs/seaweedfs/releases/download/4.47/linux_amd64.tar.gz answered 404`](#get-httpsgithubcomseaweedfsseaweedfsreleasesdownload447linux_amd64targz-answered-404)
   - [`SeaweedFS did not serve S3 on http://127.0.0.1:24561 in 90s (bucket "avatars"). Its log, …/weed.log, says:`](#seaweedfs-did-not-serve-s3-on-http12700124561-in-90s-bucket-avatars-its-log-weedlog-says)
   - [`no free block of 8 consecutive ports`](#no-free-block-of-8-consecutive-ports)
+- **Deadlines**
+  - [`timeoutMs is a whole number of milliseconds, 1 or more; got a fraction (stat on "avatars")`](#timeoutms-is-a-whole-number-of-milliseconds-1-or-more-got-a-fraction-stat-on-avatars)
+  - [`stat on "avatars": no answer in 5000ms`](#stat-on-avatars-no-answer-in-5000ms)
 - **The service**
   - [`Missing S3 credentials. 'accessKeyId', 'secretAccessKey', 'bucket', and 'endpoint' are required`](#missing-s3-credentials-accesskeyid-secretaccesskey-bucket-and-endpoint-are-required)
   - [`The AWS Access Key Id you provided does not exist in our records.`](#the-aws-access-key-id-you-provided-does-not-exist-in-our-records)
@@ -268,8 +272,9 @@ of those. Both paths go through the same allowlist since 0.3.0; before it,
 package is older than 0.3.0. From 0.3.0 to 0.4.0 this one quoted the value it
 was given (`got "everyone"`); it now gives only its shape.
 **Why:** the same `code: 'WRONG_OPTION'`, before anything is sent or signed.
-The two guarded options are `acl` and `storageClass`; `contentDisposition`
-and `contentEncoding` are plain strings to the service and accept anything.
+The guarded options are `acl` and `storageClass` (a fixed set each) and
+`contentDisposition` (one printable-ASCII header value); `contentEncoding` is a
+plain string to the service and accepts anything.
 `presignGet`, `presignPut` and `presignPost` take no `storageClass` —
 nothing is stored by signing a URL or a form.
 **Fix:**
@@ -277,6 +282,28 @@ nothing is stored by signing a URL or a form.
 ```ts
 await avatars.put({ userId }, bytes, { acl: 'public-read' });
 const url = avatars.presignPut({ userId }, { acl: 'private', expiresIn: 300 });
+```
+
+### `contentDisposition must be a non-empty string of printable ASCII, with no line break or control character (spell a non-ASCII filename as filename*=UTF-8''...); got a string with other characters (presignGet on "avatars")`
+
+**When:** `put`, `presignGet` or `presignPost` with a `contentDisposition`
+that is empty, not a string, or holds a character outside space-to-tilde:
+a CR, LF or NUL, a tab, an accented letter. `got` names the shape (`an empty string`,
+`a string with other characters`, or for a non-string `a number`,
+`an object`, `null`, `undefined`…), never the value, and the line ends with
+the call. `presignPut` takes no `contentDisposition` at all. A `put` refuses
+it too since 0.5.0; before it, any string went through to the service.
+**Why:** an `S3Error` with `code: 'WRONG_OPTION'`, raised before anything is
+sent or signed. The value becomes a header, and a line break in it would split
+that header.
+**Fix:** printable ASCII, with a non-ASCII filename spelled as RFC 6266's
+`filename*`:
+
+```ts
+const url = avatars.presignGet(
+	{ userId },
+	{ expiresIn: 300, contentDisposition: "attachment; filename*=UTF-8''%C3%A9t%C3%A9.png" },
+);
 ```
 
 ### `expiresIn is seconds, and must be above 0 and at most 604800 (seven days, which is S3's own limit); got a number above that (presignGet on "avatars")`
@@ -524,6 +551,32 @@ longer than 90 s; stop other test servers, and give `beforeAll` a timeout of
 **Why:** SeaweedFS binds eight ports (four services, each with a gRPC port),
 and fifty random blocks between 20000 and 30000 all had one taken.
 **Fix:** stop what holds ports in that range, or run fewer servers at once.
+
+## Deadlines
+
+### `timeoutMs is a whole number of milliseconds, 1 or more; got a fraction (stat on "avatars")`
+
+**When:** a `timeoutMs` that is zero, negative, a fraction, `NaN` or not a
+number, on `stat`, `exists`, `bytes`, `text` or `delete` — or on `bindBucket`,
+where it reads `(bindBucket on "avatars")`. `code: 'WRONG_OPTION'`, thrown
+before anything is sent.
+**Fix:** pass whole milliseconds, 1 or more: `{ timeoutMs: 5000 }`.
+
+### `stat on "avatars": no answer in 5000ms`
+
+**When:** a call with a `timeoutMs` — its own or the bucket's — got no answer
+in time. `code: 'TIMEOUT'`; the message names the call and the bucket, and the
+`key` is on the error.
+**Why:** the service is down, unreachable, or accepts the connection and never
+answers. The request was **aborted**, but it had been **sent**: a `delete`
+may have happened all the same.
+**Fix:** retry if the call is safe to repeat, or raise the deadline. Without a
+`timeoutMs`, Bun waits 360 s and fails with its own error, named `S3Error`
+too, with `code: 'Timeout'` — test `error instanceof S3Error`, then `code`.
+
+```ts
+if (error instanceof S3Error && error.code === 'TIMEOUT') retryLater();
+```
 
 ## The service
 

@@ -20,13 +20,21 @@ export type S3ErrorCode =
 	 * `presignPut` and `presignPost`; and on `presignPost`, a `maxSize` or
 	 * `minSize` that is not a whole number of bytes, a `maxSize` above the
 	 * bucket's own or missing on a bucket without one, a `minSize` above the
-	 * `maxSize`, or a `type` that is neither a string nor `{ startsWith }`.
+	 * `maxSize`, or a `type` that is neither a string nor `{ startsWith }`; and a
+	 * `timeoutMs` that is not a whole number of milliseconds, 1 or more.
 	 */
-	| 'WRONG_OPTION';
+	| 'WRONG_OPTION'
+	/**
+	 * A call that names `timeoutMs` (or a bucket bound with one) got no answer
+	 * in time, and its request was aborted. The one code raised **after**
+	 * something was sent: the service may still have acted on it.
+	 */
+	| 'TIMEOUT';
 
 /**
  * This package's error class for refusals, and every one of them is thrown
- * **before** anything is sent. The package also throws a `TypeError` for a
+ * **before** anything is sent, except `TIMEOUT`, the one code raised after
+ * a request went out. The package also throws a `TypeError` for a
  * bucket definition that could never work or a `presignPost` secret that is
  * not Bun's, and a plain `Error` when the URL Bun signed cannot be read. S3's
  * own failures come back as they are, from Bun's client.

@@ -20,6 +20,8 @@ export interface BucketContext<P> {
 	 * `undefined` when the bucket accepts anything.
 	 */
 	readonly accepted: readonly string[] | undefined;
+	/** The bucket's default deadline in ms, checked at bind time. */
+	readonly timeoutMs: number | undefined;
 }
 
 /**
@@ -59,11 +61,13 @@ export function bucketContext<P>(
 	client: S3Client,
 	definition: BucketDefinition<P>,
 	secretAccessKey?: string,
+	timeoutMs?: number,
 ): BucketContext<P> {
 	const context: BucketContext<P> = {
 		client,
 		definition,
 		accepted: acceptedTypes(definition.contentType),
+		timeoutMs,
 	};
 	const secret =
 		secretAccessKey ||

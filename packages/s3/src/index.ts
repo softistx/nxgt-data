@@ -1,6 +1,8 @@
 export type {
+	BindOptions,
 	BoundBucket,
 	PresignedPost,
+	PresignGetOptions,
 	PresignOptions,
 	PresignPostOptions,
 } from './bucket/bind-bucket';
@@ -8,6 +10,7 @@ export { bindBucket } from './bucket/bind-bucket';
 export { defineBucket } from './bucket/define-bucket';
 export type {
 	BucketDefinition,
+	CallOptions,
 	ObjectPage,
 	ParamsOf,
 	PutBody,

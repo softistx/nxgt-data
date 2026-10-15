@@ -37,6 +37,11 @@ export interface PresignPostOptions {
 	type?: string | { startsWith: string };
 	/** `public-read` and the rest, fixed by the policy. */
 	acl?: S3Options['acl'];
+	/**
+	 * The `Content-Disposition` the object is stored with, fixed by the
+	 * policy: the browser posts exactly this field. Printable ASCII only.
+	 */
+	contentDisposition?: string | undefined;
 }
 
 /** Bun's own default for a presigned URL, a day, so all three agree. */
@@ -169,6 +174,15 @@ export function presignPostForm<P>(
 	if (options?.acl !== undefined) {
 		checkOption(key, 'acl', options.acl, callOn(context));
 		fields['acl'] = options.acl;
+	}
+	if (options?.contentDisposition !== undefined) {
+		checkOption(
+			key,
+			'contentDisposition',
+			options.contentDisposition,
+			callOn(context),
+		);
+		fields['Content-Disposition'] = options.contentDisposition;
 	}
 	return signPostPolicy(signerOf(context), {
 		fields,

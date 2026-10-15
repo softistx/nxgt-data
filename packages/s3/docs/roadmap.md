@@ -5,6 +5,15 @@ shipped in is the only number on this page.
 
 ## Now
 
+- **A download with a filename** — `presignGet(params, { contentDisposition })`
+  signs `response-content-disposition`, so a link saves the object under a
+  name you choose; `presignPost` can pin a `Content-Disposition` field in its
+  policy. `put`'s `contentDisposition` is now held to one printable header
+  value too. Ships with the rest of this effort.
+- **A deadline on the calls that wait on the service** — `timeoutMs` on
+  `stat`, `exists`, `bytes`, `text` and `delete`, or as the bucket's default on
+  `bindBucket`: no answer in time rejects with `S3Error` `TIMEOUT` and aborts
+  the request, which Bun's own calls (360 s) cannot do.
 - **`@nxgt/s3/testing`** — `startTestS3()` starts a real S3 API (SeaweedFS) on
   free ports for a suite, with `createBucket`, `reset` and `stop`, and the
   options `bindBucket` takes. The binary is checked against a pinned SHA-256
@@ -18,6 +27,11 @@ _Nothing queued._
 
 - **Copy and move** — once Bun's own `S3Client` has them. Until then
   `store.client` is where they live.
+- **A deadline on `put` and `list`** — they stay on Bun's own call, which
+  ignores an abort, until they are moved onto a signed `fetch` the way the
+  reads and `delete` are.
+- **A caller's `signal`** — an `AbortSignal` of the caller's own, beside or
+  instead of `timeoutMs`.
 
 ## Not planned
 

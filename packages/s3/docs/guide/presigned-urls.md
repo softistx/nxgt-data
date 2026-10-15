@@ -30,12 +30,16 @@ which object they mean — see [Buckets](buckets.md).
 ```ts
 import type { S3Options } from 'bun';
 
-presignGet(params: P, options?: PresignOptions): string;
+presignGet(params: P, options?: PresignGetOptions): string;
 presignPut(params: P, options?: PresignOptions): string;
 
 interface PresignOptions {
 	expiresIn?: number | undefined;
 	acl?: S3Options['acl'];
+}
+
+interface PresignGetOptions extends PresignOptions {
+	contentDisposition?: string | undefined;
 }
 ```
 
@@ -45,6 +49,7 @@ interface PresignOptions {
 | --- | --- | --- | --- |
 | `expiresIn` | `number` | Bun's, one day | **seconds** until the URL expires. Always pass one. Above 604 800 (seven days, S3's own limit), at or below zero, or anything that is not a finite number is an `S3Error` with `code: 'WRONG_OPTION'` |
 | `acl` | `'private' \| 'public-read' \| …` | none | the ACL the URL is signed for, where the service honours it |
+| `contentDisposition` | `string` | none | **`presignGet` only.** Signed as `response-content-disposition`: the service serves this URL with that header, whatever the object stored. Printable ASCII, non-empty; else `WRONG_OPTION`. `presignPut` takes none |
 
 `acl` goes through the same allowlist a `put` is held to, so a value the
 service does not accept is an `S3Error` with `code: 'WRONG_OPTION'` and no
@@ -81,6 +86,36 @@ const url = store.presignGet({ userId: 'u1' }, { expiresIn: 60 });
 const answer = await fetch(url);
 answer.status; // 200 — it really reads the object
 ```
+
+## Download with a filename
+
+A link that saves the file under a chosen name asks the service to serve the
+object as an attachment. Give `presignGet` a `contentDisposition`; for a name
+that is not plain ASCII, use RFC 6266's `filename*`:
+
+```ts
+const url = store.presignGet(
+	{ userId: 'u1' },
+	{ expiresIn: 300, contentDisposition: "attachment; filename*=UTF-8''report.pdf" },
+);
+const answer = await fetch(url);
+answer.headers.get('content-disposition'); // attachment; filename*=UTF-8''report.pdf
+```
+
+Measured against SeaweedFS 4.47: the answer carries the signed header, and it
+wins over the one the object was stored with; a plain `presignGet` of the same
+object still returns the stored one. The override belongs to that link alone.
+
+The value is held to one header value before anything is signed: a non-empty
+string of printable ASCII, no CR, LF, NUL or other control character, else an
+`S3Error` with `code: 'WRONG_OPTION'` (`put` and `presignPost` are held to it
+too). A name with `é` or `東京` goes in as `filename*=UTF-8''%C3%A9.pdf`,
+percent-encoded. `presignPut` takes none: the header only describes a
+download.
+
+For an upload, `presignPost` takes the same option and pins it in the policy
+(`["eq", "$Content-Disposition", …]`, and a `Content-Disposition` field in
+`fields`), so the object is stored with it and every download carries it.
 
 ## A presigned PUT constrains the key and the deadline, and nothing else
 
@@ -134,6 +169,7 @@ interface PresignPostOptions {
 	minSize?: number;                           // bytes; 0 by default
 	type?: string | { startsWith: string };     // the bucket's single type by default
 	acl?: S3Options['acl'];
+	contentDisposition?: string;                // a Content-Disposition field, pinned with eq
 }
 
 interface PresignedPost {
@@ -190,6 +226,7 @@ measured, a form posted without it is refused `403 AccessDenied`.
 | `type: { startsWith: 'image/' }` | `["starts-with", "$Content-Type", "image/"]`, **no** field — the page's code appends `Content-Type` before the file; a browser adds none by itself | — |
 | no `type`, on a bucket that names none | `["starts-with", "$Content-Type", ""]`: the browser may name any type | — |
 | `acl` | `["eq", "$acl", "public-read"]`, and the field | none |
+| `contentDisposition` | `["eq", "$Content-Disposition", "attachment; …"]`, and the field: another value is `403` | none |
 | `expiresIn` | the policy's `expiration` | a day, as Bun's for the other two |
 
 The bounds can only tighten the definition, never loosen it:
@@ -205,7 +242,8 @@ The bounds can only tighten the definition, never loosen it:
   prefix would let another type through.
 
 Each refusal is an `S3Error`, raised before anything is signed: `WRONG_OPTION`
-for a size, a `type` of the wrong shape, an `expiresIn` or an `acl`, and
+for a size, a `type` of the wrong shape, an `expiresIn`, an `acl` or a
+`contentDisposition`, and
 `WRONG_TYPE` for a type the bucket does not accept. See
 [Troubleshooting](../troubleshooting.md).
 
@@ -269,7 +307,9 @@ None of the three is an `S3Error`: none is the caller's input.
 ## A URL is signed for the bound bucket, whatever the options say
 
 `PresignOptions` carries no `bucket`, `endpoint`, `region` or credential, and
-the run time signs with only the two keys above — anything else is dropped.
+the run time signs with only the keys above — `expiresIn` and `acl`, plus
+`contentDisposition` on `presignGet` (`PresignGetOptions`) — anything else is
+dropped.
 
 ```ts
 import type { PresignOptions } from '@nxgt/s3';

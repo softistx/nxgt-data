@@ -79,3 +79,16 @@ export type PutOptions = Pick<
 	S3Options,
 	'type' | 'acl' | 'storageClass' | 'contentDisposition' | 'contentEncoding'
 >;
+
+/**
+ * What a call that waits on the service may say: how long it waits.
+ * `undefined` takes the bound bucket's own `timeoutMs`, if it has one, and
+ * otherwise Bun's limit, which is 360 s.
+ */
+export interface CallOptions {
+	/**
+	 * Whole milliseconds, 1 or more. No answer by then rejects with an
+	 * `S3Error` coded `TIMEOUT`, and the request is aborted.
+	 */
+	timeoutMs?: number | undefined;
+}

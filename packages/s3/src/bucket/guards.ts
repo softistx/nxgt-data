@@ -1,5 +1,6 @@
 import { S3Error } from '../errors/s3-error';
 import type { BucketContext } from './context';
+import { checkDisposition } from './disposition';
 import type { PresignOptions } from './operations/presign';
 import { shapeOf } from './shape';
 import type { PutBody, PutOptions } from './types';
@@ -188,7 +189,8 @@ const ALLOWED = {
 const MAX_EXPIRES_IN = 604_800;
 
 /**
- * Refuses a value the service does not accept for `acl` or `storageClass`.
+ * Refuses a value the service does not accept for `acl`, `storageClass`,
+ * `expiresIn` or `contentDisposition`.
  * Shared by `put` and the three presigned calls, so the same wrong `acl` is
  * the same error whichever one a caller reached for; `where` is `callOf`'s,
  * the call and the bucket. An option with no fixed set passes. The value is
@@ -203,6 +205,10 @@ export function checkOption(
 	if (value === undefined) return;
 	if (name === 'expiresIn') {
 		checkExpiresIn(key, value, where);
+		return;
+	}
+	if (name === 'contentDisposition') {
+		checkDisposition(key, value, where);
 		return;
 	}
 	const allowed = (ALLOWED as Record<string, readonly string[] | undefined>)[
