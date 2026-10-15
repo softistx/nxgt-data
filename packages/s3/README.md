@@ -310,7 +310,8 @@ presigned URL or a presigned POST whose input the bucket does not accept — and
 the one code raised after a request went out. It carries a `code`
 and the object `key` — never the body, never a credential. The package throws
 two other kinds, both below the table: a `TypeError` from `defineBucket` for a
-definition that could never work, and from `presignPost` when its secret is
+definition that could never work, from `bindBucket` for a `timeoutMs` default
+that is not whole milliseconds, and from `presignPost` when its secret is
 not Bun's; and a plain `Error` from `presignPost` when the URL Bun signed
 cannot be read.
 

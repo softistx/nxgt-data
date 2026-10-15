@@ -207,5 +207,7 @@ store.text({ userId: 'u1' }, { timeoutMs: '5000' });
 // @ts-expect-error a call takes `timeoutMs` and nothing else (no caller signal)
 store.exists({ userId: 'u1' }, { signal: new AbortController().signal });
 bindBucket(avatars, { timeoutMs: 5000 });
+// @ts-expect-error the bucket's default is a number too
+bindBucket(avatars, { timeoutMs: '5000' });
 // @ts-expect-error a write has no deadline of its own
 store.put({ userId: 'u1' }, 'body', { timeoutMs: 5000 });

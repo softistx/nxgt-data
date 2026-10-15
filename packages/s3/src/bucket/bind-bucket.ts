@@ -1,5 +1,6 @@
 import { S3Client, type S3File, type S3Options, type S3Stats } from 'bun';
 import { bucketContext, keyOf } from './context';
+import { isWholeMs } from './operations/deadline';
 import { listObjects } from './operations/list';
 import {
 	type PresignGetOptions,
@@ -117,12 +118,7 @@ export function bindBucket<P>(
 	const { timeoutMs, ...clientOptions } = options;
 	// Wiring, not a request: a bare `TypeError`, like the other definition-time
 	// refusals. Only the per-call value, which can come from a request, is coded.
-	if (
-		timeoutMs !== undefined &&
-		(typeof timeoutMs !== 'number' ||
-			!Number.isSafeInteger(timeoutMs) ||
-			timeoutMs < 1)
-	) {
+	if (timeoutMs !== undefined && !isWholeMs(timeoutMs)) {
 		throw new TypeError(
 			`bindBucket on "${definition.bucket}": timeoutMs is a whole number of ` +
 				`milliseconds, 1 or more; got ${shapeOf(timeoutMs)}`,

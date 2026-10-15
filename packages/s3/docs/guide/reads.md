@@ -124,7 +124,8 @@ same either way: `undefined` or `false` for a missing object, the same
 `S3Error` with S3's `code` (for a `stat` or `exists`, `UnknownError`, as Bun's
 own HEAD does). A refused or dropped connection, even in the middle of the body, is the same
 `S3Error` Bun gives without a deadline (`ConnectionRefused` or
-`ConnectionClosed`, `path` the key) and never carries the signed URL. The
+`ConnectionClosed`, `DNSResolveFailed` for a host that does not resolve, `path`
+the key; any other failure nobody mapped is reported as `ConnectionClosed`) and never carries the signed URL. The
 deadline path does not retry; Bun's client does, per `retry`.
 `TIMEOUT` is raised **after** the request was sent.
 

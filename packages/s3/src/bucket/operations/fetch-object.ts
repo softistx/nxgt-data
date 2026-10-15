@@ -9,6 +9,8 @@ const BUN_CODES: Record<string, string> = {
 	ConnectionRefused: 'ConnectionRefused',
 	ECONNRESET: 'ConnectionClosed',
 	ConnectionClosed: 'ConnectionClosed',
+	ENOTFOUND: 'DNSResolveFailed',
+	DNSResolveFailed: 'DNSResolveFailed',
 	EPIPE: 'ConnectionClosed',
 	UND_ERR_SOCKET: 'ConnectionClosed',
 };
@@ -77,13 +79,16 @@ function failure(response: Exchange, key: string): Error {
 	const body = new TextDecoder().decode(response.body);
 	const field = (tag: string) =>
 		new RegExp(`<${tag}>([^<]*)</${tag}>`).exec(body)?.[1];
-	const error = s3Error(
-		field('Code') ?? 'UnknownError',
+	// Measured: Bun reads a 404 with no S3 body (a proxy's) as `NoSuchKey`.
+	const missing = response.status === 404;
+	return s3Error(
+		field('Code') ?? (missing ? 'NoSuchKey' : 'UnknownError'),
 		key,
-		field('Message') ?? 'an unexpected error has occurred',
-	) as Error & { status: number };
-	error.status = response.status;
-	return error;
+		field('Message') ??
+			(missing
+				? 'The specified key does not exist.'
+				: 'an unexpected error has occurred'),
+	);
 }
 
 /** HEAD: the stats Bun gives, or `undefined` when there is no such object. */
@@ -113,12 +118,7 @@ export async function getObject<P>(
 	const response = await send(context, key, 'GET', signal);
 	if (response.ok) return response.body;
 	const error = failure(response, key);
-	if (
-		response.status === 404 &&
-		(error as { code?: string }).code === 'NoSuchKey'
-	) {
-		return undefined;
-	}
+	if ((error as { code?: string }).code === 'NoSuchKey') return undefined;
 	throw error;
 }
 

@@ -87,3 +87,69 @@ describe('a connection that fails, with or without a deadline', () => {
 		});
 	}
 });
+
+/** One answer, whatever the request, then the socket ends. */
+function answering(respond: () => string): number {
+	const listener = Bun.listen({
+		hostname: '127.0.0.1',
+		port: 0,
+		socket: {
+			data(socket) {
+				socket.write(respond());
+				socket.end();
+			},
+		},
+	});
+	listeners.push(listener);
+	return listener.port;
+}
+
+const NO_BODY = 'content-length: 0\r\nconnection: close\r\n\r\n';
+
+describe('an answer that is not S3’s, with or without a deadline', () => {
+	test('a host that does not resolve is DNSResolveFailed on both', async () => {
+		const at = (timeoutMs?: number) =>
+			bindBucket(avatars, {
+				endpoint: 'http://no-such-host.invalid',
+				accessKeyId: 'k',
+				secretAccessKey: 's',
+				virtualHostedStyle: false,
+				retry: 0,
+				timeoutMs,
+			});
+		const plain = await rejection(at().bytes(key));
+		expect(shape(plain).code).toBe('DNSResolveFailed');
+		expect(shape(await rejection(at(5000).bytes(key)))).toEqual(shape(plain));
+	});
+
+	test('a 404 with no S3 body (a proxy’s) reads as missing, and a delete fails the same', async () => {
+		const port = answering(() => `HTTP/1.1 404 Not Found\r\n${NO_BODY}`);
+		const plain = bucketAt(port);
+		const timed = bucketAt(port, 5000);
+		expect(await plain.bytes(key)).toBeUndefined();
+		expect(await timed.bytes(key)).toBeUndefined();
+		expect(await timed.text(key)).toBeUndefined();
+		expect(await timed.stat(key)).toBeUndefined();
+		const own = await rejection(plain.delete(key));
+		const deadline = await rejection(timed.delete(key));
+		expect(shape(own).code).toBe('NoSuchKey');
+		expect(shape(deadline)).toEqual(shape(own));
+		expect((deadline as Error).message).toBe((own as Error).message);
+		expect(Object.getOwnPropertyNames(deadline).sort()).toEqual(
+			Object.getOwnPropertyNames(own).sort(),
+		);
+	});
+
+	test('a redirect is followed on both paths', async () => {
+		const target = answering(
+			() =>
+				'HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nhi',
+		);
+		const port = answering(
+			() =>
+				`HTTP/1.1 302 Found\r\nlocation: http://127.0.0.1:${target}/other\r\n${NO_BODY}`,
+		);
+		expect(await bucketAt(port).text(key)).toBe('hi');
+		expect(await bucketAt(port, 5000).text(key)).toBe('hi');
+	});
+});
