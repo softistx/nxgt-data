@@ -1,5 +1,31 @@
 # @nxgt/s3
 
+## 0.5.0
+
+### Minor Changes
+
+- [#206](https://github.com/softistx/nxgt-data/pull/206) [`c3fa09b`](https://github.com/softistx/nxgt-data/commit/c3fa09b7647e066057fc698e4753aa5ac92a537a) Thanks [@SteveGT96](https://github.com/SteveGT96)! - A signed download link can now save the object under a name you choose:
+  `store.presignGet(params, { expiresIn: 300, contentDisposition: "attachment; filename*=UTF-8''report.pdf" })`
+  signs `response-content-disposition`, so the service serves that link with
+  the header, whatever the object was stored with. `presignPost` takes a
+  `contentDisposition` too, pinned in the policy as a `Content-Disposition`
+  field. `presignPut` takes none (its type refuses it), and `PresignGetOptions`
+  is exported.
+  
+  The value must be a non-empty string of printable ASCII, with no line break
+  or control character; anything else is an `S3Error` with `code:
+  'WRONG_OPTION'` and nothing is signed. `put`'s `contentDisposition` is held
+  to the same check now: a value that is empty, not a string, or holds a
+  control or non-ASCII character is refused before the write, where it used to
+  reach the service as it came. A non-ASCII filename is spelled
+  `filename*=UTF-8''...`, percent-encoded.
+
+- [#208](https://github.com/softistx/nxgt-data/pull/208) [`e429ad4`](https://github.com/softistx/nxgt-data/commit/e429ad476954e007850b6d6309593d941ae11af4) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Add `@nxgt/s3/testing`: `startTestS3({ binary, cacheDir })` starts a real S3 API (SeaweedFS) on free ports for a suite, and resolves to `{ endpoint, accessKeyId, secretAccessKey, region, options, createBucket, reset, stop }`, `options` being ready for `bindBucket`. The `weed` binary comes from the `binary` option, `$WEED_BIN`, the cache (`node_modules/.cache/@nxgt/s3/seaweedfs`) or a download checked against a SHA-256 pinned per platform asset. `seaweedfsBinary` and `TEST_SEAWEEDFS_VERSION` are exported too.
+
+- [#207](https://github.com/softistx/nxgt-data/pull/207) [`c438095`](https://github.com/softistx/nxgt-data/commit/c438095f0beab05dc8e81b1f52d3e356111837f0) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Add a deadline to the calls that wait on the service. `stat`, `exists`, `bytes`, `text` and `delete` take `{ timeoutMs }`, and `bindBucket` takes a default `timeoutMs`; no answer in time rejects with `S3Error` coded `TIMEOUT` and aborts the request. Bun's own S3 calls ignore an `AbortSignal` and give up after 360 s, so a call with a deadline signs a URL with Bun and sends it with `fetch`; a call without one is unchanged. A bad per-call `timeoutMs` is a `WRONG_OPTION` before anything is sent; a bad default on `bindBucket` is a bare `TypeError`. A failure while the response is read, or a refused connection, rejects in the shape Bun gives without a deadline (`S3Error`, `code` `ConnectionRefused`, `ConnectionClosed` or `DNSResolveFailed`, `path` the key) and never carries the signed URL; a 404 with no S3 body reads as missing on a read and as `NoSuchKey` on `delete`, as Bun's own path does. `exists` and `delete` are now `async`, so a `key` function that throws makes them reject rather than throw synchronously, like the other calls. New exported types: `CallOptions` and `BindOptions`.
+  
+  `S3ErrorCode` gains `'TIMEOUT'`: an exhaustive `switch` over it now fails to compile until it handles the new member. `TIMEOUT` is the one code raised after a request was sent.
+
 ## 0.4.4
 
 ### Patch Changes
