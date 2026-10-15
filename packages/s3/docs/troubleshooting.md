@@ -52,6 +52,15 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [`presignPost on "avatars": the secret access key this package would sign with is not the one Bun signs with, so the service would refuse the form. …`](#presignpost-on-avatars-the-secret-access-key-this-package-would-sign-with-is-not-the-one-bun-signs-with-so-the-service-would-refuse-the-form-)
   - [`presignPost on "avatars": no secret access key to sign with, while Bun has one. …`](#presignpost-on-avatars-no-secret-access-key-to-sign-with-while-bun-has-one-)
   - [`presignPost on "avatars": the URL Bun signed has no credential scope, …`](#presignpost-on-avatars-the-url-bun-signed-has-no-credential-scope-or-not-the-key-at-the-end-of-its-path-so-there-is-nowhere-to-post-the-form-)
+- **Testing**
+  - [`WEED_BIN is /nowhere/weed, which does not exist`](#weed_bin-is-nowhereweed-which-does-not-exist)
+  - [`binary is /nowhere/weed, which does not exist`](#binary-is-nowhereweed-which-does-not-exist)
+  - [`No SeaweedFS binary for win32/x64: install one and set WEED_BIN to its path.`](#no-seaweedfs-binary-for-win32x64-install-one-and-set-weed_bin-to-its-path)
+  - [`SeaweedFS 4.47 linux_amd64.tar.gz has SHA-256 …, expected …: refusing to run it.`](#seaweedfs-447-linux_amd64targz-has-sha-256--expected--refusing-to-run-it)
+  - [`No pinned SHA-256 for SeaweedFS 4.47 plan9_amd64.tar.gz: refusing to run an unchecked download.`](#no-pinned-sha-256-for-seaweedfs-447-plan9_amd64targz-refusing-to-run-an-unchecked-download)
+  - [`GET https://github.com/seaweedfs/seaweedfs/releases/download/4.47/linux_amd64.tar.gz answered 404`](#get-httpsgithubcomseaweedfsseaweedfsreleasesdownload447linux_amd64targz-answered-404)
+  - [`SeaweedFS did not serve S3 on http://127.0.0.1:24561 in 90s (bucket "avatars"). Its log, …/weed.log, says:`](#seaweedfs-did-not-serve-s3-on-http12700124561-in-90s-bucket-avatars-its-log-weedlog-says)
+  - [`no free block of 8 consecutive ports`](#no-free-block-of-8-consecutive-ports)
 - **The service**
   - [`Missing S3 credentials. 'accessKeyId', 'secretAccessKey', 'bucket', and 'endpoint' are required`](#missing-s3-credentials-accesskeyid-secretaccesskey-bucket-and-endpoint-are-required)
   - [`The AWS Access Key Id you provided does not exist in our records.`](#the-aws-access-key-id-you-provided-does-not-exist-in-our-records)
@@ -439,6 +448,82 @@ without either would post the form somewhere else, or sign it as nobody, so
 it is refused rather than guessed.
 **Fix:** use Bun 1.4.2, the version this package was measured on, and
 [open an issue](https://github.com/softistx/nxgt-data/issues) naming the Bun version that produced it.
+
+## Testing
+
+Errors of `@nxgt/s3/testing`; see the [testing guide](guide/testing.md).
+
+### `WEED_BIN is /nowhere/weed, which does not exist`
+
+**When:** `startTestS3()` or `seaweedfsBinary()`, with `$WEED_BIN` set.
+**Why:** `$WEED_BIN` names a file that is not there. It is used before the
+cache, so a stale value in your shell or CI hides the downloaded binary.
+**Fix:** point it at a `weed` that exists, or unset it:
+
+```sh
+unset WEED_BIN
+```
+
+### `binary is /nowhere/weed, which does not exist`
+
+**When:** `startTestS3({ binary })`.
+**Why:** the `binary` option wins over `$WEED_BIN` and the cache, and it names
+a missing file.
+**Fix:** pass a path that exists, or leave `binary` out.
+
+### `No SeaweedFS binary for win32/x64: install one and set WEED_BIN to its path.`
+
+**When:** the first run, on a platform and architecture the SeaweedFS release
+does not ship (Windows, and 32-bit ARM macOS), with nothing cached.
+**Why:** `startTestS3` downloads a release asset named for `process.platform`
+and `process.arch`, and there is none for this one.
+**Fix:** install or build `weed` yourself and name it:
+
+```sh
+WEED_BIN=/usr/local/bin/weed bun test
+```
+
+### `SeaweedFS 4.47 linux_amd64.tar.gz has SHA-256 …, expected …: refusing to run it.`
+
+**When:** the first run, downloading SeaweedFS.
+**Why:** the archive is not the one this version of `@nxgt/s3` pins. A proxy
+that rewrites downloads, a truncated transfer, or a release asset replaced
+upstream all end here. Nothing was unpacked or cached.
+**Fix:** retry on a clean connection; behind a proxy that serves its own
+copy, install `weed` and set `$WEED_BIN`. If the release itself changed,
+that is a bug to report: do not bypass the check.
+
+### `No pinned SHA-256 for SeaweedFS 4.47 plan9_amd64.tar.gz: refusing to run an unchecked download.`
+
+**When:** the first run; the asset the platform maps to has no pinned hash.
+**Why:** a table and a platform mapping that disagree, which this package's
+own spec rules out for the shipped platforms.
+**Fix:** set `$WEED_BIN`, and report the platform.
+
+### `GET https://github.com/seaweedfs/seaweedfs/releases/download/4.47/linux_amd64.tar.gz answered 404`
+
+**When:** the first run, downloading SeaweedFS.
+**Why:** GitHub did not serve the asset: the network is down or filtered, a
+rate limit answered, or the release was withdrawn.
+**Fix:** retry; in a sandbox without network, download once elsewhere and
+cache `node_modules/.cache/@nxgt/s3/seaweedfs`, or set `$WEED_BIN`.
+
+### `SeaweedFS did not serve S3 on http://127.0.0.1:24561 in 90s (bucket "avatars"). Its log, …/weed.log, says:`
+
+**When:** `startTestS3()` or `createBucket(name)`.
+**Why:** the process started but never took a write. The message ends with
+the interesting lines of its own log: a taken port, a binary that dies on
+start, a disk with no room for the volumes it allocates.
+**Fix:** read those lines first. A machine under heavy load can also need
+longer than 90 s; stop other test servers, and give `beforeAll` a timeout of
+120 s or more.
+
+### `no free block of 8 consecutive ports`
+
+**When:** `startTestS3()`.
+**Why:** SeaweedFS binds eight ports (four services, each with a gRPC port),
+and fifty random blocks between 20000 and 30000 all had one taken.
+**Fix:** stop what holds ports in that range, or run fewer servers at once.
 
 ## The service
 

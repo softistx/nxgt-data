@@ -8,6 +8,7 @@ import {
 	test,
 } from 'bun:test';
 import { join } from 'node:path';
+import { startTestS3, type TestS3 } from '@nxgt/s3/testing';
 import { S3Client } from 'bun';
 import {
 	bytes,
@@ -17,19 +18,24 @@ import {
 	memoryTarget,
 } from '../../test/fixtures';
 import { rejection } from '../../test/rejection';
-import { startS3, type TestServer } from '../../test/s3-server';
 import { bindBackup } from '../backups/bind-backup';
 import { generateSigningKeys } from '../crypto/signing';
 import { defineBackup } from '../definition/define-backup';
 import { localRepository } from './local';
 import { s3Repository } from './s3';
 
-let server: TestServer;
+/** The repository's `.cache/seaweedfs`, which `scripts/seaweedfs.ts` fills. */
+const SEAWEEDFS_CACHE = new URL('../../../../.cache/seaweedfs', import.meta.url)
+	.pathname;
+
+let server: TestS3;
 let client: S3Client;
 let tmp: Awaited<ReturnType<typeof folder>>;
 
 beforeAll(async () => {
-	server = await startS3(['backups']);
+	// The binary `scripts/seaweedfs.ts` cached before the specs.
+	server = await startTestS3({ cacheDir: SEAWEEDFS_CACHE });
+	await server.createBucket('backups');
 	client = new S3Client({ ...server.options, bucket: 'backups' });
 }, 120_000);
 afterAll(() => server.stop());

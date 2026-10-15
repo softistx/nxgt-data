@@ -1,0 +1,106 @@
+# Testing against a real S3 API
+
+`@nxgt/s3/testing` starts SeaweedFS for a suite: its S3 gateway, on free
+ports, with no Docker and nothing to `bun add`. Specs then run against a real
+service — real signatures, real refusals, real listings — instead of a mock
+that agrees with whatever you wrote.
+
+It is a subpath: an application that never imports it never loads it, and the
+root entry (`@nxgt/s3`) has no trace of it.
+
+## A whole spec
+
+```ts
+import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test';
+import { bindBucket, defineBucket } from '@nxgt/s3';
+import { startTestS3, type TestS3 } from '@nxgt/s3/testing';
+
+const avatars = defineBucket({
+	bucket: 'avatars',
+	key: (params: { userId: string }) => `${params.userId}.png`,
+	contentType: 'image/png',
+	maxSize: 1024,
+});
+
+let s3: TestS3;
+
+beforeAll(async () => {
+	s3 = await startTestS3();
+	await s3.createBucket('avatars');
+}, 120_000);
+
+beforeEach(() => s3.reset('avatars'));
+
+afterAll(() => s3.stop());
+
+test('stores and reads back an avatar', async () => {
+	const store = bindBucket(avatars, s3.options);
+	await store.put({ userId: 'u1' }, new Uint8Array([1, 2, 3]), {
+		type: 'image/png',
+	});
+	expect(await store.bytes({ userId: 'u1' })).toEqual(new Uint8Array([1, 2, 3]));
+});
+```
+
+## What you get
+
+`startTestS3(options?)` resolves to:
+
+| field | what it is |
+| --- | --- |
+| `endpoint` | `http://127.0.0.1:<port>` |
+| `accessKeyId`, `secretAccessKey`, `region` | the credentials the server accepts (local only), and `us-east-1` |
+| `options` | all of the above plus `virtualHostedStyle: false`: pass it as the second argument of `bindBucket` |
+| `createBucket(name)` | creates the bucket and resolves once it takes writes |
+| `reset(bucket)` | deletes every object of the bucket, so each test starts from nothing |
+| `stop()` | kills the server and removes its files; a second call does nothing |
+
+A bucket must be created before it is used: SeaweedFS makes one on the first
+write, and readiness is per bucket, so `createBucket` is what waits for it.
+Two servers started at once are separate: each has its own ports, data and
+buckets.
+
+Forgetting `stop()` does not leave a process behind: a server still running
+when the test process exits is killed.
+
+## Where the binary comes from
+
+In this order:
+
+1. the `binary` option: `startTestS3({ binary: '/usr/local/bin/weed' })`;
+2. the `$WEED_BIN` environment variable;
+3. the cache, `<cacheDir>/<version>/weed`, where `version` is
+   `TEST_SEAWEEDFS_VERSION` (4.47);
+4. a download, once, into that cache.
+
+`cacheDir` defaults to `node_modules/.cache/@nxgt/s3/seaweedfs`, under the
+nearest `node_modules` found from `process.cwd()`. Pass `cacheDir` to put it
+elsewhere, and cache that folder in CI so the download happens once.
+
+The first run downloads about 45 MB. Give `beforeAll` a timeout that allows
+it (120 s above), or download ahead of the suite from a script your `test`
+runs first:
+
+```ts
+// test/seaweedfs.ts: "test": "bun run test/seaweedfs.ts && bun test"
+import { seaweedfsBinary } from '@nxgt/s3/testing';
+console.log(await seaweedfsBinary());
+```
+
+Starting a server from a cached binary takes about five seconds.
+
+## The download is checked
+
+Every release asset of the pinned SeaweedFS version has its SHA-256 pinned in
+the package. A download that does not match is refused with an error that
+names both hashes, and nothing is unpacked or cached. Raising the version
+means raising the table with it. Platforms the release does not ship
+(Windows, 32-bit ARM macOS) get an error asking for `$WEED_BIN`.
+
+## Why SeaweedFS
+
+MinIO, the usual choice, no longer publishes a binary (`dl.min.io` answers
+`410 Gone`). SeaweedFS does, for Linux, macOS, FreeBSD and OpenBSD, and
+`weed server -s3` serves the API Bun's `S3Client` speaks.
+
+Errors you can meet are in [Troubleshooting](../troubleshooting.md#testing).

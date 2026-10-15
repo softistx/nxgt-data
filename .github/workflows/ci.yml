@@ -92,7 +92,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/seaweedfs
-          key: seaweedfs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/seaweedfs.ts') }}
+          key: seaweedfs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/s3/src/testing/seaweedfs.ts', 'scripts/seaweedfs.ts') }}
       # @nxgt/redis's specs start a real Redis. Nothing publishes a prebuilt
       # one — redis/redis and valkey both ship source only — so
       # redis-memory-server compiles it; packages/redis/test/server.ts has
@@ -177,7 +177,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/seaweedfs
-          key: seaweedfs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/seaweedfs.ts') }}
+          key: seaweedfs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/s3/src/testing/seaweedfs.ts', 'scripts/seaweedfs.ts') }}
       - name: Cache the Redis build
         uses: actions/cache@v4
         with:

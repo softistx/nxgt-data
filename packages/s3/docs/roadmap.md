@@ -5,7 +5,10 @@ shipped in is the only number on this page.
 
 ## Now
 
-_Nothing in progress._
+- **`@nxgt/s3/testing`** — `startTestS3()` starts a real S3 API (SeaweedFS) on
+  free ports for a suite, with `createBucket`, `reset` and `stop`, and the
+  options `bindBucket` takes. The binary is checked against a pinned SHA-256
+  before it runs. See the [testing guide](guide/testing.md).
 
 ## Next
 
