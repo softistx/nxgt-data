@@ -1,0 +1,35 @@
+import type { RedisClient } from 'bun';
+import type { z } from 'zod';
+import type { queueKeys } from '../keys';
+import type { JobContext, QueueDefinition } from '../types';
+import type { Leases } from './leases';
+
+/**
+ * What one running worker works from: the client, the queue, the handler and
+ * the few things that change while it runs (the open flag, the waiting
+ * connection, the slots).
+ *
+ * It holds **data only**. `run-job.ts`, `loop.ts` and `events.ts` are plain
+ * functions that take it as their first argument, as `collection/context.ts`
+ * does in `@nxgt/mongo` — a context of closures would only be the factory this
+ * file split up, one size down.
+ */
+export interface WorkerContext<S extends z.ZodType = z.ZodType> {
+	readonly client: RedisClient;
+	readonly definition: QueueDefinition<S>;
+	readonly keys: ReturnType<typeof queueKeys>;
+	readonly handler: (job: JobContext<S>) => unknown;
+	readonly concurrency: number;
+	readonly leases: Leases;
+	readonly listeners: Set<(error: unknown) => void>;
+	/** The jobs being run, one promise per slot. */
+	readonly slots: Set<Promise<void>>;
+	/** Wakes the sleeps of the error backoff when the worker closes. */
+	readonly stopSleeping: Set<() => void>;
+	/** False once `close` was called. */
+	open: boolean;
+	/** The connection of its own an idle worker blocks on, opened on first use. */
+	waiter: RedisClient | undefined;
+	/** Resolves the loop's wait for a free slot. */
+	slotFreed: (() => void) | undefined;
+}
