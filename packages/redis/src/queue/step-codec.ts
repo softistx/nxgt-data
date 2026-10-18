@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import { QueueError } from '../errors/queue-error';
 import { check } from './check';
+import { fromJson, toJson } from './round-trip';
 
 const MAX_STEP_NAME = 128;
 
@@ -36,8 +37,9 @@ export function checkStepName(
  * there is no schema or the schema accepts `undefined`. With a schema the
  * stored text is its **output**, parsed back through it as `encodeData` does;
  * without one the value must survive the JSON round trip unchanged, so a
- * `Date`, a `Map` or a `NaN` is refused now rather than read back as
- * something else.
+ * `Date`, a `Map`, a `NaN` or `{ a: undefined }` is refused now rather than
+ * read back as something else. A schema that accepts `{ a: undefined }`
+ * stores it.
  *
  * A refusal is `QueueError` `INVALID` naming the queue and the step, with the
  * zod issue codes when a schema refused it, never the value. A schema that
@@ -55,36 +57,10 @@ export function encodeStep(
 			queue,
 			`step on "${queue}": step "${name}" returned a value that ${detail}`,
 		);
-	let output = value;
-	if (schema !== undefined) {
-		const parsed = check(schema, value);
-		if (!parsed.success) {
-			throw refused(`does not match the schema ${parsed.codes}`);
-		}
-		output = parsed.data;
+	if (value === undefined) {
+		if (schema === undefined || check(schema, undefined).success) return '';
 	}
-	if (output === undefined) return '';
-	let json: string | undefined;
-	try {
-		json = JSON.stringify(output);
-	} catch {
-		json = undefined;
-	}
-	if (json === undefined) throw refused('has no JSON form');
-	const back: unknown = JSON.parse(json);
-	if (schema === undefined) {
-		if (!Bun.deepEquals(back, output, true)) {
-			throw refused('has no JSON form');
-		}
-	} else {
-		const again = check(schema, back);
-		if (!again.success) {
-			throw refused(
-				`does not match the schema once stored as JSON ${again.codes}`,
-			);
-		}
-	}
-	return json;
+	return toJson(schema, value, refused, '', 'the schema');
 }
 
 /**
@@ -97,13 +73,5 @@ export function decodeStep(
 	json: string,
 	schema?: z.ZodType,
 ): { ok: true; value: unknown } | { ok: false } {
-	let raw: unknown;
-	try {
-		raw = json === '' ? undefined : JSON.parse(json);
-	} catch {
-		return { ok: false };
-	}
-	if (schema === undefined) return { ok: true, value: raw };
-	const parsed = check(schema, raw);
-	return parsed.success ? { ok: true, value: parsed.data } : { ok: false };
+	return fromJson(schema, json === '' ? undefined : json);
 }

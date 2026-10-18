@@ -84,6 +84,22 @@ describe('encodeStep and decodeStep', () => {
 		});
 	});
 
+	test('a schema whose output is undefined is refused unless it accepts undefined', () => {
+		const schema = z.string().transform(() => undefined);
+		const error = thrown(() => encodeStep('q', 's', 'x', schema));
+		expect((error as QueueError).code).toBe('INVALID');
+		expect((error as QueueError).message).toBe(
+			'step on "q": step "s" returned a value that has no JSON form',
+		);
+	});
+
+	test('{ a: undefined } is refused without a schema and stored by one that accepts it', () => {
+		const error = thrown(() => encodeStep('q', 's', { a: undefined }));
+		expect((error as QueueError).code).toBe('INVALID');
+		const schema = z.object({ a: z.string().optional() });
+		expect(encodeStep('q', 's', { a: undefined }, schema)).toBe('{}');
+	});
+
 	test('a refused value names the issue codes, not the value', () => {
 		const error = thrown(() =>
 			encodeStep('q', 's', 'secret-value', z.number()),

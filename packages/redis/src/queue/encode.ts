@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import { QueueError } from '../errors/queue-error';
 import { check } from './check';
 import { durationMs } from './duration';
+import { fromJson, toJson } from './round-trip';
 import { clampTimeout } from './timers';
 import type { AddOptions, QueueDefinition } from './types';
 
@@ -29,24 +30,7 @@ export function encodeData<S extends z.ZodType>(
 			definition.name,
 			`${call} on "${definition.name}": ${detail}`,
 		);
-	const parsed = check(definition.schema, data);
-	if (!parsed.success) {
-		throw refused(`the data does not match the schema ${parsed.codes}`);
-	}
-	let json: string | undefined;
-	try {
-		json = JSON.stringify(parsed.data);
-	} catch {
-		json = undefined;
-	}
-	if (json === undefined) throw refused('the data has no JSON form');
-	const back = check(definition.schema, JSON.parse(json));
-	if (!back.success) {
-		throw refused(
-			`the data does not match the schema once stored as JSON ${back.codes}`,
-		);
-	}
-	return json;
+	return toJson(definition.schema, data, refused, 'the data ', 'the schema');
 }
 
 /**
@@ -59,16 +43,8 @@ export function decodeData<S extends z.ZodType>(
 	definition: QueueDefinition<S, z.ZodType | undefined>,
 	json: string,
 ): { ok: true; data: z.output<S> } | { ok: false } {
-	let raw: unknown;
-	try {
-		raw = JSON.parse(json);
-	} catch {
-		return { ok: false };
-	}
-	const parsed = check(definition.schema, raw);
-	return parsed.success
-		? { ok: true, data: parsed.data as z.output<S> }
-		: { ok: false };
+	const read = fromJson(definition.schema, json);
+	return read.ok ? { ok: true, data: read.value as z.output<S> } : read;
 }
 
 /** What a script is given for one job's options, all in the units it reads. */
@@ -192,25 +168,8 @@ export function encodeResult(
 			queue,
 			`work on "${queue}": the result ${detail}`,
 		);
-	const parsed = check(schema, value);
-	if (parsed.success && value === undefined) return undefined;
-	if (!parsed.success) {
-		throw refused(`does not match the result schema ${parsed.codes}`);
-	}
-	let json: string | undefined;
-	try {
-		json = JSON.stringify(parsed.data);
-	} catch {
-		json = undefined;
-	}
-	if (json === undefined) throw refused('has no JSON form');
-	const back = check(schema, JSON.parse(json));
-	if (!back.success) {
-		throw refused(
-			`does not match the result schema once stored as JSON ${back.codes}`,
-		);
-	}
-	return json;
+	if (value === undefined && check(schema, undefined).success) return undefined;
+	return toJson(schema, value, refused, '', 'the result schema');
 }
 
 /**
@@ -228,12 +187,5 @@ export function decodeResult(
 ): { ok: true; value: unknown } | { ok: false } {
 	const schema = definition.result;
 	if (schema === undefined) return { ok: true, value: undefined };
-	let raw: unknown;
-	try {
-		raw = json === undefined ? undefined : JSON.parse(json);
-	} catch {
-		return { ok: false };
-	}
-	const parsed = check(schema, raw);
-	return parsed.success ? { ok: true, value: parsed.data } : { ok: false };
+	return fromJson(schema, json);
 }
