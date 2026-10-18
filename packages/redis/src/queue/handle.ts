@@ -3,8 +3,9 @@ import type { z } from 'zod';
 import { QueueError } from '../errors/queue-error';
 import { durationMs } from './duration';
 import { decodeResult } from './encode';
+import { listenRaced } from './events/listen-raced';
 import { parseEvent } from './events/message';
-import { flush, listen } from './events/subscriber';
+import { flush } from './events/subscriber';
 import type { JobHandle } from './handle-types';
 import type { queueKeys } from './keys';
 import type { ResultOf } from './result-types';
@@ -178,21 +179,16 @@ async function waitFinished(
 					timeoutMs,
 				);
 	let poll: ReturnType<typeof setInterval> | undefined;
-	let unlisten: (() => Promise<void>) | undefined;
-	let finished = false;
+	let listener: ReturnType<typeof listenRaced> | undefined;
 	try {
-		// Raced like the reads, so a hung SUBSCRIBE cannot defeat the timeout; a late answer is unlistened.
-		const listening = listen(client, keys.events, (text) =>
-			apply(fromMessage(text, id)),
+		// Raced like the reads, so a hung SUBSCRIBE cannot defeat the timeout.
+		listener = listenRaced(
+			client,
+			keys.events,
+			(text) => apply(fromMessage(text, id)),
+			over,
 		);
-		listening.then(
-			(off) => {
-				unlisten = off;
-				if (finished) off().catch(() => undefined);
-			},
-			() => undefined,
-		);
-		if ((await Promise.race([listening, over])) === OVER) return await done;
+		if ((await listener.raced) === OVER) return await done;
 		// An absent job is believed after two re-reads in a row: with
 		// keepCompleted false a completed job is deleted before its event lands.
 		let absent = 0;
@@ -220,9 +216,7 @@ async function waitFinished(
 	} finally {
 		clearTimeout(timer);
 		clearInterval(poll);
-		finished = true;
-		// Never awaited: a hung UNSUBSCRIBE must not hold the outcome back.
-		unlisten?.().catch(() => undefined);
+		listener?.stop();
 	}
 }
 
