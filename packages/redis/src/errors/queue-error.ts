@@ -1,8 +1,8 @@
 /** What a queue refused. */
 export type QueueErrorCode =
 	/**
-	 * An argument the queue refuses: a payload its schema rejects, or an
-	 * option that is out of range.
+	 * A payload the queue refuses: one its schema rejects, or that does not
+	 * survive JSON. A malformed *option* is a `TypeError`, not this.
 	 */
 	| 'INVALID'
 	/** `retry` or `remove` named a job the queue does not hold in that state. */

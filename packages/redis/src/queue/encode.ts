@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import { codesOf } from '../errors/issue-codes';
 import { QueueError } from '../errors/queue-error';
 import { durationMs } from './duration';
 import type { AddOptions, QueueDefinition } from './types';
@@ -9,34 +10,41 @@ import type { AddOptions, QueueDefinition } from './types';
  * schema, so a value JSON cannot carry — a `Date`, a `Map`, a `bigint`, an
  * `undefined` — is refused now, not when a worker claims the job.
  *
- * The refusal names the queue and the call, never the data: a payload came
- * from a request. The zod issues are the `cause`, for whoever debugs it.
+ * The refusal names the queue and the call, and the zod issue **codes**
+ * (`codesOf`), never the data and never the issues themselves: a payload came
+ * from a request, and zod's messages and paths quote its stray keys and its
+ * `z.record` keys. Nothing is attached as a `cause` for the same reason.
  */
 export function encodeData<S extends z.ZodType>(
 	definition: QueueDefinition<S>,
 	data: unknown,
 	call: string,
 ): string {
-	const refused = (cause?: unknown) => {
-		const error = new QueueError(
+	const refused = (detail: string) =>
+		new QueueError(
 			'INVALID',
 			definition.name,
-			`${call} on "${definition.name}": the data does not match the schema`,
+			`${call} on "${definition.name}": ${detail}`,
 		);
-		if (cause !== undefined) error.cause = cause;
-		return error;
-	};
 	const parsed = definition.schema.safeParse(data);
-	if (!parsed.success) throw refused(parsed.error);
+	if (!parsed.success) {
+		throw refused(
+			`the data does not match the schema ${codesOf(parsed.error)}`,
+		);
+	}
 	let json: string | undefined;
 	try {
 		json = JSON.stringify(parsed.data);
-	} catch (error) {
-		throw refused(error);
+	} catch {
+		json = undefined;
 	}
-	if (json === undefined) throw refused();
-	const back = decodeData(definition, json);
-	if (!back.ok) throw refused();
+	if (json === undefined) throw refused('the data has no JSON form');
+	const back = definition.schema.safeParse(JSON.parse(json));
+	if (!back.success) {
+		throw refused(
+			`the data does not match the schema once stored as JSON ${codesOf(back.error)}`,
+		);
+	}
 	return json;
 }
 

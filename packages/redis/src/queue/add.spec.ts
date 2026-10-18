@@ -160,7 +160,40 @@ describe('add', () => {
 		);
 		expect(error).toBeInstanceOf(QueueError);
 		expect((error as QueueError).code).toBe('INVALID');
+		expect((error as QueueError).message).toBe(
+			'add on "dates": the data does not match the schema once stored as JSON (invalid_type)',
+		);
 		expect(await send('DBSIZE')).toBe(0);
+	});
+
+	test('an INVALID carries the issue codes, and nothing of the payload, however it is printed', async () => {
+		const strict = defineQueue({
+			name: 'strict',
+			schema: z.strictObject({ to: z.string() }),
+		});
+		const open = defineQueue({
+			name: 'open',
+			schema: z.record(z.string().regex(/^[a-z]+$/), z.string()),
+		});
+		const stray = await rejection(
+			bindQueue(servers.redis.client, strict).add({
+				to: 'a',
+				'stray-key-4f9': 1,
+			} as never),
+		);
+		expect((stray as QueueError).message).toBe(
+			'add on "strict": the data does not match the schema (unrecognized_keys)',
+		);
+		const record = await rejection(
+			bindQueue(servers.redis.client, open).add({ 'Record-Key-7c2': 'x' }),
+		);
+		expect((record as QueueError).message).toBe(
+			'add on "open": the data does not match the schema (invalid_key)',
+		);
+		expect((record as QueueError).cause).toBeUndefined();
+		// Bun.inspect prints the cause and every own property.
+		expect(Bun.inspect(stray)).not.toContain('stray-key-4f9');
+		expect(Bun.inspect(record)).not.toContain('Record-Key-7c2');
 	});
 
 	test('add spends one script', async () => {

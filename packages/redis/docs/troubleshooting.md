@@ -47,19 +47,21 @@ application can handle.
   - [`defineQueue: "mails" has a lease of 10ms; it is renewed every third of itself, so it must be at least 30ms`](#definequeue-mails-has-a-lease-of-10ms-it-is-renewed-every-third-of-itself-so-it-must-be-at-least-30ms)
   - [`defineQueue: "mails" has a keepCompleted count of -1; it is a whole number of jobs, from 0`](#definequeue-mails-has-a-keepcompleted-count-of--1-it-is-a-whole-number-of-jobs-from-0)
   - [`defineQueue: "mails" lease is "10 minutes"; a duration is a whole number of milliseconds or a string such as '10m'`](#definequeue-mails-lease-is-10-minutes-a-duration-is-a-whole-number-of-milliseconds-or-a-string-such-as-10m)
-  - [`add: id must be a string of 1 to 256 characters without braces, which are a hash tag`](#add-id-must-be-a-string-of-1-to-256-characters-without-braces-which-are-a-hash-tag)
-  - [`add: priority is 1001; it is a whole number from 0 to 1000`](#add-priority-is-1001-it-is-a-whole-number-from-0-to-1000)
-  - [`add: delay and at say the same thing; give one`](#add-delay-and-at-say-the-same-thing-give-one)
-  - [`add: at must be a valid Date`](#add-at-must-be-a-valid-date)
-  - [`work: concurrency must be a whole number from 1 to 1000, got 0`](#work-concurrency-must-be-a-whole-number-from-1-to-1000-got-0)
-  - [`list: offset must be a whole number from 0, got -1`](#list-offset-must-be-a-whole-number-from-0-got--1)
-  - [`list: limit must be a whole number from 1 to 1000, got 5000`](#list-limit-must-be-a-whole-number-from-1-to-1000-got-5000)
-  - [`list: unknown state "done"`](#list-unknown-state-done)
-  - [`add on "mails": the data does not match the schema`](#add-on-mails-the-data-does-not-match-the-schema)
+  - [`add on "mails": id is a string of 1 to 256 characters without braces, which are a hash tag`](#add-on-mails-id-is-a-string-of-1-to-256-characters-without-braces-which-are-a-hash-tag)
+  - [`add on "mails": priority is a whole number from 0 to 1000`](#add-on-mails-priority-is-a-whole-number-from-0-to-1000)
+  - [`add on "mails": delay and at say the same thing; give one`](#add-on-mails-delay-and-at-say-the-same-thing-give-one)
+  - [`add on "mails": delay is a whole number of milliseconds or a string such as '10m'`](#add-on-mails-delay-is-a-whole-number-of-milliseconds-or-a-string-such-as-10m)
+  - [`add on "mails": at is a valid Date`](#add-on-mails-at-is-a-valid-date)
+  - [`work on "mails": concurrency is a whole number from 1 to 1000`](#work-on-mails-concurrency-is-a-whole-number-from-1-to-1000)
+  - [`list on "mails": offset is a whole number from 0`](#list-on-mails-offset-is-a-whole-number-from-0)
+  - [`list on "mails": limit is a whole number from 1 to 1000`](#list-on-mails-limit-is-a-whole-number-from-1-to-1000)
+  - [`list on "mails": state is one of waiting, delayed, active, completed, failed`](#list-on-mails-state-is-one-of-waiting-delayed-active-completed-failed)
+  - [`add on "mails": the data does not match the schema (invalid_type)`](#add-on-mails-the-data-does-not-match-the-schema-invalid_type)
   - [`retry on "mails": job "receipt:42" is not failed`](#retry-on-mails-job-receipt42-is-not-failed)
   - [`remove on "mails": no job "receipt:42"`](#remove-on-mails-no-job-receipt42)
   - [`remove on "mails": job "receipt:42" is running`](#remove-on-mails-job-receipt42-is-running)
   - [A job's `error` is `INVALID: the stored data does not match the schema`](#a-jobs-error-is-invalid-the-stored-data-does-not-match-the-schema)
+  - [A job's `error` is `INVALID: a stored job this package could not have written`](#a-jobs-error-is-invalid-a-stored-job-this-package-could-not-have-written)
   - [A job ran twice](#a-job-ran-twice)
   - [A job added with an `id` never runs](#a-job-added-with-an-id-never-runs)
 - **Wiring** (`defineRedis` and `openRedis`)
@@ -541,12 +543,13 @@ if (delivered === 0) await queue.add(payload); // a stream or a queue, where it 
 
 ## Queues
 
-A queue throws two errors of its own. `QueueError` has a `code` of `INVALID`,
-`NOT_FOUND` or `ACTIVE`, the `queue` it happened on and the `job` id when the
-call was about one — never the payload. Everything the code got wrong
-(a definition, an option, a page) is a bare `TypeError`, thrown before anything
-is written. A **handler's** error is not thrown anywhere: it is kept on the job,
-which you read with `get` or `list`. See the [guide](guide/queues.md).
+A queue throws a `QueueError` and a bare `TypeError`. `QueueError` has a `code`
+of `INVALID`, `NOT_FOUND` or `ACTIVE`, the `queue` it happened on and the `job`
+id when the call was about one — never the payload. Everything the code got
+wrong (a definition, an option, a page) is a `TypeError`, thrown before
+anything is written. A **handler's** error — a `JobError`, or anything it
+throws — is not thrown to the caller: it is kept on the job, which you read with
+`get` or `list`. See the [guide](guide/queues.md).
 
 ### `defineQueue: a queue needs a name, for its keys`
 
@@ -620,7 +623,7 @@ defineQueue({ name: 'mails', schema, keepCompleted: { count: 100 } });
 
 ### `defineQueue: "mails" lease is "10 minutes"; a duration is a whole number of milliseconds or a string such as '10m'`
 
-**When:** at `defineQueue`, with a span the queue cannot read. The option named in the message is the one that is wrong: `lease`, `backoff base`, `backoff max`, `keepFailed` or `keepCompleted age`. The same message, as `add: delay is …`, comes from `add` and `addMany`, and `retryIn is …` from `new JobError`.
+**When:** at `defineQueue`, with a span the queue cannot read. The option named in the message is the one that is wrong: `lease`, `backoff base`, `backoff max`, `keepFailed` or `keepCompleted age`. The same message, as `add on "mails": delay is …`, comes from `add` and `addMany`, and `retryIn is …` from `new JobError`.
 **Why:** a duration is a whole number of milliseconds (not negative), or a number and a unit — `ms`, `s`, `m`, `h`, `d`. `'10 minutes'`, `'1w'`, `-5` and `0.5` are refused.
 **Fix:**
 
@@ -722,18 +725,18 @@ await queue.list('completed', { limit: 1000 });
 await queue.list('completed');
 ```
 
-### `add on "mails": the data does not match the schema`
+### `add on "mails": the data does not match the schema (invalid_type)`
 
-**When:** `add` (or `addMany on "mails": …`, naming the call). A `QueueError`, `code: 'INVALID'`, `queue: 'mails'`; **nothing was written**, and for `addMany` nothing of the batch was.
-**Why:** the payload is refused by the queue's schema — or it does not survive JSON (a `Date`, a `Map`, a `bigint`, `undefined` at the top). The message never quotes the data, since it came from a request; the zod issues are the error's `cause`.
-**Fix:** read the cause, and send what the schema describes.
+**When:** `add` (or `addMany on "mails": …`, naming the call). A `QueueError`, `code: 'INVALID'`, `queue: 'mails'`; **nothing was written**, and for `addMany` nothing of the batch was. A payload that parses but does not survive JSON (a `z.date()`, a `Map`) says `… does not match the schema once stored as JSON (invalid_type)`, and one JSON cannot write at all (a `bigint`, `undefined` at the top) says `the data has no JSON form`.
+**Why:** the payload is refused by the queue's schema. The message carries the zod issue **codes** only, each once, never the data, the paths or zod's messages: a `z.strictObject` quotes the stray key it found and a `z.record` puts its keys in the path, and both came from a request. The error has no `cause` for the same reason.
+**Fix:** validate the body where it comes in, with the same schema, and answer with what that says; `queue.definition.schema.safeParse(body)` gives the issues.
 
 ```ts
 try {
 	await queue.add(body);
 } catch (error) {
 	if (error instanceof QueueError && error.code === 'INVALID') {
-		console.error(error.cause); // the zod issues
+		console.error(error.message); // the call, the queue and the issue codes
 		return new Response('Bad payload', { status: 400 });
 	}
 	throw error;
@@ -783,6 +786,17 @@ if (job && job.state !== 'active') await queue.remove(job.id);
 ```ts
 const schema = z.object({ to: z.string(), template: z.string().default('welcome') });
 await queue.retry(job.id);
+```
+
+### A job's `error` is `INVALID: a stored job this package could not have written`
+
+**When:** reading a failed job with `get` or `list`: `error` is `{ name: 'QueueError', message: 'INVALID: a stored job this package could not have written' }`. Its handler never ran.
+**Why:** a worker claimed an id whose Redis hash lacks what a job needs (`data`, a numeric `attempt`, `attempts` and `priority`), so something other than this package wrote or edited it. It is moved to `failed` once, and never run or repaired.
+**Fix:** find what wrote to the queue's keys (a script, `redis-cli`, another application sharing the name), then `remove` the job and `add` it again. A job this package wrote is never refused this way.
+
+```ts
+await queue.remove(job.id);
+await queue.add(payload, { id: job.id });
 ```
 
 ### A job ran twice

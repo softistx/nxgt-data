@@ -1,20 +1,6 @@
 import type { z } from 'zod';
 import { GuardError } from '../errors/guard-error';
-
-/**
- * The issue codes of a refusal, each once — `(invalid_type, too_small)`.
- *
- * **Codes only, not zod's messages and not the paths.** Measured on zod
- * 4.6.5: most messages quote the schema (`expected "x"`), but
- * `unrecognized_keys` quotes the stray key the value held
- * (`Unrecognized key: "…"`), a `z.record`'s keys go into the issue's
- * `path`, and a refinement's message is whatever its author wrote. All three
- * come from the value, and a message reports a shape, never a value.
- */
-function codesOf(error: z.ZodError): string {
-	const codes = [...new Set(error.issues.map((issue) => issue.code))];
-	return `(${codes.join(', ')})`;
-}
+import { codesOf } from '../errors/issue-codes';
 
 const invalid = (name: string, detail: string) =>
 	new GuardError('INVALID', name, `run on "${name}": ${detail}`);
