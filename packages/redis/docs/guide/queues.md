@@ -305,10 +305,10 @@ worker.on('error', (error) => logger.error({ error }, 'queue worker'));
 | --- | --- | --- | --- |
 | `concurrency` | `number` | `1` | jobs run at once; a whole number, 1 to 1000 |
 
-A handler receives `{ id, data, attempt, attempts, signal, progress }`: the id,
+A handler receives `{ id, data, attempt, attempts, signal, progress, step, key }`: the id,
 the payload parsed by the schema, this run counting from 1, the runs the queue
 allows, the [abort signal](#timeouts-and-the-abort-signal) and the
-[progress](#progress) reporter. What it settles:
+[progress](#progress) reporter, and the [durable steps](#running-twice) `step` and `key`. What it settles:
 
 - **returns** (or resolves): the job completes. The value is stored when the
   queue has a [result schema](#results), ignored otherwise.
@@ -427,8 +427,142 @@ queue.work(async ({ id, data }) => {
 
 `id` is stable across runs and retries, which makes it the natural idempotency
 key; give the job an `id` of your own at `add` where the work has a natural one.
-A handler that makes several side effects cannot yet record which it has done:
-durable steps are on the [roadmap](../roadmap.md).
+A handler that makes several side effects must record which it has done: that
+is what [steps](#running-twice) are for.
+
+## Running twice
+
+A job runs at least once, so a handler can run more than once for the same job:
+its process died, it lost its lease, or it ran past `timeout`. **Code outside a
+step runs again on every attempt.** `job.step(name, fn)` is how a side effect
+runs once per job instead.
+
+```ts
+import { bindQueue, connectRedis, defineQueue } from '@nxgt/redis';
+import { z } from 'zod';
+
+const redis = await connectRedis(process.env.REDIS_URL!);
+
+const digests = defineQueue({
+	name: 'digest',
+	schema: z.object({ family: z.string() }),
+});
+
+const queue = bindQueue(redis.client, digests);
+
+queue.work(async (job) => {
+	const families = await job.step('load', async () => [job.data.family]);
+	await job.step('send', async () => {
+		await mailer.send(families, { idempotencyKey: job.key('send') });
+	});
+});
+```
+
+`fn` runs once per job: its result is stored, and an attempt that reaches a
+step already stored gets the value back without calling `fn`. A step that
+returns nothing, like `send` above, is stored too, so the mail is not sent a
+second time.
+
+```ts
+type StepOptions<Z extends z.ZodType> = { schema: Z };
+
+step<T>(name: string, fn: () => T | Promise<T>): Promise<T>;
+step<Z extends z.ZodType>(
+	name: string,
+	fn: () => z.input<Z> | Promise<z.input<Z>>,
+	options: StepOptions<Z>,
+): Promise<z.output<Z>>;
+key(name: string): string;
+```
+
+### Values and schemas
+
+Without a schema, the value must survive JSON; a `Date`, a `Map` or a `NaN` is
+refused rather than read back as something else. With `{ schema }`, `fn` returns
+the schema's input, the step returns its output, and a stored value is parsed
+again on every read, so a schema can turn the stored text back into a `Date`:
+
+```ts
+const sentAt = await job.step(
+	'send',
+	async () => {
+		await mailer.send(job.data.family);
+		return new Date().toISOString();
+	},
+	{ schema: z.string().transform((text) => new Date(text)) },
+);
+// sentAt is a Date, on the first run and on every later one
+```
+
+### The rules
+
+- A name is 1 to 128 characters without `:`; anything else is a `TypeError`.
+- A name runs **once per attempt**: using it twice is a `TypeError`. A loop
+  needs distinct names, such as `send-${i}`.
+- A throw from `fn` is the handler's own error and stores nothing, but the name
+  stays used for the rest of that attempt.
+- Distinct steps may run concurrently, for example inside `Promise.all`.
+
+```ts
+for (const [i, to] of job.data.recipients.entries()) {
+	await job.step(`send-${i}`, () => mailer.send(to));
+}
+```
+
+### Fencing
+
+A step starts only if this attempt still holds the job and its lease has not
+lapsed, and its value is stored only under the same check. A worker whose lease
+lapsed, or whose job was taken over, gets a `QueueError` with code `LEASE_LOST`
+from `step`, and `fn` does not run. Its run is aborted (its `signal` fires), and
+the live attempt's value is the one stored: two workers never run the same step
+side by side, and a stale one never overwrites a live one.
+
+### `job.key(name)`
+
+`job.key('send')` is `<queue>:<job id>:send`, the same on every attempt. A
+crash can still land between the side effect and the step's commit, so hand the
+key to the other side as its idempotency key, as the first example does with the
+mailer's. `name` follows the rules of a step's.
+
+Where the other side has no such key, wrap the call in an
+[idempotent operation](guard/idempotency.md) and key it with the job's:
+
+```ts
+const charges = bindIdempotency(
+	redis.client,
+	defineIdempotency({
+		name: 'charges',
+		key: (p: { key: string }) => p.key,
+		ttl: 86_400,
+		schema: z.object({ chargeId: z.string() }),
+	}),
+);
+
+queue.work(async (job) => {
+	await job.step('charge', async () => {
+		const { value } = await charges.run({ key: job.key('charge') }, () =>
+			chargeCard(job.data.family),
+		);
+		return value;
+	});
+});
+```
+
+### Persistence and cost
+
+Steps survive retries and `retry(id)`: a job that failed at its third step
+resumes there. `remove(id)`, and adding the job afresh, starts over.
+
+A step that runs costs two round trips (a begin, which also pushes the lease a
+full lease ahead, and a commit); a stored one costs one.
+
+### Errors
+
+A value that cannot be stored, or a stored one the schema refuses, rejects with
+a `QueueError` `INVALID`, which fails the job without retry. `LEASE_LOST` is
+described above. See [troubleshooting](../troubleshooting.md#queues) for the
+messages.
 
 ## Retries and backoff
 
@@ -616,6 +750,7 @@ waits for a retry waits milliseconds rather than seconds.
 | `addMany` | 1 per 500 jobs |
 | a busy worker | about 1 per job: it settles a job and claims the next in the same script |
 | an idle worker | none while it waits; it blocks on a connection of its own |
+| `job.step` | 2 when it runs, 1 when its value is already stored |
 | `counts` | 1 |
 | `list` | 1 for the ids, and the jobs' reads pipelined into 1 more |
 

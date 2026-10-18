@@ -11,9 +11,12 @@ item shipped in is the only number on this page.
   returns a typed result that `finished()` awaits; it can be canceled, given
   a timeout and an `AbortSignal`, and report progress; workers emit typed
   events, tell you when they are `idle()`, and `close({ grace })` lets running
-  jobs finish. Still to come in the same release: durable steps, so that a job
-  run twice skips the work it already did, with a stable key to hand the
-  provider; queues wired under `defineRedis`; debounce, throttle, pause and
+  jobs finish. Durable steps: `job.step(name, fn, { schema? })` runs a side
+  effect once per job rather than once per attempt, so a retry skips the work
+  already done, and a stale worker is fenced out by token and lease;
+  `job.key(name)` gives a stable idempotency key to hand a provider; and
+  `finished({ timeout })` is a hard bound. Still to come in the same release:
+  queues wired under `defineRedis`; debounce, throttle, pause and
   resume with a queue-wide rate limit; recurring jobs by cron with time zones;
   concurrency and fairness per group; and a published benchmark.
 
