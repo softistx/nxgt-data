@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { mailQueue, scriptCalls, useRedis } from '../../../test/fixtures';
+import type { RedisClient } from 'bun';
+import {
+	eventually,
+	mailQueue,
+	scriptCalls,
+	useRedis,
+} from '../../../test/fixtures';
 import { bindQueue } from '../bind-queue';
 import { queueKeys } from '../keys';
 import { claim } from '../scripts/claim';
@@ -47,5 +53,30 @@ describe('keepLeases', () => {
 		await Bun.sleep(250);
 		leases.stop();
 		expect(lost).toEqual([['a']]);
+	});
+
+	test('an entry claimed again under a new token survives a renewal in flight for the old one', async () => {
+		// A fake client, so the reply of the first renewal can be held.
+		const calls: unknown[][] = [];
+		const replies: ((lost: string[]) => void)[] = [];
+		const fake = {
+			evalsha: (...args: unknown[]) => {
+				calls.push(args);
+				return new Promise<string[]>((resolve) => replies.push(resolve));
+			},
+		} as unknown as RedisClient;
+		const lost: string[][] = [];
+		const leases = keepLeases(fake, keys, 30, (ids) => lost.push(ids));
+		leases.add('a', 'old');
+		await eventually(() => calls.length, 1);
+		// The job was settled and claimed again while the renewal was in flight.
+		leases.delete('a');
+		leases.add('a', 'new');
+		replies[0]?.(['a']); // Redis: the old token no longer holds
+		await Bun.sleep(5);
+		expect(lost).toEqual([]);
+		await eventually(() => calls.length > 1, true);
+		expect(calls[1]).toContain('new');
+		leases.stop();
 	});
 });

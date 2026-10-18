@@ -80,19 +80,43 @@ describe('work', () => {
 	test('a delayed job runs when due, not before', async () => {
 		const { work, closeAll } = suite();
 		try {
-			// Added first: a delayed add leaves no wake token, so a worker already
-			// blocked would notice it at the 5 s cap (see its spec).
-			await mails().add({ to: 'a' }, { delay: 300 });
 			let calls = 0;
 			work(() => {
 				calls += 1;
 			});
+			await Bun.sleep(100); // blocked on an empty queue
+			await mails().add({ to: 'a' }, { delay: 300 });
 			await Bun.sleep(150);
 			expect(calls).toBe(0);
 			await eventually(() => calls, 1);
 		} finally {
 			await closeAll();
 		}
+	});
+
+	test('a retry scheduled while the worker is blocked runs when due, not at the 5 s cap', async () => {
+		const { work, closeAll } = suite();
+		try {
+			let calls = 0;
+			work(() => {
+				calls += 1;
+				if (calls === 1) throw new JobError('later', { retryIn: 300 });
+			});
+			await mails().add({ to: 'a' }, { id: 'a' });
+			const started = Date.now();
+			await eventually(() => state('a'), 'completed');
+			expect(calls).toBe(2);
+			expect(Date.now() - started).toBeLessThan(1_000);
+		} finally {
+			await closeAll();
+		}
+	});
+
+	test('close while the waiting connection is opening does not wait 5 s', async () => {
+		const worker = mails().work(() => undefined);
+		const before = Date.now();
+		await worker.close();
+		expect(Date.now() - before).toBeLessThan(1_000);
 	});
 
 	test('a throw retries with backoff, then fails for good after attempts', async () => {
@@ -193,7 +217,6 @@ describe('work', () => {
 			);
 			let done = 0;
 			let before = 0;
-			let spent = -1;
 			const first = gate();
 			const worker = queue.work(async () => {
 				done += 1;
@@ -201,14 +224,12 @@ describe('work', () => {
 					before = await scriptCalls(client());
 					first.open();
 				}
-				// Read inside the handler, so the slot is held and the worker
-				// has run nothing since: the drain of the wake tokens that
-				// busy claims leave behind, once the slot ends, is not counted.
-				if (done === 50) spent = (await scriptCalls(client())) - before;
 			});
 			try {
 				await first.opened;
-				await eventually(() => spent >= 0, true);
+				await eventually(() => done, 50);
+				await Bun.sleep(200); // idle: the worker found nothing and blocked
+				const spent = (await scriptCalls(client())) - before;
 				expect(spent).toBeLessThanOrEqual(55);
 			} finally {
 				await worker.close();

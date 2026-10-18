@@ -2,6 +2,7 @@ import type { RedisClient } from 'bun';
 import { defineScript, runScript } from '../../scripts/run-script';
 import type { queueKeys } from '../keys';
 import { type ClaimReply, parseClaimReply } from './replies';
+import { WAKE_FN } from './wake';
 
 /*
  * The trust rule of the queue's scripts, as the guards' (see
@@ -33,11 +34,12 @@ import { type ClaimReply, parseClaimReply } from './replies';
  * 2. promotes up to 1000 due `delayed` ids to `ready`;
  * 3. pops up to `n` from `ready`, marking each `active` with its token,
  *    `attempt + 1` and a lease ending at `now + lease`;
- * 4. leaves one `wake` token when `ready` still holds jobs, so a blocked
- *    peer takes over;
+ * 4. leaves one `wake` token when `ready` still holds jobs (none if one is
+ *    there), so a blocked peer takes over; deletes `wake` when it is empty;
  * 5. gives the ms until the first `delayed` score, `-1` when it is empty.
  */
 export const CLAIM_FN = `
+${WAKE_FN}
 local function int(x) return string.format('%d', x) end
 -- tonumber alone would accept 'inf', 'nan', '1e3', '0x10', '-4' and '1.5':
 -- an attempts of 'inf' would reclaim a crash-looping job forever, and a
@@ -116,8 +118,9 @@ local function claim(n, lease, tokens, now)
 		end
 	end
 	if redis.call('ZCARD', KEYS[2]) > 0 then
-		redis.call('LPUSH', KEYS[7], 1)
-		redis.call('LTRIM', KEYS[7], 0, 999)
+		wake(KEYS[7])
+	else
+		redis.call('DEL', KEYS[7])
 	end
 	local nextDue = -1
 	local first = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')

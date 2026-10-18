@@ -1,4 +1,5 @@
 import { defineScript } from '../../scripts/run-script';
+import { WAKE_FN } from './wake';
 
 /*
  * One hash per job, `queue:{<name>}:job:<id>`, written here with exactly
@@ -16,9 +17,10 @@ import { defineScript } from '../../scripts/run-script';
  * Adds up to 500 jobs, in order, and says for each whether it was new.
  *
  * An id that already has a hash is left alone, even when an earlier job of
- * this very call wrote it. A job due now goes to `ready`, with one `wake`
- * token; a future one to `delayed`, with none (a worker's wait is sized to
- * it). `wake` is trimmed once, at the end.
+ * this very call wrote it. A job due now goes to `ready`; a future one to
+ * `delayed`. Either leaves a `wake` token when none is there (see
+ * `WAKE_FN`), a delayed one only when it becomes the head of `delayed`: a
+ * blocked worker's wait is sized to the old head.
  *
  * The score is formatted with `%d`, not concatenated: Lua numbers are
  * doubles, exact below 2^53, and a bare tostring would turn a large one into
@@ -31,11 +33,11 @@ import { defineScript } from '../../scripts/run-script';
  * Returns per job 0 (added) or 1 (the id existed).
  */
 export const ADD = defineScript(`
+${WAKE_FN}
 local prefix = ARGV[1]
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
 local out = {}
-local pushed = 0
 for i = 2, #ARGV, 6 do
 	local id, data, priority, attempts = ARGV[i], ARGV[i + 1], ARGV[i + 2], ARGV[i + 3]
 	local delay, at = tonumber(ARGV[i + 4]), tonumber(ARGV[i + 5])
@@ -53,14 +55,13 @@ for i = 2, #ARGV, 6 do
 		if due then
 			local score = tonumber(priority) * 1099511627776 + redis.call('INCR', KEYS[3])
 			redis.call('ZADD', KEYS[2], string.format('%d', score), id)
-			redis.call('LPUSH', KEYS[4], 1)
-			pushed = pushed + 1
+			wake(KEYS[4])
 		else
+			if is_head(KEYS[1], runAt) then wake(KEYS[4]) end
 			redis.call('ZADD', KEYS[1], string.format('%d', runAt), id)
 		end
 		out[#out + 1] = 0
 	end
 end
-if pushed > 0 then redis.call('LTRIM', KEYS[4], 0, 999) end
 return out
 `);

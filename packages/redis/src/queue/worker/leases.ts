@@ -37,10 +37,18 @@ export function keepLeases(
 			const entries = [...held].map(([id, token]) => ({ id, token }));
 			renew(client, keys, lease, entries).then(
 				(lost) => {
-					if (stopped || lost.length === 0) return;
-					for (const id of lost) held.delete(id);
+					if (stopped) return;
+					// Only the entry this renewal sent: the id may have been
+					// settled and claimed again, under a new token, while it was
+					// in flight, and that run must keep its renewals.
+					const gone = lost.filter((id) => {
+						const sent = entries.find((e) => e.id === id)?.token;
+						return sent !== undefined && held.get(id) === sent;
+					});
+					if (gone.length === 0) return;
+					for (const id of gone) held.delete(id);
 					try {
-						onLost(lost);
+						onLost(gone);
 					} catch {
 						// A callback that throws must not end the beat.
 					}

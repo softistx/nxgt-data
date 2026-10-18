@@ -286,6 +286,43 @@ describe('fail', () => {
 		expect(await hget('a', 'state')).toBe('delayed');
 	});
 
+	test('a retry that becomes the head of delayed leaves a wake token, even with claimNext', async () => {
+		const job = await take('a');
+		await send('DEL', keys.wake);
+		const reply = await fail(
+			client(),
+			keys,
+			mailQueue,
+			'a',
+			job.token,
+			boundary,
+			60_000,
+			true,
+		);
+		expect(reply.jobs).toEqual([]);
+		expect(await send('LLEN', keys.wake)).toBe(1);
+	});
+
+	test('a retry behind the head of delayed leaves no token', async () => {
+		await bindQueue(client(), mailQueue).add(to('soon'), {
+			id: 'soon',
+			delay: '1m',
+		});
+		const job = await take('a');
+		await send('DEL', keys.wake);
+		await fail(
+			client(),
+			keys,
+			mailQueue,
+			'a',
+			job.token,
+			boundary,
+			3_600_000,
+			true,
+		);
+		expect(await send('LLEN', keys.wake)).toBe(0);
+	});
+
 	test('fail with the wrong token changes nothing', async () => {
 		const job = await take('a');
 		const reply = await fail(

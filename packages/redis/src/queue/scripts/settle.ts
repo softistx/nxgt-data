@@ -106,6 +106,7 @@ ${NOW_LUA}
 local id, token = ARGV[2], ARGV[3]
 local key = prefix .. id
 local settled, final = 0, 0
+local headWake = false
 if redis.call('HGET', key, 'token') == token then
 	settled, final = 1, 1
 	local f = redis.call('HMGET', key, 'data', 'attempt', 'attempts', 'priority')
@@ -115,6 +116,7 @@ if redis.call('HGET', key, 'token') == token then
 	if retryIn >= 0 and sound(f) and tonumber(f[2]) < tonumber(f[3]) then
 		final = 0
 		local at = string.format('%d', now + retryIn)
+		headWake = is_head(KEYS[1], now + retryIn)
 		redis.call('HSET', key, 'state', 'delayed', 'error', ARGV[4], 'runAt', at)
 		redis.call('ZADD', KEYS[1], at, id)
 	else
@@ -128,6 +130,9 @@ if ARGV[8] ~= '' then
 	local claimed = claim(1, tonumber(ARGV[7]), {ARGV[8]}, now)
 	out = {settled, final, claimed[1], claimed[2], claimed[3], claimed[4]}
 end
+-- After the claim, whose DEL of an empty \`ready\` would erase it: a retry that
+-- became the head of delayed, and is still there, shortens a blocked wait.
+if headWake and redis.call('ZSCORE', KEYS[1], id) then wake(KEYS[7]) end
 return out
 `);
 

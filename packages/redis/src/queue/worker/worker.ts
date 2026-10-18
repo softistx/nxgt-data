@@ -58,8 +58,6 @@ export function startWorker<S extends z.ZodType>(
 	const leases = keepLeases(client, keys, definition.lease, () => undefined);
 	let open = true;
 	let waiter: RedisClient | undefined;
-	/** The ms deadline of the pending `BLPOP`, only while one is pending. */
-	let waitingUntil: number | undefined;
 	let slotFreed: (() => void) | undefined;
 	const stopSleeping = new Set<() => void>();
 
@@ -111,19 +109,30 @@ export function startWorker<S extends z.ZodType>(
 				open,
 			);
 		}
+		// Renewed until the settle is done, not just the handler: a slow settle
+		// must not let the lease lapse under it.
 		leases.add(job.id, job.token);
+		try {
+			return await runHandler(job, decoded.data);
+		} finally {
+			leases.delete(job.id);
+		}
+	}
+
+	async function runHandler(
+		job: ClaimedJob,
+		data: z.output<S>,
+	): Promise<ClaimReply> {
 		let thrown: { error: unknown } | undefined;
 		try {
 			await handler({
 				id: job.id,
-				data: decoded.data,
+				data,
 				attempt: job.attempt,
 				attempts: job.attempts,
 			});
 		} catch (error) {
 			thrown = { error };
-		} finally {
-			leases.delete(job.id);
 		}
 		if (!thrown) {
 			return await complete(client, keys, definition, job.id, job.token, open);
@@ -150,27 +159,15 @@ export function startWorker<S extends z.ZodType>(
 	/** One slot: runs the job it was given and each one its settle claimed. */
 	async function runSlot(first: ClaimedJob): Promise<void> {
 		let job: ClaimedJob | undefined = first;
-		let next = -1;
 		while (job) {
 			try {
 				const reply: ClaimReply = await runJob(job);
 				job = reply.jobs[0];
-				next = reply.next;
 			} catch (error) {
 				// The job's lease lapses and another worker takes it back.
 				emit(error);
 				job = undefined;
 			}
-		}
-		// A blocked loop knows nothing of the retry this slot just scheduled: a
-		// token ends its wait early enough to claim it when due.
-		if (
-			open &&
-			next >= 0 &&
-			waitingUntil !== undefined &&
-			Date.now() + next + 5 < waitingUntil
-		) {
-			client.send('LPUSH', [keys.wake, '1']).then(undefined, emit);
 		}
 	}
 
@@ -186,13 +183,10 @@ export function startWorker<S extends z.ZodType>(
 
 	async function waitForWork(next: number): Promise<void> {
 		waiter ??= await client.duplicate();
+		// Closed while the connection was opening: nothing to wait for.
+		if (!open) return;
 		const ms = Math.max(1, Math.min(next >= 0 ? next : MAX_WAIT, MAX_WAIT));
-		waitingUntil = Date.now() + ms;
-		try {
-			await waiter.send('BLPOP', [keys.wake, String(ms / 1000)]);
-		} finally {
-			waitingUntil = undefined;
-		}
+		await waiter.send('BLPOP', [keys.wake, String(ms / 1000)]);
 	}
 
 	async function loop(): Promise<void> {

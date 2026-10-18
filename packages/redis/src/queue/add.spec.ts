@@ -38,6 +38,22 @@ describe('add', () => {
 		expect(await send('LLEN', keys.wake)).toBe(1);
 	});
 
+	test('wake holds one token however many jobs arrive', async () => {
+		await mails().add(to('a'));
+		await mails().add(to('b'));
+		expect(await send('LLEN', keys.wake)).toBe(1);
+	});
+
+	test('a delayed job pushes a token only when it becomes the head of delayed', async () => {
+		await mails().add(to('late'), { delay: '1h' });
+		expect(await send('LLEN', keys.wake)).toBe(1);
+		await send('DEL', keys.wake);
+		await mails().add(to('later'), { delay: '2h' });
+		expect(await send('LLEN', keys.wake)).toBe(0);
+		await mails().add(to('sooner'), { delay: '30m' });
+		expect(await send('LLEN', keys.wake)).toBe(1);
+	});
+
 	test('the ready score of a priority stays an exact integer', async () => {
 		const { id } = await mails().add(to('a'), { priority: 1000 });
 		expect(Number(await send('ZSCORE', keys.ready, id))).toBe(
@@ -65,7 +81,6 @@ describe('add', () => {
 		expect(await servers.redis.client.hget(keys.job(id), 'state')).toBe(
 			'delayed',
 		);
-		expect(await send('LLEN', keys.wake)).toBe(0);
 
 		const past = await mails().add(to('b'), {
 			at: new Date(Date.now() - 1000),
@@ -160,7 +175,7 @@ describe('addMany', () => {
 		]);
 		expect(handles[1200]?.deduplicated).toBe(true);
 		expect(await send('ZCARD', keys.ready)).toBe(1200);
-		expect(await send('LLEN', keys.wake)).toBe(1000);
+		expect(await send('LLEN', keys.wake)).toBe(1);
 	});
 
 	test('one bad item refuses the whole call and writes nothing', async () => {

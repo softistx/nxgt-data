@@ -169,7 +169,7 @@ deployment's prefix in front of it when wired, as the guards' names are.
 | `active` | zset | id → ms at which its lease lapses |
 | `completed`, `failed` | zset | id → ms it finished, for retention and `list` |
 | `seq` | string | the `INCR` counter behind FIFO order |
-| `wake` | list | tokens a blocked worker `BLPOP`s |
+| `wake` | list | at most one token a blocked worker `BLPOP`s |
 | `paused` | string | present while paused |
 | `rate` | string | the GCRA state of `rateLimit` |
 | `dedupe:<key>` | string | the job id holding a debounce/throttle key, with its TTL |
@@ -205,8 +205,10 @@ hash whose shape it does not recognise is refused, never "repaired".
   time to now + `ttl`; if it names an active job, add a new one (activity
   during a run is never lost). Throttle: if `dedupe:<key>` exists, report the
   job it names and add nothing; else set it with `PX ttl`. Then write the
-  hash, `ZADD delayed` (a future run time) or `ZADD ready`, and `LPUSH wake`
-  one token per ready job (the list is trimmed to 1000).
+  hash, `ZADD delayed` (a future run time) or `ZADD ready`, and push one
+  `wake` token if the list is empty (it holds at most one: "ready has work",
+  or a delayed job became the head of `delayed`; each woken worker passes the
+  baton, see CLAIM).
 - **CLAIM**(n, lease, token): if `paused`, return nothing. Reclaim up to 100
   lapsed leases from `active` — each counts as an attempt (a job that kills
   its process does not loop forever): back to `ready`, or to `failed` with
@@ -215,7 +217,8 @@ hash whose shape it does not recognise is refused, never "repaired".
   `defineRateLimit`, its Lua shared, not copied). Pop that many from `ready`
   (round-robin over groups from slice 6), set `state=active`, the token,
   `attempt+1`, and `ZADD active now+lease`. If `ready` still has jobs, push
-  one `wake` token back, so a blocked peer takes over. Return the jobs, the
+  one `wake` token back if the list is empty, so a blocked peer takes over; if
+  `ready` is empty, `DEL wake`. Return the jobs, the
   stalled ids, and the ms until the next `delayed` job, schedule or rate
   admission (the next wait).
 - **RENEW**(token, ids…): for each id still holding the token, push its lease;

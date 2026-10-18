@@ -41,14 +41,14 @@ describe('claim', () => {
 
 	test('claims at most n, and pushes a wake token when ready is left non-empty', async () => {
 		for (const id of ['a', 'b', 'c']) await mails().add(to(id), { id });
-		await send('DEL', keys.wake);
+		expect(await send('LLEN', keys.wake)).toBe(1);
 		const first = await claim(client(), keys, 2, 30_000);
 		expect(first.jobs.map((j) => j.id)).toEqual(['a', 'b']);
 		expect(new Set(first.jobs.map((j) => j.token)).size).toBe(2);
 		expect(await send('LLEN', keys.wake)).toBe(1);
-		await send('DEL', keys.wake);
 		const last = await claim(client(), keys, 2, 30_000);
 		expect(last.jobs.map((j) => j.id)).toEqual(['c']);
+		// Nothing left: the token is deleted, so no worker wakes for nothing.
 		expect(await send('LLEN', keys.wake)).toBe(0);
 	});
 
