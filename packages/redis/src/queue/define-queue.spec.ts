@@ -60,6 +60,7 @@ test('keeps the result schema, and reads the timeout in milliseconds', () => {
 test.each([
 	[{ name: '' }, /^defineQueue: a queue needs a name/],
 	[{ name: 'a{b' }, /^defineQueue: "a\{b" .* braces/],
+	[{ name: 'a:b' }, /^defineQueue: "a:b" has a colon; job\.key joins/],
 	[{ attempts: 0 }, /^defineQueue: "mails" has attempts of 0; .* at least 1/],
 	[
 		{ backoff: { base: '1h', max: '1s' } },
@@ -77,10 +78,10 @@ test.each([
 });
 
 test('keys share one hash tag', () => {
-	const k = queueKeys('app:prod:mails');
-	expect(k.ready).toBe('queue:{app:prod:mails}:ready');
-	expect(k.job('j1')).toBe('queue:{app:prod:mails}:job:j1');
-	expect(k.prefix).toBe('queue:{app:prod:mails}:job:');
+	const k = queueKeys('app-prod-mails');
+	expect(k.ready).toBe('queue:{app-prod-mails}:ready');
+	expect(k.job('j1')).toBe('queue:{app-prod-mails}:job:j1');
+	expect(k.prefix).toBe('queue:{app-prod-mails}:job:');
 	for (const part of [
 		'delayed',
 		'active',
@@ -89,6 +90,6 @@ test('keys share one hash tag', () => {
 		'seq',
 		'wake',
 	]) {
-		expect(k[part as 'seq']).toBe(`queue:{app:prod:mails}:${part}`);
+		expect(k[part as 'seq']).toBe(`queue:{app-prod-mails}:${part}`);
 	}
 });

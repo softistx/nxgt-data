@@ -11,7 +11,8 @@ export type QueueInput<
 > = {
 	/**
 	 * The queue's name, in its keys. No braces: the name is the hash tag, so
-	 * every key of one queue lands on the same Redis Cluster slot.
+	 * every key of one queue lands on the same Redis Cluster slot. No colon:
+	 * `job.key` joins the name, the job id and the step name with colons.
 	 */
 	name: string;
 	/** Checked on `add` and again on the way out, so a bad payload never runs. */
