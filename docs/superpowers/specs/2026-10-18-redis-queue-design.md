@@ -163,7 +163,7 @@ deployment's prefix in front of it when wired, as the guards' names are.
 
 | Part | Type | Holds |
 | --- | --- | --- |
-| `job:<id>` | hash | `data` (JSON), `priority`, `group`, `attempt`, `attempts`, `state`, `token`, `progress`, `error`, `result` (JSON), `added`, `runAt`, `finished`, `dedupe` |
+| `job:<id>` | hash | `data` (JSON), `step:<name>` (JSON, slice 3), `priority`, `group`, `attempt`, `attempts`, `state`, `token`, `progress`, `error`, `result` (JSON), `added`, `runAt`, `finished`, `dedupe` |
 | `delayed` | zset | id → ms at which it becomes ready |
 | `ready` | zset | id → `priority × 2^40 + seq` (FIFO within a priority) |
 | `active` | zset | id → ms at which its lease lapses |
@@ -175,9 +175,9 @@ deployment's prefix in front of it when wired, as the guards' names are.
 | `dedupe:<key>` | string | the job id holding a debounce/throttle key, with its TTL |
 | `schedules` | zset | schedule id → ms of its next occurrence |
 | `schedule:<id>` | hash | `cron` or `every`, `timezone`, `data` (JSON), `origin` (`definition` / `runtime`) |
-| `groups:ready` | list | groups with ready jobs and a free slot, in round-robin order (slice 6) |
-| `group:<g>:ready` | zset | that group's ready jobs, scored as `ready` (slice 6) |
-| `group:<g>:active` | string | that group's running count (slice 6) |
+| `groups:ready` | list | groups with ready jobs and a free slot, in round-robin order (slice 7) |
+| `group:<g>:ready` | zset | that group's ready jobs, scored as `ready` (slice 7) |
+| `group:<g>:active` | string | that group's running count (slice 7) |
 
 `priority` is a whole number from 0 (most urgent) to 1000, default 0. The
 score `priority × 2^40 + seq` stays an exact double up to 2^53, so FIFO
@@ -213,7 +213,7 @@ hash whose shape it does not recognise is refused, never "repaired".
   "lease lapsed" when spent; report them as `stalled`. Promote up to 1000 due
   jobs from `delayed` to `ready`. Admit up to n under `rateLimit` (the GCRA of
   `defineRateLimit`, its Lua shared, not copied). Pop that many from `ready`
-  (round-robin over groups from slice 6), set `state=active`, the token,
+  (round-robin over groups from slice 7), set `state=active`, the token,
   `attempt+1`, and `ZADD active now+lease`. If `ready` still has jobs, push
   one `wake` token back, so a blocked peer takes over. Return the jobs, the
   stalled ids, and the ms until the next `delayed` job, schedule or rate
@@ -280,6 +280,47 @@ opens **one** shared subscriber connection, lazily, for all its queues.
 (`waiting` lists `ready` then the groups); `get(id)` reads the hash into a
 `JobView` (`state`, `data`, `attempt`, `progress`, `error`, `result`, dates).
 
+## Running twice, and durable steps
+
+At-least-once means a job can run again after its work was partly or wholly
+done: its process died, it lost its lease, or it ran past `timeout`. Running
+it **exactly once** is impossible in general — a worker can send the mail and
+die before anything records that it did — so the queue shrinks that window to
+the inside of one step, and gives the handler a key that lets the other side
+absorb what is left. The owner asked for this (2026-10-18).
+
+```ts
+redis.queues.digest.work(async (job) => {
+	const families = await job.step('load', () => loadFamilies(job.data.family));
+	await job.step('send', () => mailer.send(digestOf(families), {
+		idempotencyKey: job.key('send'),        // stable across attempts
+	}));
+});
+```
+
+- **`job.step(name, fn, { schema? })`** runs `fn` once per job, not once per
+  attempt: its result (JSON-safe, checked as `data` is; parsed by `schema`
+  when given) is stored in the job hash as `step:<name>`, and an attempt that
+  reaches a step already stored gets the stored value back without calling
+  `fn`. A name used twice in one attempt is a `TypeError`.
+- **Fencing.** A step starts only after STEP_BEGIN found the attempt's token
+  still holding and its lease not lapsed, and its result is stored only by
+  STEP_COMMIT under the same check. An attempt that lost its lease gets
+  `QueueError` `LEASE_LOST` from `step` (and its `signal` fires): two workers
+  never run the same step side by side, and a stale worker never overwrites a
+  live one's result. A step costs **two round trips**.
+- **`job.key(name)`** is `<queue name>:<job id>:<name>`, the same on every
+  attempt: the idempotency key to hand a provider (an `Idempotency-Key`
+  header) or `redis.idempotency.*.run`, so a step interrupted after its side
+  effect but before its commit is absorbed downstream.
+- The completion itself is token-guarded (COMPLETE), so a job is never marked
+  completed twice nor its result overwritten by a late attempt; a result
+  returned after `timeout` or a lost lease is refused.
+- Steps survive retries and `retry(id)`: a job that failed at its third step
+  resumes there. `remove(id)` and re-adding is how to start over.
+- Code outside a step runs again on every attempt; the guide says so first,
+  and puts every side effect in a step.
+
 ## Recurring jobs
 
 A schedule is `{ cron, timezone?, data }` or `{ every, data }`. The cron
@@ -292,15 +333,15 @@ instant after the gap; one that happens twice (fall back) runs once, at the
 first. A cron that can never match (`0 0 31 2 *`) is refused by
 `defineQueue` and by `upsert`.
 
-## Groups (slice 6)
+## Groups (slice 7)
 
 `add(data, { group })` puts the job in its group's `ready`. CLAIM serves the
 groups in round-robin through `groups:ready`, and within a group the most
 urgent first, so no group starves another whatever its priorities. A group at
 its `concurrency` leaves the round-robin until one of its jobs finishes. Jobs
 without a group form the default group, which takes its turn like the others
-and has no concurrency of its own. Before slice 6, `ready` is that default
-group, so slice 6 adds groups without moving existing keys.
+and has no concurrency of its own. Before slice 7, `ready` is that default
+group, so slice 7 adds groups without moving existing keys.
 
 ## Errors
 
@@ -370,14 +411,16 @@ green and reviewed on its own; one PR into `develop` at the end, then
 2. **Lifecycle** — `result`, the handle, `finished()`, `cancel()`, `timeout`,
    `signal`, `progress`, events, `idle()`, `close({ grace })`, the shared
    subscriber.
-3. **Wiring** — `queues` in `defineRedis`/`openRedis`, the prefix, names
+3. **Steps** — `job.step`, `job.key`, STEP_BEGIN and STEP_COMMIT fencing,
+   the "running twice" guide section.
+4. **Wiring** — `queues` in `defineRedis`/`openRedis`, the prefix, names
    shared with caches and guards refused, `redis.close()` closing workers,
    `QueueError` `CLOSED`.
-4. **Flow control** — debounce/throttle, `pause`/`resume`, `rateLimit`.
-5. **Schedules** — the cron parser and time zones, static and runtime
+5. **Flow control** — debounce/throttle, `pause`/`resume`, `rateLimit`.
+6. **Schedules** — the cron parser and time zones, static and runtime
    schedules, FIRE, SYNC.
-6. **Groups** — per-group concurrency and round-robin.
-7. **Finish** — the benchmark, the full guide and troubleshooting, the
+7. **Groups** — per-group concurrency and round-robin.
+8. **Finish** — the benchmark, the full guide and troubleshooting, the
    roadmap, an example under `examples/`.
 
 ## Decisions (owner, 2026-10-18)
@@ -391,7 +434,7 @@ cooperative `signal`. Observability: counts + typed in-process events +
 `progress`. Dedupe: `id`, debounce and throttle. `addMany`: yes. Batch
 handler: *Next*. Admin: `pause`/`resume`, `get`/`list`; the rest *Later*.
 Performance: round-trip budgets + local benchmark. Groups × priority:
-round-robin, priority within a group. Debounce during a run: a new job.
+round-robin, priority within a group. Duplicates: durable steps, a stable `job.key`, and fencing (asked after the grilling). Debounce during a run: a new job.
 Completed retention: age + count, 1 h / 1000. Runtime schedules: yes, in
 Redis. Timeout: signal then failure. Canceled while running: deleted, result
 dropped. Rate limit per group: *Next*. Durations: ms or a typed `'10m'`, and
