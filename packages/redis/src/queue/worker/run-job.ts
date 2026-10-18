@@ -19,6 +19,7 @@ import type { WorkerContext } from './context';
 import { announce, emit } from './events';
 import { markDrained } from './idle';
 import { progressOf } from './progress';
+import { isStepRefusal } from './step-refusal';
 import { stepsOf } from './steps';
 
 function toError(thrown: unknown): { name: string; message: string } {
@@ -121,11 +122,9 @@ async function runHandler<S extends z.ZodType>(
 		return await settleAborted(context, job, outcome.reason);
 	}
 	if (outcome.kind === 'threw') {
-		// A refused step value (R1, R3): never retried, recorded as the data and result refusals are.
-		if (
-			outcome.error instanceof QueueError &&
-			outcome.error.code === 'INVALID'
-		) {
+		// A step's own refusal (R1, R3): never retried, recorded as the data and result refusals are.
+		// Any other INVALID the handler threw is its own error and goes through the retry.
+		if (outcome.error instanceof QueueError && isStepRefusal(outcome.error)) {
 			return await failAttempt(
 				context,
 				job,

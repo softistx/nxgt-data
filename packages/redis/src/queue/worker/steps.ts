@@ -5,6 +5,7 @@ import { stepBegin, stepCommit } from '../scripts/step';
 import { checkStepName, decodeStep, encodeStep } from '../step-codec';
 import { abortRun } from './abort';
 import type { WorkerContext } from './context';
+import { markStepRefusal } from './step-refusal';
 import type { JobContext, StepOptions } from './types';
 
 /**
@@ -39,11 +40,13 @@ export function stepsOf<S extends z.ZodType>(
 		return reasonOf();
 	};
 	const invalid = (what: string, name: string) =>
-		new QueueError(
-			'INVALID',
-			queue,
-			`step on "${queue}": step "${name}" ${what}`,
-			job.id,
+		markStepRefusal(
+			new QueueError(
+				'INVALID',
+				queue,
+				`step on "${queue}": step "${name}" ${what}`,
+				job.id,
+			),
 		);
 
 	async function step(
@@ -79,7 +82,13 @@ export function stepsOf<S extends z.ZodType>(
 			return decoded.value;
 		}
 		const value = await fn();
-		const encoded = encodeStep(queue, name, value, schema, job.id);
+		let encoded: string;
+		try {
+			encoded = encodeStep(queue, name, value, schema, job.id);
+		} catch (error) {
+			if (error instanceof QueueError) markStepRefusal(error);
+			throw error;
+		}
 		// No abort check here: COMMIT is the fence, and a value that ran is stored either way.
 		const committed = await stepCommit(
 			context.client,

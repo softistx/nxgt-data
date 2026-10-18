@@ -205,6 +205,19 @@ describe('job.step in a worker', () => {
 		});
 	});
 
+	test("an INVALID thrown by the handler's own call, not by a step, is retried", async () => {
+		await withWorkers(async (open) => {
+			const other = bindQueue(client(), mailQueue);
+			const { seen } = open(async (job) => {
+				if (job.attempt === 1) await other.add({ to: 5 } as never, { id: 'x' });
+			});
+			await bindQueue(client(), mailQueue).add({ to: 'a' }, { id: 'a' });
+			await eventually(() => hget('a', 'state'), 'completed');
+			expect(seen).toContain('retrying a');
+			expect(seen).not.toContain('failed a');
+		});
+	});
+
 	test('job.key is stable across attempts', async () => {
 		await withWorkers(async (open) => {
 			const seen: string[] = [];

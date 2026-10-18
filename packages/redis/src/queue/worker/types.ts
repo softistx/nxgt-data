@@ -38,7 +38,9 @@ export type JobContext<S extends z.ZodType> = {
 	 * handler's own error and records nothing, but the name stays used for the
 	 * rest of the attempt. A value that cannot be stored,
 	 * or a stored one the schema refuses, rejects with a `QueueError`
-	 * `INVALID`, which fails the job without retry.
+	 * `INVALID`, which fails the job without retry. An `INVALID` the handler's
+	 * own code throws, from a call to another queue for example, is retried
+	 * like any other error.
 	 */
 	step<T>(name: string, fn: () => T | Promise<T>): Promise<T>;
 	step<Z extends z.ZodType>(
