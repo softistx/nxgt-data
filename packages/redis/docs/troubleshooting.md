@@ -66,6 +66,7 @@ application can handle.
   - [`finished on "mails": job "receipt:42" was canceled`](#finished-on-mails-job-receipt42-was-canceled)
   - [`finished on "mails": job "receipt:42" is not in the queue`](#finished-on-mails-job-receipt42-is-not-in-the-queue)
   - [`finished on "mails": job "receipt:42" did not finish in time`](#finished-on-mails-job-receipt42-did-not-finish-in-time)
+  - [`finished on "mails": job "receipt:42" has a result the result schema refuses`](#finished-on-mails-job-receipt42-has-a-result-the-result-schema-refuses)
   - [`finished on "mails": timeout is at least 1 millisecond, as a whole number or a string such as '10m'`](#finished-on-mails-timeout-is-at-least-1-millisecond-as-a-whole-number-or-a-string-such-as-10m)
   - [`defineQueue: "mails" has a timeout of 0ms; it must be at least 1ms, or left out for no limit`](#definequeue-mails-has-a-timeout-of-0ms-it-must-be-at-least-1ms-or-left-out-for-no-limit)
   - [`run on "mails": job "receipt:42" ran past its timeout`](#run-on-mails-job-receipt42-ran-past-its-timeout)
@@ -744,7 +745,7 @@ await queue.list('completed');
 
 ### `add on "mails": the data does not match the schema (invalid_type)`
 
-**When:** `add` (or `addMany on "mails": …`, naming the call). A `QueueError`, `code: 'INVALID'`, `queue: 'mails'`; **nothing was written**, and for `addMany` nothing of the batch was. A payload that parses but does not survive JSON (a `z.date()`, a `Map`) says `… does not match the schema once stored as JSON (invalid_type)`, and one JSON cannot write at all (a `bigint`, `undefined` at the top) says `the data has no JSON form`.
+**When:** `add` (or `addMany on "mails": …`, naming the call). A `QueueError`, `code: 'INVALID'`, `queue: 'mails'`; **nothing was written**, and for `addMany` nothing of the batch was. A payload that parses but does not survive JSON (a `z.date()`, a `Map`) says `… does not match the schema once stored as JSON (invalid_type)`, and one JSON cannot write at all (a `bigint`, `undefined` at the top) says `the data has no JSON form`. A schema whose refine or transform throws on the payload says `(a check threw)` in place of the codes, and the thrown message is dropped.
 **Why:** the payload is refused by the queue's schema. The message carries the zod issue **codes** only, each once, never the data, the paths or zod's messages: a `z.strictObject` quotes the stray key it found and a `z.record` puts its keys in the path, and both came from a request. The error has no `cause` for the same reason.
 **Fix:** validate the body where it comes in, with the same schema, and answer with what that says; `queue.definition.schema.safeParse(body)` gives the issues.
 
@@ -862,6 +863,20 @@ defineQueue({ name: 'mails', schema, keepCompleted: { count: 100 } });
 ```ts
 const job = await queue.add(payload);
 await job.finished({ timeout: '2m' });
+```
+
+### `finished on "mails": job "receipt:42" has a result the result schema refuses`
+
+**When:** `finished()` rejects with code `INVALID`, for a job that completed.
+**Why:** the stored result no longer passes the queue's `result` schema as it is **now**: the schema changed after the job completed (a field made required, a type narrowed), or a refine or transform in it throws on that value. The worker checked the result against the schema it had when it stored it, so this is a reader's schema disagreeing with a writer's. The message names the queue and the job, never the result.
+**Fix:** keep the result schema readable for what is already stored — add fields as optional, or with a `.default()` — and catch `INVALID` where a stored result may predate the change. A refine or transform should return `false` or add an issue, not throw.
+
+```ts
+const resizes = defineQueue({
+	name: 'resizes',
+	schema: z.object({ imageId: z.string() }),
+	result: z.object({ url: z.string(), bytes: z.number().optional() }), // new field: optional
+});
 ```
 
 ### `finished on "mails": timeout is at least 1 millisecond, as a whole number or a string such as '10m'`

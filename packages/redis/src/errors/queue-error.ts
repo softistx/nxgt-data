@@ -1,25 +1,39 @@
 /** What a queue refused. */
 export type QueueErrorCode =
 	/**
-	 * A payload the queue refuses: one its schema rejects, or that does not
-	 * survive JSON. A malformed *option* is a `TypeError`, not this.
+	 * A payload the queue refuses: one its schema rejects (or throws on), or
+	 * that does not survive JSON; also, from `finished`, a stored result the
+	 * result schema refuses. A malformed *option* is a `TypeError`, not this.
 	 */
 	| 'INVALID'
-	/** `retry` or `remove` named a job the queue does not hold in that state. */
+	/**
+	 * `retry` or `remove` named a job the queue does not hold in that state,
+	 * or `finished` waited on a job that is not in the queue.
+	 */
 	| 'NOT_FOUND'
 	/** The job is running, so the call cannot change or remove it. */
 	| 'ACTIVE'
-	/** The job was canceled before it finished. */
+	/**
+	 * The job was canceled before it finished: `finished`'s rejection, and
+	 * the `signal.reason` of a run the cancel aborted. Never a call-time error.
+	 */
 	| 'CANCELED'
 	/** The job failed for good; `lastError` says how. */
 	| 'FAILED'
 	/** `finished` waited as long as its `timeout` allowed. */
 	| 'WAIT_TIMEOUT'
-	/** A run took longer than its `timeout`. */
+	/** A run took longer than its `timeout`: a `signal.reason`. */
 	| 'TIMEOUT'
-	/** A run lost its lease to another worker. */
+	/**
+	 * A run lost its lease: another worker took the job back, or the job was
+	 * canceled and the worker missed the event, so its renewal found the
+	 * token gone. A `signal.reason`, reported on the worker's `error` event.
+	 */
 	| 'LEASE_LOST'
-	/** The call came after the worker or the queue was closed. */
+	/**
+	 * The worker closed and its `grace` passed while the run went on: only
+	 * ever a `signal.reason`, never a call's rejection.
+	 */
 	| 'CLOSED';
 
 /**

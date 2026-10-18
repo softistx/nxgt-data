@@ -347,9 +347,10 @@ worker.on('error', (error) => console.error(error));
 await worker.close({ grace: '10s' }); // on shutdown: waits up to 10 s, then aborts the rest
 ```
 
-Give the queue a `result` schema and `add` returns a handle that waits for the
-outcome; `timeout` bounds a run, and the handler's `signal` aborts when it is
-canceled, times out or the worker closes:
+Every `add` returns a handle that waits for the outcome; give the queue a
+`result` schema and `finished()` resolves with the handler's typed return
+(without one, it resolves `undefined`). `timeout` bounds a run, and the
+handler's `signal` aborts when it is canceled, times out or the worker closes:
 
 ```ts
 const resizes = defineQueue({
@@ -657,15 +658,15 @@ class, not a `RedisError`.
 
 | `QueueErrorCode` | |
 | --- | --- |
-| `INVALID` | `add` or `addMany` got a payload its schema refuses, or JSON cannot carry (nothing was written); or a handler's result fails the result schema (the job fails, no retry) |
+| `INVALID` | `add` or `addMany` got a payload its schema refuses (or throws on), or JSON cannot carry (nothing was written); a handler's result fails the result schema (the job fails, no retry); or `finished` read a stored result the result schema now refuses |
 | `NOT_FOUND` | `retry` named a job that is not failed, `remove` one that does not exist, or `finished` waited on one that is not in the queue |
 | `ACTIVE` | `remove` named a job a worker is running |
 | `CANCELED` | `finished` waited on a job that was canceled; also a handler's `signal.reason` |
 | `FAILED` | `finished` waited on a job that failed for good; `lastError` is `{ name, message }` |
 | `WAIT_TIMEOUT` | `finished` waited as long as its `timeout` allowed; the job is untouched |
 | `TIMEOUT` | a run passed its `timeout`: a handler's `signal.reason` |
-| `LEASE_LOST` | a run lost its lease: a handler's `signal.reason` |
-| `CLOSED` | the worker closed and its grace passed: a handler's `signal.reason` |
+| `LEASE_LOST` | a run lost its lease, or was canceled while the worker missed the event: a handler's `signal.reason` |
+| `CLOSED` | the worker closed and its grace passed: only ever a handler's `signal.reason` |
 
 `defineQueue` (and `bindQueue`, for a definition written by hand) refuses a
 definition that could never work with a `TypeError`, and `add`, `work` and

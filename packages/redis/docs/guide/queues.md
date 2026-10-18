@@ -175,6 +175,8 @@ type ResultOf<R> = R extends z.ZodType ? z.output<R> : undefined;   // what `fin
 ## Waiting for a job
 
 ```ts
+import { QueueError } from '@nxgt/redis';
+
 const handle = await queue.add({ imageId: 'img-1' });
 
 try {

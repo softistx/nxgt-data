@@ -8,7 +8,7 @@ item shipped in is the only number on this page.
 - **A queue** — jobs typed by a schema, with delays, priorities, and workers
   that run them at least once: a lease per job, retries with backoff, and
   retention of what completed or failed, with a way to inspect it. A job
-  returns a typed result that `finished()` awaits; it can be cancelled, given
+  returns a typed result that `finished()` awaits; it can be canceled, given
   a timeout and an `AbortSignal`, and report progress; workers emit typed
   events, tell you when they are `idle()`, and `close({ grace })` lets running
   jobs finish. Still to come in the same release: durable steps, so that a job

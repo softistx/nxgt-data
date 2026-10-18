@@ -256,8 +256,9 @@ opens **one** shared subscriber connection, lazily, for all its queues.
 
 ## The worker
 
-`work(handler, { concurrency = 1, grace = '30s' })` returns a `Worker`:
-`close()`, `idle()`, `on(event, listener)`, `[Symbol.asyncDispose]`.
+`work(handler, { concurrency = 1 })` returns a `Worker`:
+`close({ grace = '30s' })`, `idle()`, `on(event, listener)`,
+`[Symbol.asyncDispose]`.
 
 - **Waiting**: one duplicated connection per worker, blocked on
   `BLPOP wake <t>`, with `t` the next wait CLAIM reported, capped at 5 s (the

@@ -18,7 +18,8 @@ export type QueueInput<
 	schema: S;
 	/**
 	 * What a handler returns, checked on the way in and again when it is read.
-	 * Without it a handler returns nothing and `finished` resolves to `undefined`.
+	 * Without it the handler may return anything: the value is ignored and
+	 * never stored, and `finished` resolves to `undefined`.
 	 */
 	result?: R;
 	/** Runs of one job before it fails for good. Default 3. */
