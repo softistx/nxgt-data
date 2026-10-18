@@ -218,9 +218,9 @@ hash whose shape it does not recognise is refused, never "repaired".
   (round-robin over groups from slice 6), set `state=active`, the token,
   `attempt+1`, and `ZADD active now+lease`. If `ready` still has jobs, push
   one `wake` token back if the list is empty, so a blocked peer takes over; if
-  `ready` is empty, `DEL wake`. CLAIM's `DEL wake` may erase
-  a delayed-head token pushed in the one round trip between a worker's empty
-  claim and its `BLPOP`; that job then waits at most the 5 s cap (accepted). Return the jobs, the
+  `ready` is empty, `DEL wake`. That `DEL wake` may erase a delayed-head token
+  pushed in the one round trip between a worker's empty claim and its `BLPOP`;
+  that job then waits at most the 5 s cap (accepted). Return the jobs, the
   stalled ids, and the ms until the next `delayed` job, schedule or rate
   admission (the next wait).
 - **RENEW**(token, ids…): for each id still holding the token, push its lease;
@@ -321,6 +321,7 @@ the job id (never the data):
 | `FAILED` | `finished()` on a job that failed for good |
 | `WAIT_TIMEOUT` | `finished({ timeout })` gave up waiting |
 | `NOT_FOUND` | `retry`, `remove`, `finished` on a job that is not there |
+| `ACTIVE` | `remove` on a job that is running; cancel it first |
 | `CLOSED` | `add` or `work` on a queue whose wiring is closed |
 
 `JobError` is the handler's, not the library's: it is how a handler says

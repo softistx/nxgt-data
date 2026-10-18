@@ -15,6 +15,9 @@ export type { PingResult, RedisConnection } from './connection/connect';
 export { closeRedis, connectRedis } from './connection/connect';
 export type { GuardErrorCode } from './errors/guard-error';
 export { GuardError } from './errors/guard-error';
+export { JobError } from './errors/job-error';
+export type { QueueErrorCode } from './errors/queue-error';
+export { QueueError } from './errors/queue-error';
 export type { RedisErrorCode } from './errors/redis-error';
 export { RedisError } from './errors/redis-error';
 export { bindIdempotency } from './idempotency/bind-idempotency';
@@ -27,6 +30,22 @@ export type {
 } from './idempotency/types';
 export type { LockOptions } from './lock/with-lock';
 export { withLock } from './lock/with-lock';
+export { bindQueue } from './queue/bind-queue';
+export { defineQueue } from './queue/define-queue';
+export type { Duration } from './queue/duration';
+export type {
+	AddOptions,
+	BoundQueue,
+	JobContext,
+	JobHandle,
+	JobState,
+	JobView,
+	QueueCounts,
+	QueueDefinition,
+	QueueInput,
+	Worker,
+	WorkOptions,
+} from './queue/types';
 export { bindRateLimit } from './rate-limit/bind-rate-limit';
 export { defineRateLimit } from './rate-limit/define-rate-limit';
 export type {
