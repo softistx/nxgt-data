@@ -3,9 +3,11 @@ import type { z } from 'zod';
 import { runScript } from '../scripts/run-script';
 import { checkQueue } from './define-queue';
 import { encodeData, resolveAdd } from './encode';
+import { jobHandle } from './handle';
 import { countJobs, getJob, listJobs, removeJob, retryJob } from './inspect';
 import { queueKeys } from './keys';
 import { ADD } from './scripts/add';
+import { cancel } from './scripts/cancel';
 import type {
 	AddOptions,
 	BoundQueue,
@@ -70,11 +72,9 @@ export function bindQueue<
 				argv,
 			)) as number[];
 			chunk.forEach(({ options }, i) => {
-				// Task 4 returns the full handle: `finished` and `cancel` are not there yet.
-				handles.push({
-					id: options.id,
-					deduplicated: reply[i] === 1,
-				} as JobHandle<R>);
+				handles.push(
+					jobHandle(client, definition, keys, options.id, reply[i] === 1),
+				);
 			});
 		}
 		return handles;
@@ -98,8 +98,7 @@ export function bindQueue<
 		counts: () => countJobs(client, keys),
 		retry: (id) => retryJob(client, keys, definition, id),
 		remove: (id) => removeJob(client, keys, definition, id),
-		// Task 4 implements it.
-		cancel: () => Promise.reject(new Error('cancel is not implemented yet')),
+		cancel: (id) => cancel(client, keys, id),
 		work(handler, options) {
 			return startWorker(
 				client,

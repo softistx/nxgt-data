@@ -2,11 +2,11 @@ import type { RedisClient } from 'bun';
 import type { z } from 'zod';
 import { QueueError } from '../errors/queue-error';
 import { runScript } from '../scripts/run-script';
-import { decodeData } from './encode';
 import type { queueKeys } from './keys';
 import { COUNTS, REMOVE, RETRY } from './scripts/admin';
 import { scriptKeys } from './scripts/claim';
 import type { JobState, JobView, QueueCounts, QueueDefinition } from './types';
+import { STATES, toView } from './view';
 
 type Keys = ReturnType<typeof queueKeys>;
 
@@ -27,70 +27,6 @@ function placeOf(keys: Keys, state: JobState) {
 		case 'failed':
 			return { key: keys.failed, newestFirst: true };
 	}
-}
-
-const STATES: readonly string[] = [
-	'waiting',
-	'delayed',
-	'active',
-	'completed',
-	'failed',
-];
-
-function date(value: string | undefined): Date | undefined {
-	if (value === undefined || !/^\d+$/.test(value)) return undefined;
-	return new Date(Number(value));
-}
-
-/**
- * Maps a job hash to a {@link JobView}. A hash that is not one this package
- * wrote (no `state` it knows) is `undefined`, as an absent job is: showing
- * guessed fields would be the "repair" the scripts refuse to do.
- */
-export function toView<
-	S extends z.ZodType,
-	R extends z.ZodType | undefined = undefined,
->(
-	definition: QueueDefinition<S, R>,
-	id: string,
-	hash: Record<string, string> | null,
-): JobView<S, R> | undefined {
-	if (!hash) return undefined;
-	const { state, data, attempt, attempts, priority } = hash;
-	const { error: stored, finished: end } = hash;
-	const added = date(hash['added']);
-	const runAt = date(hash['runAt']);
-	if (
-		state === undefined ||
-		!STATES.includes(state) ||
-		added === undefined ||
-		runAt === undefined
-	) {
-		return undefined;
-	}
-	const decoded = data === undefined ? undefined : decodeData(definition, data);
-	const view: JobView<S, R> = {
-		id,
-		state: state as JobState,
-		data: decoded?.ok ? decoded.data : undefined,
-		attempt: Number(attempt),
-		attempts: Number(attempts),
-		priority: Number(priority),
-		progress: Number(hash['progress'] ?? 0),
-		added,
-		runAt,
-	};
-	if (stored !== undefined) {
-		try {
-			const error = JSON.parse(stored) as { name: string; message: string };
-			view.error = { name: String(error.name), message: String(error.message) };
-		} catch {
-			// An error text this package could not have written is left out.
-		}
-	}
-	const finished = date(end);
-	if (finished) view.finished = finished;
-	return view;
 }
 
 /** One job, or `undefined` when there is none. */

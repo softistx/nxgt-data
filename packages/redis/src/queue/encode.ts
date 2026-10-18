@@ -160,3 +160,66 @@ export function resolveAdd(
 		timeoutMs,
 	};
 }
+
+/**
+ * The JSON a handler's return is stored as: the result schema's **output**,
+ * proved to survive the round trip, as {@link encodeData} does for a payload.
+ * A queue without a `result` schema stores nothing (`undefined`). The refusal
+ * names the queue and the zod issue codes, never the value.
+ *
+ * The text is what a worker hands to `complete`.
+ */
+export function encodeResult(
+	definition: QueueDefinition<z.ZodType, z.ZodType | undefined>,
+	value: unknown,
+	queue: string,
+): string | undefined {
+	const schema = definition.result;
+	if (schema === undefined) return undefined;
+	const refused = (detail: string) =>
+		new QueueError(
+			'INVALID',
+			queue,
+			`work on "${queue}": the result ${detail}`,
+		);
+	const parsed = schema.safeParse(value);
+	if (!parsed.success) {
+		throw refused(`does not match the result schema ${codesOf(parsed.error)}`);
+	}
+	let json: string | undefined;
+	try {
+		json = JSON.stringify(parsed.data);
+	} catch {
+		json = undefined;
+	}
+	if (json === undefined) throw refused('has no JSON form');
+	const back = schema.safeParse(JSON.parse(json));
+	if (!back.success) {
+		throw refused(
+			`does not match the result schema once stored as JSON ${codesOf(back.error)}`,
+		);
+	}
+	return json;
+}
+
+/**
+ * Reads a stored result back through the result schema. A queue without one
+ * has no result (`value` is `undefined`); a result the schema refuses is
+ * `{ ok: false }`, never thrown. `undefined` json is parsed as the absence of
+ * a value, so a schema that accepts none (`z.void()`, optional) still reads.
+ */
+export function decodeResult(
+	definition: QueueDefinition<z.ZodType, z.ZodType | undefined>,
+	json: string | undefined,
+): { ok: true; value: unknown } | { ok: false } {
+	const schema = definition.result;
+	if (schema === undefined) return { ok: true, value: undefined };
+	let raw: unknown;
+	try {
+		raw = json === undefined ? undefined : JSON.parse(json);
+	} catch {
+		return { ok: false };
+	}
+	const parsed = schema.safeParse(raw);
+	return parsed.success ? { ok: true, value: parsed.data } : { ok: false };
+}
