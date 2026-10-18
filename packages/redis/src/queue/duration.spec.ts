@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { toMs } from './duration';
+import { durationMs, toMs } from './duration';
 
 test('a number is milliseconds, a string has a unit', () => {
 	expect(toMs(250, 'delay')).toBe(250);
@@ -27,4 +27,11 @@ test.each([
 
 test('a refusal is a TypeError', () => {
 	expect(() => toMs(-1, 'delay')).toThrow(TypeError);
+});
+
+test('durationMs answers undefined, never a message with the value', () => {
+	expect(durationMs('10m')).toBe(600_000);
+	expect(durationMs(-1)).toBeUndefined();
+	expect(durationMs('10min')).toBeUndefined();
+	expect(durationMs(undefined)).toBeUndefined();
 });

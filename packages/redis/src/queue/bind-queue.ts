@@ -35,7 +35,7 @@ export function bindQueue<S extends z.ZodType>(
 		// bad item refuses the whole call with nothing written.
 		const jobs = items.map((item) => {
 			const call = 'addMany';
-			const options = resolveAdd(item.options, call);
+			const options = resolveAdd(item.options, call, definition.name);
 			const data = encodeData(definition, item.data, call);
 			return { options, data };
 		});
@@ -78,7 +78,7 @@ export function bindQueue<S extends z.ZodType>(
 	return {
 		definition,
 		async add(data, options) {
-			const resolved = resolveAdd(options, 'add');
+			const resolved = resolveAdd(options, 'add', definition.name);
 			const json = encodeData(definition, data, 'add');
 			const [handle] = await send([{ options: resolved, data: json }]);
 			if (!handle) throw new Error('add: the script answered nothing');
@@ -96,7 +96,7 @@ export function bindQueue<S extends z.ZodType>(
 				definition,
 				keys,
 				handler,
-				resolveWork(options),
+				resolveWork(options, definition.name),
 			);
 		},
 	};

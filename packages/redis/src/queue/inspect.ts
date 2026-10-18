@@ -123,16 +123,18 @@ export async function listJobs<S extends z.ZodType>(
 	const limit = page?.limit ?? DEFAULT_LIMIT;
 	if (!Number.isInteger(offset) || offset < 0) {
 		throw new TypeError(
-			`list: offset must be a whole number from 0, got ${String(offset)}`,
+			`list on "${definition.name}": offset is a whole number from 0`,
 		);
 	}
 	if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
 		throw new TypeError(
-			`list: limit must be a whole number from 1 to ${MAX_LIMIT}, got ${String(limit)}`,
+			`list on "${definition.name}": limit is a whole number from 1 to ${MAX_LIMIT}`,
 		);
 	}
 	if (!STATES.includes(state)) {
-		throw new TypeError(`list: unknown state ${String(state)}`);
+		throw new TypeError(
+			`list on "${definition.name}": state is one of ${STATES.join(', ')}`,
+		);
 	}
 	const { key, newestFirst } = placeOf(keys, state);
 	const range = [key, String(offset), String(offset + limit - 1)];

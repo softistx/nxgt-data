@@ -16,13 +16,23 @@ const PATTERN = /^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/;
  * @throws TypeError for a negative, fractional, non-finite or malformed value.
  */
 export function toMs(value: Duration, what: string): number {
-	const ms = parse(value);
-	if (ms === undefined || !Number.isSafeInteger(ms)) {
+	const ms = durationMs(value);
+	if (ms === undefined) {
 		throw new TypeError(
 			`${what} is ${JSON.stringify(value)}; a duration is a whole number of milliseconds or a string such as '10m'`,
 		);
 	}
 	return ms;
+}
+
+/**
+ * Milliseconds of a {@link Duration}, or `undefined` when it is not one. For a
+ * call-time check whose message must not quote the value: `toMs` prints it,
+ * which suits `defineQueue`, whose values are the code's.
+ */
+export function durationMs(value: unknown): number | undefined {
+	const ms = parse(value as Duration);
+	return ms !== undefined && Number.isSafeInteger(ms) ? ms : undefined;
 }
 
 function parse(value: Duration): number | undefined {

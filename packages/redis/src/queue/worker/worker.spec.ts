@@ -374,7 +374,7 @@ describe('work', () => {
 	test('refuses a concurrency outside 1 to 1000', () => {
 		for (const concurrency of [0, 1001, 1.5, Number.NaN]) {
 			expect(() => mails().work(() => undefined, { concurrency })).toThrow(
-				/concurrency/,
+				'work on "mails": concurrency is a whole number from 1 to 1000',
 			);
 		}
 	});

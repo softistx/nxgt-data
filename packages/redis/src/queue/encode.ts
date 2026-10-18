@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import { QueueError } from '../errors/queue-error';
-import { toMs } from './duration';
+import { durationMs } from './duration';
 import type { AddOptions, QueueDefinition } from './types';
 
 /**
@@ -72,31 +72,36 @@ const MAX_ID = 256;
 
 /**
  * Checks `add`'s options and resolves them. A malformed one is a bare
- * `TypeError` naming the option, as `defineQueue`'s refusals are: it is the
- * caller's code that is wrong, not a request's data.
+ * `TypeError` naming the call, the queue and the option, as `defineQueue`'s
+ * refusals are: it is the caller's code that is wrong, not a request's data.
+ * No message prints the value: nothing stops a caller from passing one a
+ * request chose.
  */
 export function resolveAdd(
 	options: AddOptions | undefined,
 	call: string,
+	queue: string,
 ): ResolvedAdd {
 	const { id, priority, delay, at } = (options ?? {}) as {
 		id?: unknown;
 		priority?: unknown;
-		delay?: AddOptions['delay'];
+		delay?: unknown;
 		at?: unknown;
 	};
-	if (id !== undefined) {
-		if (
-			typeof id !== 'string' ||
+	const refuse = (what: string): never => {
+		throw new TypeError(`${call} on "${queue}": ${what}`);
+	};
+	if (
+		id !== undefined &&
+		(typeof id !== 'string' ||
 			id.length === 0 ||
 			id.length > MAX_ID ||
 			id.includes('{') ||
-			id.includes('}')
-		) {
-			throw new TypeError(
-				`${call}: id must be a string of 1 to ${MAX_ID} characters without braces, which are a hash tag`,
-			);
-		}
+			id.includes('}'))
+	) {
+		refuse(
+			`id is a string of 1 to ${MAX_ID} characters without braces, which are a hash tag`,
+		);
 	}
 	if (
 		priority !== undefined &&
@@ -105,23 +110,32 @@ export function resolveAdd(
 			priority < 0 ||
 			priority > 1000)
 	) {
-		throw new TypeError(
-			`${call}: priority is ${String(priority)}; it is a whole number from 0 to 1000`,
-		);
+		refuse('priority is a whole number from 0 to 1000');
 	}
 	if (delay !== undefined && at !== undefined) {
-		throw new TypeError(`${call}: delay and at say the same thing; give one`);
+		refuse('delay and at say the same thing; give one');
 	}
 	if (
 		at !== undefined &&
 		(!(at instanceof Date) || Number.isNaN(at.getTime()))
 	) {
-		throw new TypeError(`${call}: at must be a valid Date`);
+		refuse('at is a valid Date');
+	}
+	let delayMs = 0;
+	if (delay !== undefined) {
+		const ms = durationMs(delay);
+		if (ms === undefined) {
+			refuse(
+				"delay is a whole number of milliseconds or a string such as '10m'",
+			);
+		} else {
+			delayMs = ms;
+		}
 	}
 	return {
-		id: id ?? Bun.randomUUIDv7(),
-		priority: priority ?? 0,
-		delayMs: delay === undefined ? 0 : toMs(delay, `${call}: delay`),
+		id: (id as string | undefined) ?? Bun.randomUUIDv7(),
+		priority: (priority as number | undefined) ?? 0,
+		delayMs,
 		atMs: at instanceof Date ? Math.max(0, at.getTime()) : -1,
 	};
 }

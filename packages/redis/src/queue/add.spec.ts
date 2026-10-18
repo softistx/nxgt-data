@@ -115,26 +115,38 @@ describe('add', () => {
 		expect(await send('DBSIZE')).toBe(0);
 	});
 
-	test('malformed options are a TypeError naming the option, and write nothing', async () => {
+	test('malformed options are a TypeError naming the call, the queue and the option, never the value, and write nothing', async () => {
+		const id =
+			'id is a string of 1 to 256 characters without braces, which are a hash tag';
+		const priority = 'priority is a whole number from 0 to 1000';
+		const delay =
+			"delay is a whole number of milliseconds or a string such as '10m'";
 		const bad: [string, Record<string, unknown>][] = [
-			['at', { at: new Date('nope') }],
-			['priority', { priority: 1001 }],
-			['priority', { priority: -1 }],
-			['priority', { priority: 1.5 }],
-			['id', { id: 'a}b' }],
-			['id', { id: 'a{b' }],
-			['id', { id: '' }],
-			['id', { id: 'x'.repeat(257) }],
-			['delay', { delay: '1m', at: new Date() }],
-			['delay', { delay: 'soon' }],
-			['delay', { delay: -5 }],
+			['at is a valid Date', { at: new Date('nope') }],
+			[priority, { priority: 1001 }],
+			[priority, { priority: -1 }],
+			[priority, { priority: 1.5 }],
+			[id, { id: 'a}b' }],
+			[id, { id: 'a{b' }],
+			[id, { id: '' }],
+			[id, { id: 'x'.repeat(257) }],
+			[
+				'delay and at say the same thing; give one',
+				{ delay: '1m', at: new Date() },
+			],
+			[delay, { delay: 'soon' }],
+			[delay, { delay: -5 }],
 		];
-		for (const [option, options] of bad) {
+		for (const [message, options] of bad) {
 			const error = await rejection(mails().add(to('a'), options as never));
 			expect(error).toBeInstanceOf(TypeError);
 			expect(error).not.toBeInstanceOf(QueueError);
-			expect((error as Error).message).toContain(option);
+			expect((error as Error).message).toBe(`add on "mails": ${message}`);
 		}
+		const many = await rejection(
+			mails().addMany([{ data: to('a'), options: { priority: 1001 } }]),
+		);
+		expect((many as Error).message).toBe(`addMany on "mails": ${priority}`);
 		expect(await send('DBSIZE')).toBe(0);
 	});
 

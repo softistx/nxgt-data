@@ -130,14 +130,20 @@ describe('list', () => {
 
 	test('limit above 1000 is refused', async () => {
 		const q = mails();
-		expect(await refused(q.list('waiting', { limit: 1001 }))).toBeInstanceOf(
-			TypeError,
+		const limit = 'list on "mails": limit is a whole number from 1 to 1000';
+		for (const bad of [1001, 0]) {
+			const error = await refused(q.list('waiting', { limit: bad }));
+			expect(error).toBeInstanceOf(TypeError);
+			expect((error as Error).message).toBe(limit);
+		}
+		const offset = await refused(q.list('waiting', { offset: -1 }));
+		expect(offset).toBeInstanceOf(TypeError);
+		expect((offset as Error).message).toBe(
+			'list on "mails": offset is a whole number from 0',
 		);
-		expect(await refused(q.list('waiting', { limit: 0 }))).toBeInstanceOf(
-			TypeError,
-		);
-		expect(await refused(q.list('waiting', { offset: -1 }))).toBeInstanceOf(
-			TypeError,
+		const state = await refused(q.list('done' as never));
+		expect((state as Error).message).toBe(
+			'list on "mails": state is one of waiting, delayed, active, completed, failed',
 		);
 		expect(await q.list('waiting', { limit: 1000 })).toEqual([]);
 	});

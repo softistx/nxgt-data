@@ -628,9 +628,9 @@ defineQueue({ name: 'mails', schema, keepCompleted: { count: 100 } });
 defineQueue({ name: 'mails', schema, lease: '10m' });
 ```
 
-### `add: id must be a string of 1 to 256 characters without braces, which are a hash tag`
+### `add on "mails": id is a string of 1 to 256 characters without braces, which are a hash tag`
 
-**When:** `add` or `addMany` (the message starts `addMany:` there) with an `id` that is empty, longer than 256, not a string, or holds a brace.
+**When:** `add` or `addMany` (the message starts `addMany on` there) with an `id` that is empty, longer than 256, not a string, or holds a brace.
 **Why:** the id is part of the job's key, whose `{<queue>}` hash tag must stay the only one.
 **Fix:** leave the id out for a generated one, or build it from what identifies the job.
 
@@ -638,7 +638,7 @@ defineQueue({ name: 'mails', schema, lease: '10m' });
 await queue.add(payload, { id: `receipt:${orderId}` });
 ```
 
-### `add: priority is 1001; it is a whole number from 0 to 1000`
+### `add on "mails": priority is a whole number from 0 to 1000`
 
 **When:** `add` or `addMany` with a `priority` outside 0 to 1000, or not a whole number.
 **Why:** the priority is part of the job's score in the queue.
@@ -648,7 +648,7 @@ await queue.add(payload, { id: `receipt:${orderId}` });
 await queue.add(payload, { priority: 10 });
 ```
 
-### `add: delay and at say the same thing; give one`
+### `add on "mails": delay and at say the same thing; give one`
 
 **When:** `add` or `addMany` with both `delay` and `at`.
 **Why:** both set when the job becomes due.
@@ -660,7 +660,17 @@ await queue.add(payload, { delay: '10m' });
 await queue.add(payload, { at: new Date('2027-01-01T09:00:00Z') });
 ```
 
-### `add: at must be a valid Date`
+### `add on "mails": delay is a whole number of milliseconds or a string such as '10m'`
+
+**When:** `add` or `addMany` with a `delay` that is negative, fractional, or a string without a known unit (`'10min'`).
+**Why:** a delay is a whole number of milliseconds or a string with `ms`, `s`, `m`, `h` or `d`. The message never prints the value you passed.
+**Fix:**
+
+```ts
+await queue.add(payload, { delay: '10m' });
+```
+
+### `add on "mails": at is a valid Date`
 
 **When:** `add` or `addMany` with an `at` that is not a `Date`, or is `Invalid Date`.
 **Why:** a timestamp number or an ISO string is not read; `at` is a `Date`.
@@ -672,7 +682,7 @@ await queue.add(payload, { at: new Date(isoString) });
 
 If `new Date(isoString)` is `Invalid Date`, gate the string first.
 
-### `work: concurrency must be a whole number from 1 to 1000, got 0`
+### `work on "mails": concurrency is a whole number from 1 to 1000`
 
 **When:** `queue.work(handler, { concurrency })`, with a value outside 1 to 1000 or not a whole number.
 **Why:** that many jobs run at once in this worker.
@@ -682,7 +692,7 @@ If `new Date(isoString)` is `Invalid Date`, gate the string first.
 queue.work(handler, { concurrency: 8 });
 ```
 
-### `list: offset must be a whole number from 0, got -1`
+### `list on "mails": offset is a whole number from 0`
 
 **When:** `queue.list(state, { offset })`.
 **Why:** a page starts at its offset into the state's order.
@@ -692,7 +702,7 @@ queue.work(handler, { concurrency: 8 });
 await queue.list('failed', { offset: 50, limit: 50 });
 ```
 
-### `list: limit must be a whole number from 1 to 1000, got 5000`
+### `list on "mails": limit is a whole number from 1 to 1000`
 
 **When:** `queue.list(state, { limit })`, with a limit outside 1 to 1000.
 **Why:** a page reads each of its jobs; a bound keeps one call small.
@@ -702,7 +712,7 @@ await queue.list('failed', { offset: 50, limit: 50 });
 await queue.list('completed', { limit: 1000 });
 ```
 
-### `list: unknown state "done"`
+### `list on "mails": state is one of waiting, delayed, active, completed, failed`
 
 **When:** `queue.list(state)` with a state this queue does not have (the TypeScript types refuse it too).
 **Why:** the states are `waiting`, `delayed`, `active`, `completed` and `failed`.

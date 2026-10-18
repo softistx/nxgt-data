@@ -12,14 +12,17 @@ import { on } from './events';
 import { keepLeases } from './leases';
 import { loop } from './loop';
 
-/** Checks `work`'s options and resolves them: a bare `TypeError`, as `defineQueue`'s refusals are. */
-export function resolveWork(options: WorkOptions | undefined): {
+/** Checks `work`'s options and resolves them: a bare `TypeError` that names the queue and never prints the value. */
+export function resolveWork(
+	options: WorkOptions | undefined,
+	queue: string,
+): {
 	concurrency: number;
 } {
 	const concurrency = options?.concurrency ?? 1;
 	if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 1000) {
 		throw new TypeError(
-			`work: concurrency must be a whole number from 1 to 1000, got ${String(concurrency)}`,
+			`work on "${queue}": concurrency is a whole number from 1 to 1000`,
 		);
 	}
 	return { concurrency };
