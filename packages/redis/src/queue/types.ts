@@ -116,9 +116,25 @@ export type Worker = {
 };
 
 /**
- * A queue bound to a client. It grows with the queue's tasks: `add`,
- * `work` and the inspection calls arrive with theirs.
+ * A queue bound to a client. It grows with the queue's tasks: `work` and the
+ * inspection calls arrive with theirs.
  */
 export type BoundQueue<S extends z.ZodType> = {
 	readonly definition: QueueDefinition<S>;
+	/**
+	 * Adds a job: one script, one round trip. The payload is checked by the
+	 * schema and stored as its output, defaults applied.
+	 *
+	 * @throws QueueError `INVALID` when the schema refuses the payload, or it
+	 * does not survive JSON; nothing is written.
+	 * @throws TypeError for a malformed option.
+	 */
+	add(data: z.input<S>, options?: AddOptions): Promise<JobHandle>;
+	/**
+	 * Adds many jobs, one script per 500, handles in the order given. One bad
+	 * item refuses the whole call before anything is written.
+	 */
+	addMany(
+		items: readonly { data: z.input<S>; options?: AddOptions }[],
+	): Promise<JobHandle[]>;
 };

@@ -242,3 +242,13 @@ export const mailQueue = defineQueue({
 	lease: 300,
 	backoff: { base: 10, max: 50 },
 });
+
+/** Every script this server has run, from `INFO commandstats`. */
+export async function scriptCalls(client: RedisClient): Promise<number> {
+	const info = await client.info('commandstats');
+	let calls = 0;
+	for (const [, n] of info.matchAll(/cmdstat_eval(?:sha)?:calls=(\d+)/g)) {
+		calls += Number(n);
+	}
+	return calls;
+}
