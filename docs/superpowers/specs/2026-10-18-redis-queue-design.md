@@ -218,7 +218,9 @@ hash whose shape it does not recognise is refused, never "repaired".
   (round-robin over groups from slice 6), set `state=active`, the token,
   `attempt+1`, and `ZADD active now+lease`. If `ready` still has jobs, push
   one `wake` token back if the list is empty, so a blocked peer takes over; if
-  `ready` is empty, `DEL wake`. Return the jobs, the
+  `ready` is empty, `DEL wake`. CLAIM's `DEL wake` may erase
+  a delayed-head token pushed in the one round trip between a worker's empty
+  claim and its `BLPOP`; that job then waits at most the 5 s cap (accepted). Return the jobs, the
   stalled ids, and the ms until the next `delayed` job, schedule or rate
   admission (the next wait).
 - **RENEW**(token, ids…): for each id still holding the token, push its lease;

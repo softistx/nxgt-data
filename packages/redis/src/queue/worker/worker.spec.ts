@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import type { RedisClient } from 'bun';
 import {
 	eventually,
 	gate,
@@ -98,10 +99,15 @@ describe('work', () => {
 		const { work, closeAll } = suite();
 		try {
 			let calls = 0;
-			work(() => {
-				calls += 1;
-				if (calls === 1) throw new JobError('later', { retryIn: 300 });
-			});
+			// Concurrency 2: while the job runs the loop blocks on BLPOP (5 s cap),
+			// so only the head token of FAIL's retry can wake it in time.
+			work(
+				() => {
+					calls += 1;
+					if (calls === 1) throw new JobError('later', { retryIn: 300 });
+				},
+				{ concurrency: 2 },
+			);
 			await mails().add({ to: 'a' }, { id: 'a' });
 			const started = Date.now();
 			await eventually(() => state('a'), 'completed');
@@ -112,11 +118,35 @@ describe('work', () => {
 		}
 	});
 
-	test('close while the waiting connection is opening does not wait 5 s', async () => {
-		const worker = mails().work(() => undefined);
+	test('close while the waiting connection is opening does not wait 5 s, and closes it', async () => {
+		const real = client();
+		const opening = gate();
+		let asked = false;
+		let late: RedisClient | undefined;
+		// `duplicate` resolves only when the test lets it: the window between
+		// the first (empty) claim and the first BLPOP.
+		const slow = new Proxy(real, {
+			get(target, key) {
+				if (key === 'duplicate') {
+					return async () => {
+						asked = true;
+						await opening.opened;
+						late = await target.duplicate();
+						return late;
+					};
+				}
+				const value = Reflect.get(target, key, target);
+				return typeof value === 'function' ? value.bind(target) : value;
+			},
+		});
+		const worker = bindQueue(slow, mailQueue).work(() => undefined);
+		await eventually(() => asked, true);
 		const before = Date.now();
-		await worker.close();
+		const closing = worker.close();
+		opening.open();
+		await closing;
 		expect(Date.now() - before).toBeLessThan(1_000);
+		await eventually(() => late?.connected === false, true);
 	});
 
 	test('a throw retries with backoff, then fails for good after attempts', async () => {
