@@ -15,10 +15,15 @@ item shipped in is the only number on this page.
   effect once per job rather than once per attempt, so a retry skips the work
   already done, and a stale worker is fenced out by token and lease;
   `job.key(name)` gives a stable idempotency key to hand a provider; and
-  `finished({ timeout })` is a hard bound. Still to come in the same release:
-  queues wired under `defineRedis`; debounce, throttle, pause and
-  resume with a queue-wide rate limit; recurring jobs by cron with time zones;
-  concurrency and fairness per group; and a published benchmark.
+  `finished({ timeout })` is a hard bound. Wiring: queues are declared as
+  `queues` in `defineRedis` and `openRedis`, reached as `redis.queues.<key>`
+  and built lazily on first use; the deployment `prefix` is on every key and in
+  `job.key`; `redis.close({ grace })` closes the workers and refuses later adds
+  with `QueueError` `CLOSED`; and a queue whose name is shared with a cache, a
+  rate limit or an idempotency is refused. Still to come in the same release:
+  debounce, throttle, pause and resume with a queue-wide rate limit; recurring
+  jobs by cron with time zones; concurrency and fairness per group; and a
+  published benchmark.
 
 ## Next
 

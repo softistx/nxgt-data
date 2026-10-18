@@ -96,13 +96,19 @@ application can handle.
   - [`defineRedis: instance "default" has both uri and client. Pass the URI to connect to, or the client you already opened.`](#defineredis-instance-default-has-both-uri-and-client-pass-the-uri-to-connect-to-or-the-client-you-already-opened)
   - [`defineRedis: instance "default" has clientOptions beside a client. The client was opened with its own; pass a uri, or drop the options.`](#defineredis-instance-default-has-clientoptions-beside-a-client-the-client-was-opened-with-its-own-pass-a-uri-or-drop-the-options)
   - [`defineRedis: instance "default" has an empty prefix. Leave it out, or give it a name.`](#defineredis-instance-default-has-an-empty-prefix-leave-it-out-or-give-it-a-name)
-  - [`defineRedis: instance "default" wires no cache, no channel, no rate limit and no idempotency. Pass the module that exports them, or drop the instance.`](#defineredis-instance-default-wires-no-cache-no-channel-no-rate-limit-and-no-idempotency-pass-the-module-that-exports-them-or-drop-the-instance)
-  - [`openRedis: instance "main" wires no cache, no channel, no rate limit and no idempotency. …`](#defineredis-instance-default-wires-no-cache-no-channel-no-rate-limit-and-no-idempotency-pass-the-module-that-exports-them-or-drop-the-instance) — the same, from `openRedis`
+  - [`defineRedis: instance "default" wires no cache, no channel, no rate limit, no idempotency and no queue. Pass the module that exports them, or drop the instance.`](#defineredis-instance-default-wires-no-cache-no-channel-no-rate-limit-no-idempotency-and-no-queue-pass-the-module-that-exports-them-or-drop-the-instance)
+  - [`openRedis: instance "main" wires no cache, no channel, no rate limit, no idempotency and no queue. …`](#openredis-instance-main-wires-no-cache-no-channel-no-rate-limit-no-idempotency-and-no-queue-) — the same, from `openRedis`
   - [`defineRedis: instance "default" wires the cache named "user" twice, under "users" and "people". They would share every key in Redis. Export one of them, or give it a name of its own.`](#defineredis-instance-default-wires-the-cache-named-user-twice-under-users-and-people-they-would-share-every-key-in-redis-export-one-of-them-or-give-it-a-name-of-its-own)
   - [`defineRedis: instance "default" wires the rate limit named "login" twice, …` (and `wires the idempotency named …`, `wires the channel named …`)](#defineredis-instance-default-wires-the-cache-named-user-twice-under-users-and-people-they-would-share-every-key-in-redis-export-one-of-them-or-give-it-a-name-of-its-own)
   - [`defineRedis: instance "default" wires the cache "users" and the rate limit "login" under one name, "user". They would share every key in Redis. Give one of them a name of its own.`](#defineredis-instance-default-wires-the-cache-users-and-the-rate-limit-login-under-one-name-user-they-would-share-every-key-in-redis-give-one-of-them-a-name-of-its-own)
   - [``defineRedis: `instances` is empty. Give it one, or write the single instance as the configuration itself.``](#defineredis-instances-is-empty-give-it-one-or-write-the-single-instance-as-the-configuration-itself)
   - [`openRedis: instance "main" has neither uri nor client. Give it one.`](#openredis-instance-main-has-neither-uri-nor-client-give-it-one)
+  - [`defineRedis: instance "default" wires the queue named "mails" twice, under "mails" and "outbox". They would share every key in Redis. Export one of them, or give it a name of its own.`](#defineredis-instance-default-wires-the-queue-named-mails-twice-under-mails-and-outbox-they-would-share-every-key-in-redis-export-one-of-them-or-give-it-a-name-of-its-own)
+  - [`defineRedis: instance "default" wires the cache "users" and the queue "mails" under one name, "mail". They would share every key in Redis. Give one of them a name of its own.`](#defineredis-instance-default-wires-the-cache-users-and-the-queue-mails-under-one-name-mail-they-would-share-every-key-in-redis-give-one-of-them-a-name-of-its-own)
+  - [`defineRedis: instance "default" has a prefix with braces, and it wires queues; a queue's name is its keys' hash tag, so the prefix in front of it cannot hold any.`](#defineredis-instance-default-has-a-prefix-with-braces-and-it-wires-queues-a-queues-name-is-its-keys-hash-tag-so-the-prefix-in-front-of-it-cannot-hold-any)
+  - [`add on "mails": the Redis is closed`](#add-on-mails-the-redis-is-closed) — also `addMany` and `finished`
+  - [`work on "mails": the Redis is closing`](#work-on-mails-the-redis-is-closing)
+  - [`finished on "mails": job "receipt:42" was pending when the Redis closed`](#finished-on-mails-job-receipt42-was-pending-when-the-redis-closed)
   - [`cache: this Redis holds 2 Redis instances, and this call lives on one. Name it, as { on: 'cache' }.`](#cache-this-redis-holds-2-redis-instances-and-this-call-lives-on-one-name-it-as--on-cache-)
   - [`lock: this Redis has no instance named "events". It wires "cache", "pubsub".`](#lock-this-redis-has-no-instance-named-events-it-wires-cache-pubsub)
   - [A key, a channel or a lock is not where you expect it in `redis-cli`](#a-key-a-channel-or-a-lock-is-not-where-you-expect-it-in-redis-cli)
@@ -1258,15 +1264,16 @@ choice; an empty one is a mistake.
 defineRedis({ uri, prefix: process.env.REDIS_PREFIX ?? 'myapp:dev', caches });
 ```
 
-#### `defineRedis: instance "default" wires no cache, no channel, no rate limit and no idempotency. Pass the module that exports them, or drop the instance.`
+#### `defineRedis: instance "default" wires no cache, no channel, no rate limit, no idempotency and no queue. Pass the module that exports them, or drop the instance.`
 
-**When:** calling `defineRedis` with no `caches`, `channels`, `limits` and
-`idempotency`, or with objects that hold no definition in them. (Before 0.6.0
-it read `wires no cache and no channel`.)
+**When:** calling `defineRedis` with no `caches`, `channels`, `limits`, `idempotency`
+and `queues`, or with objects that hold no definition in them. (It read
+`wires no cache and no channel` before 0.6.0, and stopped at `and no idempotency`
+before queues were wired.)
 **Why:** definitions are recognised **by shape** — a cache has a `name`, a
 `key` function, a numeric `ttl` and a `schema`; a channel has a `name` and a
 `schema` and no `ttl`; a rate limit has a `name`, a `key` function, a `limit`
-and a `per`; an idempotency is a cache's shape with a numeric `lease`. An object that holds none of those is usually a module
+and a `per`; an idempotency is a cache's shape with a numeric `lease`; a queue is a `defineQueue` definition. An object that holds none of those is usually a module
 of types only, a default export read as a namespace, or a barrel that
 re-exports builders rather than definitions.
 **Fix:** pass the module as it is:
@@ -1286,7 +1293,7 @@ Anything else in those modules — a schema, a type, a constant — is skipped,
 not refused, and so is a definition of another kind: each slot keeps only its
 own, so one module may be passed to several slots. A cache passed as `limits`
 alone, an idempotency whose `lease` was overwritten with something that is not
-a number, a rate limit with no `per`: none is wired, and an instance left with
+a number, a rate limit with no `per`, a queue passed as `caches`: none is wired, and an instance left with
 nothing is this error.
 
 #### `defineRedis: instance "default" wires the cache "users" and the rate limit "login" under one name, "user". They would share every key in Redis. Give one of them a name of its own.`
@@ -1460,6 +1467,108 @@ bindRateLimit(client, login).keyFor({ ip });  // 'login:203.0.113.7'
 ```
 
 ### Closing
+
+#### `defineRedis: instance "default" wires the queue named "mails" twice, under "mails" and "outbox". They would share every key in Redis. Export one of them, or give it a name of its own.`
+
+**When:** calling `defineRedis` (or `openRedis`) with `queues` whose module
+exports one definition under two keys, or two definitions with one `name`.
+**Why:** a queue's keys are built from its `name` alone, so both exports would
+read and write the same jobs: a worker on one would run what the other added.
+**Fix:** one `name` per definition, one export per definition:
+
+```ts
+export const mails = defineQueue({ name: 'mails', schema });
+export const outbox = defineQueue({ name: 'outbox', schema });
+```
+
+#### `defineRedis: instance "default" wires the cache "users" and the queue "mails" under one name, "mail". They would share every key in Redis. Give one of them a name of its own.`
+
+**When:** calling `defineRedis` (or `openRedis`) with a queue and a cache, a
+rate limit or an idempotency that have one `name` on one instance. The kinds in
+the sentence are the two that met, in the order cache, rate limit, idempotency,
+queue.
+**Why:** a queue's keys (`queue:{<name>}:…`) do not meet a cache's byte for
+byte, but one name is refused to mean one thing per deployment. Only names are
+compared.
+**Fix:** rename the **definition's** `name`, not its export:
+
+```ts
+export const mails = defineQueue({ name: 'mail.jobs', schema });
+```
+
+#### `defineRedis: instance "default" has a prefix with braces, and it wires queues; a queue's name is its keys' hash tag, so the prefix in front of it cannot hold any.`
+
+**When:** calling `defineRedis` (or `openRedis`) with a `prefix` holding `{` or
+`}` on an instance that wires `queues`. An instance without queues keeps
+accepting any prefix.
+**Why:** a queue's storage name, prefix included, is the hash tag of its keys
+(`queue:{<prefix><name>}:…`), so a brace in the prefix would split the tag and
+the keys would no longer share one cluster slot.
+**Fix:** drop the braces from the prefix:
+
+```ts
+defineRedis({ uri, prefix: 'myapp:dev', queues });   // not 'myapp:{dev}'
+```
+
+#### `add on "mails": the Redis is closed`
+
+**When:** `add`, `addMany` or `finished` on a queue from `redis.queues`, after
+`redis.close()` reached its second phase; the same sentence with `addMany on`
+or `finished on`. It rejects with a `QueueError` of code `CLOSED`.
+**Why:** `redis.close()` runs in two phases. First the queues refuse `work` and
+close their workers, giving each the `grace`; jobs in flight can still `add`
+and a `finished` stays pending. Then the queues refuse `add`, `addMany` and
+`finished`, and end every `finished` still waiting. The admin calls (`get`,
+`list`, `counts`, `retry`, `remove`, `cancel`) are never refused, so a status
+page keeps answering. An `addMany` refused between chunks keeps what it already
+wrote. A queue bound by hand, not wired, is never refused.
+**Fix:** stop adding before the close, and close last:
+
+```ts
+const redis = await openRedis(config);
+
+process.once('SIGTERM', async () => {
+  server.stop();                          // no new request adds a job
+  await redis.close({ grace: '10s' });    // last: workers drain, then the clients close
+});
+```
+
+A job added from another job's handler during the grace is fine.
+
+#### `work on "mails": the Redis is closing`
+
+**When:** calling `work` on a wired queue once `redis.close()` began; the
+sentence ends `closed` when it finished. It throws a `QueueError` of code
+`CLOSED`.
+**Why:** `work` is refused from the first phase, so a worker can never start
+beside a close that is already stopping the others. The running workers get
+the `grace` to finish, then their jobs are aborted with `CLOSED` as the signal's
+reason.
+**Fix:** start every worker at boot, before the signal handler can fire, and
+let the handler's `await redis.close({ grace })` be what stops them:
+
+```ts
+redis.queues.mails.work(handler);
+process.once('SIGTERM', () => redis.close({ grace: '10s' }));
+```
+
+#### `finished on "mails": job "receipt:42" was pending when the Redis closed`
+
+**When:** a `finished(id)` still waiting when `redis.close()` reached its
+second phase. It rejects with a `QueueError` of code `CLOSED`.
+**Why:** the job did not finish within the `grace`, so the close ends the wait
+rather than leave a listener on a connection it is about to close. A job that
+completes during the grace resolves its `finished` with the result, never
+`CLOSED`.
+**Fix:** give the workers enough `grace` to finish what is in flight, and treat
+this as "unknown": read the job after a restart with `get`, which is never
+refused:
+
+```ts
+await redis.close({ grace: '30s' });
+// next boot
+const job = await redis.queues.mails.get('receipt:42');
+```
 
 #### The process does not exit, or the connection count climbs
 

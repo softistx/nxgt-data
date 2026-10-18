@@ -321,9 +321,10 @@ Jobs that must run, but not inside the request that asked for them — kept
 until a worker has finished each one, retried with backoff when it throws.
 
 ```ts
-import { bindQueue, connectRedis, defineQueue, JobError } from '@nxgt/redis';
+import { defineQueue, defineRedis, JobError, openRedis } from '@nxgt/redis';
 import { z } from 'zod';
 
+// queues.ts, exported with `export const mails = …`
 const mails = defineQueue({
 	name: 'mails',
 	schema: z.object({ to: z.string() }),
@@ -331,8 +332,15 @@ const mails = defineQueue({
 	backoff: { base: '2s' },         // doubles, with jitter
 });
 
-const redis = await connectRedis(process.env.REDIS_URL!);
-const queue = bindQueue(redis.client, mails);
+// the `queues` key takes the module: `import * as queues from './queues'`
+const redis = await openRedis(
+	defineRedis({
+		uri: process.env.REDIS_URL!,
+		prefix: 'myapp:prod',
+		queues: { mails },
+	}),
+);
+const queue = redis.queues.mails;
 
 await queue.add({ to: 'ada@example.com' }, { id: 'welcome:ada', delay: '10m' });
 
@@ -344,7 +352,7 @@ const worker = queue.work(
 );
 worker.on('error', (error) => console.error(error));
 
-await worker.close({ grace: '10s' }); // on shutdown: waits up to 10 s, then aborts the rest
+await redis.close({ grace: '10s' }); // on shutdown: workers get up to 10 s, then the rest is aborted
 ```
 
 A job can run more than once, so put each side effect in a durable step: its
@@ -372,7 +380,7 @@ const resizes = defineQueue({
 	result: z.object({ url: z.string() }),
 	timeout: '5m',
 });
-const resizing = bindQueue(redis.client, resizes);
+const resizing = bindQueue(redis.instances.default.client, resizes); // by hand: no prefix
 resizing.work(async ({ data, signal }) => ({ url: await resize(data.imageId, { signal }) }));
 
 const handle = await resizing.add({ imageId: 'img-1' });
@@ -381,9 +389,11 @@ const { url } = await handle.finished({ timeout: '30s' }); // or QueueError FAIL
 
 A job runs **at least once**: after a crash it runs again, so the handler must
 be safe to repeat. Throw `new JobError(message, { retry: false })` to give up,
-or `{ retryIn: '5m' }` to choose the wait. The queue is bound by hand for now;
-`defineRedis` does not wire it yet. The [queue guide](docs/guide/queues.md)
-has results, timeouts, progress, events, priorities, retention, inspection and a spec.
+or `{ retryIn: '5m' }` to choose the wait. `redis.queues.mails` is the queue
+under the deployment's prefix; after `redis.close()`, `add`, `addMany`,
+`finished` and `work` throw `QueueError` `CLOSED`. A queue can also be bound by
+hand with `bindQueue(client, definition)`, with no prefix and no `CLOSED`. The
+[queue guide](docs/guide/queues.md) has results, timeouts, progress, events, priorities, retention, inspection and a spec.
 
 ## What it does not do
 
@@ -611,7 +621,9 @@ with. Each subscription is one more connection.
 | | |
 | --- | --- |
 | `defineQueue({ name, schema, result?, attempts?, backoff?, lease?, keepCompleted?, keepFailed?, timeout? })` | describes a queue; talks to nothing. Frozen, every `Duration` resolved to milliseconds. Refuses a definition that could never work with a `TypeError` |
-| `bindQueue(client, definition)` | binds it to a `RedisClient`: `definition` (read-only), `add(data, { id?, priority?, timeout?, delay? \| at? })` (a `JobHandle`: `id`, `deduplicated`, `finished({ timeout? })`, `cancel()`), `addMany(items)`, `work(handler, { concurrency? })` (the handler's `job` has `id`, `data`, `attempt`, `attempts`, `signal`, `progress(value)`, `step(name, fn, { schema? })` and `key(name)`; a `Worker`: `close({ grace? })`, `idle()`, `on(event, listener)`), `get(id)`, `list(state, { offset?, limit? })`, `counts()`, `retry(id)`, `remove(id)` and `cancel(id)`. Not wired by `defineRedis` yet |
+| `bindQueue(client, definition)` | binds it to a `RedisClient`: `definition` (read-only), `add(data, { id?, priority?, timeout?, delay? \| at? })` (a `JobHandle`: `id`, `deduplicated`, `finished({ timeout? })`, `cancel()`), `addMany(items)`, `work(handler, { concurrency? })` (the handler's `job` has `id`, `data`, `attempt`, `attempts`, `signal`, `progress(value)`, `step(name, fn, { schema? })` and `key(name)`; a `Worker`: `close({ grace? })`, `idle()`, `on(event, listener)`), `get(id)`, `list(state, { offset?, limit? })`, `counts()`, `retry(id)`, `remove(id)` and `cancel(id)`. Bound by hand: no prefix, never `CLOSED` |
+| `defineRedis({ queues })` | wires every queue of the module as `redis.queues.<key>`, under the deployment's prefix (keys `queue:{<prefix>:<name>}:…`, `job.key(name)` as `<prefix>:<queue>:<id>:<name>`), built on first read |
+| `redis.close({ grace? })` | closes the queues' workers with `grace` (default 30 s), then refuses `add`, `addMany`, `finished` with `CLOSED` and rejects pending `finished`; admin calls still pass. Memoised: a second call's `grace` is ignored; a malformed one rejects before anything closes |
 
 The types are `QueueDefinition`, `QueueInput`, `BoundQueue`, `Worker`, `WorkerEvents`, `WorkOptions`, `JobContext`, `StepOptions`, `Handler`, `JobHandle`, `AddOptions`, `JobView`, `JobState`, `QueueCounts`, `ResultOf`, `ResultInputOf` and `Duration`; `JobError` is what a handler throws to choose its retry.
 See the [queue guide](docs/guide/queues.md) and its [durable steps](docs/guide/queues.md#running-twice).
