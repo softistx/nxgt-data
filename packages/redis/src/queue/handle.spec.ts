@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
-import { eventually, useRedis } from '../../test/fixtures';
+import { eventually, subscribed, useRedis } from '../../test/fixtures';
 import { rejection } from '../../test/rejection';
 import { QueueError } from '../errors/queue-error';
 import { bindQueue } from './bind-queue';
@@ -45,8 +45,8 @@ async function take(queue = sent) {
 const finish = (queue: typeof sent, id: string, token: string, json: string) =>
 	complete(client(), queueKeys(queue.name), queue, id, token, json, false);
 
-/** Long enough for the handle's SUBSCRIBE to be live. */
-const listening = () => Bun.sleep(150);
+/** Resolves once the handles' SUBSCRIBE is live: one shared connection per client. */
+const listening = (channel = keys.events) => subscribed(client(), channel);
 
 describe('the job handle', () => {
 	test('finished resolves with the result a worker returned', async () => {
@@ -156,7 +156,7 @@ describe('the job handle', () => {
 		});
 		const job = await take(volatile as unknown as typeof sent);
 		const result = handle.finished();
-		await listening();
+		await listening(queueKeys('volatile').events);
 		await finish(
 			volatile as unknown as typeof sent,
 			'a',
@@ -180,9 +180,11 @@ describe('the job handle', () => {
 	test('a missed event is caught by the re-read', async () => {
 		await bindQueue(client(), sent).add(to('a'), { id: 'a' });
 		const job = await take();
-		const handle = jobHandle(client(), sent, keys, 'a', false, 100);
+		const spy = spyOnReads();
+		const handle = jobHandle(spy.client, sent, keys, 'a', false, 100);
 		const result = handle.finished();
-		await listening();
+		// The first read has been made, and found the job running.
+		await eventually(() => spy.reads() >= 1, true);
 		// Published on a channel nobody hears, as a dropped connection would lose it.
 		await complete(
 			client(),
@@ -199,9 +201,11 @@ describe('the job handle', () => {
 	test('the re-read gives FAILED for a failed job whose event was missed', async () => {
 		await bindQueue(client(), sent).add(to('a'), { id: 'a' });
 		const job = await take();
-		const handle = jobHandle(client(), sent, keys, 'a', false, 100);
+		const spy = spyOnReads();
+		const handle = jobHandle(spy.client, sent, keys, 'a', false, 100);
 		const waited = rejection(handle.finished());
-		await listening();
+		// The first read has been made, and found the job running.
+		await eventually(() => spy.reads() >= 1, true);
 		await fail(
 			client(),
 			{ ...keys, events: 'queue:{sent}:elsewhere' },
@@ -329,7 +333,7 @@ describe('the handle against stray and missed messages', () => {
 		const started = Date.now();
 		const waited = rejection(handle.finished());
 		// The first read has been made, and found the job running.
-		await eventually(() => spy.reads(), 1);
+		await eventually(() => spy.reads() >= 1, true);
 		await complete(
 			client(),
 			{ ...vkeys, events: 'queue:{volatile}:elsewhere' },

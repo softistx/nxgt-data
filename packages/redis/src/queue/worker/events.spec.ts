@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { eventually } from '../../../test/fixtures';
 import type { WorkerContext } from './context';
 import { announce, emit, on } from './events';
 
@@ -43,7 +44,7 @@ describe('emit', () => {
 			throw new Error('late');
 		}) as () => void);
 		emit(target, 'stalled', { id: '1' });
-		await Bun.sleep(5);
+		await eventually(() => errors.length, 1);
 		expect((errors[0] as Error).message).toBe('late');
 	});
 
@@ -57,7 +58,7 @@ describe('emit', () => {
 				reject(new Error('thenable')),
 		})) as () => void);
 		emit(target, 'stalled', { id: '1' });
-		await Bun.sleep(5);
+		await eventually(() => errors.length, 1);
 		expect((errors[0] as Error).message).toBe('thenable');
 	});
 

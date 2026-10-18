@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { eventually, gate, mailQueue, useRedis } from '../../../test/fixtures';
+import {
+	eventually,
+	gate,
+	mailQueue,
+	subscribed as subscribedTo,
+	useRedis,
+} from '../../../test/fixtures';
 import { QueueError } from '../../errors/queue-error';
 import { bindQueue } from '../bind-queue';
 import { defineQueue } from '../define-queue';
@@ -84,15 +90,7 @@ async function withWorkers(
 type Opened = { worker: Worker; seen: string[]; errors: unknown[] };
 
 /** Resolves once a worker's SUBSCRIBE to the queue's events is live. */
-async function subscribed(): Promise<void> {
-	await eventually(async () => {
-		const reply = (await client().send('PUBSUB', [
-			'NUMSUB',
-			keys.events,
-		])) as unknown[];
-		return Number(reply[1]) >= 1;
-	}, true);
-}
+const subscribed = () => subscribedTo(client(), keys.events);
 
 /** Resolves with the signal's reason when it aborts. */
 function abortReason(signal: AbortSignal): Promise<unknown> {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
-import { eventually, gate, mailQueue, useRedis } from '../../test/fixtures';
+import { gate, mailQueue, subscribed, useRedis } from '../../test/fixtures';
 import { rejection } from '../../test/rejection';
 import type { QueueError } from '../errors/queue-error';
 import { bindQueue } from './bind-queue';
@@ -27,11 +27,6 @@ function timerDelays() {
 	return { delays, restore: () => spy.mockRestore() };
 }
 
-const subscribed = async () =>
-	(
-		(await client().send('PUBSUB', ['NUMSUB', keys.events])) as [string, number]
-	)[1];
-
 afterEach(() => {
 	// A spy left on by a failed assertion must not reach the next test.
 	(
@@ -45,7 +40,7 @@ describe('a wait longer than a timer can hold', () => {
 		const handle = await queue.add({ to: 'a' }, { id: 'a' });
 		const timers = timerDelays();
 		const waited = rejection(handle.finished({ timeout: CAP + 1 }));
-		await eventually(subscribed, 1);
+		await subscribed(client(), keys.events);
 		timers.restore();
 		expect(timers.delays).toContain(CAP);
 		expect(timers.delays.every((ms) => ms <= CAP)).toBe(true);

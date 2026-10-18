@@ -101,6 +101,37 @@ export async function eventually<T>(
 	}
 }
 
+/**
+ * Resolves once at least `n` connections are subscribed to `channel`
+ * (`PUBSUB NUMSUB`), never a guessed sleep. A client's queues share one
+ * subscriber connection that SUBSCRIBEs once per channel, so NUMSUB counts
+ * connections, not listeners: several handles on one client are `n = 1`.
+ */
+export async function subscribed(
+	client: RedisClient,
+	channel: string,
+	n = 1,
+): Promise<void> {
+	await eventually(async () => {
+		const reply = (await client.send('PUBSUB', ['NUMSUB', channel])) as [
+			string,
+			number,
+		];
+		return Number(reply[1]) >= n;
+	}, true);
+}
+
+/**
+ * Resolves once at least `n` connections are blocked in `BLPOP`: a worker
+ * that found nothing to claim and waits on its queue's wake list.
+ */
+export async function blocked(client: RedisClient, n = 1): Promise<void> {
+	await eventually(async () => {
+		const list = (await client.send('CLIENT', ['LIST'])) as string;
+		return (list.match(/ cmd=blpop /g)?.length ?? 0) >= n;
+	}, true);
+}
+
 /** Five a minute per address: the README's example. */
 export const loginLimit = defineRateLimit({
 	name: 'login',

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { RedisClient } from 'bun';
 import { z } from 'zod';
-import { eventually, useRedis } from '../../test/fixtures';
+import { eventually, subscribed, useRedis } from '../../test/fixtures';
 import { rejection } from '../../test/rejection';
 import { QueueError } from '../errors/queue-error';
 import { bindQueue } from './bind-queue';
@@ -65,16 +65,13 @@ function countingReads() {
 	return { client: proxy, reads: () => reads };
 }
 
-const subscribed = async (channel: string) =>
-	((await client().send('PUBSUB', ['NUMSUB', channel])) as [string, number])[1];
-
 describe('a result schema that throws', () => {
 	test('on the event path, finished rejects INVALID instead of hanging', async () => {
 		await bindQueue(client(), results).add({ to: 'a' }, { id: 'a' });
 		const job = await claimOne();
 		const handle = jobHandle(client(), results, keys, 'a', false, 60_000);
 		const waited = rejection(handle.finished({ timeout: 3000 }));
-		await eventually(() => subscribed(keys.events), 1);
+		await subscribed(client(), keys.events);
 		await complete(client(), keys, results, 'a', job.token, '{"n":2}', false);
 		const error = (await waited) as QueueError;
 		expect(error).toBeInstanceOf(QueueError);

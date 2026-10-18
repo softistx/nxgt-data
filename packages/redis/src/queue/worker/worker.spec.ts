@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import type { RedisClient } from 'bun';
 import {
+	blocked,
 	eventually,
 	gate,
 	mailQueue,
@@ -84,7 +85,7 @@ describe('work', () => {
 			work(() => {
 				at ||= Date.now();
 			});
-			await Bun.sleep(100); // the worker is blocked on the wake list
+			await blocked(client()); // the worker is blocked on the wake list
 			const added = Date.now();
 			await mails().add({ to: 'a' });
 			await eventually(() => at > 0, true);
@@ -101,7 +102,7 @@ describe('work', () => {
 			work(() => {
 				calls += 1;
 			});
-			await Bun.sleep(100); // blocked on an empty queue
+			await blocked(client()); // blocked on an empty queue
 			await mails().add({ to: 'a' }, { delay: 300 });
 			await Bun.sleep(150);
 			expect(calls).toBe(0);
@@ -286,7 +287,7 @@ describe('work', () => {
 			try {
 				await first.opened;
 				await eventually(() => done, 50);
-				await Bun.sleep(200); // idle: the worker found nothing and blocked
+				await blocked(client()); // idle: the worker found nothing and blocked
 				const spent = (await scriptCalls(client())) - before;
 				expect(spent).toBeLessThanOrEqual(55);
 			} finally {
@@ -339,7 +340,7 @@ describe('work', () => {
 	test('close of an idle worker is quick', async () => {
 		const { work } = suite();
 		const worker = work(() => undefined);
-		await Bun.sleep(100);
+		await blocked(client());
 		const before = Date.now();
 		await worker[Symbol.asyncDispose]();
 		expect(Date.now() - before).toBeLessThan(500);
@@ -352,7 +353,7 @@ describe('work', () => {
 			const worker = work((job) => void handled.push(job.id));
 			const errors: unknown[] = [];
 			worker.on('error', (e) => void errors.push(e));
-			await Bun.sleep(100); // blocked on BLPOP
+			await blocked(client()); // blocked on BLPOP
 			await client().send('CLIENT', ['KILL', 'TYPE', 'normal']);
 			await eventually(() => errors.length > 0, true);
 			await mails().add({ to: 'a' }, { id: 'a' });
@@ -372,7 +373,7 @@ describe('work', () => {
 				heard += 1;
 				throw new Error('bad listener');
 			});
-			await Bun.sleep(100);
+			await blocked(client());
 			await client().send('CLIENT', ['KILL', 'TYPE', 'normal']);
 			await eventually(() => heard > 0, true);
 			await mails().add({ to: 'a' }, { id: 'a' });

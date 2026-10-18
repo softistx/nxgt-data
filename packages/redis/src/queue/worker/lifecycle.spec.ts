@@ -259,7 +259,8 @@ describe('idle', () => {
 			await worker.idle();
 			await bindQueue(client(), mailQueue).add({ to: 'a' }, { id: 'a' });
 			const idle = worker.idle().then(() => finished);
-			await Bun.sleep(100);
+			// Claimed and running: idle is now waiting on that slot.
+			await eventually(() => hget('a', 'state'), 'active');
 			hold.open();
 			expect(await idle).toBe(true);
 		});
