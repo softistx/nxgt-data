@@ -127,12 +127,12 @@ export function parseStepBegin(raw: unknown): StepBegin {
 	if (code === 1 && parts.length === 2) {
 		return { stored: true, json: text(parts[1], 'step json') };
 	}
-	return refuse(`step reply ${JSON.stringify(parts)}`);
+	return refuse(`step reply of ${parts.length} parts with code ${code}`);
 }
 
 /** `STEP_COMMIT`'s reply: exactly 1 (written) or 0 (lost). */
 export function parseStepCommit(raw: unknown): boolean {
 	if (raw === 1) return true;
 	if (raw === 0) return false;
-	return refuse(`step commit reply ${JSON.stringify(raw)}`);
+	return refuse(`step commit reply ${typeof raw}`);
 }
