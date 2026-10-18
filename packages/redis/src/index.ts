@@ -43,6 +43,7 @@ export type {
 	QueueCounts,
 	QueueDefinition,
 	QueueInput,
+	RetryOptions,
 } from './queue/types';
 export type {
 	Handler,

@@ -5,7 +5,14 @@ import { checkQueue } from './define-queue';
 import { encodeData, resolveAdd } from './encode';
 import { jobHandle } from './handle';
 import type { JobHandle } from './handle-types';
-import { countJobs, getJob, listJobs, removeJob, retryJob } from './inspect';
+import {
+	countJobs,
+	getJob,
+	listJobs,
+	removeJob,
+	resolveRetry,
+	retryJob,
+} from './inspect';
 import { queueKeys } from './keys';
 import { type QueueLife, refuseClosed, trackWorker } from './life';
 import { ADD } from './scripts/add';
@@ -155,7 +162,15 @@ export function bindQueueWith<
 		get: (id) => getJob(client, keys, definition, id),
 		list: (state, page) => listJobs(client, keys, definition, state, page),
 		counts: () => countJobs(client, keys),
-		retry: (id) => retryJob(client, keys, definition, id, false),
+		async retry(id, options) {
+			return await retryJob(
+				client,
+				keys,
+				definition,
+				id,
+				resolveRetry(options, definition.name),
+			);
+		},
 		remove: (id) => removeJob(client, keys, definition, id),
 		cancel: (id) => cancel(client, keys, id),
 		work(handler, options) {

@@ -55,21 +55,23 @@ describe('RETRY', () => {
 		);
 		return mails;
 	}
+	const hashOf = async (id: string) =>
+		new Map(Object.entries(await client().hgetall(keys.job(id))));
 	const retryScript = (fresh: string) =>
 		runScript(client(), RETRY, scriptKeys(keys), [keys.prefix, 'a', fresh]);
 
 	test('RETRY with fresh clears every step field and keeps data, priority and attempts', async () => {
 		await failedWithSteps();
-		const before = await client().hgetall(keys.job('a'));
+		const before = await hashOf('a');
 		expect(await retryScript('1')).toBe(1);
-		const after = await client().hgetall(keys.job('a'));
-		expect(Object.keys(after).filter((f) => f.startsWith('step:'))).toEqual([]);
-		expect(after.data).toBe(before.data);
-		expect(after.data).toContain('step:x');
-		expect(after.priority).toBe(before.priority);
-		expect(after.attempts).toBe(before.attempts);
-		expect(after.state).toBe('waiting');
-		expect(after.attempt).toBe('0');
+		const after = await hashOf('a');
+		expect([...after.keys()].filter((f) => f.startsWith('step:'))).toEqual([]);
+		expect(after.get('data')).toBe(before.get('data'));
+		expect(after.get('data')).toContain('step:x');
+		expect(after.get('priority')).toBe(before.get('priority'));
+		expect(after.get('attempts')).toBe(before.get('attempts'));
+		expect(after.get('state')).toBe('waiting');
+		expect(after.get('attempt')).toBe('0');
 	});
 
 	test('RETRY without fresh keeps step fields', async () => {

@@ -327,7 +327,9 @@ redis.queues.digest.work(async (job) => {
   completed twice nor its result overwritten by a late attempt; a result
   returned after `timeout` or a lost lease is refused.
 - Steps survive retries and `retry(id)`: a job that failed at its third step
-  resumes there. `remove(id)` and re-adding is how to start over.
+  resumes there. `retry(id, { fresh: true })` clears them so every step runs
+  again, and `job.key` is unchanged. `remove(id)` and re-adding is the other
+  way to start over.
 - Code outside a step runs again on every attempt; the guide says so first,
   and puts every side effect in a step.
 

@@ -5,7 +5,13 @@ import { runScript } from '../scripts/run-script';
 import type { queueKeys } from './keys';
 import { COUNTS, REMOVE, RETRY } from './scripts/admin';
 import { scriptKeys } from './scripts/claim';
-import type { JobState, JobView, QueueCounts, QueueDefinition } from './types';
+import type {
+	JobState,
+	JobView,
+	QueueCounts,
+	QueueDefinition,
+	RetryOptions,
+} from './types';
 import { STATES, toView } from './view';
 
 type Keys = ReturnType<typeof queueKeys>;
@@ -128,6 +134,21 @@ export async function countJobs(
 		completed: completed as number,
 		failed: failed as number,
 	};
+}
+
+/**
+ * Checks `retry`'s options as `resolveAdd` checks `add`'s: a bare `TypeError`
+ * naming the call and the queue, never the value, and unknown keys ignored.
+ */
+export function resolveRetry(
+	options: RetryOptions | undefined,
+	queue: string,
+): boolean {
+	const { fresh } = (options ?? {}) as { fresh?: unknown };
+	if (fresh !== undefined && typeof fresh !== 'boolean') {
+		throw new TypeError(`retry on "${queue}": fresh is true or false`);
+	}
+	return fresh === true;
 }
 
 /**

@@ -81,6 +81,15 @@ export type AddOptions = {
 	timeout?: Duration;
 } & ({ delay?: Duration; at?: never } | { at?: Date; delay?: never });
 
+/** What `retry` takes beside the id. */
+export type RetryOptions = {
+	/**
+	 * `true` clears the job's stored step values so every `job.step` runs
+	 * again; `false` or absent keeps them. Default `false`.
+	 */
+	fresh?: boolean;
+};
+
 /** Where a job is. */
 export type JobState =
 	| 'waiting'
@@ -177,11 +186,17 @@ export type BoundQueue<
 	counts(): Promise<QueueCounts>;
 	/**
 	 * Puts a failed job back to `waiting`: its attempts start again from 0 and
-	 * its last error is cleared.
+	 * its last error is cleared. Its steps are kept by default, so the next
+	 * run resumes after the last one that finished; with `{ fresh: true }`
+	 * they are cleared, in the same script, and every step runs again. The
+	 * job's `job.key(name)` is the same either way.
 	 *
-	 * @throws QueueError `NOT_FOUND` when the job is not failed.
+	 * @throws TypeError for a `fresh` that is not `true` or `false`, before
+	 * any round trip.
+	 * @throws QueueError `NOT_FOUND` when the job is not failed (its steps are
+	 * then kept, `fresh` or not).
 	 */
-	retry(id: string): Promise<void>;
+	retry(id: string, options?: RetryOptions): Promise<void>;
 	/**
 	 * Deletes a job in any state but `active`.
 	 *
