@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import type { RedisClient } from 'bun';
 import { z } from 'zod';
 import { eventually, subscribed, useRedis } from '../../test/fixtures';
 import { rejection } from '../../test/rejection';
@@ -453,5 +454,60 @@ describe('encodeResult and decodeResult', () => {
 		}
 		expect((thrown as QueueError).code).toBe('INVALID');
 		expect((thrown as QueueError).message).not.toContain('secret');
+	});
+});
+
+/** A client whose `hmget`, or whose subscriber's PING, never answers. */
+function hanging(what: 'read' | 'flush') {
+	const never = new Promise<never>(() => undefined);
+	const wrap = (real: RedisClient, hang: (prop: string | symbol) => boolean) =>
+		new Proxy(real, {
+			get(target, prop) {
+				if (hang(prop)) return () => never;
+				if (prop === 'duplicate' && what === 'flush') {
+					return async () => {
+						const subscriber = await target.duplicate();
+						return new Proxy(subscriber, {
+							get(inner, key) {
+								if (key === 'send') {
+									return (command: string, args: string[]) =>
+										command === 'PING' ? never : inner.send(command, args);
+								}
+								const value = Reflect.get(inner, key, inner);
+								return typeof value === 'function' ? value.bind(inner) : value;
+							},
+						});
+					};
+				}
+				const value = Reflect.get(target, prop, target);
+				return typeof value === 'function' ? value.bind(target) : value;
+			},
+		});
+	return wrap(client(), (prop) => what === 'read' && prop === 'hmget');
+}
+
+describe('finished({ timeout }) is a hard bound', () => {
+	test('finished({ timeout }) rejects on time even when the first read never answers', async () => {
+		const before = await connections();
+		const handle = jobHandle(hanging('read'), sent, keys, 'a', false);
+		const started = Date.now();
+		const error = (await rejection(
+			handle.finished({ timeout: 200 }),
+		)) as QueueError;
+		expect(error.code).toBe('WAIT_TIMEOUT');
+		expect(Date.now() - started).toBeLessThan(600);
+		await eventually(connections, before);
+	});
+
+	test('finished({ timeout }) rejects on time even when the flush never answers', async () => {
+		const before = await connections();
+		const handle = jobHandle(hanging('flush'), sent, keys, 'absent', false);
+		const started = Date.now();
+		const error = (await rejection(
+			handle.finished({ timeout: 200 }),
+		)) as QueueError;
+		expect(error.code).toBe('WAIT_TIMEOUT');
+		expect(Date.now() - started).toBeLessThan(600);
+		await eventually(connections, before);
 	});
 });

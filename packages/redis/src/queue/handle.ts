@@ -16,6 +16,9 @@ import { parseStoredError } from './view';
 /** How often a waiting `finished` re-reads the job: the net under a lost event. */
 const REREAD_MS = 5000;
 
+/** What a wait's `over` promise resolves with once the wait has settled. */
+const OVER: unique symbol = Symbol('over');
+
 type Keys = ReturnType<typeof queueKeys>;
 type Failure = { name: string; message: string };
 
@@ -158,6 +161,11 @@ async function waitFinished(
 	});
 	// A rejection raised before `await done` is reached is not unhandled.
 	done.catch(() => undefined);
+	// Resolves once `done` settled either way, so a race against it never throws.
+	const over = done.then(
+		(): typeof OVER => OVER,
+		(): typeof OVER => OVER,
+	);
 	const apply = (outcome: Outcome | undefined) => {
 		if (outcome) settleWith(waiting, outcome, resolve, reject);
 	};
@@ -188,12 +196,15 @@ async function waitFinished(
 				})
 				.catch(() => undefined);
 		}, waiting.rereadMs);
-		const first = await readStored(client, keys, id);
+		// Each await below is raced against `over`: a hung connection must not
+		// delay the timeout, and a read answering after it is ignored.
+		const first = await Promise.race([readStored(client, keys, id), over]);
+		if (first === OVER) return await done;
 		// A job settled and deleted between the SUBSCRIBE and this read (a
 		// cancel, or a complete with keepCompleted false) reads absent while its
 		// event is still on the subscriber's socket: the PING there lets it land
 		// first, and an outcome heard settles `done` before absent can.
-		if (first?.kind === 'absent') await flush(client);
+		if (first?.kind === 'absent') await Promise.race([flush(client), over]);
 		apply(first);
 		return await done;
 	} finally {
