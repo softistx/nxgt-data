@@ -60,23 +60,28 @@ ${TRIM_FN}
 ${NOW_LUA}
 local id, token = ARGV[2], ARGV[3]
 local key = prefix .. id
-if redis.call('HGET', key, 'token') ~= token then
-	return {0, {}, {}, {}, -1}
+local settled = 0
+if redis.call('HGET', key, 'token') == token then
+	settled = 1
+	redis.call('ZREM', KEYS[3], id)
+	local keepAge = tonumber(ARGV[4])
+	if keepAge < 0 then
+		-- keepCompleted: false. Older entries of a definition that kept some
+		-- are dropped too, so switching it off does not leak them.
+		redis.call('DEL', key)
+		trim(KEYS[4], now, 0, 0)
+	else
+		redis.call('HSET', key, 'state', 'completed', 'finished', string.format('%d', now))
+		redis.call('HDEL', key, 'token')
+		redis.call('ZADD', KEYS[4], string.format('%d', now), id)
+		trim(KEYS[4], now, keepAge, tonumber(ARGV[5]))
+	end
 end
-redis.call('ZREM', KEYS[3], id)
-local keepAge = tonumber(ARGV[4])
-if keepAge < 0 then
-	redis.call('DEL', key)
-else
-	redis.call('HSET', key, 'state', 'completed', 'finished', string.format('%d', now))
-	redis.call('HDEL', key, 'token')
-	redis.call('ZADD', KEYS[4], string.format('%d', now), id)
-	trim(KEYS[4], now, keepAge, tonumber(ARGV[5]))
-end
-local out = {1, {}, {}, {}, -1}
+-- The claim depends on the worker's free slot, not on the settle taking.
+local out = {settled, {}, {}, {}, -1}
 if ARGV[7] ~= '' then
 	local claimed = claim(1, tonumber(ARGV[6]), {ARGV[7]}, now)
-	out = {1, claimed[1], claimed[2], claimed[3], claimed[4]}
+	out = {settled, claimed[1], claimed[2], claimed[3], claimed[4]}
 end
 return out
 `);
@@ -100,28 +105,28 @@ ${TRIM_FN}
 ${NOW_LUA}
 local id, token = ARGV[2], ARGV[3]
 local key = prefix .. id
-if redis.call('HGET', key, 'token') ~= token then
-	return {0, 0, {}, {}, {}, -1}
+local settled, final = 0, 0
+if redis.call('HGET', key, 'token') == token then
+	settled, final = 1, 1
+	local f = redis.call('HMGET', key, 'data', 'attempt', 'attempts', 'priority')
+	local retryIn = tonumber(ARGV[5])
+	redis.call('ZREM', KEYS[3], id)
+	redis.call('HDEL', key, 'token')
+	if retryIn >= 0 and sound(f) and tonumber(f[2]) < tonumber(f[3]) then
+		final = 0
+		local at = string.format('%d', now + retryIn)
+		redis.call('HSET', key, 'state', 'delayed', 'error', ARGV[4], 'runAt', at)
+		redis.call('ZADD', KEYS[1], at, id)
+	else
+		redis.call('HSET', key, 'state', 'failed', 'error', ARGV[4], 'finished', string.format('%d', now))
+		redis.call('ZADD', KEYS[5], string.format('%d', now), id)
+		trim(KEYS[5], now, tonumber(ARGV[6]), -1)
+	end
 end
-local f = redis.call('HMGET', key, 'attempt', 'attempts')
-local retryIn = tonumber(ARGV[5])
-local final = 1
-redis.call('ZREM', KEYS[3], id)
-redis.call('HDEL', key, 'token')
-if retryIn >= 0 and tonumber(f[1]) and tonumber(f[2]) and tonumber(f[1]) < tonumber(f[2]) then
-	final = 0
-	local at = string.format('%d', now + retryIn)
-	redis.call('HSET', key, 'state', 'delayed', 'error', ARGV[4], 'runAt', at)
-	redis.call('ZADD', KEYS[1], at, id)
-else
-	redis.call('HSET', key, 'state', 'failed', 'error', ARGV[4], 'finished', string.format('%d', now))
-	redis.call('ZADD', KEYS[5], string.format('%d', now), id)
-	trim(KEYS[5], now, tonumber(ARGV[6]), -1)
-end
-local out = {1, final, {}, {}, {}, -1}
+local out = {settled, final, {}, {}, {}, -1}
 if ARGV[8] ~= '' then
 	local claimed = claim(1, tonumber(ARGV[7]), {ARGV[8]}, now)
-	out = {1, final, claimed[1], claimed[2], claimed[3], claimed[4]}
+	out = {settled, final, claimed[1], claimed[2], claimed[3], claimed[4]}
 end
 return out
 `);

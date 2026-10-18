@@ -51,6 +51,30 @@ describe('stored state', () => {
 		}
 	});
 
+	test.each([
+		['attempts', 'inf'],
+		['priority', '5000'],
+		['priority', 'inf'],
+		['attempt', '1.5'],
+		['attempt', '-4'],
+		['attempts', '0x10'],
+		['attempts', '0'],
+	])('%s = %s is failed with INVALID, not claimed', async (field, value) => {
+		const fields: Record<string, string> = {
+			data: '{}',
+			priority: '0',
+			attempt: '0',
+			attempts: '3',
+			[field]: value,
+		};
+		await send('HSET', keys.job('odd'), ...Object.entries(fields).flat());
+		await send('ZADD', keys.ready, '1', 'odd');
+		const reply = await claim(client(), keys, 1, 30_000);
+		expect(reply.jobs).toEqual([]);
+		expect(reply.failedInvalid).toEqual(['odd']);
+		expect(await hget('odd', 'state')).toBe('failed');
+	});
+
 	test('a hash with extra fields is still claimed', async () => {
 		await send(
 			'HSET',

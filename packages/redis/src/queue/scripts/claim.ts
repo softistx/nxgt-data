@@ -39,8 +39,14 @@ import { type ClaimReply, parseClaimReply } from './replies';
  */
 export const CLAIM_FN = `
 local function int(x) return string.format('%d', x) end
+-- tonumber alone would accept 'inf', 'nan', '1e3', '0x10', '-4' and '1.5':
+-- an attempts of 'inf' would reclaim a crash-looping job forever, and a
+-- priority of 5000 or 'inf' has no ready score. This package writes whole
+-- decimal numbers only, so only those are trusted.
+local function whole(v) return v and string.match(v, '^%d+$') ~= nil end
 local function sound(f)
-	return f[1] and tonumber(f[2]) and tonumber(f[3]) and tonumber(f[4])
+	return f[1] and whole(f[2]) and whole(f[3]) and whole(f[4])
+		and tonumber(f[3]) >= 1 and tonumber(f[4]) <= 1000
 end
 local function ready_score(priority)
 	return int(tonumber(priority) * 1099511627776 + redis.call('INCR', KEYS[6]))

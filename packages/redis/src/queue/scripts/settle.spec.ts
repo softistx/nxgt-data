@@ -162,15 +162,52 @@ describe('complete', () => {
 		expect(await hget('b', 'state')).toBe('active');
 	});
 
-	test('a mismatched settle claims nothing even with claimNext', async () => {
+	test('a mismatched settle still claims the next job with claimNext', async () => {
+		const bound = bindQueue(client(), mailQueue);
+		await bound.add(to('a'), { id: 'a' });
+		await bound.add(to('b'), { id: 'b' });
+		const first = (await claim(client(), keys, 1, 30_000)).jobs[0];
+		const reply = await complete(client(), keys, mailQueue, 'a', 'nope', true);
+		expect(reply.settled).toBe(false);
+		expect(reply.jobs.map((j) => j.id)).toEqual(['b']);
+		expect(reply.next).toBe(-1);
+		expect(await hget('a', 'token')).toBe(first?.token ?? '');
+		expect(await hget('b', 'state')).toBe('active');
+	});
+
+	test('a mismatched fail still claims the next job with claimNext', async () => {
 		const bound = bindQueue(client(), mailQueue);
 		await bound.add(to('a'), { id: 'a' });
 		await bound.add(to('b'), { id: 'b' });
 		await claim(client(), keys, 1, 30_000);
-		const reply = await complete(client(), keys, mailQueue, 'a', 'nope', true);
+		const reply = await fail(
+			client(),
+			keys,
+			mailQueue,
+			'a',
+			'nope',
+			boundary,
+			null,
+			true,
+		);
 		expect(reply.settled).toBe(false);
-		expect(reply.jobs).toEqual([]);
-		expect(await hget('b', 'state')).toBe('waiting');
+		expect(reply.final).toBe(false);
+		expect(reply.jobs.map((j) => j.id)).toEqual(['b']);
+		expect(await hget('a', 'state')).toBe('active');
+	});
+
+	test('keepCompleted false also drops older completed entries and their hashes', async () => {
+		await send('HSET', keys.job('older'), 'state', 'completed');
+		await send('ZADD', keys.completed, '1', 'older');
+		const queue = defineQueue({
+			name: 'mails',
+			schema: z.object({ to: z.string() }),
+			keepCompleted: false,
+		});
+		const job = await take('a', queue as never);
+		await complete(client(), keys, queue, 'a', job.token, false);
+		expect(await send('EXISTS', keys.job('older'))).toBe(0);
+		expect(await send('ZCARD', keys.completed)).toBe(0);
 	});
 });
 
