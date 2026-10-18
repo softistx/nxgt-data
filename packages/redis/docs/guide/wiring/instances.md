@@ -137,8 +137,10 @@ await redis.close({ grace: '20s' });
 ```
 
 `close` is **memoised**: a second call returns the first one's promise and its
-`grace` is ignored. A malformed `grace` rejects before anything closes. It is
-bounded, so it never hangs on a Redis that stops answering. `await using`
+`grace` is ignored. A malformed `grace` rejects before anything closes. The queues'
+part is bounded, so a Redis that stops answering does not hold it: after the
+grace, what is left waits at most two seconds. Unsubscribing the channels is
+not bounded. `await using`
 calls it:
 
 ```ts

@@ -40,8 +40,11 @@ async function within(work: Promise<unknown>, ms: number): Promise<boolean> {
  * Stops claiming, waits for the slots up to `grace`, then aborts what still
  * runs with `CLOSED`, stops the leases and the cancel listener.
  *
- * A job the loop claimed while closing is registered before the loop ends, so
- * the second `abortAll` after `running` catches it.
+ * A job claimed while the worker is closing but before the loop ends is
+ * registered and aborted by the second `abortAll`. Past the `RELEASE_MS` bound
+ * `close` has resolved and the leases are stopped, so a late CLAIM or settle
+ * reply starts nothing: its job keeps its lease, which lapses, and another
+ * attempt retakes it, as for any `CLOSED` job.
  */
 export async function closeWorker(
 	context: WorkerContext,
