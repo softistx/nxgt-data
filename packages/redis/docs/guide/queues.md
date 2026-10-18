@@ -210,7 +210,9 @@ type JobHandle<R> = {
 | `INVALID` | the stored result no longer matches the result schema |
 
 A malformed `timeout` is a `TypeError`; it is at least 1 ms. There is no
-deadline unless you give one.
+deadline unless you give one. When you do, it is a hard bound: `finished`
+rejects `WAIT_TIMEOUT` on time even if the Redis connection hangs, so a stuck
+read, `SUBSCRIBE` or subscriber flush cannot defer it.
 
 - **`NOT_FOUND` is also what a finished job reads as when it is gone.** A job on
   a queue with `keepCompleted: false` that finished before `finished` was
@@ -529,6 +531,11 @@ Where the other side has no such key, wrap the call in an
 [idempotent operation](guard/idempotency.md) and key it with the job's:
 
 ```ts
+import { bindIdempotency, defineIdempotency } from '@nxgt/redis';
+import { z } from 'zod';
+
+declare function chargeCard(family: string): Promise<{ chargeId: string }>; // your code
+
 const charges = bindIdempotency(
 	redis.client,
 	defineIdempotency({
