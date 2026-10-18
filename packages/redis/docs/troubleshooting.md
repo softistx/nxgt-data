@@ -62,6 +62,23 @@ application can handle.
   - [`remove on "mails": job "receipt:42" is running`](#remove-on-mails-job-receipt42-is-running)
   - [A job's `error` is `INVALID: the stored data does not match the schema`](#a-jobs-error-is-invalid-the-stored-data-does-not-match-the-schema)
   - [A job's `error` is `INVALID: a stored job this package could not have written`](#a-jobs-error-is-invalid-a-stored-job-this-package-could-not-have-written)
+  - [`finished on "mails": job "receipt:42" failed`](#finished-on-mails-job-receipt42-failed)
+  - [`finished on "mails": job "receipt:42" was canceled`](#finished-on-mails-job-receipt42-was-canceled)
+  - [`finished on "mails": job "receipt:42" is not in the queue`](#finished-on-mails-job-receipt42-is-not-in-the-queue)
+  - [`finished on "mails": job "receipt:42" did not finish in time`](#finished-on-mails-job-receipt42-did-not-finish-in-time)
+  - [`finished on "mails": timeout is at least 1 millisecond, as a whole number or a string such as '10m'`](#finished-on-mails-timeout-is-at-least-1-millisecond-as-a-whole-number-or-a-string-such-as-10m)
+  - [`defineQueue: "mails" has a timeout of 0ms; it must be at least 1ms, or left out for no limit`](#definequeue-mails-has-a-timeout-of-0ms-it-must-be-at-least-1ms-or-left-out-for-no-limit)
+  - [`run on "mails": job "receipt:42" ran past its timeout`](#run-on-mails-job-receipt42-ran-past-its-timeout)
+  - [A job's `error` is `TIMEOUT: the attempt ran past its timeout`](#a-jobs-error-is-timeout-the-attempt-ran-past-its-timeout)
+  - [`run on "mails": job "receipt:42" lost its lease`](#run-on-mails-job-receipt42-lost-its-lease)
+  - [`run on "mails": job "receipt:42" was aborted because the worker closed`](#run-on-mails-job-receipt42-was-aborted-because-the-worker-closed)
+  - [`close on "mails": grace is a whole number of milliseconds or a string such as '10s'`](#close-on-mails-grace-is-a-whole-number-of-milliseconds-or-a-string-such-as-10s)
+  - [`progress on "mails": progress is a number from 0 to 100`](#progress-on-mails-progress-is-a-number-from-0-to-100)
+  - [`defineQueue: "mails" has a result that is not a schema; a result is checked against one both ways`](#definequeue-mails-has-a-result-that-is-not-a-schema-a-result-is-checked-against-one-both-ways)
+  - [A job's `error` is `INVALID: the result does not match the result schema`](#a-jobs-error-is-invalid-the-result-does-not-match-the-result-schema)
+  - [A handler keeps running after its job was canceled, timed out or lost](#a-handler-keeps-running-after-its-job-was-canceled-timed-out-or-lost)
+  - [`finished` takes up to 5 seconds longer than the job](#finished-takes-up-to-5-seconds-longer-than-the-job)
+  - [`queue script reply not recognised: <what>` and `add on "mails": the script answered nothing`](#queue-script-reply-not-recognised-what-and-add-on-mails-the-script-answered-nothing)
   - [A job ran twice](#a-job-ran-twice)
   - [A job added with an `id` never runs](#a-job-added-with-an-id-never-runs)
 - **Wiring** (`defineRedis` and `openRedis`)
@@ -544,7 +561,7 @@ if (delivered === 0) await queue.add(payload); // a stream or a queue, where it 
 ## Queues
 
 A queue throws a `QueueError` and a bare `TypeError`. `QueueError` has a `code`
-of `INVALID`, `NOT_FOUND` or `ACTIVE`, the `queue` it happened on and the `job`
+of `INVALID`, `NOT_FOUND`, `ACTIVE`, `CANCELED`, `FAILED`, `WAIT_TIMEOUT`, `TIMEOUT`, `LEASE_LOST` or `CLOSED`, the `queue` it happened on and the `job`
 id when the call was about one — never the payload. Everything the code got
 wrong (a definition, an option, a page) is a `TypeError`, thrown before
 anything is written. A **handler's** error — a `JobError`, or anything it
@@ -623,7 +640,7 @@ defineQueue({ name: 'mails', schema, keepCompleted: { count: 100 } });
 
 ### `defineQueue: "mails" lease is "10 minutes"; a duration is a whole number of milliseconds or a string such as '10m'`
 
-**When:** at `defineQueue`, with a span the queue cannot read. The option named in the message is the one that is wrong: `lease`, `backoff base`, `backoff max`, `keepFailed` or `keepCompleted age`. The same message, as `add on "mails": delay is …`, comes from `add` and `addMany`, and `retryIn is …` from `new JobError`.
+**When:** at `defineQueue`, with a span the queue cannot read. The option named in the message is the one that is wrong: `lease`, `backoff base`, `backoff max`, `keepFailed` or `keepCompleted age`. The same words, as `add on "mails": delay is …`, come from `add` and `addMany`, and `retryIn is …` from `new JobError`. `defineQueue` and `new JobError` print the value (`is "10 minutes"`), because it is the code's own; `add` does not quote it, because a request may have chosen it.
 **Why:** a duration is a whole number of milliseconds (not negative), or a number and a unit — `ms`, `s`, `m`, `h`, `d`. `'10 minutes'`, `'1w'`, `-5` and `0.5` are refused.
 **Fix:**
 
@@ -798,6 +815,186 @@ await queue.retry(job.id);
 await queue.remove(job.id);
 await queue.add(payload, { id: job.id });
 ```
+
+### `finished on "mails": job "receipt:42" failed`
+
+**When:** `await job.finished()` rejects with a `QueueError` of code `FAILED` once the job has failed for good (its attempts are spent, or a `JobError` said not to retry).
+**Why:** `finished` waits for the final outcome, and a failure is an outcome. `lastError` carries the `name` and `message` of the handler's last error. The message never holds the payload, so log it as it is.
+**Fix:**
+
+```ts
+try {
+	await job.finished();
+} catch (error) {
+	if (error instanceof QueueError && error.code === 'FAILED') {
+		console.error(error.job, error.lastError?.name, error.lastError?.message);
+	} else throw error;
+}
+```
+
+### `finished on "mails": job "receipt:42" was canceled`
+
+**When:** `finished()` rejects with code `CANCELED`, after `job.cancel()` or `queue.cancel` ran on that job, from any process.
+**Why:** a canceled job has no result. `finished` hears the cancel on the events channel. A cancel deletes the job, so if that event was missed, the re-read finds nothing and `finished` rejects with `NOT_FOUND` instead (next entry).
+**Fix:** catch `CANCELED` where you wait, as for `FAILED`, and treat it as an outcome, not a fault. Handle `NOT_FOUND` the same way when your own code cancels jobs.
+
+### `finished on "mails": job "receipt:42" is not in the queue`
+
+**When:** `finished()` rejects with code `NOT_FOUND`.
+**Why:** the job is not stored: it was never added, was removed, or is gone because `keepCompleted: false` (or a count or age) trimmed it before `finished` read it. A job canceled while its event was missed also reads as absent, and ends here rather than as `CANCELED`. An absent job is believed only after two re-reads in a row, to leave a completed job's event time to land.
+**Fix:** wait on the handle `add` returned, before the job can be trimmed, and keep completed jobs long enough for a late reader.
+
+```ts
+const job = await queue.add(payload);
+const result = await job.finished({ timeout: '30s' });
+```
+
+```ts
+defineQueue({ name: 'mails', schema, keepCompleted: { count: 100 } });
+```
+
+### `finished on "mails": job "receipt:42" did not finish in time`
+
+**When:** `finished({ timeout })` rejects with code `WAIT_TIMEOUT`.
+**Why:** the job was still waiting or running when the wait's `timeout` passed. Only the wait ends: the job keeps its place and runs on.
+**Fix:** wait longer, or catch it and look again later with `get`.
+
+```ts
+const job = await queue.add(payload);
+await job.finished({ timeout: '2m' });
+```
+
+### `finished on "mails": timeout is at least 1 millisecond, as a whole number or a string such as '10m'`
+
+**When:** `finished`, `add` or `addMany` is given a `timeout` that is not a duration, or is 0. The message names the call, `finished on` or `add on`, and never prints the value.
+**Why:** a duration is a whole number of milliseconds or a number and a unit (`ms`, `s`, `m`, `h`, `d`), and a timeout of 0 would end at once.
+**Fix:**
+
+```ts
+await job.finished({ timeout: '10m' });
+```
+
+### `defineQueue: "mails" has a timeout of 0ms; it must be at least 1ms, or left out for no limit`
+
+**When:** at `defineQueue`, with `timeout: 0`. A `timeout` that is not a duration reads as the duration entry above, naming `timeout`.
+**Why:** `timeout` is how long one attempt may run before its signal aborts; 0 would abort every run at once.
+**Fix:** a span of at least one millisecond, or leave `timeout` out for no limit.
+
+```ts
+defineQueue({ name: 'mails', schema, timeout: '30s' });
+```
+
+### `run on "mails": job "receipt:42" ran past its timeout`
+
+**When:** this is the `signal.reason` (a `QueueError` of code `TIMEOUT`) that a handler's `signal` carries once an attempt ran longer than the job's `timeout`, or the queue's.
+**Why:** the worker aborts the signal, frees the slot, and fails the attempt with the stored error `TIMEOUT: the attempt ran past its timeout` (next entry), so it can retry.
+**Fix:** pass the signal to whatever the handler waits on, so the work stops with the abort, and raise `timeout` if the work is slow rather than stuck.
+
+```ts
+queue.work(async ({ data, signal }) => {
+	await fetch(data.url, { signal });
+});
+```
+
+### A job's `error` is `TIMEOUT: the attempt ran past its timeout`
+
+**When:** reading a failed or retrying job with `get` or `list`, or in a `failed` or `retrying` event: `error` is `{ name: 'TIMEOUT', message: 'the attempt ran past its timeout' }`.
+**Why:** the attempt ran past its `timeout`. It is retried with the queue's backoff while attempts remain, unlike an `INVALID` failure.
+**Fix:** as for the entry above. A timed-out job that `finished` waits on ends as `FAILED` with this `lastError` once its attempts are spent.
+
+### `run on "mails": job "receipt:42" lost its lease`
+
+**When:** a worker's `error` event carries a `QueueError` of code `LEASE_LOST`, and the handler's `signal` aborts with it.
+**Why:** another worker took the job: the lease was not renewed in time (a stalled process, a lost Redis connection), or a `cancel` was published before this worker's subscription was live, so the renewal found the job gone and reported it as lost rather than canceled. The run is abandoned and its late return is dropped.
+**Fix:** listen for `error`, and give `lease` more than the longest pause the process can take.
+
+```ts
+const worker = queue.work(handler);
+worker.on('error', (error) => {
+	if (error instanceof QueueError && error.code === 'LEASE_LOST') {
+		console.warn(error.queue, error.job);
+	}
+});
+```
+
+### `run on "mails": job "receipt:42" was aborted because the worker closed`
+
+**When:** the handler's `signal` aborts with a `QueueError` of code `CLOSED`, after `worker.close()` waited its `grace` and a job was still running.
+**Why:** `close` waits up to `grace` (30 seconds by default) for running jobs, then aborts what remains. Nothing is emitted, the lease lapses, and another worker runs the job again.
+**Fix:** give `close` a `grace` longer than the slowest handler, and let handlers stop on `signal`.
+
+```ts
+await worker.close({ grace: '1m' });
+```
+
+### `close on "mails": grace is a whole number of milliseconds or a string such as '10s'`
+
+**When:** `worker.close({ grace })` with a value that is not a duration. The value is not printed.
+**Why:** `grace` is a duration: a whole number of milliseconds, or a number and a unit.
+**Fix:**
+
+```ts
+await worker.close({ grace: '10s' });
+```
+
+### `progress on "mails": progress is a number from 0 to 100`
+
+**When:** a handler calls `progress(value)` with a value outside 0 to 100, `NaN`, or not a number. The returned promise rejects with a `TypeError`.
+**Why:** progress is a percentage. A call after the run was aborted stores nothing and does not throw.
+**Fix:**
+
+```ts
+queue.work(async ({ data, progress }) => {
+	await progress(Math.min(100, Math.round(done / total * 100)));
+});
+```
+
+### `defineQueue: "mails" has a result that is not a schema; a result is checked against one both ways`
+
+**When:** at `defineQueue`, with a `result` that has no `safeParse`, such as a type or a plain object.
+**Why:** a result is checked against its schema when stored and again when `finished` reads it, as a payload is.
+**Fix:**
+
+```ts
+defineQueue({ name: 'mails', schema, result: z.object({ messageId: z.string() }) });
+```
+
+### A job's `error` is `INVALID: the result does not match the result schema`
+
+**When:** reading a failed job with `get` or `list`: `error` is `{ name: 'QueueError', message: 'INVALID: the result does not match the result schema' }`. The handler ran to the end.
+**Why:** what the handler returned fails the queue's `result` schema, or has no JSON form (a `Date`, a `bigint`). A handler that returns nothing fails this way when `result` is required: `undefined` is refused like any other value. The job is not retried, and the stored message keeps the zod codes out, because a result may hold data.
+**Fix:** return what the schema describes, or mark it optional when a run may return nothing.
+
+```ts
+defineQueue({ name: 'mails', schema, result: z.object({ messageId: z.string() }).optional() });
+```
+
+### A handler keeps running after its job was canceled, timed out or lost
+
+**When:** the work continues (a request, a query) although `finished` rejected or the slot took another job.
+**Why:** the worker only aborts `signal`. A handler that does not watch it keeps running, and what it returns later is dropped, with no event; its side effects still happen.
+**Fix:** pass `signal` to everything the handler awaits, or check it between steps.
+
+```ts
+queue.work(async ({ signal }) => {
+	for (const step of steps) {
+		signal.throwIfAborted();
+		await step();
+	}
+});
+```
+
+### `finished` takes up to 5 seconds longer than the job
+
+**When:** `finished()` resolves or rejects several seconds after the job ended, with no error.
+**Why:** `finished` hears the outcome on the queue's events channel. If that message is lost (a dropped connection), it learns the outcome only on its re-read, which runs every 5 seconds.
+**Fix:** none needed for correctness. Keep `keepCompleted` above zero so the re-read finds the job, and set a `timeout` that allows the 5 seconds.
+
+### `queue script reply not recognised: <what>` and `add on "mails": the script answered nothing`
+
+**When:** a call on a queue throws a plain `Error`, not a `QueueError`. A consumer is unlikely to meet either.
+**Why:** the first means a Redis script answered in a shape this package does not read (the script and its parser drifted apart, or the queue's keys were edited by something else). The second means `add` got no handle back from its script. Neither message holds data.
+**Fix:** nothing in your code changes it. Check that every process runs the same version of the package, then report it, with the message, as an issue on the package's repository.
 
 ### A job ran twice
 

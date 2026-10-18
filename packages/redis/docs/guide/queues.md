@@ -48,6 +48,8 @@ Redis Cluster slot; for the same reason a name cannot contain braces.
 | `lease` | `Duration` | `30s` | how long a worker holds a job before another may take it back; at least 30 ms |
 | `keepCompleted` | `false \| { age?: Duration; count?: number }` | `{ age: '1h', count: 1000 }` | how long finished jobs stay readable, and how many; `false` removes a job the moment it completes |
 | `keepFailed` | `Duration` | `7d` | how long a failed job stays readable |
+| `result` | zod schema | none | what a handler returns, checked when it returns and again when it is read; see [Results](#results) |
+| `timeout` | `Duration` | none | how long one run may take before it is aborted and counted as a failed attempt; at least 1 ms; see [Timeouts](#timeouts-and-the-abort-signal) |
 
 A `Duration` is a whole number of milliseconds, or a string with a unit —
 `'250ms'`, `'30s'`, `'10m'`, `'2h'`, `'7d'`. A fraction is fine in a string
@@ -92,6 +94,7 @@ refusal is a `QueueError` with `code: 'INVALID'`, and nothing is written.
 | `priority` | `number` | `0` | a whole number, 0 to 1000; a **lower** one runs first. Within a priority, first added is first run |
 | `delay` | `Duration` | none | the job becomes due after this long |
 | `at` | `Date` | none | the job becomes due then; a time in the past is due now. Give `delay` or `at`, not both |
+| `timeout` | `Duration` | the queue's | overrides the queue's `timeout` for this job; the per-job value wins |
 
 ```ts
 // Run in ten minutes, ahead of the ordinary jobs.
@@ -124,6 +127,165 @@ const handles = await queue.addMany([
 One bad item refuses the whole call before anything is written. An id repeated
 inside the batch keeps its first item.
 
+`add` returns a `JobHandle`, which can wait for the job and cancel it; see
+[Waiting for a job](#waiting-for-a-job).
+
+## Results
+
+A queue may declare what its handler returns, as a zod schema:
+
+```ts
+import { bindQueue, defineQueue } from '@nxgt/redis';
+import { z } from 'zod';
+
+const resizes = defineQueue({
+	name: 'resizes',
+	schema: z.object({ imageId: z.string() }),
+	result: z.object({ url: z.string(), bytes: z.number() }),
+});
+
+const queue = bindQueue(redis.client, resizes);
+
+queue.work(async ({ data }) => {
+	const { url, bytes } = await resize(data.imageId); // your code
+	return { url, bytes };
+});
+
+const handle = await queue.add({ imageId: 'img-1' });
+const { url } = await handle.finished(); // { url: string; bytes: number }
+```
+
+- **Without `result`**, a handler may return anything; the value is ignored and
+  never stored, and `finished()` resolves to `undefined`.
+- **With `result`**, the handler's return is validated by the schema and stored
+  as its output. A return the schema refuses, or JSON cannot carry, fails the
+  job `INVALID` **without a retry**: the same code would return the same value.
+  The stored error is `INVALID: the result does not match the result schema`,
+  with no value in it.
+- **`undefined`** passes only when the schema accepts it (`z.void()`,
+  `.optional()`). Otherwise a handler that returns nothing fails `INVALID`.
+- The result is stored as JSON, so, like a payload, it cannot hold a `Date`, a
+  `Map` or a `bigint`. It is read back through the schema again.
+
+```ts
+type ResultInputOf<R> = R extends z.ZodType ? z.input<R> : unknown; // what a handler returns
+type ResultOf<R> = R extends z.ZodType ? z.output<R> : undefined;   // what `finished` and `get` give
+```
+
+## Waiting for a job
+
+```ts
+const handle = await queue.add({ imageId: 'img-1' });
+
+try {
+	const result = await handle.finished({ timeout: '30s' });
+} catch (error) {
+	if (error instanceof QueueError && error.code === 'WAIT_TIMEOUT') {
+		// still running: the job is untouched, ask again later
+	} else throw error;
+}
+
+const canceled: boolean = await handle.cancel(); // or queue.cancel(handle.id)
+```
+
+```ts
+type JobHandle<R> = {
+	readonly id: string;
+	readonly deduplicated: boolean;
+	finished(options?: { timeout?: Duration }): Promise<ResultOf<R>>;
+	cancel(): Promise<boolean>;
+};
+```
+
+`finished` resolves with the job's result, or rejects with a `QueueError`:
+
+| `code` | When |
+| --- | --- |
+| `FAILED` | the job failed for good; `error.lastError` is `{ name, message }` of the last failure |
+| `CANCELED` | the job was canceled |
+| `NOT_FOUND` | the job is not in the queue |
+| `WAIT_TIMEOUT` | `timeout` passed first; the job itself is not touched |
+| `INVALID` | the stored result no longer matches the result schema |
+
+A malformed `timeout` is a `TypeError`; it is at least 1 ms. There is no
+deadline unless you give one.
+
+- **`NOT_FOUND` is also what a finished job reads as when it is gone.** A job on
+  a queue with `keepCompleted: false` that finished before `finished` was
+  called, or whose outcome event was missed, is deleted, so it reads as
+  `NOT_FOUND` and not as a result. Keep completed jobs if callers wait on them.
+- **While it waits**, `finished` listens for the job's outcome and also
+  re-reads the job every 5 seconds as a safety net, so an event a dropped
+  connection lost delays the answer by at most that.
+- **`cancel()`** and `queue.cancel(id)` are the same call. They return `true`
+  when the job was waiting, delayed or running (a running job's handler is
+  aborted with `CANCELED`), and `false` when there was nothing to cancel:
+  finished, removed or unknown. A canceled job is deleted.
+
+## Timeouts and the abort signal
+
+`timeout` bounds one run. It is set on the queue and may be overridden per job;
+the per-job value wins. A duration is milliseconds or a string such as `'10m'`.
+
+```ts
+const reports = defineQueue({
+	name: 'reports',
+	schema: z.object({ id: z.string() }),
+	timeout: '10m',
+});
+
+const queue = bindQueue(redis.client, reports);
+await queue.add({ id: 'monthly' });                    // runs up to 10 minutes
+await queue.add({ id: 'quick' }, { timeout: '30s' });  // this one, 30 seconds
+```
+
+A run that passes its timeout is aborted and counts as a failed attempt, so it
+is retried by the backoff like any other failure. A timeout above about 24.8
+days (2147483647 ms, the longest a timer waits) runs as 24.8 days.
+
+The handler gets an `AbortSignal` in `job.signal`. It aborts when the run ends
+by something other than the handler: `signal.reason` is a `QueueError` whose
+`code` says why.
+
+| `signal.reason.code` | The run was aborted because |
+| --- | --- |
+| `CANCELED` | the job was canceled |
+| `TIMEOUT` | it ran past its `timeout` |
+| `LEASE_LOST` | its lease lapsed and another worker may have taken the job |
+| `CLOSED` | the worker closed and its grace passed |
+
+Pass the signal to whatever can stop, so the work really ends:
+
+```ts
+queue.work(async ({ data, signal }) => {
+	const response = await fetch(data.url, { signal }); // aborts with the run
+	return { bytes: (await response.arrayBuffer()).byteLength };
+});
+```
+
+A handler that **ignores** its signal is abandoned: the worker frees its slot at
+once, settles the job by the abort (a retry, for a timeout or a lost lease), and
+drops the handler's late return. The handler's code still runs to its end, with
+whatever side effects it has, so check `signal.aborted` between steps.
+
+## Progress
+
+`job.progress(value)` reports how far the job is, a number from 0 to 100. It is
+stored, emitted as a `progress` event, and shown by `get` and `list` as
+`JobView.progress` (0 until the job reports). Anything else is a `TypeError`;
+after the run has been aborted it does nothing.
+
+```ts
+queue.work(async ({ data, progress }) => {
+	for (const [index, page] of data.pages.entries()) {
+		await render(page); // your code
+		await progress(Math.round(((index + 1) / data.pages.length) * 100));
+	}
+});
+
+const view = await queue.get('monthly'); // view?.progress
+```
+
 ## The worker
 
 ```ts
@@ -141,11 +303,13 @@ worker.on('error', (error) => logger.error({ error }, 'queue worker'));
 | --- | --- | --- | --- |
 | `concurrency` | `number` | `1` | jobs run at once; a whole number, 1 to 1000 |
 
-A handler receives `{ id, data, attempt, attempts }`: the id, the payload
-parsed by the schema, this run counting from 1, and the runs the queue allows.
-What it settles:
+A handler receives `{ id, data, attempt, attempts, signal, progress }`: the id,
+the payload parsed by the schema, this run counting from 1, the runs the queue
+allows, the [abort signal](#timeouts-and-the-abort-signal) and the
+[progress](#progress) reporter. What it settles:
 
-- **returns** (or resolves): the job completes. The value is ignored.
+- **returns** (or resolves): the job completes. The value is stored when the
+  queue has a [result schema](#results), ignored otherwise.
 - **throws**: the job is retried after a backoff, or fails once its attempts are
   spent — see [Retries](#retries-and-backoff).
 
@@ -153,23 +317,89 @@ What it settles:
 
 ```ts
 type Worker = {
-	close(): Promise<void>;
-	on(event: 'error', listener: (error: unknown) => void): () => void;
+	close(options?: { grace?: Duration }): Promise<void>;
+	idle(): Promise<void>;
+	on<E extends keyof WorkerEvents>(
+		event: E,
+		listener: (payload: WorkerEvents[E]) => void,
+	): () => void;
 	[Symbol.asyncDispose](): Promise<void>;
 };
 ```
 
-- `close()` stops taking jobs and resolves once the running ones have
-  finished. Call it on shutdown; it is idempotent. `await using worker =
-  queue.work(…)` closes it at the end of the block.
-- `on('error', listener)` hears what the loop could not handle — Redis went
-  away, a settle failed. It returns the function that stops the listening. The
-  worker keeps going, waiting longer between tries (1 s, doubling to 30 s), and
-  a listener that throws is ignored. A **handler's** error is not reported
-  here: it is the job's failure, kept on the job.
+- `on(event, listener)` returns the function that stops the listening; a
+  listener that throws is ignored. See [Events](#worker-events).
 - An idle worker waits on a blocking connection of its own, so a job added
   now is picked up at once; a delayed one when it falls due. A busy worker
   spends about one round trip per job.
+
+### Closing
+
+`close({ grace })` stops taking jobs and resolves once the running ones have
+finished, or once `grace` has passed (default 30 seconds, a `Duration`). The
+handlers still running then are aborted with `CLOSED`, and their leases are left
+to lapse, so another worker retakes the jobs. Only the **first call's** `grace`
+counts; a later call gets the same promise. Call it on shutdown.
+`await using worker = queue.work(…)` closes it, with the default grace, at the
+end of the block.
+
+```ts
+process.on('SIGTERM', async () => {
+	await worker.close({ grace: '10s' }); // finish what runs, abort the rest after 10 s
+	process.exit(0);
+});
+```
+
+### Idle
+
+`idle()` resolves when no slot is running and the last claim found nothing
+ready, at once when that already holds, and at once after `close`. A job claimed
+afterwards re-arms it. It is for tests and scripts that drain a queue:
+
+```ts
+await queue.addMany(items);
+await worker.idle(); // everything due has run
+```
+
+A job that was aborted frees its slot at once, so `idle` can resolve while a
+handler that ignored its signal is still running. A delayed job that is not yet
+due does not hold it back.
+
+### Worker events
+
+```ts
+type WorkerEvents = {
+	active: { id: string; attempt: number };
+	progress: { id: string; progress: number };
+	completed: { id: string; attempt: number; duration: number }; // ms
+	retrying: { id: string; attempt: number; delay: number; error: { name: string; message: string } };
+	failed: { id: string; attempt: number; error: { name: string; message: string } };
+	stalled: { id: string };
+	canceled: { id: string };
+	error: unknown;
+};
+```
+
+```ts
+const stop = worker.on('completed', ({ id, duration }) => {
+	metrics.timing('job', duration, { id }); // your code
+});
+worker.on('failed', ({ id, error }) => logger.warn({ id, error }, 'job failed'));
+worker.on('error', (error) => logger.error({ error }, 'queue worker'));
+stop(); // stop listening to completed
+```
+
+- `retrying`: a run failed and the job returns after `delay` milliseconds.
+  `failed`: it failed for good.
+- `stalled`: a run lost its lease and was taken back.
+- `canceled`: a running job was canceled. A cancel that lands while the
+  handler's completion is being settled emits nothing.
+- A job the claim found unreadable (its stored payload does not parse) emits
+  `failed` with `attempt: 0` and an `INVALID` error.
+- `error` is what the loop could not handle: Redis went away, a settle failed.
+  The worker keeps going, waiting longer between tries (1 s, doubling to
+  30 s). A **handler's** error is not reported there: it is the job's failure,
+  kept on the job.
 
 A worker for the same queue can run in any number of processes; each job goes
 to one of them.
@@ -230,6 +460,10 @@ queue.work(async ({ data }) => {
 });
 ```
 
+`retry: false` and `retryIn` exclude each other, and the types enforce it:
+giving up and choosing a delay say opposite things, so
+`new JobError('x', { retry: false, retryIn: '5m' })` does not compile.
+
 `retryIn` is a `Duration`; a malformed one throws a `TypeError` when the
 `JobError` is built. A retry that is `retryIn`-timed still counts as an attempt.
 
@@ -284,7 +518,7 @@ await queue.remove('receipt:41'); // any state but active
 ```ts
 type JobState = 'waiting' | 'delayed' | 'active' | 'completed' | 'failed';
 
-type JobView<S> = {
+type JobView<S, R> = {
 	id: string;
 	state: JobState;
 	data: z.output<S> | undefined; // undefined when the stored payload no longer parses
@@ -295,6 +529,8 @@ type JobView<S> = {
 	added: Date;
 	runAt: Date;                   // when the job is next due
 	finished?: Date;
+	progress: number;              // 0 until the handler reports
+	result?: ResultOf<R>;          // once the job has completed
 };
 ```
 
@@ -322,8 +558,8 @@ export const admin = new Hono()
 	});
 ```
 
-`QueueError` carries `code`, `queue` (the name) and `job` (the id, when the call
-was about one). Its message names the queue and the job, never the payload.
+`QueueError` carries `code`, `queue` (the name), `job` (the id, when the call
+was about one) and, for `FAILED`, `lastError`. Its message names the queue and the job, never the payload.
 
 ## Testing
 
@@ -363,6 +599,9 @@ test('a welcome mail is sent once', async () => {
 	expect(sent).toEqual(['ada@example.com']);
 });
 ```
+
+A test can also wait with `await worker.idle()`, or on one job with
+`await handle.finished({ timeout: '5s' })`, instead of polling `counts`.
 
 Define the queue with a short `lease` and `backoff` in a test, so a spec that
 waits for a retry waits milliseconds rather than seconds.

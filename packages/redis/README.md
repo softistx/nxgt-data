@@ -344,14 +344,32 @@ const worker = queue.work(
 );
 worker.on('error', (error) => console.error(error));
 
-await worker.close(); // on shutdown: waits for the running jobs
+await worker.close({ grace: '10s' }); // on shutdown: waits up to 10 s, then aborts the rest
+```
+
+Give the queue a `result` schema and `add` returns a handle that waits for the
+outcome; `timeout` bounds a run, and the handler's `signal` aborts when it is
+canceled, times out or the worker closes:
+
+```ts
+const resizes = defineQueue({
+	name: 'resizes',
+	schema: z.object({ imageId: z.string() }),
+	result: z.object({ url: z.string() }),
+	timeout: '5m',
+});
+const resizing = bindQueue(redis.client, resizes);
+resizing.work(async ({ data, signal }) => ({ url: await resize(data.imageId, { signal }) }));
+
+const handle = await resizing.add({ imageId: 'img-1' });
+const { url } = await handle.finished({ timeout: '30s' }); // or QueueError FAILED, CANCELED, WAIT_TIMEOUT…
 ```
 
 A job runs **at least once**: after a crash it runs again, so the handler must
 be safe to repeat. Throw `new JobError(message, { retry: false })` to give up,
 or `{ retryIn: '5m' }` to choose the wait. The queue is bound by hand for now;
 `defineRedis` does not wire it yet. The [queue guide](docs/guide/queues.md)
-has priorities, retention, inspection and a spec.
+has results, timeouts, progress, events, priorities, retention, inspection and a spec.
 
 ## What it does not do
 
@@ -578,10 +596,10 @@ with. Each subscription is one more connection.
 
 | | |
 | --- | --- |
-| `defineQueue({ name, schema, attempts?, backoff?, lease?, keepCompleted?, keepFailed? })` | describes a queue; talks to nothing. Frozen, every `Duration` resolved to milliseconds. Refuses a definition that could never work with a `TypeError` |
-| `bindQueue(client, definition)` | binds it to a `RedisClient`: `definition` (read-only), `add(data, { id?, priority?, delay? \| at? })`, `addMany(items)`, `work(handler, { concurrency? })` (a `Worker`: `close()`, `on('error', …)`), `get(id)`, `list(state, { offset?, limit? })`, `counts()`, `retry(id)` and `remove(id)`. Not wired by `defineRedis` yet |
+| `defineQueue({ name, schema, result?, attempts?, backoff?, lease?, keepCompleted?, keepFailed?, timeout? })` | describes a queue; talks to nothing. Frozen, every `Duration` resolved to milliseconds. Refuses a definition that could never work with a `TypeError` |
+| `bindQueue(client, definition)` | binds it to a `RedisClient`: `definition` (read-only), `add(data, { id?, priority?, timeout?, delay? \| at? })` (a `JobHandle`: `id`, `deduplicated`, `finished({ timeout? })`, `cancel()`), `addMany(items)`, `work(handler, { concurrency? })` (a `Worker`: `close({ grace? })`, `idle()`, `on(event, listener)`), `get(id)`, `list(state, { offset?, limit? })`, `counts()`, `retry(id)`, `remove(id)` and `cancel(id)`. Not wired by `defineRedis` yet |
 
-The types are `QueueDefinition`, `QueueInput`, `BoundQueue`, `Worker`, `JobContext`, `JobView` and `Duration`; `JobError` is what a handler throws to choose its retry.
+The types are `QueueDefinition`, `QueueInput`, `BoundQueue`, `Worker`, `WorkerEvents`, `WorkOptions`, `JobContext`, `Handler`, `JobHandle`, `AddOptions`, `JobView`, `JobState`, `QueueCounts`, `ResultOf`, `ResultInputOf` and `Duration`; `JobError` is what a handler throws to choose its retry.
 See the [queue guide](docs/guide/queues.md).
 
 ## Errors
@@ -639,9 +657,15 @@ class, not a `RedisError`.
 
 | `QueueErrorCode` | |
 | --- | --- |
-| `INVALID` | `add` or `addMany` got a payload its schema refuses, or JSON cannot carry. Nothing was written |
-| `NOT_FOUND` | `retry` named a job that is not failed, or `remove` one that does not exist |
+| `INVALID` | `add` or `addMany` got a payload its schema refuses, or JSON cannot carry (nothing was written); or a handler's result fails the result schema (the job fails, no retry) |
+| `NOT_FOUND` | `retry` named a job that is not failed, `remove` one that does not exist, or `finished` waited on one that is not in the queue |
 | `ACTIVE` | `remove` named a job a worker is running |
+| `CANCELED` | `finished` waited on a job that was canceled; also a handler's `signal.reason` |
+| `FAILED` | `finished` waited on a job that failed for good; `lastError` is `{ name, message }` |
+| `WAIT_TIMEOUT` | `finished` waited as long as its `timeout` allowed; the job is untouched |
+| `TIMEOUT` | a run passed its `timeout`: a handler's `signal.reason` |
+| `LEASE_LOST` | a run lost its lease: a handler's `signal.reason` |
+| `CLOSED` | the worker closed and its grace passed: a handler's `signal.reason` |
 
 `defineQueue` (and `bindQueue`, for a definition written by hand) refuses a
 definition that could never work with a `TypeError`, and `add`, `work` and
