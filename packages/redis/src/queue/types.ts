@@ -1,8 +1,14 @@
 import type { z } from 'zod';
 import type { Duration } from './duration';
+import type { JobHandle } from './handle-types';
+import type { ResultOf } from './result-types';
+import type { Handler, Worker, WorkOptions } from './worker/types';
 
 /** What `defineQueue` takes. Every span of time is a {@link Duration}. */
-export type QueueInput<S extends z.ZodType> = {
+export type QueueInput<
+	S extends z.ZodType,
+	R extends z.ZodType | undefined = undefined,
+> = {
 	/**
 	 * The queue's name, in its keys. No braces: the name is the hash tag, so
 	 * every key of one queue lands on the same Redis Cluster slot.
@@ -10,6 +16,12 @@ export type QueueInput<S extends z.ZodType> = {
 	name: string;
 	/** Checked on `add` and again on the way out, so a bad payload never runs. */
 	schema: S;
+	/**
+	 * What a handler returns, checked on the way in and again when it is read.
+	 * Without it the handler may return anything: the value is ignored and
+	 * never stored, and `finished` resolves to `undefined`.
+	 */
+	result?: R;
 	/** Runs of one job before it fails for good. Default 3. */
 	attempts?: number;
 	/** The wait before a retry, doubling from `base` up to `max`, with full jitter. */
@@ -31,12 +43,23 @@ export type QueueInput<S extends z.ZodType> = {
 	keepCompleted?: false | { age?: Duration; count?: number };
 	/** How long a failed job stays readable. Default 7 days. */
 	keepFailed?: Duration;
+	/**
+	 * How long one run may take before it is aborted and counted as a failed
+	 * attempt, at least 1 ms. No limit by default; `add` may set one per job.
+	 * Timeouts above about 24.8 days (2147483647 ms, the longest a timer waits)
+	 * run as 24.8 days.
+	 */
+	timeout?: Duration;
 };
 
 /** What `defineQueue` returns: frozen, every option resolved, spans in milliseconds. */
-export type QueueDefinition<S extends z.ZodType> = {
+export type QueueDefinition<
+	S extends z.ZodType,
+	R extends z.ZodType | undefined = undefined,
+> = {
 	readonly name: string;
 	readonly schema: S;
+	readonly result: R;
 	readonly attempts: number;
 	readonly backoff: { readonly base: number; readonly max: number };
 	readonly lease: number;
@@ -44,6 +67,7 @@ export type QueueDefinition<S extends z.ZodType> = {
 		| false
 		| { readonly age: number; readonly count: number };
 	readonly keepFailed: number;
+	readonly timeout: number | undefined;
 };
 
 /** What `add` takes beside the payload. `delay` and `at` are two ways to say the same thing. */
@@ -52,25 +76,9 @@ export type AddOptions = {
 	id?: string;
 	/** Whole number, 0 to 1000; a lower one runs first. Default 0. */
 	priority?: number;
+	/** Overrides the queue's `timeout` for this job. */
+	timeout?: Duration;
 } & ({ delay?: Duration; at?: never } | { at?: Date; delay?: never });
-
-/** What `add` hands back. */
-export type JobHandle = {
-	readonly id: string;
-	/** `true` when the id was already in the queue, so nothing was added. */
-	readonly deduplicated: boolean;
-};
-
-/** What a handler receives. */
-export type JobContext<S extends z.ZodType> = {
-	id: string;
-	/** The payload, parsed by the schema. */
-	data: z.output<S>;
-	/** This run, counting from 1. */
-	attempt: number;
-	/** The runs the queue allows. */
-	attempts: number;
-};
 
 /** Where a job is. */
 export type JobState =
@@ -81,7 +89,10 @@ export type JobState =
 	| 'failed';
 
 /** A job as `get` and `list` show it. */
-export type JobView<S extends z.ZodType> = {
+export type JobView<
+	S extends z.ZodType,
+	R extends z.ZodType | undefined = undefined,
+> = {
 	id: string;
 	state: JobState;
 	/** `undefined` when the stored payload no longer parses with the schema. */
@@ -95,29 +106,21 @@ export type JobView<S extends z.ZodType> = {
 	/** When the job is next due to run. */
 	runAt: Date;
 	finished?: Date;
+	/** How far the job reported it is, 0 to 100; 0 until it reports. */
+	progress: number;
+	/** What the handler returned, once the job has completed. */
+	result?: ResultOf<R>;
 };
 
 /** How many jobs are in each state. */
 export type QueueCounts = Record<JobState, number>;
 
-/** What `work` takes. */
-export type WorkOptions = {
-	/** Jobs run at once: a whole number, 1 to 1000. Default 1. */
-	concurrency?: number;
-};
-
-/** A running worker. */
-export type Worker = {
-	/** Stops taking jobs and resolves once the running ones have finished. */
-	close(): Promise<void>;
-	/** Listens to what the loop could not handle; returns the way to stop listening. */
-	on(event: 'error', listener: (error: unknown) => void): () => void;
-	[Symbol.asyncDispose](): Promise<void>;
-};
-
 /** A queue bound to a client. */
-export type BoundQueue<S extends z.ZodType> = {
-	readonly definition: QueueDefinition<S>;
+export type BoundQueue<
+	S extends z.ZodType,
+	R extends z.ZodType | undefined = undefined,
+> = {
+	readonly definition: QueueDefinition<S, R>;
 	/**
 	 * Adds a job: one script, one round trip. The payload is checked by the
 	 * schema and stored as its output, defaults applied.
@@ -126,14 +129,14 @@ export type BoundQueue<S extends z.ZodType> = {
 	 * does not survive JSON; nothing is written.
 	 * @throws TypeError for a malformed option.
 	 */
-	add(data: z.input<S>, options?: AddOptions): Promise<JobHandle>;
+	add(data: z.input<S>, options?: AddOptions): Promise<JobHandle<R>>;
 	/**
 	 * Adds many jobs, one script per 500, handles in the order given. One bad
 	 * item refuses the whole call before anything is written.
 	 */
 	addMany(
 		items: readonly { data: z.input<S>; options?: AddOptions }[],
-	): Promise<JobHandle[]>;
+	): Promise<JobHandle<R>[]>;
 	/**
 	 * Starts a worker: it runs the queue's jobs with `handler`, at most
 	 * `concurrency` at once, and settles each by what the handler does — a
@@ -141,9 +144,9 @@ export type BoundQueue<S extends z.ZodType> = {
 	 *
 	 * @throws TypeError for a malformed option.
 	 */
-	work(handler: (job: JobContext<S>) => unknown, options?: WorkOptions): Worker;
+	work(handler: Handler<S, R>, options?: WorkOptions): Worker;
 	/** One job as it is stored, or `undefined` when there is none. */
-	get(id: string): Promise<JobView<S> | undefined>;
+	get(id: string): Promise<JobView<S, R> | undefined>;
 	/**
 	 * One page of the jobs in `state`. `waiting`, `delayed` and `active` come
 	 * oldest first, in the order they will be taken; `completed` and `failed`
@@ -156,7 +159,7 @@ export type BoundQueue<S extends z.ZodType> = {
 	list(
 		state: JobState,
 		page?: { offset?: number; limit?: number },
-	): Promise<JobView<S>[]>;
+	): Promise<JobView<S, R>[]>;
 	/** How many jobs are in each state, from one script. */
 	counts(): Promise<QueueCounts>;
 	/**
@@ -172,4 +175,9 @@ export type BoundQueue<S extends z.ZodType> = {
 	 * @throws QueueError `ACTIVE` for a running job, `NOT_FOUND` for none.
 	 */
 	remove(id: string): Promise<void>;
+	/**
+	 * Cancels a job: `true` when it was waiting, delayed or running, `false`
+	 * when there was nothing to cancel (finished, removed or unknown).
+	 */
+	cancel(id: string): Promise<boolean>;
 };

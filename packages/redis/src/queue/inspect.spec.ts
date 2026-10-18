@@ -39,7 +39,15 @@ describe('counts', () => {
 		await q.add(to('c'), { id: 'c' });
 		const [job] = (await claim(client(), keys, 1, 30_000)).jobs;
 		if (!job) throw new Error('nothing claimed');
-		await complete(client(), keys, mailQueue, job.id, job.token, false);
+		await complete(
+			client(),
+			keys,
+			mailQueue,
+			job.id,
+			job.token,
+			undefined,
+			false,
+		);
 		await q.add(to('a'), { id: 'a' });
 		await claim(client(), keys, 1, 30_000);
 		await q.add(to('w'), { id: 'w' });
@@ -196,7 +204,15 @@ describe('remove', () => {
 		await q.add(to('c'), { id: 'c' });
 		const [job] = (await claim(client(), keys, 1, 30_000)).jobs;
 		if (!job) throw new Error('nothing claimed');
-		await complete(client(), keys, mailQueue, job.id, job.token, false);
+		await complete(
+			client(),
+			keys,
+			mailQueue,
+			job.id,
+			job.token,
+			undefined,
+			false,
+		);
 		await q.add(to('a'), { id: 'a' });
 		await claim(client(), keys, 1, 30_000);
 		await q.add(to('w'), { id: 'w' });

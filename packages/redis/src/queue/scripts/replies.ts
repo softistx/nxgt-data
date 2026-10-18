@@ -8,6 +8,8 @@ export type ClaimedJob = {
 	attempts: number;
 	/** 32 lowercase hex; every settle and renew must present it. */
 	token: string;
+	/** How long this job's run may take, in ms; `undefined` for no limit. */
+	timeout: number | undefined;
 };
 
 /** What the claim part of any script answers. */
@@ -49,6 +51,10 @@ function whole(value: unknown, what: string): number {
 	return value;
 }
 
+function timeoutOf(ms: number): number | undefined {
+	return ms === -1 ? undefined : ms;
+}
+
 function texts(value: unknown, what: string): string[] {
 	return array(value, what).map((item) => text(item, what));
 }
@@ -66,6 +72,8 @@ export function parseClaim(raw: unknown[], from: number): ClaimReply {
 			attempt: whole(job[2], 'job attempt'),
 			attempts: whole(job[3], 'job attempts'),
 			token: text(job[4], 'job token'),
+			// The script answers -1 for a job without a limit: a Lua table has no nil.
+			timeout: timeoutOf(whole(job[5], 'job timeout')),
 		};
 	});
 	return {

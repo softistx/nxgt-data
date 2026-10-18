@@ -28,3 +28,22 @@ export function enqueued() {
 export function worker() {
 	return mailQueue.work(({ data }) => data.template, { concurrency: 4 });
 }
+
+/** A queue with a result schema: `finished` and the handler name its type. */
+export const renders = defineQueue({
+	name: 'renders',
+	schema: z.object({ url: z.string() }),
+	result: z.object({ bytes: z.number() }),
+	timeout: '1m',
+});
+
+export const renderQueue = bindQueue(redis, renders);
+
+export async function rendered() {
+	const handle = await renderQueue.add({ url: 'https://example.com' });
+	return handle.finished();
+}
+
+export function renderWorker() {
+	return renderQueue.work(() => ({ bytes: 1 }));
+}

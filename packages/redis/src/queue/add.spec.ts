@@ -64,8 +64,14 @@ describe('add', () => {
 	test('an id already there is not added again', async () => {
 		const first = await mails().add(to('first'), { id: 'j1' });
 		const second = await mails().add(to('second'), { id: 'j1' });
-		expect(first).toEqual({ id: 'j1', deduplicated: false });
-		expect(second).toEqual({ id: 'j1', deduplicated: true });
+		expect({ id: first.id, deduplicated: first.deduplicated }).toEqual({
+			id: 'j1',
+			deduplicated: false,
+		});
+		expect({ id: second.id, deduplicated: second.deduplicated }).toEqual({
+			id: 'j1',
+			deduplicated: true,
+		});
 		const data = await servers.redis.client.hget(keys.job('j1'), 'data');
 		expect(JSON.parse(data ?? '').to).toBe('first');
 		expect(await send('ZCARD', keys.ready)).toBe(1);
@@ -121,7 +127,11 @@ describe('add', () => {
 		const priority = 'priority is a whole number from 0 to 1000';
 		const delay =
 			"delay is a whole number of milliseconds or a string such as '10m'";
+		const timeout =
+			"timeout is at least 1 millisecond, as a whole number or a string such as '10m'";
 		const bad: [string, Record<string, unknown>][] = [
+			[timeout, { timeout: 0 }],
+			[timeout, { timeout: 'soon' }],
 			['at is a valid Date', { at: new Date('nope') }],
 			[priority, { priority: 1001 }],
 			[priority, { priority: -1 }],

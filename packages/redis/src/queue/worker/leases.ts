@@ -20,7 +20,7 @@ export type Leases = {
  * Renews every held lease in one script per `lease / 3`, whatever the
  * worker's concurrency. An id whose token was taken (the lease lapsed and
  * another worker holds the job) is dropped from the renewals and reported to
- * `onLost`; the job's own late settle is refused by the token check.
+ * `onLost` with the token it held; the job's own late settle is refused by the token check.
  *
  * A renewal that does not reach Redis is tried again at the next beat, so a
  * lease lapses only when none gets through for a whole `lease`. Each
@@ -31,7 +31,7 @@ export function keepLeases(
 	client: RedisClient,
 	keys: ReturnType<typeof queueKeys>,
 	lease: number,
-	onLost: (ids: string[]) => void,
+	onLost: (lost: { id: string; token: string }[]) => void,
 ): Leases {
 	const held = new Map<string, string>();
 	let stopped = false;
@@ -45,12 +45,12 @@ export function keepLeases(
 					// Only the entry this renewal sent: the id may have been
 					// settled and claimed again, under a new token, while it was
 					// in flight, and that run must keep its renewals.
-					const gone = lost.filter((id) => {
-						const sent = entries.find((e) => e.id === id)?.token;
-						return sent !== undefined && held.get(id) === sent;
-					});
+					const gone = entries.filter(
+						(entry) =>
+							lost.includes(entry.id) && held.get(entry.id) === entry.token,
+					);
 					if (gone.length === 0) return;
-					for (const id of gone) held.delete(id);
+					for (const { id } of gone) held.delete(id);
 					try {
 						onLost(gone);
 					} catch {

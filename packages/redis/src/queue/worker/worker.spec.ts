@@ -1,6 +1,7 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import type { RedisClient } from 'bun';
 import {
+	blocked,
 	eventually,
 	gate,
 	mailQueue,
@@ -12,7 +13,7 @@ import { bindQueue } from '../bind-queue';
 import { defineQueue } from '../define-queue';
 import { queueKeys } from '../keys';
 import { claim } from '../scripts/claim';
-import type { Worker } from '../types';
+import type { Worker } from './types';
 
 const servers = useRedis();
 const keys = queueKeys('mails');
@@ -41,6 +42,18 @@ function suite() {
 }
 
 describe('work', () => {
+	test('a queue without a result schema ignores what the handler returns', async () => {
+		const { work, closeAll } = suite();
+		try {
+			work(() => ({ sent: true }));
+			await mails().add({ to: 'a' }, { id: 'r' });
+			await eventually(() => state('r'), 'completed');
+			expect(await hget('r', 'result')).toBeNull();
+		} finally {
+			await closeAll();
+		}
+	});
+
 	test('runs an added job once and completes it', async () => {
 		const { work, closeAll } = suite();
 		try {
@@ -48,7 +61,7 @@ describe('work', () => {
 			work((job) => void seen.push(job));
 			await mails().add({ to: 'a' }, { id: 'a' });
 			await eventually(() => state('a'), 'completed');
-			expect(seen).toEqual([
+			expect(seen).toMatchObject([
 				{
 					id: 'a',
 					data: { to: 'a', template: 'welcome' },
@@ -56,6 +69,10 @@ describe('work', () => {
 					attempts: 3,
 				},
 			]);
+			expect((seen[0] as { signal: AbortSignal }).signal.aborted).toBe(false);
+			expect(typeof (seen[0] as { progress: unknown }).progress).toBe(
+				'function',
+			);
 		} finally {
 			await closeAll();
 		}
@@ -68,7 +85,7 @@ describe('work', () => {
 			work(() => {
 				at ||= Date.now();
 			});
-			await Bun.sleep(100); // the worker is blocked on the wake list
+			await blocked(client()); // the worker is blocked on the wake list
 			const added = Date.now();
 			await mails().add({ to: 'a' });
 			await eventually(() => at > 0, true);
@@ -85,7 +102,7 @@ describe('work', () => {
 			work(() => {
 				calls += 1;
 			});
-			await Bun.sleep(100); // blocked on an empty queue
+			await blocked(client()); // blocked on an empty queue
 			await mails().add({ to: 'a' }, { delay: 300 });
 			await Bun.sleep(150);
 			expect(calls).toBe(0);
@@ -191,14 +208,26 @@ describe('work', () => {
 
 	test('a thrown string is recorded readably', async () => {
 		const { work, closeAll } = suite();
+		// The jitter at its floor: the retry is due at once, and the settle's own
+		// claim takes it again in the same script, so `delayed` is never seen —
+		// and with a few ms of jitter it is seen only between two polls, if at
+		// all. Hence the retry is held, and the error it found is read then.
+		const random = spyOn(Math, 'random').mockReturnValue(0);
+		const hold = gate();
 		try {
-			work(() => {
-				throw 'nope';
+			let calls = 0;
+			work(async () => {
+				calls += 1;
+				if (calls === 1) throw 'nope';
+				await hold.opened;
 			});
 			await mails().add({ to: 'a' }, { id: 'a' });
-			await eventually(() => state('a'), 'delayed'); // retried, with the error kept
+			await eventually(() => calls, 2); // retried, with the error kept
+			expect(await hget('a', 'attempt')).toBe('2');
 			expect(await error('a')).toEqual({ name: 'Error', message: 'nope' });
 		} finally {
+			random.mockRestore();
+			hold.open();
 			await closeAll();
 		}
 	});
@@ -258,7 +287,7 @@ describe('work', () => {
 			try {
 				await first.opened;
 				await eventually(() => done, 50);
-				await Bun.sleep(200); // idle: the worker found nothing and blocked
+				await blocked(client()); // idle: the worker found nothing and blocked
 				const spent = (await scriptCalls(client())) - before;
 				expect(spent).toBeLessThanOrEqual(55);
 			} finally {
@@ -311,7 +340,7 @@ describe('work', () => {
 	test('close of an idle worker is quick', async () => {
 		const { work } = suite();
 		const worker = work(() => undefined);
-		await Bun.sleep(100);
+		await blocked(client());
 		const before = Date.now();
 		await worker[Symbol.asyncDispose]();
 		expect(Date.now() - before).toBeLessThan(500);
@@ -324,7 +353,7 @@ describe('work', () => {
 			const worker = work((job) => void handled.push(job.id));
 			const errors: unknown[] = [];
 			worker.on('error', (e) => void errors.push(e));
-			await Bun.sleep(100); // blocked on BLPOP
+			await blocked(client()); // blocked on BLPOP
 			await client().send('CLIENT', ['KILL', 'TYPE', 'normal']);
 			await eventually(() => errors.length > 0, true);
 			await mails().add({ to: 'a' }, { id: 'a' });
@@ -344,7 +373,7 @@ describe('work', () => {
 				heard += 1;
 				throw new Error('bad listener');
 			});
-			await Bun.sleep(100);
+			await blocked(client());
 			await client().send('CLIENT', ['KILL', 'TYPE', 'normal']);
 			await eventually(() => heard > 0, true);
 			await mails().add({ to: 'a' }, { id: 'a' });

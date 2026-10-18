@@ -1,14 +1,40 @@
 /** What a queue refused. */
 export type QueueErrorCode =
 	/**
-	 * A payload the queue refuses: one its schema rejects, or that does not
-	 * survive JSON. A malformed *option* is a `TypeError`, not this.
+	 * A payload the queue refuses: one its schema rejects (or throws on), or
+	 * that does not survive JSON; also, from `finished`, a stored result the
+	 * result schema refuses. A malformed *option* is a `TypeError`, not this.
 	 */
 	| 'INVALID'
-	/** `retry` or `remove` named a job the queue does not hold in that state. */
+	/**
+	 * `retry` or `remove` named a job the queue does not hold in that state,
+	 * or `finished` waited on a job that is not in the queue.
+	 */
 	| 'NOT_FOUND'
 	/** The job is running, so the call cannot change or remove it. */
-	| 'ACTIVE';
+	| 'ACTIVE'
+	/**
+	 * The job was canceled before it finished: `finished`'s rejection, and
+	 * the `signal.reason` of a run the cancel aborted. Never a call-time error.
+	 */
+	| 'CANCELED'
+	/** The job failed for good; `lastError` says how. */
+	| 'FAILED'
+	/** `finished` waited as long as its `timeout` allowed. */
+	| 'WAIT_TIMEOUT'
+	/** A run took longer than its `timeout`: a `signal.reason`. */
+	| 'TIMEOUT'
+	/**
+	 * A run lost its lease: another worker took the job back, or the job was
+	 * canceled and the worker missed the event, so its renewal found the
+	 * token gone. A `signal.reason`, reported on the worker's `error` event.
+	 */
+	| 'LEASE_LOST'
+	/**
+	 * The worker closed and its `grace` passed while the run went on: only
+	 * ever a `signal.reason`, never a call's rejection.
+	 */
+	| 'CLOSED';
 
 /**
  * The error of the queue, apart from `RedisError`. Redis's own failures come
@@ -21,14 +47,20 @@ export class QueueError extends Error {
 	readonly code: QueueErrorCode;
 	/** The queue's `name`. */
 	readonly queue: string;
-	/** The id of the job the call was about, when it was about one. */
-	readonly job?: string;
+	/**
+	 * The id of the job the call was about, when it was about one. `declare`d,
+	 * so an error about no job has no own `job` key at all.
+	 */
+	declare readonly job?: string;
+	/** For `FAILED`: the name and message of the handler's last error; `declare`d like `job`. */
+	declare readonly lastError?: { name: string; message: string };
 
 	constructor(
 		code: QueueErrorCode,
 		queue: string,
 		message: string,
 		job?: string,
+		lastError?: { name: string; message: string },
 	) {
 		super(message);
 		this.name = 'QueueError';
@@ -36,6 +68,9 @@ export class QueueError extends Error {
 		this.queue = queue;
 		if (job !== undefined) {
 			this.job = job;
+		}
+		if (lastError !== undefined) {
+			this.lastError = lastError;
 		}
 	}
 }

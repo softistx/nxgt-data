@@ -45,8 +45,8 @@ describe('keepLeases', () => {
 		await queue.add({ to: 'b' }, { id: 'b' });
 		const { jobs } = await claim(client(), keys, 2, mailQueue.lease);
 		const lost: string[][] = [];
-		const leases = keepLeases(client(), keys, mailQueue.lease, (ids) =>
-			lost.push(ids),
+		const leases = keepLeases(client(), keys, mailQueue.lease, (entries) =>
+			lost.push(entries.map((e) => e.id)),
 		);
 		leases.add('a', 'not-the-token');
 		leases.add('b', jobs.find((j) => j.id === 'b')?.token ?? '');
@@ -66,17 +66,21 @@ describe('keepLeases', () => {
 			},
 		} as unknown as RedisClient;
 		const lost: string[][] = [];
-		const leases = keepLeases(fake, keys, 30, (ids) => lost.push(ids));
+		const leases = keepLeases(fake, keys, 30, (entries) =>
+			lost.push(entries.map((e) => e.id)),
+		);
 		leases.add('a', 'old');
-		await eventually(() => calls.length, 1);
+		// The beat goes on while this one is held: wait for it, not for an exact count.
+		await eventually(() => calls.length >= 1, true);
 		// The job was settled and claimed again while the renewal was in flight.
 		leases.delete('a', 'old');
 		leases.add('a', 'new');
+		const sent = calls.length; // renewals sent so far carry the old token or none
 		replies[0]?.(['a']); // Redis: the old token no longer holds
 		await Bun.sleep(5);
 		expect(lost).toEqual([]);
-		await eventually(() => calls.length > 1, true);
-		expect(calls[1]).toContain('new');
+		await eventually(() => calls.length > sent, true);
+		expect(calls[sent]).toContain('new');
 		leases.stop();
 	});
 

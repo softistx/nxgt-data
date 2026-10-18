@@ -3,18 +3,26 @@
 import { RedisClient } from 'bun';
 import { z } from 'zod';
 import {
+	type AddOptions,
 	type BoundQueue,
 	bindCache,
 	bindIdempotency,
 	bindQueue,
 	bindRateLimit,
 	defineQueue,
+	type Handler,
 	type JobContext,
 	JobError,
 	type JobHandle,
+	type JobState,
 	type JobView,
 	publish,
+	type QueueCounts,
 	type QueueErrorCode,
+	type ResultInputOf,
+	type ResultOf,
+	type WorkerEvents,
+	type WorkOptions,
 } from '../../src';
 import { createOrder, loginLimit, userCache, userCreated } from '../fixtures';
 
@@ -125,3 +133,101 @@ queue.work(() => undefined, { grace: 1 });
 
 // @ts-expect-error every item's payload is checked, as `add`'s is
 queue.addMany([{ data: { to: 1 } }]);
+
+// A result schema types what a handler returns and what `finished` resolves to.
+const sized = defineQueue({
+	name: 'sized',
+	schema: z.string(),
+	result: z.object({ id: z.string() }),
+	timeout: '1m',
+});
+const sizedQueue = bindQueue(client, sized);
+sizedQueue.work(() => ({ id: 'x' }));
+sizedQueue.work(async () => ({ id: 'x' }));
+// @ts-expect-error `id` is a string
+sizedQueue.work(() => ({ id: 1 }));
+// @ts-expect-error a queue with a result must return one
+sizedQueue.work(() => {});
+// A queue without a result ignores what its handler returns.
+queue.work(() => ({ id: 'x' }));
+queue.work(async () => 1);
+queue.work(() => {});
+
+const finishedId = async (): Promise<string> => {
+	const handle = await sizedQueue.add('a');
+	return (await handle.finished()).id;
+};
+void finishedId;
+const finishedNothing = async (): Promise<undefined> =>
+	(await queue.add({ to: 'a@b.c' })).finished({ timeout: '1s' });
+void finishedNothing;
+const finishedNothingId = async () => {
+	const handle = await queue.add({ to: 'a@b.c' });
+	// @ts-expect-error without a result schema finished holds `undefined`, not `any`
+	return (await handle.finished()).id;
+};
+void finishedNothingId;
+const finishedWeek = async () => {
+	const handle = await queue.add({ to: 'a@b.c' });
+	// @ts-expect-error a finished timeout is a duration, and 'w' is not a unit
+	await handle.finished({ timeout: '1w' });
+};
+void finishedWeek;
+
+// @ts-expect-error a timeout is a duration
+defineQueue({ name: 'x', schema: z.string(), timeout: '1w' });
+// @ts-expect-error a result is a schema
+defineQueue({ name: 'x', schema: z.string(), result: 5 });
+queue.add({ to: 'a@b.c' }, { timeout: '30s' });
+// @ts-expect-error an add timeout is a duration, and 'w' is not a unit
+queue.add({ to: 'a@b.c' }, { timeout: '1w' });
+
+// The worker's events are named, and each carries its own payload.
+const worker = queue.work(() => {});
+worker.on('completed', (e) => e.duration.toFixed());
+worker.on('failed', (e) => e.error.message.length);
+// @ts-expect-error `completed` has no `nope`
+worker.on('completed', (e) => e.nope);
+// @ts-expect-error not an event
+worker.on('nope', () => undefined);
+void worker.close({ grace: '10s' });
+// @ts-expect-error a grace is a duration, and 'w' is not a unit
+void worker.close({ grace: '1w' });
+
+queue.work((job) => {
+	void job.signal.aborted;
+	void job.progress(50);
+	// @ts-expect-error progress is a number
+	void job.progress('50');
+});
+const codes: QueueErrorCode[] = [
+	'CANCELED',
+	'FAILED',
+	'WAIT_TIMEOUT',
+	'TIMEOUT',
+	'LEASE_LOST',
+	'CLOSED',
+];
+void codes;
+
+// Every type the lifecycle added is importable from the package entry.
+const resultOf: ResultOf<z.ZodString> = 'x';
+const noResult: ResultOf<undefined> = undefined;
+const resultInput: ResultInputOf<z.ZodString> = 'x';
+const handler: Handler<typeof mails.schema, undefined> = () => undefined;
+const events: keyof WorkerEvents = 'completed';
+const state: JobState = 'active';
+const counts: QueueCounts = {} as QueueCounts;
+const addOptions: AddOptions = { timeout: '1s' };
+const workOptions: WorkOptions = { concurrency: 2 };
+void [
+	resultOf,
+	noResult,
+	resultInput,
+	handler,
+	events,
+	state,
+	counts,
+	addOptions,
+	workOptions,
+];

@@ -5,7 +5,8 @@ import { WAKE_FN } from './wake';
  * One hash per job, `queue:{<name>}:job:<id>`, written here with exactly
  * `data` (JSON, already parsed by the schema on the client), `priority`,
  * `attempt` (0), `attempts`, `state` (`waiting` or `delayed`), `added` and
- * `runAt` (ms, the server's clock). Later scripts add fields; none of them
+ * `runAt` (ms, the server's clock), plus `timeout` (ms) when the job has
+ * one. Later scripts add fields; none of them
  * is this script's to read. The job id is in `delayed` (a future `runAt`) or
  * in `ready`, scored `priority * 2^40 + INCR(seq)`.
  *
@@ -29,7 +30,9 @@ import { WAKE_FN } from './wake';
  *
  * KEYS: delayed, ready, seq, wake.
  * ARGV: job-key prefix, then per job `id, data, priority, attempts, delayMs,
- * atMs` — `atMs` is -1 when the job has no `at`, and a past one is due now.
+ * atMs, timeoutMs` — `atMs` is -1 when the job has no `at`, and a past one is
+ * due now; `timeoutMs` is -1 when the job has no limit, and the field is
+ * then left out.
  * Returns per job 0 (added) or 1 (the id existed).
  */
 export const ADD = defineScript(`
@@ -38,9 +41,9 @@ local prefix = ARGV[1]
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
 local out = {}
-for i = 2, #ARGV, 6 do
+for i = 2, #ARGV, 7 do
 	local id, data, priority, attempts = ARGV[i], ARGV[i + 1], ARGV[i + 2], ARGV[i + 3]
-	local delay, at = tonumber(ARGV[i + 4]), tonumber(ARGV[i + 5])
+	local delay, at, timeout = tonumber(ARGV[i + 4]), tonumber(ARGV[i + 5]), tonumber(ARGV[i + 6])
 	local key = prefix .. id
 	if redis.call('EXISTS', key) == 1 then
 		out[#out + 1] = 1
@@ -52,6 +55,7 @@ for i = 2, #ARGV, 6 do
 		redis.call('HSET', key, 'data', data, 'priority', priority, 'attempt', 0,
 			'attempts', attempts, 'state', due and 'waiting' or 'delayed',
 			'added', now, 'runAt', runAt)
+		if timeout >= 0 then redis.call('HSET', key, 'timeout', string.format('%d', timeout)) end
 		if due then
 			local score = tonumber(priority) * 1099511627776 + redis.call('INCR', KEYS[3])
 			redis.call('ZADD', KEYS[2], string.format('%d', score), id)
