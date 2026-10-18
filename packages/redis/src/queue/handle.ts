@@ -178,13 +178,14 @@ async function waitFinished(
 		// keepCompleted false a completed job is deleted before its event lands.
 		let absent = 0;
 		poll = setInterval(() => {
-			readStored(client, keys, id).then(
-				(outcome) => {
+			// A failed read, or a throw in `apply`, waits for the next re-read:
+			// nothing raised here may reach the process as an unhandled rejection.
+			readStored(client, keys, id)
+				.then((outcome) => {
 					absent = outcome?.kind === 'absent' ? absent + 1 : 0;
 					if (outcome?.kind !== 'absent' || absent >= 2) apply(outcome);
-				},
-				() => undefined,
-			);
+				})
+				.catch(() => undefined);
 		}, waiting.rereadMs);
 		const first = await readStored(client, keys, id);
 		// A job settled and deleted between the SUBSCRIBE and this read (a
