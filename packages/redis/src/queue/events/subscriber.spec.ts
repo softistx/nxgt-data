@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { RedisClient } from 'bun';
 import { eventually, gate, useRedis } from '../../../test/fixtures';
+import { rejection } from '../../../test/rejection';
 import { flush, listen } from './subscriber';
 
 const servers = useRedis();
@@ -130,9 +131,10 @@ describe('the shared subscriber', () => {
 				return await client().duplicate();
 			},
 		} as unknown as RedisClient;
-		await expect(listen(flaky, 'queue:{a}:events', () => {})).rejects.toThrow(
-			'refused',
+		const refused = await rejection(
+			listen(flaky, 'queue:{a}:events', () => {}),
 		);
+		expect((refused as Error).message).toBe('refused');
 		const got: string[] = [];
 		const off = await listen(flaky, 'queue:{a}:events', (m) => got.push(m));
 		await client().publish('queue:{a}:events', 'ok');
@@ -165,9 +167,8 @@ describe('the shared subscriber', () => {
 				close: () => {},
 			}),
 		} as unknown as RedisClient;
-		await expect(listen(stub, 'queue:{a}:events', () => {})).rejects.toThrow(
-			'denied',
-		);
+		const denied = await rejection(listen(stub, 'queue:{a}:events', () => {}));
+		expect((denied as Error).message).toBe('denied');
 		const off = await listen(stub, 'queue:{a}:events', () => {});
 		expect(subscribes).toBe(2);
 		await off();

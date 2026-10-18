@@ -161,12 +161,26 @@ void finishedId;
 const finishedNothing = async (): Promise<undefined> =>
 	(await queue.add({ to: 'a@b.c' })).finished({ timeout: '1s' });
 void finishedNothing;
+const finishedNothingId = async () => {
+	const handle = await queue.add({ to: 'a@b.c' });
+	// @ts-expect-error without a result schema finished holds `undefined`, not `any`
+	return (await handle.finished()).id;
+};
+void finishedNothingId;
+const finishedWeek = async () => {
+	const handle = await queue.add({ to: 'a@b.c' });
+	// @ts-expect-error a finished timeout is a duration, and 'w' is not a unit
+	await handle.finished({ timeout: '1w' });
+};
+void finishedWeek;
 
 // @ts-expect-error a timeout is a duration
 defineQueue({ name: 'x', schema: z.string(), timeout: '1w' });
 // @ts-expect-error a result is a schema
 defineQueue({ name: 'x', schema: z.string(), result: 5 });
 queue.add({ to: 'a@b.c' }, { timeout: '30s' });
+// @ts-expect-error an add timeout is a duration, and 'w' is not a unit
+queue.add({ to: 'a@b.c' }, { timeout: '1w' });
 
 // The worker's events are named, and each carries its own payload.
 const worker = queue.work(() => {});
@@ -176,6 +190,9 @@ worker.on('failed', (e) => e.error.message.length);
 worker.on('completed', (e) => e.nope);
 // @ts-expect-error not an event
 worker.on('nope', () => undefined);
+void worker.close({ grace: '10s' });
+// @ts-expect-error a grace is a duration, and 'w' is not a unit
+void worker.close({ grace: '1w' });
 
 queue.work((job) => {
 	void job.signal.aborted;

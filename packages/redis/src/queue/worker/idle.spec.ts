@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { rejection } from '../../../test/rejection';
 import type { WorkerContext } from './context';
 import { markDrained, waitIdle } from './idle';
 
@@ -50,6 +51,7 @@ describe('waitIdle', () => {
 		const { context } = stubbed(async () => {
 			throw new Error('boom');
 		});
-		await expect(waitIdle(context)).rejects.toThrow('boom');
+		const error = await rejection(waitIdle(context));
+		expect((error as Error).message).toBe('boom');
 	});
 });
