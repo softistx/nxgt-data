@@ -5,6 +5,7 @@ import type { ChannelDefinition } from '../channel/define-channel';
 import type { PingResult } from '../connection/connect';
 import type { IdempotencyDefinition } from '../idempotency/types';
 import type { LockOptions } from '../lock/with-lock';
+import type { QueueDefinition } from '../queue/types';
 import type { RateLimitDefinition } from '../rate-limit/types';
 import type {
 	CachesIn,
@@ -29,6 +30,9 @@ export type {
 	LimitScope,
 	PayloadOf,
 } from './scope-types';
+
+/** Any queue definition: what `queues` of a configuration holds. */
+export type AnyQueue = QueueDefinition<z.ZodType, z.ZodType | undefined>;
 
 /** One Redis instance, with everything wired on it. */
 export interface InstanceScope<

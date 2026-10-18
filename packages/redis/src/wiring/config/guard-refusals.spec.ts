@@ -20,14 +20,16 @@ describe('config refusals', () => {
 		expect(() => defineRedis({ uri, caches, limits: caches })).not.toThrow();
 		expect(() => defineRedis({ uri, limits: caches })).toThrow(
 			'defineRedis: instance "default" wires no cache, no channel, no rate ' +
-				'limit and no idempotency. Pass the module that exports them, or drop the instance.',
+				'limit, no idempotency and no queue. Pass the module that exports them, or drop the instance.',
 		);
 	});
 
 	test('an idempotency is not taken for a cache under caches', () => {
 		expect(() =>
 			defineRedis({ uri, caches: { orders: idempotency.orders } }),
-		).toThrow(/wires no cache, no channel, no rate limit and no idempotency/);
+		).toThrow(
+			/wires no cache, no channel, no rate limit, no idempotency and no queue/,
+		);
 	});
 
 	test('a definition with a lease that is not a number is not an idempotency', () => {
@@ -38,7 +40,9 @@ describe('config refusals', () => {
 					uri,
 					idempotency: { orders: { ...idempotency.orders, lease } },
 				}),
-			).toThrow(/wires no cache, no channel, no rate limit and no idempotency/);
+			).toThrow(
+				/wires no cache, no channel, no rate limit, no idempotency and no queue/,
+			);
 		}
 	});
 
@@ -46,13 +50,15 @@ describe('config refusals', () => {
 		const { lease: _lease, ...noLease } = idempotency.orders;
 		expect(() =>
 			defineRedis({ uri, idempotency: { orders: noLease } }),
-		).toThrow(/wires no cache, no channel, no rate limit and no idempotency/);
+		).toThrow(
+			/wires no cache, no channel, no rate limit, no idempotency and no queue/,
+		);
 	});
 
 	test('a half-written rate limit, with no per, is not wired', () => {
 		const { per: _per, ...noPer } = limits.login;
 		expect(() => defineRedis({ uri, limits: { login: noPer } })).toThrow(
-			/wires no cache, no channel, no rate limit and no idempotency/,
+			/wires no cache, no channel, no rate limit, no idempotency and no queue/,
 		);
 	});
 

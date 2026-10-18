@@ -4,6 +4,7 @@ import type { CacheDefinition } from '../../cache/types';
 import type { ChannelDefinition } from '../../channel/define-channel';
 import type { IdempotencyDefinition } from '../../idempotency/types';
 import type { RateLimitDefinition } from '../../rate-limit/types';
+import type { AnyQueue } from '../types';
 
 /**
  * The caches of a module object, and nothing else.
@@ -47,8 +48,18 @@ export type IdempotencyOf<I> = {
 		: never]: I[K];
 };
 
+/**
+ * The queues of a module object, and nothing else.
+ *
+ * Not structurally any other kind — it has no `key` function and no `ttl` —
+ * so one file may export queues beside caches.
+ */
+export type QueuesOf<Q> = {
+	[K in keyof Q as Q[K] extends AnyQueue ? K : never]: Q[K];
+};
+
 /** One Redis: where it is, and what is wired on it. */
-export interface InstanceConfig<Ca, Ch, Li = object, Id = object> {
+export interface InstanceConfig<Ca, Ch, Li = object, Id = object, Qu = object> {
 	/**
 	 * Where to connect. One of `uri` and `client`, never both. Instances on
 	 * one URI share a client, which the Redis closes with its last holder.
@@ -81,6 +92,13 @@ export interface InstanceConfig<Ca, Ch, Li = object, Id = object> {
 	limits?: Li;
 	/** `import * as idempotency from './idempotency'`, passed as it is. */
 	idempotency?: Id;
+	/**
+	 * `import * as queues from './queues'`, passed as it is. Each queue's keys
+	 * are `queue:{<prefix>:<name>}:…`, the prefix and the name together being
+	 * the hash tag; a prefix with a brace is refused here. A queue bound by
+	 * hand with `bindQueue` has no prefix: moving it under one starts new keys.
+	 */
+	queues?: Qu;
 }
 
 /** One Redis, or several under their names. */
@@ -121,6 +139,12 @@ export type IdempotencyIn<
 	? Id
 	: Record<never, never>;
 
+export type QueuesIn<C, N extends InstanceName<C>> = InstancesOf<C>[N] extends {
+	queues: infer Qu;
+}
+	? Qu
+	: Record<never, never>;
+
 /**
  * A key the configuration does not have, turned into a message.
  *
@@ -146,6 +170,7 @@ type CheckedInstance<C> = NoExtraKeys<
 	| 'channels'
 	| 'limits'
 	| 'idempotency'
+	| 'queues'
 >;
 
 /**
@@ -170,7 +195,8 @@ export interface RedisConfig<C> {
 			CachesIn<C, N>,
 			ChannelsIn<C, N>,
 			LimitsIn<C, N>,
-			IdempotencyIn<C, N>
+			IdempotencyIn<C, N>,
+			QueuesIn<C, N>
 		>;
 	};
 }
