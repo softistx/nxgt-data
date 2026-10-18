@@ -348,9 +348,11 @@ await worker.close({ grace: '10s' }); // on shutdown: waits up to 10 s, then abo
 ```
 
 A job can run more than once, so put each side effect in a durable step: its
-result is stored, and a later attempt gets it back without running it again.
-`job.key(name)` is a key that is the same on every attempt, for the other side
-to deduplicate on.
+value is committed once and a later attempt gets it back, never overwritten by
+a stale attempt. The fence is checked at the step's edges, not while `fn` runs,
+so `fn` may run more than once (a crash, or a lease lapsing mid-`fn`): pass
+`job.key(name)` downstream, a key that is the same on every attempt, for the
+other side to deduplicate on.
 
 ```ts
 queue.work(async (job) => {

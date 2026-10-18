@@ -41,6 +41,7 @@ application can handle.
 - **Queues** (`QueueError`, and the `TypeError`s of `defineQueue`, `add`, `work` and `list`)
   - [`defineQueue: a queue needs a name, for its keys`](#definequeue-a-queue-needs-a-name-for-its-keys)
   - [`defineQueue: "my{queue}" has braces; the name is the keys' hash tag, so it cannot hold any`](#definequeue-myqueue-has-braces-the-name-is-the-keys-hash-tag-so-it-cannot-hold-any)
+  - [`defineQueue: "a:b" has a colon; job.key joins the queue name, job id and step name with colons, so the name cannot hold one`](#definequeue-ab-has-a-colon-jobkey-joins-the-queue-name-job-id-and-step-name-with-colons-so-the-name-cannot-hold-one)
   - [`defineQueue: "mails" has no schema; a payload is checked against one both ways`](#definequeue-mails-has-no-schema-a-payload-is-checked-against-one-both-ways)
   - [`defineQueue: "mails" has attempts of 0; it is a whole number of runs, and must be at least 1`](#definequeue-mails-has-attempts-of-0-it-is-a-whole-number-of-runs-and-must-be-at-least-1)
   - [`defineQueue: "mails" has a backoff base of 5000ms above its max of 1000ms`](#definequeue-mails-has-a-backoff-base-of-5000ms-above-its-max-of-1000ms)
@@ -594,6 +595,16 @@ export const mails = defineQueue({ name: 'mails', schema });
 defineQueue({ name: 'my-queue', schema });
 ```
 
+### `defineQueue: "a:b" has a colon; job.key joins the queue name, job id and step name with colons, so the name cannot hold one`
+
+**When:** at `defineQueue`, with a `:` in `name`.
+**Why:** `job.key(name)` is `<queue>:<job id>:<step name>`; a colon in the queue name would make two different jobs share a key.
+**Fix:**
+
+```ts
+defineQueue({ name: 'a-b', schema });
+```
+
 ### `defineQueue: "mails" has no schema; a payload is checked against one both ways`
 
 **When:** at `defineQueue`, with no `schema`, or one that is not a zod schema.
@@ -963,8 +974,8 @@ for (const item of items) {
 ### A job's `error` is `INVALID: step on "mails": step "send" returned a value …`
 
 **When:** `fn` of a step returned. The job fails at once, without retry, and its `error` is `{ name: 'QueueError', message: 'INVALID: step on "mails": step "send" returned a value that has no JSON form' }`. With a `schema`, the end of the message is `does not match the schema (invalid_type)`, or `does not match the schema once stored as JSON (invalid_type)`. Nothing was stored for the step.
-**Why:** the value is stored as JSON, and read back the same way on a retry, so it must survive the round trip: a `Date`, a `Map`, a `bigint`, `NaN` or `{ a: undefined }` has no JSON form. With a `schema` the stored text is its output, and it must accept that text too. Retrying would return the same value.
-**Fix:** return plain JSON, or a `schema` that turns the value into it.
+**Why:** `fn` already ran, so its side effect happened; only its value cannot be stored. The value is stored as JSON, and read back the same way on a retry, so it must survive the round trip: a `Date`, a `Map`, a `bigint`, `NaN` or `{ a: undefined }` has no JSON form. With a `schema` the stored text is its output, and it must accept that text too. Retrying would return the same value.
+**Fix:** return plain JSON, or a `schema` that turns the value into it. Make `fn` safe to repeat with `job.key` before you `retry` the job, since `fn` runs again.
 
 ```ts
 await job.step('send', async () => {
@@ -997,7 +1008,7 @@ await new Promise((resolve) => setImmediate(resolve)); // let the lease renew
 await job.step('send', () => send(batch));
 ```
 
-It is safe to let the error go: the attempt is abandoned, the job is taken back, and the next attempt replays the steps that committed and runs `fn` of the one that did not, so no step's `fn` ran twice for a committed value. A step's `fn` that began and whose commit was refused may run again: make it safe to repeat, or key what it does on `job.key(name)`.
+It is safe to let the error go: the attempt is abandoned, the job is taken back, and the next attempt replays the steps that committed and runs `fn` of the one that did not, so a committed value is never overwritten by a stale attempt. The fence is checked at the step's edges, not while `fn` runs, so `fn` may run more than once (a crash, or a lease lapsing mid-`fn`): make it safe to repeat, and pass `job.key(name)` downstream.
 
 ### `run on "mails": job "receipt:42" was aborted because the worker closed`
 

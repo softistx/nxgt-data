@@ -460,10 +460,12 @@ queue.work(async (job) => {
 });
 ```
 
-`fn` runs once per job: its result is stored, and an attempt that reaches a
-step already stored gets the value back without calling `fn`. A step that
-returns nothing, like `send` above, is stored too, so the mail is not sent a
-second time.
+A step's value is committed once per job: an attempt that reaches a step
+already stored gets the value back without calling `fn`. A step that returns
+nothing, like `send` above, is stored too. The fence is checked at the step's
+edges, not while `fn` runs, so `fn` may still run more than once (a crash, or a
+lease lapsing mid-`fn`): pass `job.key(name)` downstream, as `send` does, so the
+other side deduplicates.
 
 ```ts
 type StepOptions<Z extends z.ZodType> = { schema: Z };
@@ -499,6 +501,9 @@ const sentAt = await job.step(
 ### The rules
 
 - A name is 1 to 128 characters without `:`; anything else is a `TypeError`.
+- Names appear in error messages and in the stored error, so they count as
+  structure, like a job id: build them from ids, never from secrets or personal
+  data.
 - A name runs **once per attempt**: using it twice is a `TypeError`. A loop
   needs distinct names, such as `send-${i}`.
 - A throw from `fn` is the handler's own error and stores nothing, but the name
@@ -513,19 +518,30 @@ for (const [i, to] of job.data.recipients.entries()) {
 
 ### Fencing
 
-A step starts only if this attempt still holds the job and its lease has not
+A step's value is committed once and never overwritten by a stale attempt. A
+step starts only if this attempt still holds the job and its lease has not
 lapsed, and its value is stored only under the same check. A worker whose lease
 lapsed, or whose job was taken over, gets a `QueueError` with code `LEASE_LOST`
-from `step`, and `fn` does not run. Its run is aborted (its `signal` fires), and
-the live attempt's value is the one stored: two workers never run the same step
-side by side, and a stale one never overwrites a live one.
+from `step`. Its run is aborted (its `signal` fires), and the live attempt's
+value is the one stored.
+
+The fence is checked at the step's edges (begin and commit), not while `fn`
+runs, so `fn` may run more than once: after a crash, or when the lease lapses
+mid-`fn` and another attempt runs the step too. Make `fn` safe to repeat, and
+pass `job.key(name)` downstream. A run aborted while `fn` ran still commits the
+value (the commit is the fence), and the step then rejects with the abort
+reason.
 
 ### `job.key(name)`
 
 `job.key('send')` is `<queue>:<job id>:send`, the same on every attempt. A
 crash can still land between the side effect and the step's commit, so hand the
 key to the other side as its idempotency key, as the first example does with the
-mailer's. `name` follows the rules of a step's.
+mailer's. `name` follows the rules of a step's, and a queue name cannot hold
+`:`, so the key is unambiguous.
+
+The key is per job id and outlives `remove`: adding the same id again gets the
+same key, so the other side still deduplicates.
 
 Where the other side has no such key, wrap the call in an
 [idempotent operation](guard/idempotency.md) and key it with the job's:

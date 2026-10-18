@@ -26,8 +26,10 @@ export type JobContext<S extends z.ZodType> = {
 	/** Reports how far the job is, a number from 0 to 100. */
 	progress(value: number): Promise<void>;
 	/**
-	 * Runs `fn` once per job and stores its value: a later attempt, or a run
-	 * after `retry(id)`, gets the stored value and `fn` does not run. A step
+	 * Commits the value of `fn` once per job: a later attempt, or a run after
+	 * `retry(id)`, gets the stored value and `fn` does not run. The fence is
+	 * checked at the step's edges, not while `fn` runs, so `fn` may run more
+	 * than once; pass `key(name)` downstream. A step
 	 * costs two round trips when it runs (a begin, which also pushes the lease
 	 * a full lease ahead, and a commit) and one when it is already stored.
 	 * Both are refused once this attempt lost its lease: `step` then rejects
