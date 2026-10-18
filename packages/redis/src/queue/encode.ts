@@ -74,7 +74,7 @@ export type ResolvedAdd = {
 	delayMs: number;
 	/** `-1` when the job has no `at`. */
 	atMs: number;
-	/** The job's own `timeout`, in ms; `undefined` leaves it to the queue's. */
+	/** The job's own `timeout`, in ms; `undefined` stores none (the worker applies the queue's at run time). */
 	timeoutMs: number | undefined;
 };
 

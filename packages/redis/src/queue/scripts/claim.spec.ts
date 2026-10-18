@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
-import { mailQueue, useRedis } from '../../../test/fixtures';
+import { mailQueue, useChannelLog, useRedis } from '../../../test/fixtures';
 import { bindQueue } from '../bind-queue';
 import { defineQueue } from '../define-queue';
 import { queueKeys } from '../keys';
 import { claim } from './claim';
 
 const servers = useRedis();
+const channelLog = useChannelLog();
 const keys = queueKeys('mails');
 const to = (address: string) => ({ to: address });
 const client = () => servers.redis.client;
@@ -15,7 +16,7 @@ const hget = (id: string, field: string) => client().hget(keys.job(id), field);
 const mails = () => bindQueue(client(), mailQueue);
 
 describe('claim', () => {
-	test('ADD stores timeout, CLAIM returns it', async () => {
+	test("ADD stores the job's own timeout only, CLAIM returns it", async () => {
 		const timed = bindQueue(
 			client(),
 			defineQueue({
@@ -24,15 +25,17 @@ describe('claim', () => {
 				timeout: '10s',
 			}),
 		);
+		// The hash holds the job's own timeout only: the worker applies the
+		// queue's at run time, so a changed definition reaches waiting jobs.
 		await timed.add(to('queue'), { id: 'queue' });
 		await timed.add(to('job'), { id: 'job', timeout: '2s' });
 		await mails().add(to('none'), { id: 'none' });
-		expect(await hget('queue', 'timeout')).toBe('10000');
+		expect(await hget('queue', 'timeout')).toBeNull();
 		expect(await hget('job', 'timeout')).toBe('2000');
 		expect(await hget('none', 'timeout')).toBeNull();
 		const reply = await claim(client(), keys, 5, 30_000);
 		expect(reply.jobs.map((j) => [j.id, j.timeout])).toEqual([
-			['queue', 10_000],
+			['queue', undefined],
 			['job', 2000],
 			['none', undefined],
 		]);
@@ -124,6 +127,31 @@ describe('claim', () => {
 		const score = Number(await send('ZSCORE', keys.ready, 'x'));
 		expect(score).toBe(3 * 2 ** 40 + 3);
 		expect(Number.isInteger(score)).toBe(true);
+	});
+
+	test('a lapsed lease on the last attempt publishes the failure', async () => {
+		const log = await channelLog(client(), keys.events);
+		await mails().add(to('x'), { id: 'x' });
+		await claim(client(), keys, 1, 30_000);
+		await send('HSET', keys.job('x'), 'attempt', '3');
+		await send('ZADD', keys.active, '1', 'x');
+		await claim(client(), keys, 1, 30_000);
+		expect(await log.published()).toEqual([
+			{
+				type: 'failed',
+				id: 'x',
+				error: { name: 'LeaseLapsed', message: 'lease lapsed' },
+			},
+		]);
+	});
+
+	test('a lapsed lease with attempts left publishes nothing', async () => {
+		const log = await channelLog(client(), keys.events);
+		await mails().add(to('x'), { id: 'x' });
+		await claim(client(), keys, 1, 30_000);
+		await send('ZADD', keys.active, '1', 'x');
+		await claim(client(), keys, 1, 30_000);
+		expect(await log.published()).toEqual([]);
 	});
 
 	test('a lapsed lease on the last attempt fails with "lease lapsed"', async () => {

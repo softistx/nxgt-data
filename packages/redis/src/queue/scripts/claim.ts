@@ -19,6 +19,24 @@ import { WAKE_FN } from './wake';
  */
 
 /**
+ * Publishes a job's final outcome on the queue's `events` channel (the key
+ * after the seven of `CLAIM_FN`). The message is the JSON of `{type, id}` with the
+ * stored JSON texts (`result`, `error`) spliced in as they are, not decoded
+ * and encoded again: `cjson` writes numbers with 14 digits and an empty array
+ * as `{}`, so a round trip through it would change a result. They are texts
+ * this package wrote with `JSON.stringify`, which is why they may be spliced;
+ * `type` and `id` go through `cjson.encode`, as strings are safe in it.
+ * `field` is `'result'` or `'error'`, `json` is `''` for none.
+ */
+const PUBLISH_FN = `
+local function publish(events, kind, id, field, json)
+	local message = '{"type":' .. cjson.encode(kind) .. ',"id":' .. cjson.encode(id)
+	if json ~= '' then message = message .. ',"' .. field .. '":' .. json end
+	redis.call('PUBLISH', events, message .. '}')
+end
+`;
+
+/**
  * The claim step, one Lua function, concatenated into `CLAIM`, `COMPLETE`
  * and `FAIL` so a single body exists. The including script defines
  * `local prefix` (the job-key prefix, inside the queue's slot) first.
@@ -44,6 +62,7 @@ import { WAKE_FN } from './wake';
  */
 export const CLAIM_FN = `
 ${WAKE_FN}
+${PUBLISH_FN}
 local function int(x) return string.format('%d', x) end
 -- tonumber alone would accept 'inf', 'nan', '1e3', '0x10', '-4' and '1.5':
 -- an attempts of 'inf' would reclaim a crash-looping job forever, and a
@@ -59,6 +78,8 @@ end
 local function ready_score(priority)
 	return int(tonumber(priority) * 1099511627776 + redis.call('INCR', KEYS[6]))
 end
+local INVALID_ERROR = '{"name":"QueueError","message":"INVALID: a stored job this package could not have written"}'
+local LAPSED_ERROR = '{"name":"LeaseLapsed","message":"lease lapsed"}'
 -- An id whose hash is gone is only dropped; a hash this package could not
 -- have written goes to failed, once, and is reported.
 local function refuse(id, now, invalid)
@@ -67,11 +88,10 @@ local function refuse(id, now, invalid)
 	redis.call('ZREM', KEYS[2], id)
 	redis.call('ZREM', KEYS[3], id)
 	if redis.call('EXISTS', key) == 0 then return end
-	redis.call('HSET', key, 'state', 'failed', 'error',
-		'{"name":"QueueError","message":"INVALID: a stored job this package could not have written"}',
-		'finished', int(now))
+	redis.call('HSET', key, 'state', 'failed', 'error', INVALID_ERROR, 'finished', int(now))
 	redis.call('HDEL', key, 'token')
 	redis.call('ZADD', KEYS[5], int(now), id)
+	publish(KEYS[8], 'failed', id, 'error', INVALID_ERROR)
 	invalid[#invalid + 1] = id
 end
 local function claim(n, lease, tokens, now)
@@ -89,9 +109,9 @@ local function claim(n, lease, tokens, now)
 				redis.call('HSET', key, 'state', 'waiting')
 				redis.call('ZADD', KEYS[2], ready_score(f[4]), id)
 			else
-				redis.call('HSET', key, 'state', 'failed', 'error',
-					'{"name":"LeaseLapsed","message":"lease lapsed"}', 'finished', int(now))
+				redis.call('HSET', key, 'state', 'failed', 'error', LAPSED_ERROR, 'finished', int(now))
 				redis.call('ZADD', KEYS[5], int(now), id)
+				publish(KEYS[8], 'failed', id, 'error', LAPSED_ERROR)
 			end
 			stalled[#stalled + 1] = id
 		end

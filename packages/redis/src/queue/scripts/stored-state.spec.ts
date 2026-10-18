@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { mailQueue, useRedis } from '../../../test/fixtures';
+import { mailQueue, useChannelLog, useRedis } from '../../../test/fixtures';
 import { bindQueue } from '../bind-queue';
 import { queueKeys } from '../keys';
 import { claim } from './claim';
 
 const servers = useRedis();
+const channelLog = useChannelLog();
 const keys = queueKeys('mails');
 const client = () => servers.redis.client;
 const send = (...args: string[]) => client().send(args[0] ?? '', args.slice(1));
@@ -140,6 +141,24 @@ describe('stored state', () => {
 		expect(reply.stalled).toEqual([]);
 		expect(await send('ZCARD', keys.ready)).toBe(0);
 		expect(await send('ZCARD', keys.failed)).toBe(0);
+	});
+
+	test('a job failed INVALID at claim publishes the failure', async () => {
+		const log = await channelLog(client(), keys.events);
+		await send('HSET', keys.job('odd'), 'data', '{}', 'attempt', 'x');
+		await send('ZADD', keys.ready, '1', 'odd');
+		await send('ZADD', keys.ready, '2', 'ghost');
+		await claim(client(), keys, 2, 30_000);
+		expect(await log.published()).toEqual([
+			{
+				type: 'failed',
+				id: 'odd',
+				error: {
+					name: 'QueueError',
+					message: 'INVALID: a stored job this package could not have written',
+				},
+			},
+		]);
 	});
 
 	test('an untrusted lapsed lease is failed with INVALID, not retried', async () => {

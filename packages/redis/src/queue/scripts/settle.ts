@@ -41,24 +41,6 @@ end
 `;
 
 /**
- * Publishes a job's final outcome on the queue's `events` channel (the key
- * after `CLAIM_FN`'s seven). The message is the JSON of `{type, id}` with the
- * stored JSON texts (`result`, `error`) spliced in as they are, not decoded
- * and encoded again: `cjson` writes numbers with 14 digits and an empty array
- * as `{}`, so a round trip through it would change a result. They are texts
- * this package wrote with `JSON.stringify`, which is why they may be spliced;
- * `type` and `id` go through `cjson.encode`, as strings are safe in it.
- * `field` is `'result'` or `'error'`, `json` is `''` for none.
- */
-const PUBLISH_FN = `
-local function publish(events, kind, id, field, json)
-	local message = '{"type":' .. cjson.encode(kind) .. ',"id":' .. cjson.encode(id)
-	if json ~= '' then message = message .. ',"' .. field .. '":' .. json end
-	redis.call('PUBLISH', events, message .. '}')
-end
-`;
-
-/**
  * Completes a job if its token still holds: `state=completed`, `finished`,
  * the token removed, out of `active` into `completed` (scored by `now`),
  * then `completed` is trimmed by age, then count. A `keepAge` of `-1`
@@ -78,7 +60,6 @@ export const COMPLETE = defineScript(`
 local prefix = ARGV[1]
 ${CLAIM_FN}
 ${TRIM_FN}
-${PUBLISH_FN}
 ${NOW_LUA}
 local id, token = ARGV[2], ARGV[3]
 local key = prefix .. id
@@ -128,7 +109,6 @@ export const FAIL = defineScript(`
 local prefix = ARGV[1]
 ${CLAIM_FN}
 ${TRIM_FN}
-${PUBLISH_FN}
 ${NOW_LUA}
 local id, token = ARGV[2], ARGV[3]
 local key = prefix .. id
