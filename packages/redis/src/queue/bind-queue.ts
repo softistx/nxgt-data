@@ -11,6 +11,7 @@ import type {
 	JobHandle,
 	QueueDefinition,
 } from './types';
+import { resolveWork, startWorker } from './worker/worker';
 
 /** Jobs one `ADD` script call carries: a bound on its run time and its reply. */
 const ADD_CHUNK = 500;
@@ -83,5 +84,14 @@ export function bindQueue<S extends z.ZodType>(
 			return handle;
 		},
 		addMany,
+		work(handler, options) {
+			return startWorker(
+				client,
+				definition,
+				keys,
+				handler,
+				resolveWork(options),
+			);
+		},
 	};
 }

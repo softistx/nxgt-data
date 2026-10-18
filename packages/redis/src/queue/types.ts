@@ -137,4 +137,12 @@ export type BoundQueue<S extends z.ZodType> = {
 	addMany(
 		items: readonly { data: z.input<S>; options?: AddOptions }[],
 	): Promise<JobHandle[]>;
+	/**
+	 * Starts a worker: it runs the queue's jobs with `handler`, at most
+	 * `concurrency` at once, and settles each by what the handler does — a
+	 * return completes it, a throw retries it or fails it for good.
+	 *
+	 * @throws TypeError for a malformed option.
+	 */
+	work(handler: (job: JobContext<S>) => unknown, options?: WorkOptions): Worker;
 };
