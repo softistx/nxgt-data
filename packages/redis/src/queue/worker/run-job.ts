@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import { JobError } from '../../errors/job-error';
-import type { QueueError } from '../../errors/queue-error';
+import { QueueError } from '../../errors/queue-error';
 import { backoffDelay } from '../backoff';
 import { decodeData, encodeResult } from '../encode';
 import { claim } from '../scripts/claim';
@@ -19,6 +19,7 @@ import type { WorkerContext } from './context';
 import { announce, emit } from './events';
 import { markDrained } from './idle';
 import { progressOf } from './progress';
+import { stepsOf } from './steps';
 
 function toError(thrown: unknown): { name: string; message: string } {
 	return thrown instanceof Error
@@ -110,6 +111,7 @@ async function runHandler<S extends z.ZodType>(
 				attempts: job.attempts,
 				signal: run.controller.signal,
 				progress: progressOf(context, job, run.controller.signal),
+				...stepsOf(context, job, run.controller.signal),
 			}),
 		);
 	} finally {
@@ -119,6 +121,13 @@ async function runHandler<S extends z.ZodType>(
 		return await settleAborted(context, job, outcome.reason);
 	}
 	if (outcome.kind === 'threw') {
+		// A refused step value (R1): its own message is recorded, never retried.
+		if (
+			outcome.error instanceof QueueError &&
+			outcome.error.code === 'INVALID'
+		) {
+			return await failAttempt(context, job, toError(outcome.error), null);
+		}
 		return await failAttempt(
 			context,
 			job,
