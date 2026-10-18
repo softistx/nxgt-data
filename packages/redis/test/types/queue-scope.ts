@@ -53,3 +53,20 @@ const wired: QueuesIn<{ uri: string; queues: typeof queues }, 'default'> =
 void wired;
 
 export type { CacheAsQueue, NotAKey, NumberAsQueue, QueueAsCache, WrongScope };
+
+// The package root exports the queue scope types.
+type RootScope = import('../../src').QueueScope<
+	import('../../src').QueuesOf<typeof queues>
+>;
+const rootMails: RootScope['mails']['definition']['name'] = 'mails';
+type RootSole = import('../../src').SoleQueues<{
+	uri: string;
+	queues: typeof queues;
+}>;
+const rootSole: RootSole['mails']['definition']['name'] = 'mails';
+type RootIn = import('../../src').QueuesIn<
+	{ uri: string; queues: typeof queues },
+	'default'
+>;
+const rootIn: keyof RootIn = 'mails';
+void [rootMails, rootSole, rootIn];

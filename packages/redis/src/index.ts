@@ -73,6 +73,8 @@ export type {
 	InstancesOf,
 	LimitsIn,
 	LimitsOf,
+	QueuesIn,
+	QueuesOf,
 	RedisConfig,
 	RedisConfigInput,
 } from './wiring/config/types';
@@ -85,6 +87,7 @@ export type {
 	InstanceScope,
 	LimitScope,
 	PayloadOf,
+	QueueScope,
 	Redis,
 	RedisLockOptions,
 	RedisOf,
@@ -93,4 +96,5 @@ export type {
 	SoleIdempotency,
 	SoleInstance,
 	SoleLimits,
+	SoleQueues,
 } from './wiring/types';
