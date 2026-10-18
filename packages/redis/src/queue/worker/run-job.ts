@@ -54,6 +54,8 @@ async function runHandler<S extends z.ZodType>(
 			definition,
 			job.id,
 			job.token,
+			// Task 5 stores the handler's result.
+			undefined,
 			context.open,
 		);
 	}

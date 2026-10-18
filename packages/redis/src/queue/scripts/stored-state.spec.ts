@@ -59,6 +59,12 @@ describe('stored state', () => {
 		['attempt', '-4'],
 		['attempts', '0x10'],
 		['attempts', '0'],
+		['timeout', 'inf'],
+		['timeout', '0'],
+		['timeout', '1.5'],
+		['timeout', '-4'],
+		['timeout', '1e3'],
+		['timeout', ''],
 	])('%s = %s is failed with INVALID, not claimed', async (field, value) => {
 		const fields: Record<string, string> = {
 			data: '{}',
@@ -73,6 +79,32 @@ describe('stored state', () => {
 		expect(reply.jobs).toEqual([]);
 		expect(reply.failedInvalid).toEqual(['odd']);
 		expect(await hget('odd', 'state')).toBe('failed');
+	});
+
+	test('a hash with timeout "inf" is failed INVALID at claim, and one with a whole timeout is claimed', async () => {
+		for (const [id, timeout] of [
+			['bad', 'inf'],
+			['good', '1500'],
+		] as const) {
+			await send(
+				'HSET',
+				keys.job(id),
+				'data',
+				'{}',
+				'priority',
+				'0',
+				'attempt',
+				'0',
+				'attempts',
+				'3',
+				'timeout',
+				timeout,
+			);
+			await send('ZADD', keys.ready, '1', id);
+		}
+		const reply = await claim(client(), keys, 5, 30_000);
+		expect(reply.failedInvalid).toEqual(['bad']);
+		expect(reply.jobs.map((j) => [j.id, j.timeout])).toEqual([['good', 1500]]);
 	});
 
 	test('a hash with extra fields is still claimed', async () => {

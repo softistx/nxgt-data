@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach } from 'bun:test';
 import { RedisClient } from 'bun';
 import { z } from 'zod';
 import { defineCache } from '../src/cache/define-cache';
@@ -251,4 +251,38 @@ export async function scriptCalls(client: RedisClient): Promise<number> {
 		calls += Number(n);
 	}
 	return calls;
+}
+
+/**
+ * Records what is published on a channel, through a subscriber of its own
+ * that the file closes after each test. Call it once per spec file, at its top
+ * level, and `await` the function it returns inside a test.
+ */
+export function useChannelLog() {
+	const subscribers: RedisClient[] = [];
+	afterEach(() => {
+		for (const subscriber of subscribers.splice(0)) subscriber.close();
+	});
+	return async (client: RedisClient, channel: string) => {
+		const messages: string[] = [];
+		const subscriber = await client.duplicate();
+		subscribers.push(subscriber);
+		await subscriber.subscribe(channel, (message) => {
+			messages.push(message);
+		});
+		return {
+			/**
+			 * What was published so far, parsed. A message a script publishes
+			 * arrives asynchronously, so this publishes a marker after it and
+			 * waits for the marker: whatever came before has come.
+			 */
+			async published(): Promise<unknown[]> {
+				await client.send('PUBLISH', [channel, '#']);
+				await eventually(() => messages.includes('#'), true);
+				return messages.filter((m) => m !== '#').map((m) => JSON.parse(m));
+			},
+			/** The raw text of what was published, in order, markers included. */
+			messages,
+		};
+	};
 }

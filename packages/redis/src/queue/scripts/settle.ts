@@ -41,22 +41,44 @@ end
 `;
 
 /**
+ * Publishes a job's final outcome on the queue's `events` channel (the key
+ * after `CLAIM_FN`'s seven). The message is the JSON of `{type, id}` with the
+ * stored JSON texts (`result`, `error`) spliced in as they are, not decoded
+ * and encoded again: `cjson` writes numbers with 14 digits and an empty array
+ * as `{}`, so a round trip through it would change a result. They are texts
+ * this package wrote with `JSON.stringify`, which is why they may be spliced;
+ * `type` and `id` go through `cjson.encode`, as strings are safe in it.
+ * `field` is `'result'` or `'error'`, `json` is `''` for none.
+ */
+const PUBLISH_FN = `
+local function publish(events, kind, id, field, json)
+	local message = '{"type":' .. cjson.encode(kind) .. ',"id":' .. cjson.encode(id)
+	if json ~= '' then message = message .. ',"' .. field .. '":' .. json end
+	redis.call('PUBLISH', events, message .. '}')
+end
+`;
+
+/**
  * Completes a job if its token still holds: `state=completed`, `finished`,
  * the token removed, out of `active` into `completed` (scored by `now`),
  * then `completed` is trimmed by age, then count. A `keepAge` of `-1`
- * (`keepCompleted: false`) deletes the hash at once. With a claim token it
- * then runs {@link CLAIM_FN} for one job, so a busy worker spends one script
- * per job.
+ * (`keepCompleted: false`) deletes the hash at once. A `result` is stored in
+ * the hash as given (JSON); the outcome, with the result, is published on
+ * `events` once settled, so `finished()` gets it even when nothing is kept. A
+ * stale token publishes nothing. With a claim token it then runs
+ * {@link CLAIM_FN} for one job, so a busy worker spends one script per job.
  *
- * KEYS: delayed, ready, active, completed, failed, seq, wake.
+ * KEYS: delayed, ready, active, completed, failed, seq, wake, events.
  * ARGV: job-key prefix, id, token, keepAge (ms, -1 to keep nothing),
- * keepCount, lease (ms), claim token (`''` for no claim).
+ * keepCount, lease (ms), claim token (`''` for no claim), result (JSON,
+ * `''` for none).
  * Returns `{settled, jobs, stalled, invalid, next}`.
  */
 export const COMPLETE = defineScript(`
 local prefix = ARGV[1]
 ${CLAIM_FN}
 ${TRIM_FN}
+${PUBLISH_FN}
 ${NOW_LUA}
 local id, token = ARGV[2], ARGV[3]
 local key = prefix .. id
@@ -72,10 +94,12 @@ if redis.call('HGET', key, 'token') == token then
 		trim(KEYS[4], now, 0, 0)
 	else
 		redis.call('HSET', key, 'state', 'completed', 'finished', string.format('%d', now))
+		if ARGV[8] ~= '' then redis.call('HSET', key, 'result', ARGV[8]) end
 		redis.call('HDEL', key, 'token')
 		redis.call('ZADD', KEYS[4], string.format('%d', now), id)
 		trim(KEYS[4], now, keepAge, tonumber(ARGV[5]))
 	end
+	publish(KEYS[8], 'completed', id, 'result', ARGV[8])
 end
 -- The claim depends on the worker's free slot, not on the settle taking.
 local out = {settled, {}, {}, {}, -1}
@@ -90,9 +114,11 @@ return out
  * Fails a job if its token still holds. With a retry delay (`retryIn` >= 0)
  * and attempts left (`attempt < attempts`) it goes to `delayed` at
  * `now + retryIn` with the error kept; otherwise to `failed`, scored `now`,
- * and `failed` is trimmed by age. Claims the next job as `COMPLETE` does.
+ * and `failed` is trimmed by age, and the failure is published on `events`
+ * (`{type: 'failed', id, error}`). A retry and a stale token publish nothing.
+ * Claims the next job as `COMPLETE` does.
  *
- * KEYS: delayed, ready, active, completed, failed, seq, wake.
+ * KEYS: delayed, ready, active, completed, failed, seq, wake, events.
  * ARGV: job-key prefix, id, token, error (JSON `{name, message}`), retryIn
  * (ms, -1 for no retry), keepFailed age (ms), lease (ms), claim token (`''`
  * for no claim).
@@ -102,6 +128,7 @@ export const FAIL = defineScript(`
 local prefix = ARGV[1]
 ${CLAIM_FN}
 ${TRIM_FN}
+${PUBLISH_FN}
 ${NOW_LUA}
 local id, token = ARGV[2], ARGV[3]
 local key = prefix .. id
@@ -123,6 +150,7 @@ if redis.call('HGET', key, 'token') == token then
 		redis.call('HSET', key, 'state', 'failed', 'error', ARGV[4], 'finished', string.format('%d', now))
 		redis.call('ZADD', KEYS[5], string.format('%d', now), id)
 		trim(KEYS[5], now, tonumber(ARGV[6]), -1)
+		publish(KEYS[8], 'failed', id, 'error', ARGV[4])
 	end
 end
 local out = {settled, final, {}, {}, {}, -1}
@@ -144,8 +172,10 @@ type Retention = Pick<
 
 /**
  * Completes a job. `settled` is `false` when the token no longer holds: the
- * lease lapsed, and nothing was changed. With `claimNext`, the same script
- * claims one more job, returned in `jobs`.
+ * lease lapsed, and nothing was changed. `result` is the handler's return as
+ * JSON, or `undefined` for none: it is stored with the job and published with
+ * the outcome. With `claimNext`, the same script claims one more job,
+ * returned in `jobs`.
  */
 export async function complete(
 	client: RedisClient,
@@ -153,6 +183,7 @@ export async function complete(
 	definition: Retention,
 	id: string,
 	token: string,
+	result: string | undefined,
 	claimNext: boolean,
 ): Promise<ClaimReply & { settled: boolean }> {
 	const keep = definition.keepCompleted;
@@ -165,6 +196,7 @@ export async function complete(
 			keep === false ? -1 : keep.count,
 			definition.lease,
 			claimNext ? newToken() : '',
+			result ?? '',
 		]),
 	);
 }

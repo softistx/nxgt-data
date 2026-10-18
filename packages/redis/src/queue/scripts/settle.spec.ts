@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
-import { mailQueue, scriptCalls, useRedis } from '../../../test/fixtures';
+import {
+	mailQueue,
+	scriptCalls,
+	useChannelLog,
+	useRedis,
+} from '../../../test/fixtures';
 import { bindQueue } from '../bind-queue';
 import { defineQueue } from '../define-queue';
 import { queueKeys } from '../keys';
@@ -9,6 +14,7 @@ import { renew } from './renew';
 import { complete, fail } from './settle';
 
 const servers = useRedis();
+const channelLog = useChannelLog();
 const keys = queueKeys('mails');
 const client = () => servers.redis.client;
 const send = (...args: string[]) => client().send(args[0] ?? '', args.slice(1));
@@ -33,6 +39,7 @@ describe('complete', () => {
 			mailQueue,
 			'a',
 			'0'.repeat(32),
+			undefined,
 			false,
 		);
 		expect(reply.settled).toBe(false);
@@ -49,6 +56,7 @@ describe('complete', () => {
 			mailQueue,
 			'ghost',
 			'a',
+			undefined,
 			false,
 		);
 		expect(reply.settled).toBe(false);
@@ -63,6 +71,7 @@ describe('complete', () => {
 			mailQueue,
 			'a',
 			job.token,
+			undefined,
 			false,
 		);
 		expect(reply).toEqual({
@@ -87,7 +96,7 @@ describe('complete', () => {
 		});
 		for (const id of ['a', 'b', 'c']) {
 			const job = await take(id, queue as never);
-			await complete(client(), keys, queue, id, job.token, false);
+			await complete(client(), keys, queue, id, job.token, undefined, false);
 			await Bun.sleep(5);
 		}
 		expect(await send('ZCARD', keys.completed)).toBe(2);
@@ -103,10 +112,18 @@ describe('complete', () => {
 			keepCompleted: { age: 50, count: 100 },
 		});
 		const old = await take('old', queue as never);
-		await complete(client(), keys, queue, 'old', old.token, false);
+		await complete(client(), keys, queue, 'old', old.token, undefined, false);
 		await Bun.sleep(80);
 		const fresh = await take('fresh', queue as never);
-		await complete(client(), keys, queue, 'fresh', fresh.token, false);
+		await complete(
+			client(),
+			keys,
+			queue,
+			'fresh',
+			fresh.token,
+			undefined,
+			false,
+		);
 		expect(await send('EXISTS', keys.job('old'))).toBe(0);
 		expect(await send('ZSCORE', keys.completed, 'old')).toBeNull();
 		expect(await send('ZCARD', keys.completed)).toBe(1);
@@ -123,7 +140,7 @@ describe('complete', () => {
 			keepCompleted: { age: 1000, count: 1000 },
 		});
 		const job = await take('fresh', queue as never);
-		await complete(client(), keys, queue, 'fresh', job.token, false);
+		await complete(client(), keys, queue, 'fresh', job.token, undefined, false);
 		expect(await send('ZCARD', keys.completed)).toBe(130 + 1 - 100);
 	});
 
@@ -134,7 +151,15 @@ describe('complete', () => {
 			keepCompleted: false,
 		});
 		const job = await take('a', queue as never);
-		const reply = await complete(client(), keys, queue, 'a', job.token, false);
+		const reply = await complete(
+			client(),
+			keys,
+			queue,
+			'a',
+			job.token,
+			undefined,
+			false,
+		);
 		expect(reply.settled).toBe(true);
 		expect(await send('EXISTS', keys.job('a'))).toBe(0);
 		expect(await send('ZCARD', keys.completed)).toBe(0);
@@ -153,6 +178,7 @@ describe('complete', () => {
 			mailQueue,
 			'a',
 			first?.token ?? '',
+			undefined,
 			true,
 		);
 		expect(await scriptCalls(client())).toBe(before + 1);
@@ -167,7 +193,15 @@ describe('complete', () => {
 		await bound.add(to('a'), { id: 'a' });
 		await bound.add(to('b'), { id: 'b' });
 		const first = (await claim(client(), keys, 1, 30_000)).jobs[0];
-		const reply = await complete(client(), keys, mailQueue, 'a', 'nope', true);
+		const reply = await complete(
+			client(),
+			keys,
+			mailQueue,
+			'a',
+			'nope',
+			undefined,
+			true,
+		);
 		expect(reply.settled).toBe(false);
 		expect(reply.jobs.map((j) => j.id)).toEqual(['b']);
 		expect(reply.next).toBe(-1);
@@ -205,7 +239,7 @@ describe('complete', () => {
 			keepCompleted: false,
 		});
 		const job = await take('a', queue as never);
-		await complete(client(), keys, queue, 'a', job.token, false);
+		await complete(client(), keys, queue, 'a', job.token, undefined, false);
 		expect(await send('EXISTS', keys.job('older'))).toBe(0);
 		expect(await send('ZCARD', keys.completed)).toBe(0);
 	});
@@ -414,5 +448,125 @@ describe('renew', () => {
 
 	test('renew with no entries returns nothing', async () => {
 		expect(await renew(client(), keys, 30_000, [])).toEqual([]);
+	});
+});
+
+describe('published outcomes', () => {
+	const listen = () => channelLog(client(), keys.events);
+
+	test('COMPLETE stores the result and publishes it once settled', async () => {
+		const log = await listen();
+		const job = await take('a');
+		const reply = await complete(
+			client(),
+			keys,
+			mailQueue,
+			'a',
+			job.token,
+			'{"messageId":"m1"}',
+			false,
+		);
+		expect(reply.settled).toBe(true);
+		expect(await hget('a', 'result')).toBe('{"messageId":"m1"}');
+		expect(await log.published()).toEqual([
+			{ type: 'completed', id: 'a', result: { messageId: 'm1' } },
+		]);
+	});
+
+	test('the published result is the stored JSON, lossless and not a string of it', async () => {
+		const log = await listen();
+		const job = await take('a');
+		const result =
+			'{"list":[],"empty":{},"n":0.30000000000000004,"big":12345678901234567,"s":"a\\"b/c"}';
+		await complete(client(), keys, mailQueue, 'a', job.token, result, false);
+		await log.published();
+		expect(log.messages[0]).toBe(
+			`{"type":"completed","id":"a","result":${result}}`,
+		);
+	});
+
+	test('a COMPLETE without a result stores and publishes none', async () => {
+		const log = await listen();
+		const job = await take('a');
+		await complete(client(), keys, mailQueue, 'a', job.token, undefined, false);
+		expect(await hget('a', 'result')).toBeNull();
+		expect(await log.published()).toEqual([{ type: 'completed', id: 'a' }]);
+	});
+
+	test('keepCompleted false drops the hash, and the result is still published', async () => {
+		const log = await listen();
+		const queue = defineQueue({
+			name: 'mails',
+			schema: z.object({ to: z.string() }),
+			keepCompleted: false,
+		});
+		const job = await take('a', queue as never);
+		await complete(client(), keys, queue, 'a', job.token, '7', false);
+		expect(await send('EXISTS', keys.job('a'))).toBe(0);
+		expect(await log.published()).toEqual([
+			{ type: 'completed', id: 'a', result: 7 },
+		]);
+	});
+
+	test('a COMPLETE with a stale token publishes nothing', async () => {
+		const log = await listen();
+		await take('a');
+		const reply = await complete(
+			client(),
+			keys,
+			mailQueue,
+			'a',
+			'0'.repeat(32),
+			'1',
+			false,
+		);
+		expect(reply.settled).toBe(false);
+		expect(await hget('a', 'result')).toBeNull();
+		expect(await log.published()).toEqual([]);
+	});
+
+	test('FAIL publishes only the final failure', async () => {
+		const log = await listen();
+		const first = await take('a');
+		const retried = await fail(
+			client(),
+			keys,
+			mailQueue,
+			'a',
+			first.token,
+			boundary,
+			0,
+			false,
+		);
+		expect(retried.final).toBe(false);
+		expect(await log.published()).toEqual([]);
+		const again = (await claim(client(), keys, 1, 30_000)).jobs[0];
+		if (!again) throw new Error('the retry was not claimed');
+		const stale = await fail(
+			client(),
+			keys,
+			mailQueue,
+			'a',
+			first.token,
+			boundary,
+			null,
+			false,
+		);
+		expect(stale.settled).toBe(false);
+		expect(await log.published()).toEqual([]);
+		const last = await fail(
+			client(),
+			keys,
+			mailQueue,
+			'a',
+			again.token,
+			boundary,
+			null,
+			false,
+		);
+		expect(last.final).toBe(true);
+		expect(await log.published()).toEqual([
+			{ type: 'failed', id: 'a', error: boundary },
+		]);
 	});
 });

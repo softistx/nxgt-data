@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import { z } from 'zod';
 import { mailQueue, useRedis } from '../../../test/fixtures';
 import { bindQueue } from '../bind-queue';
+import { defineQueue } from '../define-queue';
 import { queueKeys } from '../keys';
 import { claim } from './claim';
 
@@ -13,6 +15,29 @@ const hget = (id: string, field: string) => client().hget(keys.job(id), field);
 const mails = () => bindQueue(client(), mailQueue);
 
 describe('claim', () => {
+	test('ADD stores timeout, CLAIM returns it', async () => {
+		const timed = bindQueue(
+			client(),
+			defineQueue({
+				name: 'mails',
+				schema: z.object({ to: z.string() }),
+				timeout: '10s',
+			}),
+		);
+		await timed.add(to('queue'), { id: 'queue' });
+		await timed.add(to('job'), { id: 'job', timeout: '2s' });
+		await mails().add(to('none'), { id: 'none' });
+		expect(await hget('queue', 'timeout')).toBe('10000');
+		expect(await hget('job', 'timeout')).toBe('2000');
+		expect(await hget('none', 'timeout')).toBeNull();
+		const reply = await claim(client(), keys, 5, 30_000);
+		expect(reply.jobs.map((j) => [j.id, j.timeout])).toEqual([
+			['queue', 10_000],
+			['job', 2000],
+			['none', undefined],
+		]);
+	});
+
 	test('claims by priority, sets active with a lease from the server clock', async () => {
 		await mails().add(to('low'), { id: 'low', priority: 5 });
 		await mails().add(to('urgent'), { id: 'urgent', priority: 0 });

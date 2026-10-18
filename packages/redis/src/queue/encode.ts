@@ -74,6 +74,8 @@ export type ResolvedAdd = {
 	delayMs: number;
 	/** `-1` when the job has no `at`. */
 	atMs: number;
+	/** The job's own `timeout`, in ms; `undefined` leaves it to the queue's. */
+	timeoutMs: number | undefined;
 };
 
 const MAX_ID = 256;
@@ -90,11 +92,12 @@ export function resolveAdd(
 	call: string,
 	queue: string,
 ): ResolvedAdd {
-	const { id, priority, delay, at } = (options ?? {}) as {
+	const { id, priority, delay, at, timeout } = (options ?? {}) as {
 		id?: unknown;
 		priority?: unknown;
 		delay?: unknown;
 		at?: unknown;
+		timeout?: unknown;
 	};
 	const refuse = (what: string): never => {
 		throw new TypeError(`${call} on "${queue}": ${what}`);
@@ -140,10 +143,20 @@ export function resolveAdd(
 			delayMs = ms;
 		}
 	}
+	let timeoutMs: number | undefined;
+	if (timeout !== undefined) {
+		timeoutMs = durationMs(timeout);
+		if (timeoutMs === undefined || timeoutMs < 1) {
+			refuse(
+				"timeout is at least 1 millisecond, as a whole number or a string such as '10m'",
+			);
+		}
+	}
 	return {
 		id: (id as string | undefined) ?? Bun.randomUUIDv7(),
 		priority: (priority as number | undefined) ?? 0,
 		delayMs,
 		atMs: at instanceof Date ? Math.max(0, at.getTime()) : -1,
+		timeoutMs,
 	};
 }

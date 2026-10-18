@@ -21,5 +21,7 @@ export function queueKeys(name: string) {
 		seq: `${base}seq`,
 		/** The list an idle worker blocks on until work arrives. */
 		wake: `${base}wake`,
+		/** The pub/sub channel the final outcomes of jobs are published on. */
+		events: `${base}events`,
 	};
 }

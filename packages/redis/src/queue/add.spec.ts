@@ -127,7 +127,11 @@ describe('add', () => {
 		const priority = 'priority is a whole number from 0 to 1000';
 		const delay =
 			"delay is a whole number of milliseconds or a string such as '10m'";
+		const timeout =
+			"timeout is at least 1 millisecond, as a whole number or a string such as '10m'";
 		const bad: [string, Record<string, unknown>][] = [
+			[timeout, { timeout: 0 }],
+			[timeout, { timeout: 'soon' }],
 			['at is a valid Date', { at: new Date('nope') }],
 			[priority, { priority: 1001 }],
 			[priority, { priority: -1 }],

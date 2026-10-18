@@ -60,6 +60,7 @@ export function bindQueue<
 					definition.attempts,
 					options.delayMs,
 					options.atMs,
+					options.timeoutMs ?? definition.timeout ?? -1,
 				);
 			}
 			const reply = (await runScript(
