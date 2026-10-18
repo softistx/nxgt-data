@@ -1,0 +1,105 @@
+/** A job a claim handed out: the stored payload, as JSON, and the token that proves it is held. */
+export type ClaimedJob = {
+	id: string;
+	/** The stored JSON; the caller parses it through the schema. */
+	data: string;
+	/** This run, counting from 1: the claim already counted it. */
+	attempt: number;
+	attempts: number;
+	/** 32 lowercase hex; every settle and renew must present it. */
+	token: string;
+};
+
+/** What the claim part of any script answers. */
+export type ClaimReply = {
+	jobs: ClaimedJob[];
+	/** Jobs whose lease lapsed and were taken back (or failed, when spent). */
+	stalled: string[];
+	/** Jobs found in a shape this package could not have written, now `failed`. */
+	failedInvalid: string[];
+	/** Ms until the first delayed job is due, or `-1` when none is waiting. */
+	next: number;
+};
+
+/*
+ * Redis replies reach here as the RESP3 values Bun decodes: numbers as
+ * numbers, nested arrays as arrays. A reply that is not exactly the shape
+ * the script documents is refused rather than coerced, so a script and its
+ * parser that drift apart fail loudly, in a test, not as a lost job.
+ */
+
+function refuse(what: string): never {
+	throw new Error(`queue script reply not recognised: ${what}`);
+}
+
+function array(value: unknown, what: string): unknown[] {
+	if (!Array.isArray(value)) refuse(`${what} is not an array`);
+	return value;
+}
+
+function text(value: unknown, what: string): string {
+	if (typeof value !== 'string') refuse(`${what} is not a string`);
+	return value;
+}
+
+function whole(value: unknown, what: string): number {
+	if (typeof value !== 'number' || !Number.isFinite(value)) {
+		refuse(`${what} is not a number`);
+	}
+	return value;
+}
+
+function texts(value: unknown, what: string): string[] {
+	return array(value, what).map((item) => text(item, what));
+}
+
+/**
+ * Reads the claim part of a reply: `{jobs, stalled, invalid, next}` found in
+ * `raw` from `from` on. Each job is `{id, data, attempt, attempts, token}`.
+ */
+export function parseClaim(raw: unknown[], from: number): ClaimReply {
+	const jobs = array(raw[from], 'jobs').map((entry): ClaimedJob => {
+		const job = array(entry, 'job');
+		return {
+			id: text(job[0], 'job id'),
+			data: text(job[1], 'job data'),
+			attempt: whole(job[2], 'job attempt'),
+			attempts: whole(job[3], 'job attempts'),
+			token: text(job[4], 'job token'),
+		};
+	});
+	return {
+		jobs,
+		stalled: texts(raw[from + 1], 'stalled'),
+		failedInvalid: texts(raw[from + 2], 'invalid'),
+		next: whole(raw[from + 3], 'next'),
+	};
+}
+
+/** A claim's whole reply. */
+export function parseClaimReply(raw: unknown): ClaimReply {
+	return parseClaim(array(raw, 'reply'), 0);
+}
+
+/** `complete`'s reply: `{settled, jobs, stalled, invalid, next}`. */
+export function parseComplete(raw: unknown): ClaimReply & { settled: boolean } {
+	const parts = array(raw, 'reply');
+	return { settled: whole(parts[0], 'settled') === 1, ...parseClaim(parts, 1) };
+}
+
+/** `fail`'s reply: `{settled, final, jobs, stalled, invalid, next}`. */
+export function parseFail(
+	raw: unknown,
+): ClaimReply & { settled: boolean; final: boolean } {
+	const parts = array(raw, 'reply');
+	return {
+		settled: whole(parts[0], 'settled') === 1,
+		final: whole(parts[1], 'final') === 1,
+		...parseClaim(parts, 2),
+	};
+}
+
+/** `renew`'s reply: the ids that lost their token. */
+export function parseLost(raw: unknown): string[] {
+	return texts(raw, 'lost ids');
+}
