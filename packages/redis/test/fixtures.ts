@@ -128,7 +128,12 @@ export async function subscribed(
 export async function blocked(client: RedisClient, n = 1): Promise<void> {
 	await eventually(async () => {
 		const list = (await client.send('CLIENT', ['LIST'])) as string;
-		return (list.match(/ cmd=blpop /g)?.length ?? 0) >= n;
+		// `cmd` is the last command run, still `blpop` once BLPOP returned;
+		// the `b` flag is set only while the connection really is blocked.
+		const waiting = list
+			.split('\n')
+			.filter((line) => / cmd=blpop /.test(line) && / flags=\S*b/.test(line));
+		return waiting.length >= n;
 	}, true);
 }
 

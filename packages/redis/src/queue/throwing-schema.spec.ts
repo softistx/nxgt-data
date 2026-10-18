@@ -88,7 +88,7 @@ describe('a result schema that throws', () => {
 		// The first read found the job running; the event goes elsewhere, so
 		// only a re-read can tell. keepCompleted is false, but the result is
 		// kept by a definition that keeps it.
-		await eventually(() => spy.reads(), 1);
+		await eventually(() => spy.reads() >= 1, true);
 		await complete(
 			client(),
 			{ ...keys, events: 'queue:{throws}:elsewhere' },
