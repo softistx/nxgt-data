@@ -10,6 +10,7 @@ import {
 	bindRateLimit,
 	defineQueue,
 	type JobContext,
+	JobError,
 	type JobHandle,
 	type JobView,
 	publish,
@@ -103,3 +104,24 @@ bindQueue(client, loginLimit);
 bindQueue(client, createOrder);
 // @ts-expect-error a channel is not a queue
 bindQueue(client, userCreated);
+
+// A state the queue does not have.
+// @ts-expect-error 'done' is not a state
+queue.list('done');
+
+// JobError says how one failure is retried: give up, or choose a delay.
+new JobError('x');
+new JobError('x', { retry: false });
+new JobError('x', { retryIn: '10m' });
+// @ts-expect-error `retry: true` is what leaving it out already means
+new JobError('x', { retry: true });
+// @ts-expect-error '10min' is not a unit
+new JobError('x', { retryIn: '10min' });
+// @ts-expect-error giving up and choosing a delay say opposite things
+new JobError('x', { retry: false, retryIn: '1s' });
+
+// @ts-expect-error `grace` is not an option of `work`
+queue.work(() => undefined, { grace: 1 });
+
+// @ts-expect-error every item's payload is checked, as `add`'s is
+queue.addMany([{ data: { to: 1 } }]);

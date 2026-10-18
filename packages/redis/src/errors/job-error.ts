@@ -7,6 +7,9 @@ import { type Duration, toMs } from '../queue/duration';
  * - `new JobError(message)`: retry as the backoff says.
  * - `{ retry: false }`: fail the job for good, whatever attempts remain.
  * - `{ retryIn }`: retry after that long instead of the backoff's delay.
+ *
+ * The two options exclude each other, in the types: giving up and choosing a
+ * delay say opposite things.
  */
 export class JobError extends Error {
 	/** `false` when the handler gave up on the job. */
@@ -16,7 +19,9 @@ export class JobError extends Error {
 
 	constructor(
 		message: string,
-		options?: { retry: false } | { retryIn: Duration },
+		options?:
+			| { retry: false; retryIn?: never }
+			| { retryIn: Duration; retry?: never },
 	) {
 		super(message);
 		this.name = 'JobError';
