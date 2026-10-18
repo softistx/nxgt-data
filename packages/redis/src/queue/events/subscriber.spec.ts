@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { RedisClient } from 'bun';
 import { eventually, gate, useRedis } from '../../../test/fixtures';
-import { listen } from './subscriber';
+import { flush, listen } from './subscriber';
 
 const servers = useRedis();
 const client = () => servers.redis.client;
@@ -198,5 +198,32 @@ describe('the shared subscriber', () => {
 		release.open();
 		const settled = await Promise.allSettled([first, second]);
 		expect(settled.map((s) => s.status)).toEqual(['fulfilled', 'fulfilled']);
+	});
+
+	test('flush resolves with no connection open, and once a published message has been heard', async () => {
+		await flush(client());
+		const got: string[] = [];
+		const off = await listen(client(), 'queue:{a}:events', (m) => got.push(m));
+		await client().publish('queue:{a}:events', 'before');
+		await flush(client());
+		expect(got).toEqual(['before']);
+		await off();
+	});
+
+	test('flush never rejects, even when the PING fails', async () => {
+		const failing = {
+			duplicate: async () => ({
+				connect: async () => {},
+				subscribe: async () => {},
+				unsubscribe: async () => {},
+				send: async () => {
+					throw new Error('gone');
+				},
+				close: () => {},
+			}),
+		} as unknown as RedisClient;
+		const off = await listen(failing, 'queue:{a}:events', () => {});
+		await flush(failing);
+		await off();
 	});
 });

@@ -841,7 +841,7 @@ try {
 ### `finished on "mails": job "receipt:42" is not in the queue`
 
 **When:** `finished()` rejects with code `NOT_FOUND`.
-**Why:** the job is not stored: it was never added, was removed, or is gone because `keepCompleted: false` (or a count or age) trimmed it before `finished` read it. A job canceled while its event was missed also reads as absent, and ends here rather than as `CANCELED`. An absent job is believed only after two re-reads in a row, to leave a completed job's event time to land.
+**Why:** the job is not stored: it was never added, was removed, or is gone because `keepCompleted: false` (or a count or age) trimmed it before `finished` read it. With `keepCompleted: false` this can also happen during the wait: a job that completes is deleted at once, so if its event is missed, the re-reads find nothing and the wait ends here instead of with the result. A job canceled while its event was missed also reads as absent, and ends here rather than as `CANCELED`. A job that completes or is canceled just as `finished` starts is not this case: `finished` lets an event already on its way land before it believes the first read. An absent job found by a later re-read is believed only after two re-reads in a row, to leave a completed job's event time to land.
 **Fix:** wait on the handle `add` returned, before the job can be trimmed, and keep completed jobs long enough for a late reader.
 
 ```ts

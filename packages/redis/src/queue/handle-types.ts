@@ -12,8 +12,10 @@ export type JobHandle<R extends z.ZodType | undefined = undefined> = {
 	 * `timeout` is given.
 	 *
 	 * A job that is not in the queue is `NOT_FOUND`: that includes one with
-	 * `keepCompleted: false` that finished before the call, and a canceled job
-	 * whose event was missed (the cancel deletes it).
+	 * `keepCompleted: false` that finished before the call, or during the wait
+	 * with its event missed (it is deleted as it completes), and a canceled job
+	 * whose event was missed (the cancel deletes it). An outcome published just
+	 * as the call starts is heard, not read as absent.
 	 *
 	 * @throws QueueError `FAILED` when the job fails for good, `CANCELED` when
 	 * it is canceled, `NOT_FOUND` when the job is not in the queue, `INVALID`

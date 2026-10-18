@@ -4,7 +4,7 @@ import { QueueError } from '../errors/queue-error';
 import { durationMs } from './duration';
 import { decodeResult } from './encode';
 import { parseEvent } from './events/message';
-import { listen } from './events/subscriber';
+import { flush, listen } from './events/subscriber';
 import type { JobHandle } from './handle-types';
 import type { queueKeys } from './keys';
 import type { ResultOf } from './result-types';
@@ -186,7 +186,13 @@ async function waitFinished(
 				() => undefined,
 			);
 		}, waiting.rereadMs);
-		apply(await readStored(client, keys, id));
+		const first = await readStored(client, keys, id);
+		// A job settled and deleted between the SUBSCRIBE and this read (a
+		// cancel, or a complete with keepCompleted false) reads absent while its
+		// event is still on the subscriber's socket: the PING there lets it land
+		// first, and an outcome heard settles `done` before absent can.
+		if (first?.kind === 'absent') await flush(client);
+		apply(first);
 		return await done;
 	} finally {
 		clearTimeout(timer);

@@ -144,3 +144,20 @@ export async function listen(
 	}
 	return unlisten;
 }
+
+/**
+ * Waits until every message already on its way to the client's subscriber
+ * connection has reached the listeners: one `PING` on that connection, whose
+ * reply Redis queues after any push it published before the `PING` ran. A
+ * publish made before a command the caller already saw answered is
+ * therefore heard by the time this resolves. With no connection open there
+ * is nothing in flight. It never rejects: a failed `PING` resolves too, and
+ * the caller goes on with what it knew.
+ */
+export async function flush(client: RedisClient): Promise<void> {
+	const state = shared.get(client);
+	if (!state) return;
+	try {
+		await (await state.connection).send('PING', []);
+	} catch {}
+}
