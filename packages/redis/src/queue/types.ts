@@ -115,10 +115,7 @@ export type Worker = {
 	[Symbol.asyncDispose](): Promise<void>;
 };
 
-/**
- * A queue bound to a client. It grows with the queue's tasks: `work` and the
- * inspection calls arrive with theirs.
- */
+/** A queue bound to a client. */
 export type BoundQueue<S extends z.ZodType> = {
 	readonly definition: QueueDefinition<S>;
 	/**
@@ -145,4 +142,34 @@ export type BoundQueue<S extends z.ZodType> = {
 	 * @throws TypeError for a malformed option.
 	 */
 	work(handler: (job: JobContext<S>) => unknown, options?: WorkOptions): Worker;
+	/** One job as it is stored, or `undefined` when there is none. */
+	get(id: string): Promise<JobView<S> | undefined>;
+	/**
+	 * One page of the jobs in `state`. `waiting`, `delayed` and `active` come
+	 * oldest first, in the order they will be taken; `completed` and `failed`
+	 * newest first. A job removed while the page is read is left out, so a
+	 * page may be shorter than `limit`.
+	 *
+	 * @param page - `offset` from 0, default 0; `limit` from 1 to 1000, default 50.
+	 * @throws TypeError for an `offset` or `limit` out of range.
+	 */
+	list(
+		state: JobState,
+		page?: { offset?: number; limit?: number },
+	): Promise<JobView<S>[]>;
+	/** How many jobs are in each state, from one script. */
+	counts(): Promise<QueueCounts>;
+	/**
+	 * Puts a failed job back to `waiting`: its attempts start again from 0 and
+	 * its last error is cleared.
+	 *
+	 * @throws QueueError `NOT_FOUND` when the job is not failed.
+	 */
+	retry(id: string): Promise<void>;
+	/**
+	 * Deletes a job in any state but `active`.
+	 *
+	 * @throws QueueError `ACTIVE` for a running job, `NOT_FOUND` for none.
+	 */
+	remove(id: string): Promise<void>;
 };

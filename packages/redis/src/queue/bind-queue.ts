@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import { runScript } from '../scripts/run-script';
 import { checkQueue } from './define-queue';
 import { encodeData, resolveAdd } from './encode';
+import { countJobs, getJob, listJobs, removeJob, retryJob } from './inspect';
 import { queueKeys } from './keys';
 import { ADD } from './scripts/add';
 import type {
@@ -84,6 +85,11 @@ export function bindQueue<S extends z.ZodType>(
 			return handle;
 		},
 		addMany,
+		get: (id) => getJob(client, keys, definition, id),
+		list: (state, page) => listJobs(client, keys, definition, state, page),
+		counts: () => countJobs(client, keys),
+		retry: (id) => retryJob(client, keys, definition, id),
+		remove: (id) => removeJob(client, keys, definition, id),
 		work(handler, options) {
 			return startWorker(
 				client,
