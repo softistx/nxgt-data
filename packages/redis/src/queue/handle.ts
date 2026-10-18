@@ -140,7 +140,7 @@ async function waitFinished(
 						reject(failure(waiting, 'WAIT_TIMEOUT', 'did not finish in time')),
 					timeoutMs,
 				);
-	const leave = trackWait(waiting.life, () =>
+	const leave = trackWait(waiting.life, client, () =>
 		reject(failure(waiting, 'CLOSED', 'was pending when the Redis closed')),
 	);
 	let poll: ReturnType<typeof setInterval> | undefined;

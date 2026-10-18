@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { gate, settled, useRedis } from '../../test/fixtures';
+import { gate, settled, subscribed, useRedis } from '../../test/fixtures';
 import { rejection } from '../../test/rejection';
 import * as queues from '../../test/wiring/queues';
 import type { QueueError } from '../errors/queue-error';
@@ -50,6 +50,30 @@ describe('closing a Redis with queues', () => {
 		const job = await redis.queues.mails.get(handle.id);
 		expect(job?.state).toBe('completed');
 		expect(job?.result).toEqual({ messageId: 'm1' });
+	});
+
+	test('a finished pending when its job completes during the grace resolves with the result, never CLOSED', async () => {
+		const redis = track(await openRedis(handed()));
+		const started = gate();
+		const release = gate();
+		redis.queues.mails.work(async () => {
+			started.open();
+			await release.opened;
+			return { messageId: 'm1' };
+		});
+		const handle = await redis.queues.mails.add(to('a@b.c'));
+		await started.opened;
+		const order: string[] = [];
+		const finished = settled(handle.finished()).then((outcome) => {
+			order.push('finished');
+			return outcome;
+		});
+		await subscribed(client(), 'queue:{mails}:events');
+		const closing = redis.close().then(() => order.push('closed'));
+		release.open();
+		await closing;
+		expect(await finished).toEqual({ value: { messageId: 'm1' } });
+		expect(order).toEqual(['finished', 'closed']);
 	});
 
 	test('redis.close({ grace: 50 }) aborts a job that ignores its signal with CLOSED, and resolves', async () => {

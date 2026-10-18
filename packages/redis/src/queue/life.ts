@@ -1,4 +1,6 @@
+import type { RedisClient } from 'bun';
 import { QueueError } from '../errors/queue-error';
+import { flush } from './events/subscriber';
 import { clampTimeout, RELEASE_MS } from './timers';
 import type { Worker } from './worker/types';
 
@@ -17,6 +19,8 @@ export interface QueueLife {
 	readonly workers: Set<Worker>;
 	/** One promise per pending `finished`, settled once it has unlistened. */
 	readonly waits: Set<Promise<void>>;
+	/** The clients pending `finished` calls listen through: flushed before they are ended. */
+	readonly clients: Set<RedisClient>;
 	/** Aborts when the refusal phase begins: pending `finished` calls reject. */
 	readonly closed: AbortController;
 	/** The promise of {@link closeLife}, once it ran: a second call returns it. */
@@ -29,6 +33,7 @@ export function openLife(): QueueLife {
 		state: 'open',
 		workers: new Set(),
 		waits: new Set(),
+		clients: new Set(),
 		closed: new AbortController(),
 	};
 }
@@ -83,6 +88,7 @@ export function trackWorker(life: QueueLife, worker: Worker): Worker {
  */
 export function trackWait(
 	life: QueueLife | undefined,
+	client: RedisClient,
 	onClosed: () => void,
 ): (unlistened: Promise<void>) => void {
 	if (!life) return () => undefined;
@@ -91,6 +97,7 @@ export function trackWait(
 		settle = resolve;
 	});
 	life.waits.add(wait);
+	life.clients.add(client);
 	const { signal } = life.closed;
 	signal.addEventListener('abort', onClosed, { once: true });
 	return (unlistened) => {
@@ -107,14 +114,17 @@ async function closeOne(worker: Worker, grace: number | undefined) {
 	await worker.close(grace === undefined ? undefined : { grace });
 }
 
-/** Resolves once `waits` all settled, or after {@link RELEASE_MS}: the timer never outlives the call. */
-async function released(waits: readonly Promise<void>[]): Promise<void> {
+/**
+ * Resolves once `work` did, or after {@link RELEASE_MS}: the timer never
+ * outlives the call, and a connection that never answers cannot hang a close.
+ */
+async function within(work: Promise<unknown>): Promise<void> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const expired = new Promise<void>((resolve) => {
 		timer = setTimeout(resolve, clampTimeout(RELEASE_MS));
 	});
 	try {
-		await Promise.race([Promise.all(waits).then(() => undefined), expired]);
+		await Promise.race([work.then(() => undefined), expired]);
 	} finally {
 		clearTimeout(timer);
 	}
@@ -127,8 +137,14 @@ async function run(life: QueueLife, grace: number | undefined): Promise<void> {
 	);
 	life.workers.clear();
 	life.state = 'closed';
+	// A job that completed during the grace published its event before this
+	// point: the PING on each subscriber answers after those pushes, so the
+	// pending `finished` that waits for it resolves instead of being ended.
+	if (life.waits.size > 0) {
+		await within(Promise.all([...life.clients].map((client) => flush(client))));
+	}
 	life.closed.abort();
-	await released([...life.waits]);
+	await within(Promise.all([...life.waits]));
 	const failed = results.find((result) => result.status === 'rejected');
 	if (failed) throw failed.reason;
 }
