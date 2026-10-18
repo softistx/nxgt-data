@@ -1285,8 +1285,9 @@ export const users = defineCache({ name: 'user', key: (id: string) => id, ttl: 3
 // src/redis/index.ts
 import * as caches from './caches';
 import * as channels from './channels';
+import * as queues from './queues';
 
-export const config = defineRedis({ uri, caches, channels, limits, idempotency });
+export const config = defineRedis({ uri, caches, channels, limits, idempotency, queues });
 ```
 
 Anything else in those modules — a schema, a type, a constant — is skipped,
@@ -1502,7 +1503,7 @@ export const mails = defineQueue({ name: 'mail.jobs', schema });
 `}` on an instance that wires `queues`. An instance without queues keeps
 accepting any prefix.
 **Why:** a queue's storage name, prefix included, is the hash tag of its keys
-(`queue:{<prefix><name>}:…`), so a brace in the prefix would split the tag and
+(`queue:{<prefix>:<name>}:…`), so a brace in the prefix would split the tag and
 the keys would no longer share one cluster slot.
 **Fix:** drop the braces from the prefix:
 

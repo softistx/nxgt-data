@@ -37,10 +37,11 @@ redis.cache === redis.instances.default.cache;        // true
 redis.channels === redis.instances.default.channels;  // true
 redis.limits === redis.instances.default.limits;      // true
 redis.idempotency === redis.instances.default.idempotency;  // true
+redis.queues === redis.instances.default.queues;  // true
 redis.clients.default === redis.instances.default.client;  // true
 ```
 
-`redis.cache`, `redis.channels`, `redis.limits` and `redis.idempotency` are the shortcut; the long way is always
+`redis.cache`, `redis.channels`, `redis.limits`, `redis.idempotency` and `redis.queues` are the shortcut; the long way is always
 there, and it is what a helper written over any configuration uses.
 
 ## What is on an instance
@@ -51,6 +52,7 @@ there, and it is what a helper written over any configuration uses.
 | `channels` | `ChannelScope` | the channels, likewise |
 | `limits` | `LimitScope` | the [rate limits](guards.md), likewise, under this instance's prefix |
 | `idempotency` | `IdempotencyScope` | the [idempotent operations](guards.md), likewise |
+| `queues` | `QueueScope` | the [queues](../queues.md), likewise, under this instance's prefix |
 | `client` | `RedisClient` | Bun's own client, for a command the wiring does not wrap |
 | `prefix` | `string \| undefined` | what goes in front of every key it writes |
 | `lock(key, work, options?)` | `Promise<T>` | `withLock` on a key this instance's prefix is in front of |
@@ -237,12 +239,14 @@ interface Redis<C> extends AsyncDisposable {
 	readonly channels: SoleChannels<C>;
 	readonly limits: SoleLimits<C>;
 	readonly idempotency: SoleIdempotency<C>;
+	readonly queues: SoleQueues<C>;
 	readonly instances: {
 		readonly [N in InstanceName<C>]: InstanceScope<
 			CachesIn<C, N>,
 			ChannelsIn<C, N>,
 			LimitsIn<C, N>,
-			IdempotencyIn<C, N>
+			IdempotencyIn<C, N>,
+			QueuesIn<C, N>
 		>;
 	};
 	readonly clients: { readonly [N in InstanceName<C>]: RedisClient };
@@ -258,7 +262,7 @@ same for every request and is never derived. That is also why `close()`
 always belongs to the one you are holding.
 
 `SoleInstance<C>` is the only instance's whole scope, and `SoleCache<C>`,
-`SoleChannels<C>`, `SoleLimits<C>` and `SoleIdempotency<C>` are its parts put at the top level; all of them are
+`SoleChannels<C>`, `SoleLimits<C>`, `SoleIdempotency<C>` and `SoleQueues<C>` are its parts put at the top level; all of them are
 `never` when it holds more than one instance. `InstanceScope`,
-`CacheScope`, `ChannelScope`, `LimitScope`, `IdempotencyScope` and `BoundChannel` are exported for an
+`CacheScope`, `ChannelScope`, `LimitScope`, `IdempotencyScope`, `QueueScope` and `BoundChannel` are exported for an
 application that names them in its own signatures.

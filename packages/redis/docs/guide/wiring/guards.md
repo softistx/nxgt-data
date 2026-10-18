@@ -126,4 +126,5 @@ redis.limits.users;                                 // a cache is not wired on `
 With several instances `redis.limits` and `redis.idempotency` are `never`, as
 `redis.cache` is: read `redis.instances.<name>.limits.login`.
 `LimitScope`, `IdempotencyScope`, `SoleLimits` and `SoleIdempotency` are
-exported for an application that names them.
+exported for an application that names them, as are `QueueScope` and `SoleQueues`
+for the [queues](../queues.md).

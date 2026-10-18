@@ -464,13 +464,13 @@ results** — see [the guards' wiring page](docs/guide/wiring/guards.md).
 | `client` | — | A client the application opened. **Never closed** by `openRedis` |
 | `clientOptions` | `{}` | Bun's `RedisOptions`, passed with `uri`. Refused beside `client` |
 | `prefix` | — | Put in front of every key, channel, lock, rate-limit key and idempotency key this instance writes |
-| `caches`, `channels`, `limits`, `idempotency` | — | `import * as caches from './caches'`, as it is |
+| `caches`, `channels`, `limits`, `idempotency`, `queues` | — | `import * as caches from './caches'`, as it is |
 | `instances` | — | Several Redis instances, each taking the keys above. Written *instead* of them |
 
 `defineRedis` **connects to nothing and reads no environment variable**; what
 is wrong with the wiring throws there, where the application starts. A single
 instance is named `default`; with several, `redis.cache` and `redis.channels`
-are `never` (as are `redis.limits` and `redis.idempotency`) and `redis.instances.<name>` says which, as does `{ on: 'cache' }`
+are `never` (as are `redis.limits`, `redis.idempotency` and `redis.queues`) and `redis.instances.<name>` says which, as does `{ on: 'cache' }`
 on `redis.lock`.
 
 ```ts
@@ -482,6 +482,11 @@ await redis.close();                                  // or `await using redis =
 `close()` closes every subscription the wiring started and then the clients it
 opened, in that order; a `client` the configuration handed in is left alone.
 `RedisOf<typeof config>` writes the type of the result from the configuration.
+The scopes are exported for code that names them: `InstanceScope`, `CacheScope`,
+`ChannelScope`, `LimitScope`, `IdempotencyScope` and `QueueScope`, with their
+top-level forms `SoleInstance`, `SoleCache`, `SoleChannels`, `SoleLimits`,
+`SoleIdempotency` and `SoleQueues`, and `BoundChannel`, `PayloadOf`, `Redis` and
+`RedisLockOptions`.
 The wiring raises a bare `TypeError` naming the instance and what to do — all
 at wiring time — and what a call throws is the `RedisError` of the next
 sections. Every message is in
@@ -623,9 +628,10 @@ with. Each subscription is one more connection.
 | `defineQueue({ name, schema, result?, attempts?, backoff?, lease?, keepCompleted?, keepFailed?, timeout? })` | describes a queue; talks to nothing. Frozen, every `Duration` resolved to milliseconds. Refuses a definition that could never work with a `TypeError` |
 | `bindQueue(client, definition)` | binds it to a `RedisClient`: `definition` (read-only), `add(data, { id?, priority?, timeout?, delay? \| at? })` (a `JobHandle`: `id`, `deduplicated`, `finished({ timeout? })`, `cancel()`), `addMany(items)`, `work(handler, { concurrency? })` (the handler's `job` has `id`, `data`, `attempt`, `attempts`, `signal`, `progress(value)`, `step(name, fn, { schema? })` and `key(name)`; a `Worker`: `close({ grace? })`, `idle()`, `on(event, listener)`), `get(id)`, `list(state, { offset?, limit? })`, `counts()`, `retry(id)`, `remove(id)` and `cancel(id)`. Bound by hand: no prefix, never `CLOSED` |
 | `defineRedis({ queues })` | wires every queue of the module as `redis.queues.<key>`, under the deployment's prefix (keys `queue:{<prefix>:<name>}:…`, `job.key(name)` as `<prefix>:<queue>:<id>:<name>`), built on first read |
-| `redis.close({ grace? })` | closes the queues' workers with `grace` (default 30 s), then refuses `add`, `addMany`, `finished` with `CLOSED` and rejects pending `finished`; admin calls still pass. Memoised: a second call's `grace` is ignored; a malformed one rejects before anything closes |
+| `redis.close({ grace? })` | closes the queues' workers with `grace` (default 30 s), then refuses `add`, `addMany`, `finished` and `work` with `CLOSED` and rejects pending `finished`; admin calls still pass. Memoised: a second call's `grace` is ignored; a malformed one rejects before anything closes |
 
 The types are `QueueDefinition`, `QueueInput`, `BoundQueue`, `Worker`, `WorkerEvents`, `WorkOptions`, `JobContext`, `StepOptions`, `Handler`, `JobHandle`, `AddOptions`, `JobView`, `JobState`, `QueueCounts`, `ResultOf`, `ResultInputOf` and `Duration`; `JobError` is what a handler throws to choose its retry.
+Wired, `QueueScope` is `redis.queues`, `SoleQueues` its top-level form, and `QueuesOf` and `QueuesIn` read the queues off a configuration.
 See the [queue guide](docs/guide/queues.md) and its [durable steps](docs/guide/queues.md#running-twice).
 
 ## Errors

@@ -29,7 +29,7 @@ the first `get`. [`openRedis`](instances.md) is what connects.
 
 ## What gets wired
 
-`caches`, `channels`, `limits` and `idempotency` are module objects, the ones
+`caches`, `channels`, `limits`, `idempotency` and `queues` are module objects, the ones
 `import * as` gives:
 
 ```ts
@@ -105,10 +105,11 @@ the refusal is about one definition under two keys.
 | `channels` | module object | — | `import * as channels from './channels'` |
 | `limits` | module object | — | `import * as limits from './limits'`: every `defineRateLimit`; any other export is skipped |
 | `idempotency` | module object | — | `import * as idempotency from './idempotency'`: every `defineIdempotency`. Likewise |
+| `queues` | module object | — | `import * as queues from './queues'`: every `defineQueue`. Likewise |
 | `instances` | `Record<string, …>` | — | Several Redis instances, each taking the keys above. Written *instead* of them |
 
 An instance needs a `uri` **or** a `client`, and wires at least one cache,
-channel, rate limit or idempotency — an instance with nothing on it is a leftover, not a
+channel, rate limit, idempotency or queue — an instance with nothing on it is a leftover, not a
 configuration. An option this table does not list does not compile.
 
 ### `client`: a Redis the application already opened
@@ -237,5 +238,5 @@ the inferred type. It is internal, and nothing has to name it.
 
 `RedisConfig`, `RedisConfigInput`, `InstanceConfig`, `InstanceName`,
 `InstancesOf`, `CachesIn`, `ChannelsIn`, `LimitsIn`, `IdempotencyIn`,
-`CachesOf`, `ChannelsOf`, `LimitsOf` and `IdempotencyOf` are
+`CachesOf`, `ChannelsOf`, `LimitsOf`, `IdempotencyOf`, `QueuesIn` and `QueuesOf` are
 exported for an application that writes its own helper over a configuration.
