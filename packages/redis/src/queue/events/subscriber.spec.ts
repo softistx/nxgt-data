@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { RedisClient } from 'bun';
-import { eventually, useRedis } from '../../../test/fixtures';
+import { eventually, gate, useRedis } from '../../../test/fixtures';
 import { listen } from './subscriber';
 
 const servers = useRedis();
@@ -171,5 +171,32 @@ describe('the shared subscriber', () => {
 		const off = await listen(stub, 'queue:{a}:events', () => {});
 		expect(subscribes).toBe(2);
 		await off();
+	});
+
+	test('a close does not cut an UNSUBSCRIBE still pending on another channel', async () => {
+		const release = gate();
+		const slowed = {
+			duplicate: async () => {
+				const real = await client().duplicate();
+				return {
+					connect: () => real.connect(),
+					subscribe: (channel: string, fn: (message: string) => void) =>
+						real.subscribe(channel, fn),
+					unsubscribe: async (channel: string) => {
+						await release.opened;
+						return await real.unsubscribe(channel);
+					},
+					close: () => real.close(),
+				};
+			},
+		} as unknown as RedisClient;
+		const a = await listen(slowed, 'queue:{a}:events', () => {});
+		const b = await listen(slowed, 'queue:{b}:events', () => {});
+		const first = a();
+		const second = b();
+		await Bun.sleep(20);
+		release.open();
+		const settled = await Promise.allSettled([first, second]);
+		expect(settled.map((s) => s.status)).toEqual(['fulfilled', 'fulfilled']);
 	});
 });
