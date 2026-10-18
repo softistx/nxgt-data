@@ -2,6 +2,7 @@ import type { RedisClient } from 'bun';
 import { defineScript, runScript } from '../../scripts/run-script';
 import type { queueKeys } from '../keys';
 import { NOW_LUA } from './claim';
+import { parseStepBegin, parseStepCommit, type StepBegin } from './replies';
 
 /*
  * The fence of a durable step: a handler's step may be read or written only
@@ -24,6 +25,9 @@ import { NOW_LUA } from './claim';
  * `NOW_LUA` ahead of it and `KEYS[2]` to be `active`.
  */
 const HELD_LUA = `
+-- '> now' agrees on purpose with CLAIM's '(now' reclaim boundary: a deadline
+-- equal to now counts as lapsed, so no instant lets a job be both reclaimable
+-- and allowed to step.
 local function held(key, id, token, now)
 	if redis.call('HGET', key, 'token') ~= token then return false end
 	local deadline = redis.call('ZSCORE', KEYS[2], id)
@@ -49,7 +53,7 @@ local id = ARGV[4]
 if not held(KEYS[1], id, ARGV[1], now) then return {-1} end
 local stored = redis.call('HGET', KEYS[1], ARGV[2])
 if stored then return {1, stored} end
-redis.call('ZADD', KEYS[2], 'XX', string.format('%d', now + tonumber(ARGV[3])), id)
+redis.call('ZADD', KEYS[2], 'XX', 'GT', string.format('%d', now + tonumber(ARGV[3])), id)
 return {0}
 `);
 
@@ -69,11 +73,10 @@ redis.call('HSET', KEYS[1], ARGV[2], ARGV[3])
 return 1
 `);
 
-/** What `stepBegin` answers. */
-export type StepBegin =
-	| { stored: true; json: string }
-	| { stored: false }
-	| { lost: true };
+/** The field of the job hash that holds step `name`'s JSON. */
+export function stepField(name: string): string {
+	return `step:${name}`;
+}
 
 /**
  * Begins step `name` of a running job.
@@ -88,20 +91,14 @@ export async function stepBegin(
 	name: string,
 	lease: number,
 ): Promise<StepBegin> {
-	const reply = await runScript(
-		client,
-		STEP_BEGIN,
-		[keys.job(id), keys.active],
-		[token, `step:${name}`, lease, id],
+	return parseStepBegin(
+		await runScript(
+			client,
+			STEP_BEGIN,
+			[keys.job(id), keys.active],
+			[token, stepField(name), lease, id],
+		),
 	);
-	if (!Array.isArray(reply))
-		throw new Error('queue script reply not recognised');
-	if (reply[0] === -1) return { lost: true };
-	if (reply[0] === 0) return { stored: false };
-	if (reply[0] === 1 && typeof reply[1] === 'string') {
-		return { stored: true, json: reply[1] };
-	}
-	throw new Error('queue script reply not recognised');
 }
 
 /** Stores the encoded value of step `name`; whether the fence held. */
@@ -113,12 +110,12 @@ export async function stepCommit(
 	name: string,
 	json: string,
 ): Promise<boolean> {
-	return (
-		(await runScript(
+	return parseStepCommit(
+		await runScript(
 			client,
 			STEP_COMMIT,
 			[keys.job(id), keys.active],
-			[token, `step:${name}`, json, id],
-		)) === 1
+			[token, stepField(name), json, id],
+		),
 	);
 }
