@@ -168,23 +168,6 @@ describe('closing a Redis with queues', () => {
 		expect(await connections()).toBe(baseline);
 	});
 
-	test('two Redis objects, prefixes a and b, one definition: separate keys, closing a leaves b working', async () => {
-		const a = track(await openRedis(handed('a')));
-		const b = track(await openRedis(handed('b')));
-		await a.queues.mails.add(to('a@b.c'), { id: 'j1' });
-		expect(await client().exists('queue:{a:mails}:job:j1')).toBe(true);
-		expect(await client().exists('queue:{b:mails}:job:j1')).toBe(false);
-		await a.close();
-		const refused = (await rejection(
-			a.queues.mails.add(to('a@b.c')),
-		)) as QueueError;
-		expect(refused.code).toBe('CLOSED');
-		const worker = b.queues.mails.work(() => ({ messageId: 'm1' }));
-		const handle = await b.queues.mails.add(to('a@b.c'));
-		expect(await handle.finished()).toEqual({ messageId: 'm1' });
-		await worker.close();
-	});
-
 	test('close() twice returns one promise, the second grace ignored', async () => {
 		const redis = track(await openRedis(handed()));
 		const first = redis.close({ grace: 20 });

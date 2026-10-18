@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
-	scriptCalls,
+	commandCalls,
 	settled,
 	subscribed,
 	useRedis,
@@ -28,12 +28,13 @@ const to = (address: string) => ({ to: address });
 
 describe('wired queues', () => {
 	test('opening a Redis with queues and reading redis.queues costs nothing', async () => {
-		const scripts = await scriptCalls(client());
+		const commands = await commandCalls(client());
 		const clients = await connections();
 		const redis = track(await openRedis(handed('app')));
 		expect(redis.queues.mails.definition.name).toBe('mails');
 		expect(redis.queues.digest.definition.name).toBe('digest');
-		expect(await scriptCalls(client())).toBe(scripts);
+		// Every command, not only scripts: no EVAL, no HELLO, no SUBSCRIBE.
+		expect(await commandCalls(client())).toEqual(commands);
 		expect(await connections()).toBe(clients);
 	});
 

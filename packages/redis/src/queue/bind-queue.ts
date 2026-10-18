@@ -29,11 +29,12 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 	keys: ReturnType<typeof queueKeys>,
 	jobs: readonly Encoded[],
 	life: QueueLife | undefined,
+	call: 'add' | 'addMany',
 ): Promise<JobHandle<R>[]> {
 	const handles: JobHandle<R>[] = [];
 	for (let from = 0; from < jobs.length; from += ADD_CHUNK) {
 		// Between chunks too: a batch stops cleanly with CLOSED.
-		refuseClosed(life, 'addMany', definition.name);
+		refuseClosed(life, call, definition.name);
 		const chunk = jobs.slice(from, from + ADD_CHUNK);
 		const argv: (string | number)[] = [keys.prefix];
 		for (const { options, data } of chunk) {
@@ -126,7 +127,7 @@ export function bindQueueWith<
 			const data = encodeData(definition, item.data, call);
 			return { options, data };
 		});
-		return await addChunks(client, definition, keys, jobs, life);
+		return await addChunks(client, definition, keys, jobs, life, 'addMany');
 	}
 
 	return {
@@ -142,6 +143,7 @@ export function bindQueueWith<
 				keys,
 				[{ options: resolved, data: json }],
 				life,
+				'add',
 			);
 			if (!handle)
 				throw new Error(

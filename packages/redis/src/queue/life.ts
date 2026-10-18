@@ -17,9 +17,15 @@ export interface QueueLife {
 	state: 'open' | 'closing' | 'closed';
 	/** The workers `work` started and nobody closed yet. */
 	readonly workers: Set<Worker>;
-	/** One promise per pending `finished`, settled once it has unlistened. */
+	/**
+	 * One promise per pending `finished`, settled once it has unlistened. A
+	 * wait that never unlistens is left behind once {@link RELEASE_MS} passed.
+	 */
 	readonly waits: Set<Promise<void>>;
-	/** The clients pending `finished` calls listen through: flushed before they are ended. */
+	/**
+	 * The clients pending `finished` calls listen through: flushed before they
+	 * are ended. Never pruned: the life ends with the close.
+	 */
 	readonly clients: Set<RedisClient>;
 	/** Aborts when the refusal phase begins: pending `finished` calls reject. */
 	readonly closed: AbortController;
