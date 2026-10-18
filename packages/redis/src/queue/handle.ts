@@ -9,6 +9,7 @@ import type { JobHandle } from './handle-types';
 import type { queueKeys } from './keys';
 import type { ResultOf } from './result-types';
 import { cancel } from './scripts/cancel';
+import { clampTimeout } from './timers';
 import type { QueueDefinition } from './types';
 import { parseStoredError } from './view';
 
@@ -132,7 +133,7 @@ function resolveWait(
 			`finished on "${waiting.definition.name}": timeout is at least 1 millisecond, as a whole number or a string such as '10m'`,
 		);
 	}
-	return ms;
+	return clampTimeout(ms);
 }
 
 /**

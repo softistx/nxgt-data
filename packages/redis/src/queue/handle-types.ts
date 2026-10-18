@@ -9,7 +9,8 @@ export type JobHandle<R extends z.ZodType | undefined = undefined> = {
 	readonly deduplicated: boolean;
 	/**
 	 * Resolves with the job's result once it completes. No deadline unless
-	 * `timeout` is given.
+	 * `timeout` is given; a `timeout` above about 24.8 days (2147483647 ms,
+	 * the longest a timer waits) waits 24.8 days.
 	 *
 	 * A job that is not in the queue is `NOT_FOUND`: that includes one with
 	 * `keepCompleted: false` that finished before the call, or during the wait

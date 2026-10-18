@@ -66,8 +66,10 @@ export type WorkerEvents = {
 export type Worker = {
 	/**
 	 * Stops taking jobs and resolves once the running ones have finished, or
-	 * after `grace` (default 30 seconds) once their signals have aborted. Only
-	 * the first call's `grace` counts; a later call gets the same promise.
+	 * after `grace` (default 30 seconds) once their signals have aborted. A
+	 * `grace` above about 24.8 days (2147483647 ms, the longest a timer
+	 * waits) waits 24.8 days. Only the first call's `grace` counts; a later
+	 * call gets the same promise.
 	 */
 	close(options?: { grace?: Duration }): Promise<void>;
 	/**

@@ -10,9 +10,7 @@ import {
 	abortRun,
 	armTimeout,
 	beginRun,
-	clampTimeout,
 	endRun,
-	MAX_TIMER_MS,
 } from './abort';
 import type { WorkerContext } from './context';
 import type { JobContext, Worker, WorkerEvents } from './types';
@@ -103,16 +101,6 @@ function abortReason(signal: AbortSignal): Promise<unknown> {
 		});
 	});
 }
-
-describe('clampTimeout', () => {
-	test('a timeout above the timer cap runs as the cap; below it, as is', () => {
-		expect(MAX_TIMER_MS).toBe(2_147_483_647);
-		expect(clampTimeout(2_147_483_648)).toBe(2_147_483_647);
-		expect(clampTimeout(30 * 86_400_000)).toBe(2_147_483_647);
-		expect(clampTimeout(1_000)).toBe(1_000);
-		expect(clampTimeout(undefined)).toBeUndefined();
-	});
-});
 
 describe('the run registry', () => {
 	const job = (token: string, timeout?: number) => ({

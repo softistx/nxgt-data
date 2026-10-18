@@ -2,18 +2,8 @@ import { QueueError } from '../../errors/queue-error';
 import { parseEvent } from '../events/message';
 import { listen } from '../events/subscriber';
 import type { ClaimedJob } from '../scripts/replies';
+import { clampTimeout } from '../timers';
 import type { WorkerContext } from './context';
-
-/**
- * The longest a JavaScript timer waits, in milliseconds (2^31 - 1, about 24.8
- * days): a longer one fires at once. A `timeout` above it runs as this one.
- */
-export const MAX_TIMER_MS = 2_147_483_647;
-
-/** A timeout as a timer can wait it: capped at {@link MAX_TIMER_MS}; `undefined` stays no limit. */
-export function clampTimeout(ms: number | undefined): number | undefined {
-	return ms === undefined ? undefined : Math.min(ms, MAX_TIMER_MS);
-}
 
 /** One running job's way to be aborted, held for as long as the run is. */
 export type Run = {

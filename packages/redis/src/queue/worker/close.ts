@@ -1,5 +1,6 @@
 import type { Duration } from '../duration';
 import { durationMs } from '../duration';
+import { clampTimeout } from '../timers';
 import { abortAll } from './abort';
 import type { WorkerContext } from './context';
 import { settleIdle } from './idle';
@@ -26,7 +27,7 @@ export function resolveGrace(
 async function within(work: Promise<unknown>, ms: number): Promise<boolean> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const expired = new Promise<boolean>((resolve) => {
-		timer = setTimeout(() => resolve(false), ms);
+		timer = setTimeout(() => resolve(false), clampTimeout(ms));
 	});
 	try {
 		return await Promise.race([work.then(() => true), expired]);
