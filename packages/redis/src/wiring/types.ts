@@ -128,6 +128,7 @@ export type SoleIdempotency<C> =
 		? IdempotencyScope<IdempotencyIn<C, InstanceName<C>>>
 		: never;
 
+/** `redis.queues` of a Redis with one instance: that instance's queue scope, `never` with several. */
 export type SoleQueues<C> =
 	Sole<InstanceName<C>> extends true
 		? QueueScope<QueuesIn<C, InstanceName<C>>>

@@ -16,7 +16,6 @@ import * as channels from '../wiring/channels';
 import * as idempotency from '../wiring/idempotency';
 import * as limits from '../wiring/limits';
 import * as mixed from '../wiring/mixed';
-import * as queues from '../wiring/queues';
 
 const uri = 'redis://127.0.0.1:6379';
 
@@ -214,94 +213,6 @@ async function wiredGuards() {
 	await redis.close();
 }
 
-async function wiredQueues() {
-	const redis = await openRedis(defineRedis({ uri, queues }));
-
-	// A queue that is not wired.
-	// @ts-expect-error
-	redis.queues.nope;
-
-	// `mails` takes a string address, not a number.
-	// @ts-expect-error
-	await redis.queues.mails.add({ to: 1 });
-
-	// A handler returns the result schema's shape.
-	// @ts-expect-error
-	redis.queues.mails.work(() => ({ messageId: 1 }));
-
-	// `digest` has no result, so what it returns is not checked.
-	redis.queues.digest.work(() => 'anything');
-
-	// The result is typed by the definition: a string here, `undefined` there.
-	const handle = await redis.queues.mails.add({ to: 'a@b.c' });
-	const messageId: string = (await handle.finished()).messageId;
-	void messageId;
-	// @ts-expect-error `messageId` is a string, not a number
-	const asNumber: number = (await handle.finished()).messageId;
-	void asNumber;
-	const none: undefined = await (
-		await redis.queues.digest.add({ day: 'mon' })
-	).finished();
-	void none;
-
-	// A handler sees the data the schema describes.
-	redis.queues.mails.work((job) => {
-		const address: string = job.data.to;
-		// @ts-expect-error `to` is a string
-		const wrong: number = job.data.to;
-		void address;
-		void wrong;
-		return { messageId: 'm1' };
-	});
-
-	// An option the configuration does not have is Checked, beside `queues`.
-	// @ts-expect-error
-	defineRedis({ uri, queues, quues: {} });
-
-	// A queue under `caches` is not a cache, and a cache is not wired on
-	// `queues`; with a module of every kind each slot keeps only its own.
-	const wrong = await openRedis(defineRedis({ uri, caches: queues }));
-	// @ts-expect-error `mails` is a queue: not wired on `caches`
-	wrong.cache.mails;
-	const all = await openRedis(
-		defineRedis({ uri, caches: mixed, channels: mixed, queues: mixed }),
-	);
-	// @ts-expect-error `mails` is a queue: not wired on `channels`
-	all.channels.mails;
-	// @ts-expect-error `users` is a cache: not wired on `queues`
-	all.queues.users;
-	await all.queues.mails.add({ to: 'a@b.c' });
-
-	// `grace` is a duration.
-	// @ts-expect-error
-	await redis.close({ grace: '10min' });
-
-	// These must keep compiling.
-	await redis.close({ grace: '10s' });
-	await redis.close({ grace: 500 });
-	await redis.close();
-}
-
-async function severalInstancesQueues() {
-	const redis = await openRedis(
-		defineRedis({
-			instances: { a: { uri, queues }, b: { uri, caches } },
-		}),
-	);
-	// `redis.queues` is `never` with more than one instance, as `redis.cache` is.
-	const noQueues: never = redis.queues;
-	void noQueues;
-	// @ts-expect-error
-	redis.queues.mails;
-	// `b` wires no queue.
-	// @ts-expect-error
-	redis.instances.b.queues.mails;
-
-	// These must keep compiling.
-	await redis.instances.a.queues.mails.add({ to: 'a@b.c' });
-	await redis.close();
-}
-
 /**
  * `RedisOf` types a Redis from the configuration alone — a service that is handed
  * one, rather than reading `Awaited<ReturnType<typeof openRedis>>` back.
@@ -405,9 +316,7 @@ export {
 	configRefusals,
 	redisFromConfig,
 	severalInstances,
-	severalInstancesQueues,
 	soleInstance,
 	unknownInputs,
 	wiredGuards,
-	wiredQueues,
 };

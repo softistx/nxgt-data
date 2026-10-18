@@ -139,6 +139,7 @@ export type IdempotencyIn<
 	? Id
 	: Record<never, never>;
 
+/** The queues instance `N` of `C` wires: its `queues` module's own queues, or none. */
 export type QueuesIn<C, N extends InstanceName<C>> = InstancesOf<C>[N] extends {
 	queues: infer Qu;
 }
