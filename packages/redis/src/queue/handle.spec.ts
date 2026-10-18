@@ -258,6 +258,113 @@ describe('the job handle', () => {
 	});
 });
 
+describe('the handle against stray and missed messages', () => {
+	const channel = 'queue:{sent}:events';
+	const publish = (text: string) => client().send('PUBLISH', [channel, text]);
+
+	test('a message for another id, and malformed messages, are ignored', async () => {
+		const handle = await bindQueue(client(), sent).add(to('a'), { id: 'a' });
+		const job = await take();
+		const result = handle.finished();
+		await listening();
+		await publish('{"type":"completed","id":"other","result":{"count":1}}');
+		await publish('not json');
+		await publish('null');
+		await publish('{"type":"mystery","id":"a"}');
+		await publish('{"type":"completed","id":"a","result":{"count":1}}');
+		expect(await result).toEqual({ count: 1 });
+		void job;
+	});
+
+	test('a failed event without an error gives FAILED with no lastError', async () => {
+		const handle = await bindQueue(client(), sent).add(to('a'), { id: 'a' });
+		const waited = rejection(handle.finished());
+		await listening();
+		await publish('{"type":"failed","id":"a"}');
+		const error = (await waited) as QueueError;
+		expect(error.code).toBe('FAILED');
+		expect(error.lastError).toBeUndefined();
+	});
+
+	test('finished called twice settles both and leaves no connection', async () => {
+		const before = await connections();
+		const handle = await bindQueue(client(), sent).add(to('a'), { id: 'a' });
+		const job = await take();
+		const first = handle.finished();
+		const second = handle.finished();
+		await listening();
+		await finish(sent, 'a', job.token, '{"count":2}');
+		expect(await first).toEqual({ count: 2 });
+		expect(await second).toEqual({ count: 2 });
+		await eventually(connections, before);
+	});
+
+	test('with keepCompleted false and the event missed, NOT_FOUND comes after the second absent re-read', async () => {
+		await bindQueue(client(), volatile).add(to('a'), { id: 'a' });
+		const vkeys = queueKeys('volatile');
+		const job = await take(volatile as unknown as typeof sent);
+		const handle = jobHandle(client(), volatile, vkeys, 'a', false, 150);
+		const started = Date.now();
+		const waited = rejection(handle.finished());
+		await listening();
+		await complete(
+			client(),
+			{ ...vkeys, events: 'queue:{volatile}:elsewhere' },
+			volatile as unknown as typeof sent,
+			'a',
+			job.token,
+			'{"count":1}',
+			false,
+		);
+		const error = (await waited) as QueueError;
+		expect(error.code).toBe('NOT_FOUND');
+		// One re-read at 150 ms is not enough; the second, at 300 ms, is.
+		expect(Date.now() - started).toBeGreaterThanOrEqual(290);
+	});
+});
+
+describe('a result of undefined', () => {
+	const voided = defineQueue({
+		name: 'voided',
+		schema: z.object({ to: z.string() }),
+		result: z.void(),
+	});
+
+	test('z.void() reads back undefined, a required schema is INVALID', async () => {
+		const handle = await bindQueue(client(), voided).add(to('a'), { id: 'a' });
+		const [job] = (await claim(client(), queueKeys('voided'), 1, 30_000)).jobs;
+		await complete(
+			client(),
+			queueKeys('voided'),
+			voided,
+			'a',
+			job?.token ?? '',
+			undefined,
+			false,
+		);
+		expect(await handle.finished()).toBeUndefined();
+		const required = await bindQueue(client(), sent).add(to('b'), { id: 'b' });
+		const taken = await take();
+		await complete(client(), keys, sent, 'b', taken.token, undefined, false);
+		const error = (await rejection(required.finished())) as QueueError;
+		expect(error.code).toBe('INVALID');
+	});
+
+	test('encodeResult stores nothing for undefined, and decodeResult runs the schema on it', () => {
+		const optional = defineQueue({
+			name: 'optional',
+			schema: z.object({}),
+			result: z.number().optional(),
+		});
+		expect(encodeResult(sent, undefined, 'sent')).toBeUndefined();
+		expect(decodeResult(optional, undefined)).toEqual({
+			ok: true,
+			value: undefined,
+		});
+		expect(decodeResult(sent, undefined)).toEqual({ ok: false });
+	});
+});
+
 describe('encodeResult and decodeResult', () => {
 	test('a queue without a result schema encodes and decodes nothing', () => {
 		const plain = defineQueue({ name: 'plain', schema: z.object({}) });

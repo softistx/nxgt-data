@@ -18,15 +18,20 @@ function date(value: string | undefined): Date | undefined {
 
 /**
  * The `{name, message}` a job's stored `error` holds, or `undefined` for an
- * absent one or text this package could not have written.
+ * absent one, or text that is not an object with a string `name` and `message`.
  */
 export function parseStoredError(
 	stored: string | null | undefined,
 ): { name: string; message: string } | undefined {
 	if (stored === undefined || stored === null) return undefined;
 	try {
-		const error = JSON.parse(stored) as { name: string; message: string };
-		return { name: String(error.name), message: String(error.message) };
+		const error = JSON.parse(stored) as unknown;
+		if (error === null || typeof error !== 'object') return undefined;
+		const { name, message } = error as { name?: unknown; message?: unknown };
+		if (typeof name !== 'string' || typeof message !== 'string') {
+			return undefined;
+		}
+		return { name, message };
 	} catch {
 		return undefined;
 	}

@@ -173,8 +173,17 @@ export function jobHandle<
 				unlisten = await listen(client, keys.events, (text) =>
 					apply(fromMessage(text, id)),
 				);
+				// An absent job is believed after two re-reads in a row: with
+				// keepCompleted false a completed job is deleted before its event lands.
+				let absent = 0;
 				poll = setInterval(() => {
-					readStored(client, keys, id).then(apply, () => undefined);
+					readStored(client, keys, id).then(
+						(outcome) => {
+							absent = outcome?.kind === 'absent' ? absent + 1 : 0;
+							if (outcome?.kind !== 'absent' || absent >= 2) apply(outcome);
+						},
+						() => undefined,
+					);
 				}, rereadMs);
 				apply(await readStored(client, keys, id));
 				return await done;
