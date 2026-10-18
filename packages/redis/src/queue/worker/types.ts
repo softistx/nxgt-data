@@ -52,8 +52,8 @@ export type JobContext<S extends z.ZodType> = {
 	): Promise<z.output<Z>>;
 	/**
 	 * A stable idempotency key, so the other side of a side effect can
-	 * deduplicate a step run more than once: `<queue name>:<job id>:<name>`, the same on every
-	 * attempt. `name` follows the rules of a step's.
+	 * deduplicate a step run more than once: `<queue name>:<job id>:<name>`,
+	 * the same on every attempt. `name` follows the rules of a step's.
 	 */
 	key(name: string): string;
 };
