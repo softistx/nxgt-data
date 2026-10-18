@@ -7,6 +7,7 @@ import { jobHandle } from './handle';
 import type { JobHandle } from './handle-types';
 import { countJobs, getJob, listJobs, removeJob, retryJob } from './inspect';
 import { queueKeys } from './keys';
+import { type QueueLife, refuseClosed, trackWorker } from './life';
 import { ADD } from './scripts/add';
 import { cancel } from './scripts/cancel';
 import type { AddOptions, BoundQueue, QueueDefinition } from './types';
@@ -27,6 +28,7 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 	definition: QueueDefinition<S, R>,
 	keys: ReturnType<typeof queueKeys>,
 	jobs: readonly Encoded[],
+	life: QueueLife | undefined,
 ): Promise<JobHandle<R>[]> {
 	const handles: JobHandle<R>[] = [];
 	for (let from = 0; from < jobs.length; from += ADD_CHUNK) {
@@ -51,7 +53,15 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 		)) as number[];
 		chunk.forEach(({ options }, i) => {
 			handles.push(
-				jobHandle(client, definition, keys, options.id, reply[i] === 1),
+				jobHandle(
+					client,
+					definition,
+					keys,
+					options.id,
+					reply[i] === 1,
+					undefined,
+					life,
+				),
 			);
 		});
 	}
@@ -60,12 +70,13 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 
 /**
  * What wiring adds to a bound queue. Internal: a queue bound by hand has
- * neither. `life` waits for the close protocol, and is always `undefined` here.
+ * neither. `life` is the Redis's close protocol: once it ends, `add`, `addMany`,
+ * `finished` and `work` refuse with `CLOSED`.
  */
 export type QueueWiring = {
 	/** The deployment's prefix, kept apart from the name: `undefined` by hand. */
 	readonly prefix: string | undefined;
-	readonly life?: undefined;
+	readonly life?: QueueLife | undefined;
 };
 
 /**
@@ -96,7 +107,7 @@ export function bindQueueWith<
 	wiring: QueueWiring,
 ): BoundQueue<S, R> {
 	checkQueue<S, R>(definition, 'bindQueue');
-	const { prefix } = wiring;
+	const { prefix, life } = wiring;
 	const keys = queueKeys(
 		prefix === undefined ? definition.name : `${prefix}:${definition.name}`,
 	);
@@ -104,6 +115,7 @@ export function bindQueueWith<
 	async function addMany(
 		items: readonly { data: z.input<S>; options?: AddOptions }[],
 	): Promise<JobHandle<R>[]> {
+		refuseClosed(life, 'addMany', definition.name);
 		// Everything is checked and encoded before the first script runs, so a
 		// bad item refuses the whole call with nothing written.
 		const jobs = items.map((item) => {
@@ -112,18 +124,23 @@ export function bindQueueWith<
 			const data = encodeData(definition, item.data, call);
 			return { options, data };
 		});
-		return await addChunks(client, definition, keys, jobs);
+		return await addChunks(client, definition, keys, jobs, life);
 	}
 
 	return {
 		definition,
 		prefix,
 		async add(data, options) {
+			refuseClosed(life, 'add', definition.name);
 			const resolved = resolveAdd(options, 'add', definition.name);
 			const json = encodeData(definition, data, 'add');
-			const [handle] = await addChunks(client, definition, keys, [
-				{ options: resolved, data: json },
-			]);
+			const [handle] = await addChunks(
+				client,
+				definition,
+				keys,
+				[{ options: resolved, data: json }],
+				life,
+			);
 			if (!handle)
 				throw new Error(
 					`add on "${definition.name}": the script answered nothing`,
@@ -138,10 +155,12 @@ export function bindQueueWith<
 		remove: (id) => removeJob(client, keys, definition, id),
 		cancel: (id) => cancel(client, keys, id),
 		work(handler, options) {
-			return startWorker(client, definition, keys, handler, {
+			refuseClosed(life, 'work', definition.name);
+			const worker = startWorker(client, definition, keys, handler, {
 				...resolveWork(options, definition.name),
 				prefix,
 			});
+			return life ? trackWorker(life, worker) : worker;
 		},
 	};
 }

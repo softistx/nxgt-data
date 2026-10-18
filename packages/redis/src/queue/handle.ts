@@ -6,6 +6,7 @@ import { decodeResult } from './encode';
 import { listenRaced } from './events/listen-raced';
 import { flush } from './events/subscriber';
 import type { JobHandle } from './handle-types';
+import { type QueueLife, refuseClosed, trackWait } from './life';
 import {
 	type Failure,
 	fromMessage,
@@ -31,12 +32,19 @@ type Waiting = {
 	readonly keys: Keys;
 	readonly id: string;
 	readonly rereadMs: number;
+	readonly life: QueueLife | undefined;
 };
 
 /** `finished`'s rejection: names the queue and the job, never the data. */
 function failure(
 	waiting: Waiting,
-	code: 'FAILED' | 'CANCELED' | 'NOT_FOUND' | 'INVALID' | 'WAIT_TIMEOUT',
+	code:
+		| 'FAILED'
+		| 'CANCELED'
+		| 'NOT_FOUND'
+		| 'INVALID'
+		| 'WAIT_TIMEOUT'
+		| 'CLOSED',
 	what: string,
 	last?: Failure,
 ): QueueError {
@@ -106,6 +114,7 @@ async function waitFinished(
 	options: { timeout?: unknown } | undefined,
 ): Promise<unknown> {
 	const { client, keys, id } = waiting;
+	refuseClosed(waiting.life, 'finished', waiting.definition.name);
 	const timeoutMs = resolveWait(waiting, options);
 	let resolve!: (value: unknown) => void;
 	let reject!: (reason: QueueError) => void;
@@ -131,6 +140,9 @@ async function waitFinished(
 						reject(failure(waiting, 'WAIT_TIMEOUT', 'did not finish in time')),
 					timeoutMs,
 				);
+	const leave = trackWait(waiting.life, () =>
+		reject(failure(waiting, 'CLOSED', 'was pending when the Redis closed')),
+	);
 	let poll: ReturnType<typeof setInterval> | undefined;
 	let listener: ReturnType<typeof listenRaced> | undefined;
 	try {
@@ -169,11 +181,11 @@ async function waitFinished(
 	} finally {
 		clearTimeout(timer);
 		clearInterval(poll);
-		listener?.stop();
+		leave(listener?.stop() ?? Promise.resolve());
 	}
 }
 
-/** The handle `add` returns for job `id`. `rereadMs` is internal, for tests. */
+/** The handle `add` returns for job `id`. `rereadMs` and `life` are internal: for tests, and for a wired queue. */
 export function jobHandle<
 	S extends z.ZodType,
 	R extends z.ZodType | undefined = undefined,
@@ -184,8 +196,9 @@ export function jobHandle<
 	id: string,
 	deduplicated: boolean,
 	rereadMs: number = REREAD_MS,
+	life?: QueueLife,
 ): JobHandle<R> {
-	const waiting: Waiting = { client, definition, keys, id, rereadMs };
+	const waiting: Waiting = { client, definition, keys, id, rereadMs, life };
 	return {
 		id,
 		deduplicated,
