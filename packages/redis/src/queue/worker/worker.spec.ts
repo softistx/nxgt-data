@@ -41,6 +41,18 @@ function suite() {
 }
 
 describe('work', () => {
+	test('a queue without a result schema ignores what the handler returns', async () => {
+		const { work, closeAll } = suite();
+		try {
+			work(() => ({ sent: true }));
+			await mails().add({ to: 'a' }, { id: 'r' });
+			await eventually(() => state('r'), 'completed');
+			expect(await hget('r', 'result')).toBeNull();
+		} finally {
+			await closeAll();
+		}
+	});
+
 	test('runs an added job once and completes it', async () => {
 		const { work, closeAll } = suite();
 		try {

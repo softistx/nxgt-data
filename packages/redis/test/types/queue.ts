@@ -148,8 +148,9 @@ sizedQueue.work(async () => ({ id: 'x' }));
 sizedQueue.work(() => ({ id: 1 }));
 // @ts-expect-error a queue with a result must return one
 sizedQueue.work(() => {});
-// @ts-expect-error a queue without a result returns nothing
+// A queue without a result ignores what its handler returns.
 queue.work(() => ({ id: 'x' }));
+queue.work(async () => 1);
 queue.work(() => {});
 
 const finishedId = async (): Promise<string> => {

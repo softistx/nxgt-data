@@ -26,7 +26,7 @@ export function enqueued() {
 }
 
 export function worker() {
-	return mailQueue.work(({ data }) => void data.template, { concurrency: 4 });
+	return mailQueue.work(({ data }) => data.template, { concurrency: 4 });
 }
 
 /** A queue with a result schema: `finished` and the handler name its type. */
