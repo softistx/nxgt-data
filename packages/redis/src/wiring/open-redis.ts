@@ -1,12 +1,12 @@
 import { connectRedis, type RedisConnection } from '../connection/connect';
+import { checkInstance } from './config/checks';
 import {
-	checkInstance,
 	isCache,
 	isChannel,
 	isIdempotency,
 	isRateLimit,
 	wiredOf,
-} from './config/checks';
+} from './config/kinds';
 import type { InstanceConfig, RedisConfig } from './config/types';
 import type { InstanceContext, WiringContext } from './context';
 import type {
