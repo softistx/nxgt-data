@@ -3,8 +3,9 @@ import type { z } from 'zod';
 import { QueueError } from '../errors/queue-error';
 import { durationMs } from './duration';
 import { decodeResult } from './encode';
+import { listenRaced } from './events/listen-raced';
 import { parseEvent } from './events/message';
-import { flush, listen } from './events/subscriber';
+import { flush } from './events/subscriber';
 import type { JobHandle } from './handle-types';
 import type { queueKeys } from './keys';
 import type { ResultOf } from './result-types';
@@ -15,6 +16,9 @@ import { parseStoredError } from './view';
 
 /** How often a waiting `finished` re-reads the job: the net under a lost event. */
 const REREAD_MS = 5000;
+
+/** What a wait's `over` promise resolves with once the wait has settled. */
+const OVER: unique symbol = Symbol('over');
 
 type Keys = ReturnType<typeof queueKeys>;
 type Failure = { name: string; message: string };
@@ -158,6 +162,11 @@ async function waitFinished(
 	});
 	// A rejection raised before `await done` is reached is not unhandled.
 	done.catch(() => undefined);
+	// Resolves once `done` settled either way, so a race against it never throws.
+	const over = done.then(
+		(): typeof OVER => OVER,
+		(): typeof OVER => OVER,
+	);
 	const apply = (outcome: Outcome | undefined) => {
 		if (outcome) settleWith(waiting, outcome, resolve, reject);
 	};
@@ -170,11 +179,16 @@ async function waitFinished(
 					timeoutMs,
 				);
 	let poll: ReturnType<typeof setInterval> | undefined;
-	let unlisten: (() => Promise<void>) | undefined;
+	let listener: ReturnType<typeof listenRaced> | undefined;
 	try {
-		unlisten = await listen(client, keys.events, (text) =>
-			apply(fromMessage(text, id)),
+		// Raced like the reads, so a hung SUBSCRIBE cannot defeat the timeout.
+		listener = listenRaced(
+			client,
+			keys.events,
+			(text) => apply(fromMessage(text, id)),
+			over,
 		);
+		if ((await listener.raced) === OVER) return await done;
 		// An absent job is believed after two re-reads in a row: with
 		// keepCompleted false a completed job is deleted before its event lands.
 		let absent = 0;
@@ -188,18 +202,21 @@ async function waitFinished(
 				})
 				.catch(() => undefined);
 		}, waiting.rereadMs);
-		const first = await readStored(client, keys, id);
+		// Each await below is raced against `over`: a hung connection must not
+		// delay the timeout, and a read answering after it is ignored.
+		const first = await Promise.race([readStored(client, keys, id), over]);
+		if (first === OVER) return await done;
 		// A job settled and deleted between the SUBSCRIBE and this read (a
 		// cancel, or a complete with keepCompleted false) reads absent while its
 		// event is still on the subscriber's socket: the PING there lets it land
 		// first, and an outcome heard settles `done` before absent can.
-		if (first?.kind === 'absent') await flush(client);
+		if (first?.kind === 'absent') await Promise.race([flush(client), over]);
 		apply(first);
 		return await done;
 	} finally {
 		clearTimeout(timer);
 		clearInterval(poll);
-		await unlisten?.();
+		listener?.stop();
 	}
 }
 

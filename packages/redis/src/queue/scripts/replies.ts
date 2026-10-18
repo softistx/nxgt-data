@@ -111,3 +111,28 @@ export function parseFail(
 export function parseLost(raw: unknown): string[] {
 	return texts(raw, 'lost ids');
 }
+
+/** What `stepBegin` answers. */
+export type StepBegin =
+	| { stored: true; json: string }
+	| { stored: false }
+	| { lost: true };
+
+/** `STEP_BEGIN`'s reply: `{1, json}` stored, `{0}` run it, `{-1}` lost. */
+export function parseStepBegin(raw: unknown): StepBegin {
+	const parts = array(raw, 'reply');
+	const code = whole(parts[0], 'step code');
+	if (code === -1 && parts.length === 1) return { lost: true };
+	if (code === 0 && parts.length === 1) return { stored: false };
+	if (code === 1 && parts.length === 2) {
+		return { stored: true, json: text(parts[1], 'step json') };
+	}
+	return refuse(`step reply of ${parts.length} parts with code ${code}`);
+}
+
+/** `STEP_COMMIT`'s reply: exactly 1 (written) or 0 (lost). */
+export function parseStepCommit(raw: unknown): boolean {
+	if (raw === 1) return true;
+	if (raw === 0) return false;
+	return refuse(`step commit reply ${typeof raw}`);
+}

@@ -2,6 +2,16 @@ import type { z } from 'zod';
 import type { Duration } from '../duration';
 import type { ResultInputOf } from '../result-types';
 
+/** What `step` takes beside the function. */
+export type StepOptions<Z extends z.ZodType> = {
+	/**
+	 * Checks the step's value: what `fn` returns goes through it and its
+	 * output is stored, and a stored value is parsed by it on read. Without a
+	 * schema the value must survive the JSON round trip.
+	 */
+	schema: Z;
+};
+
 /** What a handler receives. */
 export type JobContext<S extends z.ZodType> = {
 	id: string;
@@ -15,6 +25,37 @@ export type JobContext<S extends z.ZodType> = {
 	signal: AbortSignal;
 	/** Reports how far the job is, a number from 0 to 100. */
 	progress(value: number): Promise<void>;
+	/**
+	 * Commits the value of `fn` once per job: a later attempt, or a run after
+	 * `retry(id)`, gets the stored value and `fn` does not run. The fence is
+	 * checked at the step's edges, not while `fn` runs, so `fn` may run more
+	 * than once; pass `key(name)` downstream. A step
+	 * costs two round trips when it runs (a begin, which also pushes the lease
+	 * a full lease ahead, and a commit) and one when it is already stored.
+	 * Both are refused once this attempt lost its lease: `step` then rejects
+	 * with a `QueueError` `LEASE_LOST` and `fn` does not run.
+	 *
+	 * `name` is 1 to 128 characters without `:`, and one name runs once per
+	 * attempt; anything else is a `TypeError`. A throw from `fn` is the
+	 * handler's own error and records nothing, but the name stays used for the
+	 * rest of the attempt. A value that cannot be stored,
+	 * or a stored one the schema refuses, rejects with a `QueueError`
+	 * `INVALID`, which fails the job without retry. An `INVALID` the handler's
+	 * own code throws, from a call to another queue for example, is retried
+	 * like any other error.
+	 */
+	step<T>(name: string, fn: () => T | Promise<T>): Promise<T>;
+	step<Z extends z.ZodType>(
+		name: string,
+		fn: () => z.input<Z> | Promise<z.input<Z>>,
+		options: StepOptions<Z>,
+	): Promise<z.output<Z>>;
+	/**
+	 * A stable idempotency key, so the other side of a side effect can
+	 * deduplicate a step run more than once: `<queue name>:<job id>:<name>`,
+	 * the same on every attempt. `name` follows the rules of a step's.
+	 */
+	key(name: string): string;
 };
 
 /** What a handler of a queue with result schema `R` is: it returns the schema's input; without a result schema the return is ignored. */

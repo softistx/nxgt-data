@@ -231,3 +231,30 @@ void [
 	addOptions,
 	workOptions,
 ];
+
+// A durable step: without a schema it returns what `fn` returns, awaited.
+queue.work(async (job) => {
+	const plain: number = await job.step('a', () => 1);
+	const awaited: string = await job.step('b', async () => 'x');
+	void plain;
+	void awaited;
+	const key: string = job.key('send');
+	void key;
+	// With a schema it returns the output, and `fn` returns the input.
+	const parsed: number = await job.step('c', () => '5', {
+		schema: z.coerce.number(),
+	});
+	void parsed;
+	// @ts-expect-error without a schema the value is not a string
+	const wrong: string = await job.step('d', () => 1);
+	void wrong;
+	// @ts-expect-error with a schema `fn` returns the schema's input
+	await job.step('e', () => true, { schema: z.string() });
+	// @ts-expect-error the output is a number, not a string
+	const out: string = await job.step('f', () => 1, { schema: z.number() });
+	void out;
+	// @ts-expect-error a key's name is a string
+	job.key(1);
+	// @ts-expect-error `schema` is a zod schema
+	await job.step('x', () => 1, { schema: 5 });
+});

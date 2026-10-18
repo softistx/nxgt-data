@@ -1,12 +1,7 @@
 import type { z } from 'zod';
-import { JobError } from '../../errors/job-error';
-import type { QueueError } from '../../errors/queue-error';
-import { backoffDelay } from '../backoff';
-import { decodeData, encodeResult } from '../encode';
+import { decodeData } from '../encode';
 import { claim } from '../scripts/claim';
 import type { ClaimedJob, ClaimReply } from '../scripts/replies';
-import { complete, fail } from '../scripts/settle';
-import type { QueueDefinition } from '../types';
 import {
 	armTimeout,
 	beginRun,
@@ -19,76 +14,13 @@ import type { WorkerContext } from './context';
 import { announce, emit } from './events';
 import { markDrained } from './idle';
 import { progressOf } from './progress';
-
-function toError(thrown: unknown): { name: string; message: string } {
-	return thrown instanceof Error
-		? { name: thrown.name, message: thrown.message }
-		: { name: 'Error', message: String(thrown) };
-}
-
-/** The wait before the next attempt, or null when the job must not be retried. */
-function retryDelay(
-	definition: QueueDefinition<z.ZodType, z.ZodType | undefined>,
-	attempt: number,
-	error: unknown,
-): number | null {
-	if (!(error instanceof JobError)) {
-		return backoffDelay(attempt, definition.backoff);
-	}
-	if (!error.retry) return null;
-	return error.retryIn ?? backoffDelay(attempt, definition.backoff);
-}
-
-/** Fails the attempt with `error`, and tells `failed` or `retrying` by what the script settled. */
-async function failAttempt<S extends z.ZodType>(
-	context: WorkerContext<S>,
-	job: ClaimedJob,
-	error: { name: string; message: string },
-	delay: number | null,
-): Promise<ClaimReply> {
-	const { client, keys, definition } = context;
-	const reply = await fail(
-		client,
-		keys,
-		definition,
-		job.id,
-		job.token,
-		error,
-		delay,
-		context.open,
-	);
-	if (reply.settled && reply.final) {
-		emit(context, 'failed', { id: job.id, attempt: job.attempt, error });
-	} else if (reply.settled && delay !== null) {
-		emit(context, 'retrying', {
-			id: job.id,
-			attempt: job.attempt,
-			delay,
-			error,
-		});
-	}
-	return reply;
-}
-
-/** What an aborted run does: a timeout fails the attempt; the other three leave the job alone. */
-async function settleAborted<S extends z.ZodType>(
-	context: WorkerContext<S>,
-	job: ClaimedJob,
-	reason: QueueError,
-): Promise<ClaimReply | undefined> {
-	if (reason.code === 'TIMEOUT') {
-		return await failAttempt(
-			context,
-			job,
-			{ name: 'TIMEOUT', message: 'the attempt ran past its timeout' },
-			backoffDelay(job.attempt, context.definition.backoff),
-		);
-	}
-	if (reason.code === 'CANCELED') emit(context, 'canceled', { id: job.id });
-	if (reason.code === 'LEASE_LOST') emit(context, 'error', reason);
-	// CLOSED emits nothing: the lease is no longer renewed and lapses.
-	return undefined;
-}
+import {
+	failAttempt,
+	failThrown,
+	settleAborted,
+	settleReturned,
+} from './settle-job';
+import { stepsOf } from './steps';
 
 async function runHandler<S extends z.ZodType>(
 	context: WorkerContext<S>,
@@ -96,7 +28,6 @@ async function runHandler<S extends z.ZodType>(
 	data: z.output<S>,
 	run: Run,
 ): Promise<ClaimReply | undefined> {
-	const { client, keys, definition } = context;
 	emit(context, 'active', { id: job.id, attempt: job.attempt });
 	const started = performance.now();
 	const disarm = armTimeout(context, job);
@@ -110,6 +41,7 @@ async function runHandler<S extends z.ZodType>(
 				attempts: job.attempts,
 				signal: run.controller.signal,
 				progress: progressOf(context, job, run.controller.signal),
+				...stepsOf(context, job, run.controller.signal),
 			}),
 		);
 	} finally {
@@ -119,46 +51,9 @@ async function runHandler<S extends z.ZodType>(
 		return await settleAborted(context, job, outcome.reason);
 	}
 	if (outcome.kind === 'threw') {
-		return await failAttempt(
-			context,
-			job,
-			toError(outcome.error),
-			retryDelay(definition, job.attempt, outcome.error),
-		);
+		return await failThrown(context, job, outcome.error);
 	}
-	const returned = outcome.value;
-	let result: string | undefined;
-	try {
-		result = encodeResult(definition, returned, definition.name);
-	} catch {
-		// The thrown message holds zod issue codes: the stored error does not.
-		return await failAttempt(
-			context,
-			job,
-			{
-				name: 'QueueError',
-				message: 'INVALID: the result does not match the result schema',
-			},
-			null,
-		);
-	}
-	const reply = await complete(
-		client,
-		keys,
-		definition,
-		job.id,
-		job.token,
-		result,
-		context.open,
-	);
-	if (reply.settled) {
-		emit(context, 'completed', {
-			id: job.id,
-			attempt: job.attempt,
-			duration: performance.now() - started,
-		});
-	}
-	return reply;
+	return await settleReturned(context, job, outcome.value, started);
 }
 
 /**

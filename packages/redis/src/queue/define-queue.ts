@@ -79,6 +79,11 @@ function resolve<S extends z.ZodType, R extends z.ZodType | undefined>(
 			`${call}: "${name}" has braces; the name is the keys' hash tag, so it cannot hold any`,
 		);
 	}
+	if (name.includes(':')) {
+		throw new TypeError(
+			`${call}: "${name}" has a colon; job.key joins the queue name, job id and step name with colons, so the name cannot hold one`,
+		);
+	}
 	if (typeof input.schema?.safeParse !== 'function') {
 		throw new TypeError(
 			`${call}: "${name}" has no schema; a payload is checked against one both ways`,

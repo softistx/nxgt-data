@@ -347,9 +347,22 @@ worker.on('error', (error) => console.error(error));
 await worker.close({ grace: '10s' }); // on shutdown: waits up to 10 s, then aborts the rest
 ```
 
+A job can run more than once, so put each side effect in a durable step: its
+value is committed once and a later attempt gets it back, never overwritten by
+a stale attempt. The fence is checked at the step's edges, not while `fn` runs,
+so `fn` may run more than once (a crash, or a lease lapsing mid-`fn`): pass
+`job.key(name)` downstream, a key that is the same on every attempt, for the
+other side to deduplicate on.
+
+```ts
+queue.work(async (job) => {
+	await job.step('send', () => sendMail(job.data.to, { idempotencyKey: job.key('send') }));
+});
+```
+
 Every `add` returns a handle that waits for the outcome; give the queue a
 `result` schema and `finished()` resolves with the handler's typed return
-(without one, it resolves `undefined`). `timeout` bounds a run, and the
+(without one, it resolves `undefined`; `finished({ timeout })` is a hard bound, rejecting `WAIT_TIMEOUT` on time even if the connection hangs). `timeout` bounds a run, and the
 handler's `signal` aborts when it is canceled, times out or the worker closes:
 
 ```ts
@@ -598,10 +611,10 @@ with. Each subscription is one more connection.
 | | |
 | --- | --- |
 | `defineQueue({ name, schema, result?, attempts?, backoff?, lease?, keepCompleted?, keepFailed?, timeout? })` | describes a queue; talks to nothing. Frozen, every `Duration` resolved to milliseconds. Refuses a definition that could never work with a `TypeError` |
-| `bindQueue(client, definition)` | binds it to a `RedisClient`: `definition` (read-only), `add(data, { id?, priority?, timeout?, delay? \| at? })` (a `JobHandle`: `id`, `deduplicated`, `finished({ timeout? })`, `cancel()`), `addMany(items)`, `work(handler, { concurrency? })` (a `Worker`: `close({ grace? })`, `idle()`, `on(event, listener)`), `get(id)`, `list(state, { offset?, limit? })`, `counts()`, `retry(id)`, `remove(id)` and `cancel(id)`. Not wired by `defineRedis` yet |
+| `bindQueue(client, definition)` | binds it to a `RedisClient`: `definition` (read-only), `add(data, { id?, priority?, timeout?, delay? \| at? })` (a `JobHandle`: `id`, `deduplicated`, `finished({ timeout? })`, `cancel()`), `addMany(items)`, `work(handler, { concurrency? })` (the handler's `job` has `id`, `data`, `attempt`, `attempts`, `signal`, `progress(value)`, `step(name, fn, { schema? })` and `key(name)`; a `Worker`: `close({ grace? })`, `idle()`, `on(event, listener)`), `get(id)`, `list(state, { offset?, limit? })`, `counts()`, `retry(id)`, `remove(id)` and `cancel(id)`. Not wired by `defineRedis` yet |
 
-The types are `QueueDefinition`, `QueueInput`, `BoundQueue`, `Worker`, `WorkerEvents`, `WorkOptions`, `JobContext`, `Handler`, `JobHandle`, `AddOptions`, `JobView`, `JobState`, `QueueCounts`, `ResultOf`, `ResultInputOf` and `Duration`; `JobError` is what a handler throws to choose its retry.
-See the [queue guide](docs/guide/queues.md).
+The types are `QueueDefinition`, `QueueInput`, `BoundQueue`, `Worker`, `WorkerEvents`, `WorkOptions`, `JobContext`, `StepOptions`, `Handler`, `JobHandle`, `AddOptions`, `JobView`, `JobState`, `QueueCounts`, `ResultOf`, `ResultInputOf` and `Duration`; `JobError` is what a handler throws to choose its retry.
+See the [queue guide](docs/guide/queues.md) and its [durable steps](docs/guide/queues.md#running-twice).
 
 ## Errors
 

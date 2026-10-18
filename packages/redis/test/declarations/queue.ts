@@ -47,3 +47,16 @@ export async function rendered() {
 export function renderWorker() {
 	return renderQueue.work(() => ({ bytes: 1 }));
 }
+
+/** A handler with a schema'd step and a key: `step` and `key` come through `JobContext`'s exported type. */
+export function steppedWorker() {
+	return mailQueue.work(async (job) => {
+		const sent = await job.step(
+			'send',
+			() => ({ id: 'm1', at: new Date().toISOString() }),
+			{ schema: z.object({ id: z.string(), at: z.string() }) },
+		);
+		const key: string = job.key('charge');
+		return `${sent.id}:${key}`;
+	});
+}

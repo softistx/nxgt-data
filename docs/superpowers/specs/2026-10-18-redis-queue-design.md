@@ -312,13 +312,17 @@ redis.queues.digest.work(async (job) => {
 - **Fencing.** A step starts only after STEP_BEGIN found the attempt's token
   still holding and its lease not lapsed, and its result is stored only by
   STEP_COMMIT under the same check. An attempt that lost its lease gets
-  `QueueError` `LEASE_LOST` from `step` (and its `signal` fires): two workers
-  never run the same step side by side, and a stale worker never overwrites a
-  live one's result. A step costs **two round trips**.
+  `QueueError` `LEASE_LOST` from `step` (and its `signal` fires): a step's
+  value is committed once and a stale worker never overwrites it. The fence is
+  checked at the step's edges, not while `fn` runs, so `fn` itself may run
+  more than once (a crash, or a lease lapsing mid-`fn`): what reaches outside
+  is made idempotent with `job.key`. A step costs **two round trips**.
 - **`job.key(name)`** is `<queue name>:<job id>:<name>`, the same on every
   attempt: the idempotency key to hand a provider (an `Idempotency-Key`
-  header) or `redis.idempotency.*.run`, so a step interrupted after its side
-  effect but before its commit is absorbed downstream.
+  header) or `redis.idempotency.*.run`, so a step run twice, or interrupted
+  after its side effect but before its commit, is absorbed downstream. A queue
+  name cannot hold `:`, so the key is unambiguous; it is per job id and
+  outlives `remove`.
 - The completion itself is token-guarded (COMPLETE), so a job is never marked
   completed twice nor its result overwritten by a late attempt; a result
   returned after `timeout` or a lost lease is refused.

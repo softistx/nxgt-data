@@ -47,6 +47,7 @@ export type {
 export type {
 	Handler,
 	JobContext,
+	StepOptions,
 	Worker,
 	WorkerEvents,
 	WorkOptions,
