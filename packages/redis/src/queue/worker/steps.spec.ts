@@ -5,15 +5,16 @@ import {
 	gate,
 	mailQueue,
 	scriptCalls,
+	subscribed as subscribedTo,
 	useRedis,
 } from '../../../test/fixtures';
 import { rejection } from '../../../test/rejection';
-import type { QueueError } from '../../errors/queue-error';
+import { QueueError } from '../../errors/queue-error';
 import { bindQueue } from '../bind-queue';
 import { queueKeys } from '../keys';
 import { claim } from '../scripts/claim';
 import type { ClaimedJob } from '../scripts/replies';
-import { abortRun, beginRun } from './abort';
+import { abortRun, beginRun, endRun } from './abort';
 import type { WorkerContext } from './context';
 import { stepsOf } from './steps';
 import type { JobContext, Worker, WorkerEvents } from './types';
@@ -35,6 +36,8 @@ async function withWorkers(
 		workers.push(worker);
 		const seen: string[] = [];
 		const failures: { name: string; message: string }[] = [];
+		const errors: unknown[] = [];
+		worker.on('error', (e) => void errors.push(e));
 		for (const event of ['completed', 'retrying', 'failed'] as const) {
 			worker.on(event, (p: WorkerEvents[typeof event]) => {
 				seen.push(`${event} ${(p as { id: string }).id}`);
@@ -43,7 +46,7 @@ async function withWorkers(
 				}
 			});
 		}
-		return { seen, failures };
+		return { seen, failures, errors };
 	};
 	try {
 		await body(open);
@@ -51,7 +54,11 @@ async function withWorkers(
 		for (const worker of workers) await worker.close({ grace: 100 });
 	}
 }
-type Opened = { seen: string[]; failures: { name: string; message: string }[] };
+type Opened = {
+	seen: string[];
+	failures: { name: string; message: string }[];
+	errors: unknown[];
+};
 
 const once = {
 	...mailQueue,
@@ -59,21 +66,25 @@ const once = {
 } as typeof mailQueue;
 
 /** An attempt held by hand: claimed, registered, and with no lease renewals, so it can lapse. */
-async function hold(id = 'a', first = true) {
-	if (first) await bindQueue(client(), mailQueue).add({ to: 'a' }, { id });
-	return await take();
+async function hold(id = 'a', over?: Partial<WorkerContext>) {
+	await bindQueue(client(), mailQueue).add({ to: 'a' }, { id });
+	return await take(handContext(over));
 }
-async function take() {
-	const reply = await claim(client(), keys, 1, mailQueue.lease);
-	return attempt(reply.jobs[0] as ClaimedJob);
-}
-function attempt(job: ClaimedJob) {
-	const context = {
+/** One context and runs map, so two attempts of an id are registered side by side as in a worker. */
+function handContext(over?: Partial<WorkerContext>) {
+	return {
 		client: client(),
 		definition: mailQueue,
 		keys,
 		runs: new Map(),
+		...over,
 	} as unknown as WorkerContext;
+}
+async function take(context: WorkerContext) {
+	const reply = await claim(client(), keys, 1, mailQueue.lease);
+	return attempt(reply.jobs[0] as ClaimedJob, context);
+}
+function attempt(job: ClaimedJob, context: WorkerContext) {
 	const run = beginRun(context, job);
 	const signal = run.controller.signal;
 	return { job, context, signal, steps: stepsOf(context, job, signal) };
@@ -173,7 +184,7 @@ describe('job.step in a worker', () => {
 			expect(seen).toEqual(['failed a']);
 			expect(failures[0]?.name).toBe('QueueError');
 			expect(failures[0]?.message).toBe(
-				'step on "mails": step "send" holds a value the schema refuses',
+				'INVALID: step on "mails": step "send" holds a value the schema refuses',
 			);
 		});
 	});
@@ -187,7 +198,9 @@ describe('job.step in a worker', () => {
 			await eventually(() => hget('a', 'state'), 'failed');
 			expect(seen).toEqual(['failed a']);
 			expect(failures[0]?.name).toBe('QueueError');
-			expect(failures[0]?.message).toContain('step "send" returned a value');
+			expect(failures[0]?.message).toStartWith(
+				'INVALID: step on "mails": step "send" returned a value',
+			);
 			expect(await hget('a', 'step:send')).toBeNull();
 		});
 	});
@@ -220,7 +233,7 @@ describe('job.step by hand', () => {
 	test('a stale attempt whose lease lapsed gets LEASE_LOST from step and fn does not run', async () => {
 		const stale = await hold();
 		await lapsed('a');
-		const live = await take();
+		const live = await take(stale.context);
 		expect(live.job.token).not.toBe(stale.job.token);
 		await live.steps.step('send', () => 'two');
 		let ran = false;
@@ -233,6 +246,8 @@ describe('job.step by hand', () => {
 		expect(codeOf(error)).toBe('LEASE_LOST');
 		expect(ran).toBe(false);
 		expect(codeOf(stale.signal.reason)).toBe('LEASE_LOST');
+		// Same context and runs map: aborting by token never touched the live run.
+		expect(stale.context).toBe(live.context);
 		expect(live.signal.aborted).toBe(false);
 		expect(await hget('a', 'step:send')).toBe('"two"');
 	});
@@ -250,7 +265,7 @@ describe('job.step by hand', () => {
 		);
 		await started.opened;
 		await lapsed('a');
-		const live = await take();
+		const live = await take(stale.context);
 		expect(await live.steps.step('send', () => 'two')).toBe('two');
 		release.open();
 		expect(codeOf(await late)).toBe('LEASE_LOST');
@@ -315,7 +330,7 @@ describe('job.step by hand', () => {
 		await first.steps.step('send', () => 1);
 		expect((await scriptCalls(client())) - before).toBe(2);
 		// A second attempt object over the same claim: its names are its own.
-		const again = attempt(first.job);
+		const again = attempt(first.job, first.context);
 		before = await scriptCalls(client());
 		let ran = false;
 		expect(
@@ -328,6 +343,62 @@ describe('job.step by hand', () => {
 		expect(ran).toBe(false);
 	});
 
+	test('an abort while BEGIN is in flight stops fn from running', async () => {
+		const begin = gate();
+		const reply = gate();
+		let delay = false;
+		const real = client();
+		const proxy = {
+			evalsha: async (...args: unknown[]) => {
+				if (delay) {
+					delay = false;
+					begin.open();
+					await reply.opened;
+				}
+				return await (real.evalsha as (...a: unknown[]) => unknown)(...args);
+			},
+			eval: (...args: unknown[]) =>
+				(real.eval as (...a: unknown[]) => unknown)(...args),
+		} as unknown as WorkerContext['client'];
+		const { steps, context, job } = await hold('a', { client: proxy });
+		delay = true;
+		let ran = false;
+		const pending = rejection(
+			steps.step('send', () => {
+				ran = true;
+				return 1;
+			}),
+		);
+		await begin.opened;
+		abortRun(context, 'CANCELED', job.id, job.token);
+		reply.open();
+		expect(codeOf(await pending)).toBe('CANCELED');
+		expect(ran).toBe(false);
+		expect(await hget('a', 'step:send')).toBeNull();
+	});
+
+	test('a step fired after the run ended rejects with a LEASE_LOST of its own, never undefined', async () => {
+		const { steps, context, job } = await hold();
+		endRun(context, job);
+		await client().send('HDEL', [keys.job('a'), 'token']);
+		const error = await rejection(steps.step('send', () => 1));
+		expect(error).toBeInstanceOf(QueueError);
+		expect(codeOf(error)).toBe('LEASE_LOST');
+		expect((error as QueueError).job).toBe('a');
+	});
+
+	test('the INVALID of a refused value carries the job id', async () => {
+		const { steps } = await hold();
+		const error = await rejection(steps.step('send', () => new Date()));
+		expect(codeOf(error)).toBe('INVALID');
+		expect((error as QueueError).job).toBe('a');
+		await client().send('HSET', [keys.job('a'), 'step:read', '"x"']);
+		const read = await rejection(
+			steps.step('read', () => 1, { schema: z.number() }),
+		);
+		expect((read as QueueError).job).toBe('a');
+	});
+
 	test('a throw from fn propagates and records nothing', async () => {
 		const { steps } = await hold();
 		const error = await rejection(
@@ -337,5 +408,63 @@ describe('job.step by hand', () => {
 		);
 		expect((error as Error).message).toBe('boom');
 		expect(await hget('a', 'step:send')).toBeNull();
+	});
+});
+
+describe('job.step end to end', () => {
+	test('a lease taken from under the run: step rejects LEASE_LOST, error is emitted, fn does not run, the slot is freed', async () => {
+		await withWorkers(async (open) => {
+			let ran = false;
+			let rejected: unknown;
+			const { seen, errors } = open(async (job) => {
+				if (job.id !== 'a') return;
+				// The lease is gone: another worker would hold the job under a new token.
+				await client().send('HSET', [keys.job('a'), 'token', 'other']);
+				rejected = await rejection(
+					job.step('send', () => {
+						ran = true;
+						return 1;
+					}),
+				);
+			});
+			const queue = bindQueue(client(), mailQueue);
+			await queue.add({ to: 'a' }, { id: 'a' });
+			await queue.add({ to: 'b' }, { id: 'b' });
+			await eventually(() => hget('b', 'state'), 'completed');
+			expect(codeOf(rejected)).toBe('LEASE_LOST');
+			expect(ran).toBe(false);
+			expect(errors.map(codeOf)).toContain('LEASE_LOST');
+			expect(seen).toContain('completed b');
+		});
+	});
+
+	test('queue.cancel(id) aborts the run, and a step called then rejects CANCELED without running fn', async () => {
+		await withWorkers(async (open) => {
+			const aborted = gate();
+			const done = gate();
+			let rejected: unknown;
+			let ran = false;
+			open(async (job) => {
+				job.signal.addEventListener('abort', () => aborted.open(), {
+					once: true,
+				});
+				await aborted.opened;
+				rejected = await rejection(
+					job.step('send', () => {
+						ran = true;
+						return 1;
+					}),
+				);
+				done.open();
+			});
+			await subscribedTo(client(), keys.events);
+			const queue = bindQueue(client(), mailQueue);
+			await queue.add({ to: 'a' }, { id: 'a' });
+			await eventually(() => hget('a', 'state'), 'active');
+			expect(await queue.cancel('a')).toBe(true);
+			await done.opened;
+			expect(codeOf(rejected)).toBe('CANCELED');
+			expect(ran).toBe(false);
+		});
 	});
 });

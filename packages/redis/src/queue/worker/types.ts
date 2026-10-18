@@ -35,7 +35,8 @@ export type JobContext<S extends z.ZodType> = {
 	 *
 	 * `name` is 1 to 128 characters without `:`, and one name runs once per
 	 * attempt; anything else is a `TypeError`. A throw from `fn` is the
-	 * handler's own error and records nothing. A value that cannot be stored,
+	 * handler's own error and records nothing, but the name stays used for the
+	 * rest of the attempt. A value that cannot be stored,
 	 * or a stored one the schema refuses, rejects with a `QueueError`
 	 * `INVALID`, which fails the job without retry.
 	 */

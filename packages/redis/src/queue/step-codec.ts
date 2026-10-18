@@ -41,7 +41,8 @@ export function checkStepName(
  * read back as something else. A schema that accepts `{ a: undefined }`
  * stores it.
  *
- * A refusal is `QueueError` `INVALID` naming the queue and the step, with the
+ * A refusal is `QueueError` `INVALID` naming the queue, the step and the
+ * `job` id when given, with the
  * zod issue codes when a schema refused it, never the value. A schema that
  * throws is a refusal too.
  */
@@ -50,12 +51,14 @@ export function encodeStep(
 	name: string,
 	value: unknown,
 	schema?: z.ZodType,
+	job?: string,
 ): string {
 	const refused = (detail: string) =>
 		new QueueError(
 			'INVALID',
 			queue,
 			`step on "${queue}": step "${name}" returned a value that ${detail}`,
+			job,
 		);
 	if (value === undefined) {
 		if (schema === undefined || check(schema, undefined).success) return '';

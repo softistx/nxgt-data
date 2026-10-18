@@ -121,12 +121,20 @@ async function runHandler<S extends z.ZodType>(
 		return await settleAborted(context, job, outcome.reason);
 	}
 	if (outcome.kind === 'threw') {
-		// A refused step value (R1): its own message is recorded, never retried.
+		// A refused step value (R1, R3): never retried, recorded as the data and result refusals are.
 		if (
 			outcome.error instanceof QueueError &&
 			outcome.error.code === 'INVALID'
 		) {
-			return await failAttempt(context, job, toError(outcome.error), null);
+			return await failAttempt(
+				context,
+				job,
+				{
+					name: 'QueueError',
+					message: `INVALID: ${outcome.error.message}`,
+				},
+				null,
+			);
 		}
 		return await failAttempt(
 			context,

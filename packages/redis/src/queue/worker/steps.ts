@@ -25,7 +25,14 @@ export function stepsOf<S extends z.ZodType>(
 
 	const lost = (): QueueError => {
 		abortRun(context, 'LEASE_LOST', job.id, job.token);
-		return signal.reason as QueueError;
+		// The run already ended (a step fired after the handler returned): no reason was set.
+		if (signal.reason instanceof QueueError) return signal.reason;
+		return new QueueError(
+			'LEASE_LOST',
+			queue,
+			`run on "${queue}": job "${job.id}" lost its lease`,
+			job.id,
+		);
 	};
 	const invalid = (what: string, name: string) =>
 		new QueueError(
@@ -58,6 +65,8 @@ export function stepsOf<S extends z.ZodType>(
 			context.definition.lease,
 		);
 		if ('lost' in begun) throw lost();
+		// Aborted while BEGIN was in flight: the run is over, `fn` must not start.
+		if (signal.aborted) throw signal.reason;
 		if (begun.stored) {
 			const decoded = decodeStep(begun.json, schema);
 			if (!decoded.ok) {
@@ -65,7 +74,9 @@ export function stepsOf<S extends z.ZodType>(
 			}
 			return decoded.value;
 		}
-		const encoded = encodeStep(queue, name, await fn(), schema);
+		const value = await fn();
+		const encoded = encodeStep(queue, name, value, schema, job.id);
+		if (signal.aborted) throw signal.reason;
 		const committed = await stepCommit(
 			context.client,
 			context.keys,
