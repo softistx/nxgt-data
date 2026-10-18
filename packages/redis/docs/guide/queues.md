@@ -586,6 +586,18 @@ queue.work(async (job) => {
 Steps survive retries and `retry(id)`: a job that failed at its third step
 resumes there. `remove(id)`, and adding the job afresh, starts over.
 
+`retry(id, { fresh: true })` clears every stored step, so the next run does them
+all again. Use it after fixing a bug that made a step store a wrong value:
+
+```ts
+await queue.retry('receipt:42', { fresh: true });
+```
+
+`job.key(name)` is unchanged, so a provider that deduplicates on it still
+answers from its cache. If the downstream call must really happen again, vary
+the key on purpose, for example with a different step name. A job that is not
+failed is refused with `NOT_FOUND`, as without `fresh`, and keeps its steps.
+
 A step that runs costs two round trips (a begin, which also pushes the lease a
 full lease ahead, and a commit); a stored one costs one.
 
@@ -674,6 +686,7 @@ for (const job of failed) console.log(job.id, job.attempt, job.error);
 const one = await queue.get('receipt:42'); // JobView | undefined
 
 await queue.retry('receipt:42');  // a failed job goes back to waiting, attempts from 0
+await queue.retry('receipt:43', { fresh: true }); // the same, and every step runs again
 await queue.remove('receipt:41'); // any state but active
 ```
 
@@ -682,7 +695,7 @@ await queue.remove('receipt:41'); // any state but active
 | `get(id)` | the `JobView`, or `undefined` | |
 | `list(state, { offset?, limit? })` | a page of `JobView`s; `offset` from 0 (default 0), `limit` 1 to 1000 (default 50) | `TypeError` for an `offset` or `limit` out of range, or an unknown state |
 | `counts()` | `Record<JobState, number>`, from one script | |
-| `retry(id)` | nothing | `QueueError` `NOT_FOUND` when the job is not failed |
+| `retry(id, { fresh? })` | nothing; `fresh: true` clears the stored steps (default `false`: they are kept) | `TypeError` for a `fresh` that is not a boolean; `QueueError` `NOT_FOUND` when the job is not failed |
 | `remove(id)` | nothing | `QueueError` `ACTIVE` for a running job, `NOT_FOUND` for none |
 
 ```ts
