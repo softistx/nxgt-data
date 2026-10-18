@@ -133,19 +133,22 @@ function reasonFrom(signal: AbortSignal): QueueError {
 }
 
 /**
- * Listens to the queue's events for a `canceled` one and aborts that job's
- * run with `CANCELED`. Resolves with the function that stops listening, once
- * the SUBSCRIBE is live. A cancel published before then is not heard: the
- * lease renewal reports that job as `LEASE_LOST` instead. A cancel heard
- * while a finished handler's COMPLETE is in flight emits nothing: the settle
- * is refused.
+ * Listens to the queue's events for a `canceled` one and aborts the run it
+ * names, by id and token, with `CANCELED`: a run of the same id claimed after
+ * the cancel keeps going. A `canceled` event with no token is a waiting or
+ * delayed job's, which nothing runs, and aborts nothing. Resolves with the
+ * function that stops listening, once the SUBSCRIBE is live. A cancel
+ * published before then is not heard: the lease renewal reports that job as
+ * `LEASE_LOST` instead. A cancel heard while a finished handler's COMPLETE is
+ * in flight emits nothing: the settle is refused.
  */
 export function hearCancels(
 	context: WorkerContext,
 ): Promise<() => Promise<void>> {
 	return listen(context.client, context.keys.events, (message) => {
 		const event = parseEvent(message);
-		// By id alone, every token of it: the CANCEL script deleted the job's hash.
-		if (event?.type === 'canceled') abortRun(context, 'CANCELED', event.id);
+		if (event?.type === 'canceled' && event.token !== undefined) {
+			abortRun(context, 'CANCELED', event.id, event.token);
+		}
 	});
 }

@@ -6,6 +6,7 @@ import { defineQueue } from '../define-queue';
 import { queueKeys } from '../keys';
 import { cancel } from './cancel';
 import { claim } from './claim';
+import { renew } from './renew';
 import { complete, fail } from './settle';
 
 const servers = useRedis();
@@ -44,7 +45,7 @@ describe('cancel', () => {
 		expect(await log.published()).toEqual([{ type: 'canceled', id: 'a' }]);
 	});
 
-	test('CANCEL of an active job drops its token, so its COMPLETE is refused and publishes nothing', async () => {
+	test('CANCEL of an active job drops its token, so its COMPLETE, FAIL and RENEW are refused and publish nothing', async () => {
 		const log = await listen();
 		const job = await take('a');
 		expect(await cancel(client(), keys, 'a')).toBe(true);
@@ -60,9 +61,44 @@ describe('cancel', () => {
 			false,
 		);
 		expect(late.settled).toBe(false);
+		await fail(
+			client(),
+			keys,
+			mailQueue,
+			'a',
+			job.token,
+			{ name: 'x', message: 'late' },
+			null,
+			false,
+		);
+		expect(
+			await renew(client(), keys, mailQueue.lease, [
+				{ id: 'a', token: job.token },
+			]),
+		).toEqual(['a']);
 		expect(await send('EXISTS', keys.job('a'))).toBe(0);
 		expect(await send('ZCARD', keys.completed)).toBe(0);
-		expect(await log.published()).toEqual([{ type: 'canceled', id: 'a' }]);
+		expect(await send('ZCARD', keys.failed)).toBe(0);
+		expect(await send('ZCARD', keys.active)).toBe(0);
+		// The cancel names the run it ends by its token; nothing else is published.
+		expect(await log.published()).toEqual([
+			{ type: 'canceled', id: 'a', token: job.token },
+		]);
+	});
+
+	test('CANCEL publishes a token only for an active job', async () => {
+		const log = await listen();
+		const active = await take('r');
+		await mails().add({ to: 'w' }, { id: 'w' });
+		await mails().add({ to: 'd' }, { id: 'd', delay: '1m' });
+		await cancel(client(), keys, 'w');
+		await cancel(client(), keys, 'd');
+		await cancel(client(), keys, 'r');
+		expect(await log.published()).toEqual([
+			{ type: 'canceled', id: 'w' },
+			{ type: 'canceled', id: 'd' },
+			{ type: 'canceled', id: 'r', token: active.token },
+		]);
 	});
 
 	test('CANCEL of a completed or failed job answers 0 and publishes nothing', async () => {
@@ -120,6 +156,8 @@ describe('cancel', () => {
 
 	test('CANCEL racing COMPLETE: exactly one outcome is published', async () => {
 		const log = await listen();
+		// keepCompleted false: a completed job is deleted too, so neither outcome
+		// leaves a hash behind that the other could read and settle on.
 		const queue = defineQueue({
 			name: 'mails',
 			schema: z.object({ to: z.string() }),
@@ -159,7 +197,7 @@ describe('cancel', () => {
 		}[];
 		expect(outcomes.filter((o) => o.id === 'third')).toHaveLength(1);
 		expect(outcomes.filter((o) => o.id !== 'third')).toEqual([
-			{ type: 'canceled', id: 'first' },
+			{ type: 'canceled', id: 'first', token: first.token },
 			{ type: 'completed', id: 'second', result: 2 },
 		]);
 	});

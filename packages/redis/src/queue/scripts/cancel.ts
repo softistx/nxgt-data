@@ -14,8 +14,12 @@ import { scriptKeys } from './claim';
  * `delayed` or `active`) and its hash deleted, which removes an active job's
  * token with it, so its worker's `COMPLETE`, `FAIL`, `RENEW` and `PROGRESS`
  * find no token and change nothing. The outcome `{type: 'canceled', id}` is
- * published on `events`. A job that is completed, failed, absent, or whose
- * hash and set disagree changes nothing and publishes nothing.
+ * published on `events`; for an active job it also carries the run's
+ * `token`, read before the hash is deleted, so a worker aborts that run and
+ * never one of the same id claimed after the cancel. A waiting or delayed
+ * job's event has no token: nothing runs it. A job that is completed,
+ * failed, absent, or whose hash and set disagree changes nothing and
+ * publishes nothing.
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake, events.
  * ARGV: job-key prefix, id.
@@ -30,9 +34,13 @@ if state == 'waiting' then from = KEYS[2]
 elseif state == 'delayed' then from = KEYS[1]
 elseif state == 'active' then from = KEYS[3] end
 if not from or not redis.call('ZSCORE', from, id) then return 0 end
+local token = false
+if state == 'active' then token = redis.call('HGET', key, 'token') end
 redis.call('ZREM', from, id)
 redis.call('DEL', key)
-redis.call('PUBLISH', KEYS[8], '{"type":"canceled","id":' .. cjson.encode(id) .. '}')
+local message = '{"type":"canceled","id":' .. cjson.encode(id)
+if token then message = message .. ',"token":' .. cjson.encode(token) end
+redis.call('PUBLISH', KEYS[8], message .. '}')
 return 1
 `);
 

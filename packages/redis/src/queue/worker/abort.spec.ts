@@ -3,6 +3,7 @@ import { eventually, gate, mailQueue, useRedis } from '../../../test/fixtures';
 import { QueueError } from '../../errors/queue-error';
 import { bindQueue } from '../bind-queue';
 import { defineQueue } from '../define-queue';
+import { flush } from '../events/subscriber';
 import { queueKeys } from '../keys';
 import {
 	abortAll,
@@ -11,6 +12,7 @@ import {
 	armTimeout,
 	beginRun,
 	endRun,
+	hearCancels,
 } from './abort';
 import type { WorkerContext } from './context';
 import type { JobContext, Worker, WorkerEvents } from './types';
@@ -133,6 +135,37 @@ describe('the run registry', () => {
 		endRun(context, job('t2'));
 		endRun(context, job('t3'));
 		expect(context.runs.size).toBe(0);
+	});
+
+	test('a cancel event aborts only the run whose token it names; one with no token aborts nothing', async () => {
+		const context = {
+			runs: new Map(),
+			definition: mailQueue,
+			client: client(),
+			keys,
+		} as unknown as WorkerContext;
+		const first = beginRun(context, job('t1'));
+		const second = beginRun(context, job('t2'));
+		const stop = await hearCancels(context);
+		try {
+			const publish = async (message: object) => {
+				await client().publish(keys.events, JSON.stringify(message));
+				// Every message published before the PING reply has been heard.
+				await flush(client());
+			};
+			// A waiting or delayed job's cancel: nothing ran, nothing is aborted.
+			await publish({ type: 'canceled', id: 'a' });
+			expect(first.controller.signal.aborted).toBe(false);
+			expect(second.controller.signal.aborted).toBe(false);
+			// The run claimed after the cancel (t2) keeps going.
+			await publish({ type: 'canceled', id: 'a', token: 't1' });
+			expect((first.controller.signal.reason as QueueError).code).toBe(
+				'CANCELED',
+			);
+			expect(second.controller.signal.aborted).toBe(false);
+		} finally {
+			await stop();
+		}
 	});
 
 	test('a lost lease and a cancel match by token and by id', () => {
