@@ -42,7 +42,7 @@ export function startWorker<S extends z.ZodType>(
 	definition: QueueDefinition<S, z.ZodType | undefined>,
 	keys: ReturnType<typeof queueKeys>,
 	handler: (job: JobContext<S>) => unknown,
-	options: { concurrency: number },
+	options: { concurrency: number; prefix: string | undefined },
 ): Worker {
 	const context: WorkerContext<S> = {
 		client,
@@ -50,6 +50,7 @@ export function startWorker<S extends z.ZodType>(
 		keys,
 		handler,
 		concurrency: options.concurrency,
+		prefix: options.prefix,
 		// A lost lease aborts that run; its late settle would be refused anyway.
 		leases: keepLeases(client, keys, definition.lease, (lost) =>
 			abortLost(context, lost),

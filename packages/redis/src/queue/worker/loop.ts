@@ -76,7 +76,8 @@ export async function loop<S extends z.ZodType>(
 			);
 			retry = FIRST_RETRY;
 			announce(context, reply);
-			for (const job of reply.jobs) start(context, job);
+			// A reply past the close's bound starts nothing: no lease renews it.
+			if (context.open) for (const job of reply.jobs) start(context, job);
 			markDrained(context, reply.jobs.length === 0);
 			if (context.open && context.slots.size < context.concurrency) {
 				await waitForWork(context, reply.next);

@@ -1,6 +1,6 @@
 import type { Duration } from '../duration';
 import { durationMs } from '../duration';
-import { clampTimeout } from '../timers';
+import { clampTimeout, RELEASE_MS } from '../timers';
 import { abortAll } from './abort';
 import type { WorkerContext } from './context';
 import { settleIdle } from './idle';
@@ -40,8 +40,11 @@ async function within(work: Promise<unknown>, ms: number): Promise<boolean> {
  * Stops claiming, waits for the slots up to `grace`, then aborts what still
  * runs with `CLOSED`, stops the leases and the cancel listener.
  *
- * A job the loop claimed while closing is registered before the loop ends, so
- * the second `abortAll` after `running` catches it.
+ * A job claimed while the worker is closing but before the loop ends is
+ * registered and aborted by the second `abortAll`. Past the `RELEASE_MS` bound
+ * `close` has resolved and the leases are stopped, so a late CLAIM or settle
+ * reply starts nothing: its job keeps its lease, which lapses, and another
+ * attempt retakes it, as for any `CLOSED` job.
  */
 export async function closeWorker(
 	context: WorkerContext,
@@ -59,11 +62,22 @@ export async function closeWorker(
 	};
 	if (!(await within(drained(), grace))) {
 		abortAll(context);
-		await running;
-		abortAll(context);
-		await Promise.all([...context.slots]);
+		// What is left: a CLAIM or a settle on a server that stopped answering
+		// without closing the socket must not hold `redis.close()`. Bounded,
+		// and a rejection arriving late is swallowed.
+		const left = (async () => {
+			await running;
+			abortAll(context);
+			await Promise.all([...context.slots]);
+		})();
+		left.catch(() => undefined);
+		await within(left, RELEASE_MS);
 	}
 	context.leases.stop();
-	await (await unlisten)();
+	// A cancel listener whose connection is gone never answers: bounded, and a
+	// rejection arriving late is swallowed.
+	const unlistened = (async () => (await unlisten)())();
+	unlistened.catch(() => undefined);
+	await within(unlistened, RELEASE_MS);
 	settleIdle(context);
 }

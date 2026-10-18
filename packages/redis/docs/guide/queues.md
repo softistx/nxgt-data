@@ -31,9 +31,9 @@ await worker.close();
 
 `defineQueue` describes the queue and talks to nothing — put it where it is
 imported, like a cache. `bindQueue(client, definition)` is what needs a client,
-and takes any Bun `RedisClient`. The queue is bound by hand: it is not yet
-wired by `defineRedis`, so its keys carry no deployment prefix, only the
-queue's `name`. Every key of one queue is `queue:{<name>}:…`, so they share a
+and takes any Bun `RedisClient`. The queue is bound by hand: `defineRedis` can wire it
+instead (see [Wiring](#wiring)); bound by hand, its keys carry no deployment
+prefix, only the queue's `name`. Every key of one queue is `queue:{<name>}:…`, so they share a
 Redis Cluster slot; for the same reason a name cannot contain braces.
 
 ## Defining a queue
@@ -535,7 +535,9 @@ reason.
 
 ### `job.key(name)`
 
-`job.key('send')` is `<queue>:<job id>:send`, the same on every attempt. A
+`job.key('send')` is `<queue>:<job id>:send`, the same on every attempt (once
+the queue is [wired](#wiring) under a prefix, it starts with the prefix:
+`<prefix>:<queue>:<job id>:send`). A
 crash can still land between the side effect and the step's commit, so hand the
 key to the other side as its idempotency key, as the first example does with the
 mailer's. `name` follows the rules of a step's, and a queue name cannot hold
@@ -543,6 +545,12 @@ mailer's. `name` follows the rules of a step's, and a queue name cannot hold
 
 The key is per job id and outlives `remove`: adding the same id again gets the
 same key, so the other side still deduplicates.
+
+Two deployments that hand keys to **one** downstream provider need prefixes
+that are not prefixes of each other, segment by segment. With the prefixes
+`app` and `app:x`, queue `x` with job id `y:1` and queue `y` with job id `1`
+both give `app:x:y:1:<step>`. Nothing enforces it; pick prefixes such as
+`app:prod` and `app:staging`.
 
 Where the other side has no such key, wrap the call in an
 [idempotent operation](guard/idempotency.md) and key it with the job's:
@@ -722,6 +730,107 @@ export const admin = new Hono()
 
 `QueueError` carries `code`, `queue` (the name), `job` (the id, when the call
 was about one) and, for `FAILED`, `lastError`. Its message names the queue and the job, never the payload.
+
+## Wiring
+
+`defineRedis` wires queues like caches and guards: pass the module that exports
+the `defineQueue` calls, and every one comes back as `redis.queues.<key>` under
+the deployment's prefix, with its workers closed by `redis.close()`.
+
+```ts
+import { defineRedis, openRedis } from '@nxgt/redis';
+import * as queues from './queues'; // every `defineQueue` of the app
+
+export const redis = await openRedis(
+	defineRedis({ uri: process.env.REDIS_URL!, prefix: 'myapp:prod', queues }),
+);
+
+await redis.queues.mails.add({ to: 'ada@example.com' });
+
+redis.queues.mails.work(async ({ data }) => {
+	await sendMail(data.to); // your code
+});
+
+process.on('SIGTERM', async () => {
+	await redis.close({ grace: '20s' });
+	process.exit(0);
+});
+```
+
+`redis.queues.mails` is the object `bindQueue` returns, and its `definition` is
+the `mails` you exported, unchanged. Errors still name the definition's own
+name (`add on "mails": …`).
+
+### Keys and the prefix
+
+The prefix goes inside the queue's hash tag: the keys are
+`queue:{myapp:prod:mails}:…`, so one queue's keys still share a Redis Cluster
+slot. A queue bound by hand and the same queue wired under a prefix are two
+different sets of keys: moving one under a prefix starts empty, and the jobs
+left under the old keys are not seen. Without a prefix, the wired keys are those
+of `bindQueue`. A prefix holding `{` or `}` is refused when the instance wires a
+queue, and `defineRedis` refuses one name wired twice, or shared with a cache,
+rate limit or idempotent operation; see
+[troubleshooting](../troubleshooting.md#wiring-defineredis-and-openredis), whose entries
+quote the refusal messages and the `CLOSED` ones (`add on "mails": the Redis is closed`).
+
+### Nothing opens early
+
+Reading `redis.queues` or `redis.queues.mails` sends nothing. The first
+`work()` or `finished()` opens the shared subscriber (a `work` listens for
+cancels), and a worker that finds nothing ready opens a blocking connection of
+its own. A Redis built on a handed-in `client` opens no connection of its own
+for the queue.
+
+### Closing the Redis
+
+`redis.close({ grace })` closes the queues first, in two phases, then the
+subscriptions, then the clients. `grace` is a `Duration`, and leaving it out
+gives each worker its default, 30 seconds.
+
+```ts
+type Close = (options?: { grace?: Duration }) => Promise<void>;
+```
+
+1. **Closing.** `work` throws `QueueError` `CLOSED` from the moment `close` is
+   called, and every worker started through `redis.queues` closes with the
+   grace. `add`, `addMany` and `finished` still work, so a running handler can
+   add jobs to other queues, and a `finished` whose job completes during the
+   grace resolves with its result.
+2. **Closed.** `add`, `addMany` and `finished` throw `CLOSED`, and every
+   `finished` still waiting rejects `CLOSED`.
+
+```ts
+import { QueueError } from '@nxgt/redis';
+
+await redis.close({ grace: '20s' });
+
+try {
+	await redis.queues.mails.add({ to: 'ada@example.com' });
+} catch (error) {
+	if (error instanceof QueueError && error.code === 'CLOSED') {
+		// the process is going down: do not retry here
+	}
+}
+```
+
+- Admin calls (`get`, `list`, `counts`, `retry`, `remove`, `cancel`) pass
+  through after the close. On a connection the Redis opened they fail with the
+  client's own error; on a handed-in client they still work.
+- An `add` in flight when the connection closes fails with the connection's
+  error, not `CLOSED`. An `addMany` stops between its chunks with `CLOSED`.
+- A queue bound by hand (`bindQueue`) never throws `CLOSED`; close its worker
+  yourself.
+- `close` is memoised: a second call returns the first call's promise, and its
+  `grace` is ignored.
+- A malformed `grace` rejects with a `TypeError` before anything closes.
+- A job still running when the grace ends is aborted with `CLOSED`, its lease
+  lapses, and another worker retakes it as one more attempt: see
+  [Closing](#closing) and [Running twice](#running-twice).
+
+The platform has its own kill timeout (Kubernetes' `terminationGracePeriodSeconds`,
+a container's stop timeout): keep `grace` below it, or the process is killed
+mid-close.
 
 ## Testing
 

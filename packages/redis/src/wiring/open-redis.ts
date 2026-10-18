@@ -1,9 +1,11 @@
 import { connectRedis, type RedisConnection } from '../connection/connect';
+import { openLife } from '../queue/life';
 import { checkInstance } from './config/checks';
 import {
 	isCache,
 	isChannel,
 	isIdempotency,
+	isQueue,
 	isRateLimit,
 	wiredOf,
 } from './config/kinds';
@@ -13,6 +15,7 @@ import type {
 	AnyCache,
 	AnyChannel,
 	AnyIdempotency,
+	AnyQueue,
 	AnyRateLimit,
 	Redis,
 } from './types';
@@ -45,6 +48,7 @@ async function open(
 		channels: wiredOf<AnyChannel>(instance.channels, isChannel),
 		limits: wiredOf<AnyRateLimit>(instance.limits, isRateLimit),
 		idempotency: wiredOf<AnyIdempotency>(instance.idempotency, isIdempotency),
+		queues: wiredOf<AnyQueue>(instance.queues, isQueue),
 		connection,
 	};
 }
@@ -96,6 +100,8 @@ export async function openRedis<C>(config: RedisConfig<C>): Promise<Redis<C>> {
 		channels: new Map(),
 		limits: new Map(),
 		idempotency: new Map(),
+		queues: new Map(),
+		life: openLife(),
 		subscriptions: new Set(),
 	};
 	return wire<C>(ctx);

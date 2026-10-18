@@ -1,7 +1,7 @@
 // A queue an app exports, defined and bound, behind exported values whose
 // types are inferred: a declaration build must be able to name each one
 // through `@nxgt/redis` and its peers alone (TS2883 otherwise).
-import { bindQueue, defineQueue } from '@nxgt/redis';
+import { bindQueue, defineQueue, defineRedis, openRedis } from '@nxgt/redis';
 import type { RedisClient } from 'bun';
 import { z } from 'zod';
 
@@ -59,4 +59,23 @@ export function steppedWorker() {
 		const key: string = job.key('charge');
 		return `${sent.id}:${key}`;
 	});
+}
+
+/** The same queue wired through a Redis: its scope names the types too. */
+export const wiredQueues = await openRedis(
+	defineRedis({
+		uri: 'redis://127.0.0.1:6379',
+		prefix: 'myapp',
+		queues: { mails, renders },
+	}),
+);
+
+export const wiredMails = wiredQueues.queues.mails;
+
+export function wiredWorker() {
+	return wiredQueues.queues.renders.work(() => ({ bytes: 1 }));
+}
+
+export function closeWiredQueues() {
+	return wiredQueues.close({ grace: '10s' });
 }

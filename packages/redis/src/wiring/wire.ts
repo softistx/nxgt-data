@@ -1,7 +1,7 @@
 import { type PingResult, ping } from '../connection/connect';
 import type { LockOptions } from '../lock/with-lock';
 import { withLock } from '../lock/with-lock';
-import { closeAll } from './close';
+import { closeRedis } from './close';
 import {
 	type InstanceContext,
 	instanceAt,
@@ -13,6 +13,7 @@ import {
 	channelScopeOf,
 	idempotencyScopeOf,
 	limitScopeOf,
+	queueScopeOf,
 } from './scope';
 import type { Redis, RedisLockOptions } from './types';
 
@@ -32,6 +33,7 @@ function scopeFor(
 	let channels: object | undefined;
 	let limits: object | undefined;
 	let idempotency: object | undefined;
+	let queues: object | undefined;
 	return {
 		get cache() {
 			caches ??= cacheScopeOf(ctx, instance);
@@ -48,6 +50,10 @@ function scopeFor(
 		get idempotency() {
 			idempotency ??= idempotencyScopeOf(ctx, instance);
 			return idempotency;
+		},
+		get queues() {
+			queues ??= queueScopeOf(ctx, instance);
+			return queues;
 		},
 		client: instance.client,
 		prefix: instance.prefix,
@@ -80,6 +86,7 @@ interface LooseInstanceScope {
 	readonly channels: object;
 	readonly limits: object;
 	readonly idempotency: object;
+	readonly queues: object;
 	readonly client: unknown;
 	readonly prefix: string | undefined;
 	lock<T>(
@@ -126,6 +133,9 @@ export function wire<C>(ctx: WiringContext): Redis<C> {
 		get idempotency() {
 			return sole('idempotency').idempotency;
 		},
+		get queues() {
+			return sole('queues').queues;
+		},
 		instances: Object.freeze(instances),
 		clients: Object.freeze(clients),
 
@@ -163,8 +173,8 @@ export function wire<C>(ctx: WiringContext): Redis<C> {
 			return Object.fromEntries(entries);
 		},
 
-		close: () => closeAll(ctx),
-		[Symbol.asyncDispose]: () => closeAll(ctx),
+		close: (options?: { grace?: unknown }) => closeRedis(ctx, options),
+		[Symbol.asyncDispose]: () => closeRedis(ctx),
 	};
 	return redis as unknown as Redis<C>;
 }

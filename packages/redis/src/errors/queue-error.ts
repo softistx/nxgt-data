@@ -31,8 +31,10 @@ export type QueueErrorCode =
 	 */
 	| 'LEASE_LOST'
 	/**
-	 * The worker closed and its `grace` passed while the run went on: only
-	 * ever a `signal.reason`, never a call's rejection.
+	 * The Redis of a wired queue is closed: `add`, `addMany` and `finished`
+	 * reject with it once it is closed, and `work` throws it from the moment
+	 * `close` was called; a `finished` still waiting rejects with it too. Also
+	 * a run's `signal.reason` when its worker's `grace` passed while it went on.
 	 */
 	| 'CLOSED';
 

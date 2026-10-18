@@ -115,7 +115,8 @@ export async function runSlot<S extends z.ZodType>(
 			const reply: ClaimReply =
 				(await runJob(context, job)) ?? (await claimAfterAbort(context));
 			announce(context, reply);
-			job = reply.jobs[0];
+			// Past the close's bound a claimed job is left to lapse.
+			job = context.open ? reply.jobs[0] : undefined;
 			if (!job) markDrained(context, true);
 		} catch (error) {
 			// The job's lease lapses and another worker takes it back.

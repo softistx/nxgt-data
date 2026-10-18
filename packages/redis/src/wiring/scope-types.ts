@@ -7,12 +7,14 @@ import type {
 	BoundIdempotency,
 	IdempotencyDefinition,
 } from '../idempotency/types';
+import type { BoundQueue, QueueDefinition } from '../queue/types';
 import type { BoundRateLimit, RateLimitDefinition } from '../rate-limit/types';
 import type {
 	CachesOf,
 	ChannelsOf,
 	IdempotencyOf,
 	LimitsOf,
+	QueuesOf,
 } from './config/types';
 
 /** What a channel carries, read from the schema it was defined with. */
@@ -72,5 +74,18 @@ export type IdempotencyScope<Id> = {
 		infer S
 	>
 		? BoundIdempotency<P, z.output<S>, z.input<S>>
+		: never;
+};
+
+/**
+ * The wired queues, each typed by its definition: what `add` takes and what
+ * `finished` resolves to come from the schema and the result schema.
+ */
+export type QueueScope<Qu> = {
+	readonly [K in keyof QueuesOf<Qu>]: QueuesOf<Qu>[K] extends QueueDefinition<
+		infer S,
+		infer R
+	>
+		? BoundQueue<S, R>
 		: never;
 };

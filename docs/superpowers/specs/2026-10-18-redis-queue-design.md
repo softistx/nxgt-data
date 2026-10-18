@@ -368,7 +368,7 @@ the job id (never the data):
 | `WAIT_TIMEOUT` | `finished({ timeout })` gave up waiting |
 | `NOT_FOUND` | `retry`, `remove`, `finished` on a job that is not there |
 | `ACTIVE` | `remove` on a job that is running; cancel it first |
-| `CLOSED` | `add` or `work` on a queue whose wiring is closed |
+| `CLOSED` | `add`, `addMany`, `work` and `finished` (pending ones too) once the wiring is closed; admin calls pass through |
 
 `JobError` is the handler's, not the library's: it is how a handler says
 "don't retry" or "retry in".

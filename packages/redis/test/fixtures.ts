@@ -294,6 +294,23 @@ export async function scriptCalls(client: RedisClient): Promise<number> {
 }
 
 /**
+ * Every command this server has run, by name, from `INFO commandstats`,
+ * leaving out the probes a spec makes itself: INFO and CLIENT LIST.
+ */
+export async function commandCalls(
+	client: RedisClient,
+): Promise<Record<string, number>> {
+	const info = await client.info('commandstats');
+	const calls: Record<string, number> = {};
+	for (const [, name, n] of info.matchAll(/cmdstat_([^:]+):calls=(\d+)/g)) {
+		if (name === 'info' || name === 'client|list' || name === 'client')
+			continue;
+		calls[name as string] = Number(n);
+	}
+	return calls;
+}
+
+/**
  * Records what is published on a channel, through a subscriber of its own
  * that the file closes after each test. Call it once per spec file, at its top
  * level, and `await` the function it returns inside a test.

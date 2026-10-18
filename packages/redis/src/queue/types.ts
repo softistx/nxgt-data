@@ -123,17 +123,29 @@ export type BoundQueue<
 > = {
 	readonly definition: QueueDefinition<S, R>;
 	/**
+	 * The prefix the queue is wired under, or `undefined` for one bound by
+	 * hand. It is part of the storage name and of `job.key`, never of
+	 * `definition.name`.
+	 */
+	readonly prefix: string | undefined;
+	/**
 	 * Adds a job: one script, one round trip. The payload is checked by the
 	 * schema and stored as its output, defaults applied.
 	 *
 	 * @throws QueueError `INVALID` when the schema refuses the payload, or it
 	 * does not survive JSON; nothing is written.
 	 * @throws TypeError for a malformed option.
+	 *
+	 * An add in flight when the connection closes fails with the connection's
+	 * error, not `CLOSED`.
 	 */
 	add(data: z.input<S>, options?: AddOptions): Promise<JobHandle<R>>;
 	/**
 	 * Adds many jobs, one script per 500, handles in the order given. One bad
-	 * item refuses the whole call before anything is written.
+	 * item refuses the whole call before anything is written. On a wired queue
+	 * whose Redis closes in between, it stops with `CLOSED` before its next
+	 * script, the jobs already sent staying written. An add in flight when the
+	 * connection closes fails with the connection's error, not `CLOSED`.
 	 */
 	addMany(
 		items: readonly { data: z.input<S>; options?: AddOptions }[],

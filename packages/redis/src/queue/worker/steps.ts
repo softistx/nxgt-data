@@ -130,8 +130,11 @@ function stepKey<S extends z.ZodType>(
 	scope: StepScope<S>,
 	name: string,
 ): string {
-	const { queue, job } = scope;
-	return `${queue}:${job.id}:${checkStepName(queue, 'key', name)}`;
+	const { queue, job, context } = scope;
+	const step = checkStepName(queue, 'key', name);
+	const base =
+		context.prefix === undefined ? queue : `${context.prefix}:${queue}`;
+	return `${base}:${job.id}:${step}`;
 }
 
 /**

@@ -3,6 +3,7 @@ import type { CacheDefinition } from '../../cache/types';
 import type { ChannelDefinition } from '../../channel/define-channel';
 import type { IdempotencyDefinition } from '../../idempotency/types';
 import type { RateLimitDefinition } from '../../rate-limit/types';
+import type { AnyQueue } from '../types';
 
 /**
  * Whether a module export is a cache definition.
@@ -72,6 +73,30 @@ export function isChannel(
 		it['schema'] !== undefined &&
 		it['ttl'] === undefined &&
 		it['lease'] === undefined &&
+		typeof it['key'] !== 'function'
+	);
+}
+
+/**
+ * Whether a module export is a queue definition.
+ *
+ * `attempts`, `lease` and `keepFailed` are numbers and `backoff` an object,
+ * which `defineQueue` always fills and no other kind has together. No `key`
+ * function, which every guard has. A channel refuses it already: its `lease`
+ * is a number.
+ */
+export function isQueue(value: unknown): value is AnyQueue {
+	if (typeof value !== 'object' || value === null) return false;
+	const it = value as Record<string, unknown>;
+	const schema = it['schema'] as { safeParse?: unknown } | undefined;
+	return (
+		typeof it['name'] === 'string' &&
+		typeof schema?.safeParse === 'function' &&
+		typeof it['attempts'] === 'number' &&
+		typeof it['lease'] === 'number' &&
+		typeof it['keepFailed'] === 'number' &&
+		typeof it['backoff'] === 'object' &&
+		it['backoff'] !== null &&
 		typeof it['key'] !== 'function'
 	);
 }

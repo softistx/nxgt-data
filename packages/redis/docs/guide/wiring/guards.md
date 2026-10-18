@@ -99,11 +99,11 @@ const b = await openRedis(defineRedis({ uri, prefix: 'b', limits }));
   and every export is wired where it belongs. A definition under a slot of
   another kind is simply not wired there: `redis.limits.users` for a cache
   does not compile, and an instance left with nothing to wire is refused
-  (`wires no cache, no channel, no rate limit and no idempotency`).
+  (`wires no cache, no channel, no rate limit, no idempotency and no queue`).
 - **One definition under two keys is refused**, as for caches: `wires the rate
   limit named "login" twice, under …`, and `wires the idempotency named …`.
 - **An instance that wires only guards is fine**; one that wires nothing at all
-  is refused (`wires no cache, no channel, no rate limit and no idempotency`).
+  is refused (`wires no cache, no channel, no rate limit, no idempotency and no queue`).
 - **One name across a cache, a rate limit and an idempotency is refused.**
   All three write `<name>:<key>`, so a cache `login` and a rate limit `login`
   would meet in Redis (an idempotency's hash as a `WRONGTYPE`, the strings of a cache and a limit overwriting each other): `wires the cache "users" and the rate
@@ -126,4 +126,5 @@ redis.limits.users;                                 // a cache is not wired on `
 With several instances `redis.limits` and `redis.idempotency` are `never`, as
 `redis.cache` is: read `redis.instances.<name>.limits.login`.
 `LimitScope`, `IdempotencyScope`, `SoleLimits` and `SoleIdempotency` are
-exported for an application that names them.
+exported for an application that names them, as are `QueueScope` and `SoleQueues`
+for the [queues](../queues.md).
