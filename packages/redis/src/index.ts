@@ -36,6 +36,7 @@ export type { Duration } from './queue/duration';
 export type {
 	AddOptions,
 	BoundQueue,
+	Handler,
 	JobContext,
 	JobHandle,
 	JobState,
@@ -43,7 +44,10 @@ export type {
 	QueueCounts,
 	QueueDefinition,
 	QueueInput,
+	ResultInputOf,
+	ResultOf,
 	Worker,
+	WorkerEvents,
 	WorkOptions,
 } from './queue/types';
 export { bindRateLimit } from './rate-limit/bind-rate-limit';

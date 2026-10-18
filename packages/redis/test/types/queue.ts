@@ -3,18 +3,26 @@
 import { RedisClient } from 'bun';
 import { z } from 'zod';
 import {
+	type AddOptions,
 	type BoundQueue,
 	bindCache,
 	bindIdempotency,
 	bindQueue,
 	bindRateLimit,
 	defineQueue,
+	type Handler,
 	type JobContext,
 	JobError,
 	type JobHandle,
+	type JobState,
 	type JobView,
 	publish,
+	type QueueCounts,
 	type QueueErrorCode,
+	type ResultInputOf,
+	type ResultOf,
+	type WorkerEvents,
+	type WorkOptions,
 } from '../../src';
 import { createOrder, loginLimit, userCache, userCreated } from '../fixtures';
 
@@ -183,3 +191,25 @@ const codes: QueueErrorCode[] = [
 	'CLOSED',
 ];
 void codes;
+
+// Every type the lifecycle added is importable from the package entry.
+const resultOf: ResultOf<z.ZodString> = 'x';
+const noResult: ResultOf<undefined> = undefined;
+const resultInput: ResultInputOf<z.ZodString> = 'x';
+const handler: Handler<typeof mails.schema, undefined> = () => undefined;
+const events: keyof WorkerEvents = 'completed';
+const state: JobState = 'active';
+const counts: QueueCounts = {} as QueueCounts;
+const addOptions: AddOptions = { timeout: '1s' };
+const workOptions: WorkOptions = { concurrency: 2 };
+void [
+	resultOf,
+	noResult,
+	resultInput,
+	handler,
+	events,
+	state,
+	counts,
+	addOptions,
+	workOptions,
+];
