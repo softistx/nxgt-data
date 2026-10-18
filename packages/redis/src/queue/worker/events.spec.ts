@@ -47,6 +47,20 @@ describe('emit', () => {
 		expect((errors[0] as Error).message).toBe('late');
 	});
 
+	test('a non-Promise thenable that rejects is reported on error', async () => {
+		const target = context();
+		const errors: unknown[] = [];
+		on(target, 'error', (e) => void errors.push(e));
+		on(target, 'stalled', (() => ({
+			// biome-ignore lint/suspicious/noThenProperty: a thenable that is not a Promise is the case under test
+			then: (_: unknown, reject: (e: unknown) => void) =>
+				reject(new Error('thenable')),
+		})) as () => void);
+		emit(target, 'stalled', { id: '1' });
+		await Bun.sleep(5);
+		expect((errors[0] as Error).message).toBe('thenable');
+	});
+
 	test('announce tells a stalled and an invalid job per id', () => {
 		const target = context();
 		const seen: string[] = [];

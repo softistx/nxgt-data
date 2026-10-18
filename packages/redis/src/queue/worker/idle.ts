@@ -35,7 +35,14 @@ export async function waitIdle(context: Draining): Promise<void> {
 	if (!context.open) return;
 	if (isIdle(context)) {
 		const before = context.claims;
-		const waiting = await context.client.send('ZCARD', [context.keys.ready]);
+		let waiting: unknown;
+		try {
+			waiting = await context.client.send('ZCARD', [context.keys.ready]);
+		} catch (error) {
+			// The connection closed under the check: the worker is done, not failed.
+			if (!context.open) return;
+			throw error;
+		}
 		if (!context.open) return;
 		// A claim that ran meanwhile has already looked at what the ZCARD saw.
 		if (waiting === 0 || context.claims !== before) {
