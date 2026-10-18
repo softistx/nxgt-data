@@ -1,7 +1,7 @@
 import type { RedisClient } from 'bun';
 import type { z } from 'zod';
 import type { queueKeys } from '../keys';
-import type { JobContext, QueueDefinition } from '../types';
+import type { JobContext, QueueDefinition, WorkerEvents } from '../types';
 import type { Leases } from './leases';
 
 /**
@@ -22,7 +22,12 @@ export interface WorkerContext<S extends z.ZodType = z.ZodType> {
 	readonly handler: (job: JobContext<S>) => unknown;
 	readonly concurrency: number;
 	readonly leases: Leases;
-	readonly listeners: Set<(error: unknown) => void>;
+	/** The listeners of each event, added by `Worker.on`. */
+	readonly listeners: {
+		[E in keyof WorkerEvents]?: Set<(payload: WorkerEvents[E]) => void>;
+	};
+	/** Resolves of the `idle()` calls waiting for the worker to drain. */
+	readonly idleWaiters: Set<() => void>;
 	/** The jobs being run, one promise per slot. */
 	readonly slots: Set<Promise<void>>;
 	/** Wakes the sleeps of the error backoff when the worker closes. */
@@ -31,6 +36,8 @@ export interface WorkerContext<S extends z.ZodType = z.ZodType> {
 	open: boolean;
 	/** The connection of its own an idle worker blocks on, opened on first use. */
 	waiter: RedisClient | undefined;
+	/** True once a claim found nothing ready; false while the first claim is pending and again once a claim hands out a job. */
+	drained: boolean;
 	/** Resolves the loop's wait for a free slot. */
 	slotFreed: (() => void) | undefined;
 }

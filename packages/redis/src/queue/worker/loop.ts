@@ -2,7 +2,8 @@ import type { z } from 'zod';
 import { claim } from '../scripts/claim';
 import type { ClaimedJob } from '../scripts/replies';
 import type { WorkerContext } from './context';
-import { emit } from './events';
+import { announce, emit } from './events';
+import { markDrained, settleIdle } from './idle';
 import { runSlot } from './run-job';
 
 /** The longest a worker blocks: how it notices a token that went missing. */
@@ -32,10 +33,11 @@ function start<S extends z.ZodType>(
 	job: ClaimedJob,
 ): void {
 	const slot: Promise<void> = runSlot(context, job)
-		.then(undefined, (error) => emit(context, error))
+		.then(undefined, (error) => emit(context, 'error', error))
 		.then(() => {
 			context.slots.delete(slot);
 			context.slotFreed?.();
+			settleIdle(context);
 		});
 	context.slots.add(slot);
 }
@@ -73,14 +75,16 @@ export async function loop<S extends z.ZodType>(
 				context.definition.lease,
 			);
 			retry = FIRST_RETRY;
+			announce(context, reply);
 			for (const job of reply.jobs) start(context, job);
+			markDrained(context, reply.jobs.length === 0);
 			if (context.open && context.slots.size < context.concurrency) {
 				await waitForWork(context, reply.next);
 			}
 		} catch (error) {
 			// Closing the connection ends a pending wait: expected then, and only then.
 			if (!context.open) break;
-			emit(context, error);
+			emit(context, 'error', error);
 			await sleep(context, retry);
 			retry = Math.min(retry * 2, MAX_RETRY);
 		}

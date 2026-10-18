@@ -9,6 +9,7 @@ import type {
 } from '../types';
 import type { WorkerContext } from './context';
 import { emit, on } from './events';
+import { settleIdle, waitIdle } from './idle';
 import { keepLeases } from './leases';
 import { loop } from './loop';
 
@@ -53,7 +54,9 @@ export function startWorker<S extends z.ZodType>(
 		// A lost lease needs nothing here: the handler runs on and its late settle
 		// is refused by the token check.
 		leases: keepLeases(client, keys, definition.lease, () => undefined),
-		listeners: new Set(),
+		listeners: {},
+		idleWaiters: new Set(),
+		drained: false,
 		slots: new Set(),
 		stopSleeping: new Set(),
 		open: true,
@@ -62,7 +65,7 @@ export function startWorker<S extends z.ZodType>(
 	};
 	// Taken where it is made: a rejection nobody awaits ends a Bun process, and
 	// `close` is not always called.
-	const running = loop(context).catch((error) => emit(context, error));
+	const running = loop(context).catch((error) => emit(context, 'error', error));
 	let closing: Promise<void> | undefined;
 
 	function close(): Promise<void> {
@@ -74,21 +77,15 @@ export function startWorker<S extends z.ZodType>(
 			await running;
 			await Promise.all([...context.slots]);
 			context.leases.stop();
+			settleIdle(context);
 		})();
 		return closing;
 	}
 
 	return {
 		close,
-		// Task 5 types every event; for now only `error` is told.
-		on: (event, listener) =>
-			event === 'error'
-				? on(context, listener as (error: unknown) => void)
-				: () => undefined,
-		// Task 6 waits for the claims too.
-		idle: async () => {
-			await Promise.all([...context.slots]);
-		},
+		on: (event, listener) => on(context, event, listener),
+		idle: () => waitIdle(context),
 		[Symbol.asyncDispose]: close,
 	};
 }

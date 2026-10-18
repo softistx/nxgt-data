@@ -1,12 +1,14 @@
 import type { z } from 'zod';
 import { JobError } from '../../errors/job-error';
 import { backoffDelay } from '../backoff';
-import { decodeData } from '../encode';
+import { decodeData, encodeResult } from '../encode';
 import type { ClaimedJob, ClaimReply } from '../scripts/replies';
 import { complete, fail } from '../scripts/settle';
 import type { QueueDefinition } from '../types';
 import type { WorkerContext } from './context';
-import { emit } from './events';
+import { announce, emit } from './events';
+import { markDrained } from './idle';
+import { progressOf } from './progress';
 
 function toError(thrown: unknown): { name: string; message: string } {
 	return thrown instanceof Error
@@ -27,49 +29,96 @@ function retryDelay(
 	return error.retryIn ?? backoffDelay(attempt, definition.backoff);
 }
 
+/** Fails the attempt with `error`, and tells `failed` or `retrying` by what the script settled. */
+async function failAttempt<S extends z.ZodType>(
+	context: WorkerContext<S>,
+	job: ClaimedJob,
+	error: { name: string; message: string },
+	delay: number | null,
+): Promise<ClaimReply> {
+	const { client, keys, definition } = context;
+	const reply = await fail(
+		client,
+		keys,
+		definition,
+		job.id,
+		job.token,
+		error,
+		delay,
+		context.open,
+	);
+	if (reply.settled && reply.final) {
+		emit(context, 'failed', { id: job.id, attempt: job.attempt, error });
+	} else if (reply.settled && delay !== null) {
+		emit(context, 'retrying', {
+			id: job.id,
+			attempt: job.attempt,
+			delay,
+			error,
+		});
+	}
+	return reply;
+}
+
 async function runHandler<S extends z.ZodType>(
 	context: WorkerContext<S>,
 	job: ClaimedJob,
 	data: z.output<S>,
 ): Promise<ClaimReply> {
 	const { client, keys, definition } = context;
-	let thrown: { error: unknown } | undefined;
+	emit(context, 'active', { id: job.id, attempt: job.attempt });
+	const started = performance.now();
+	let returned: unknown;
 	try {
-		await context.handler({
+		returned = await context.handler({
 			id: job.id,
 			data,
 			attempt: job.attempt,
 			attempts: job.attempts,
-			// Task 5 aborts it and writes the progress.
+			// Task 6 aborts it.
 			signal: new AbortController().signal,
-			progress: async () => {},
+			progress: progressOf(context, job),
 		});
 	} catch (error) {
-		thrown = { error };
-	}
-	if (!thrown) {
-		return await complete(
-			client,
-			keys,
-			definition,
-			job.id,
-			job.token,
-			// Task 5 stores the handler's result.
-			undefined,
-			context.open,
+		return await failAttempt(
+			context,
+			job,
+			toError(error),
+			retryDelay(definition, job.attempt, error),
 		);
 	}
-	const { error } = thrown;
-	return await fail(
+	let result: string | undefined;
+	try {
+		result = encodeResult(definition, returned, definition.name);
+	} catch {
+		// The thrown message holds zod issue codes: the stored error does not.
+		return await failAttempt(
+			context,
+			job,
+			{
+				name: 'QueueError',
+				message: 'INVALID: the result does not match the result schema',
+			},
+			null,
+		);
+	}
+	const reply = await complete(
 		client,
 		keys,
 		definition,
 		job.id,
 		job.token,
-		toError(error),
-		retryDelay(definition, job.attempt, error),
+		result,
 		context.open,
 	);
+	if (reply.settled) {
+		emit(context, 'completed', {
+			id: job.id,
+			attempt: job.attempt,
+			duration: performance.now() - started,
+		});
+	}
+	return reply;
 }
 
 /** Runs one job and settles it; answers the reply, whose job (if any) is the slot's next. */
@@ -77,22 +126,17 @@ async function runJob<S extends z.ZodType>(
 	context: WorkerContext<S>,
 	job: ClaimedJob,
 ): Promise<ClaimReply> {
-	const { client, keys, definition } = context;
-	const decoded = decodeData(definition, job.data);
+	const decoded = decodeData(context.definition, job.data);
 	if (!decoded.ok) {
 		// The schema changed under a waiting job: never run, never retried.
-		return await fail(
-			client,
-			keys,
-			definition,
-			job.id,
-			job.token,
+		return await failAttempt(
+			context,
+			job,
 			{
 				name: 'QueueError',
 				message: 'INVALID: the stored data does not match the schema',
 			},
 			null,
-			context.open,
 		);
 	}
 	// Renewed until the settle is done, not just the handler: a slow settle
@@ -114,10 +158,12 @@ export async function runSlot<S extends z.ZodType>(
 	while (job) {
 		try {
 			const reply: ClaimReply = await runJob(context, job);
+			announce(context, reply);
 			job = reply.jobs[0];
+			if (!job) markDrained(context, true);
 		} catch (error) {
 			// The job's lease lapses and another worker takes it back.
-			emit(context, error);
+			emit(context, 'error', error);
 			job = undefined;
 		}
 	}
