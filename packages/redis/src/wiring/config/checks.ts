@@ -106,9 +106,12 @@ type Group = readonly [
  * a cache, a rate limit and an idempotency all write `<name>:<key>`, so they
  * would meet in Redis: an idempotency's hash as `WRONGTYPE`, and a cache's
  * and a rate limit's strings overwriting each other. A queue's keys
- * (`queue:{<name>}:…`) do not meet them byte for byte; it is refused anyway,
- * so one name means one thing per deployment. Only names
- * are compared — never what a key function would build.
+ * (`queue:{<name>}:…`) do not meet them byte for byte, except when there is
+ * no prefix: a cache, rate limit or idempotency named `queue` whose key
+ * function returns `{<name>}:<part>` can write one. That is contrived and
+ * accepted; the queue is refused against any same-named definition anyway, so
+ * one name means one thing per deployment. Only names are compared — never
+ * what a key function would build.
  */
 function refuseClash(where: string, groups: readonly Group[]): void {
 	const seen = new Map<string, { kind: string; key: string }>();
