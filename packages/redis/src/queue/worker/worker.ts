@@ -77,14 +77,17 @@ export function startWorker<S extends z.ZodType>(
 	});
 	let closing: Promise<void> | undefined;
 
+	// Only the first call's `grace` is read, and checked: a later call gets
+	// the first call's promise whatever it passes.
 	function close(options?: { grace?: Duration }): Promise<void> {
+		if (closing) return closing;
 		let grace: number;
 		try {
 			grace = resolveGrace(options, definition.name);
 		} catch (error) {
 			return Promise.reject(error);
 		}
-		closing ??= closeWorker(context, running, unlisten, grace);
+		closing = closeWorker(context, running, unlisten, grace);
 		return closing;
 	}
 

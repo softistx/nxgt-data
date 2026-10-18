@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import { QueueError } from '../errors/queue-error';
 import { check } from './check';
 import { durationMs } from './duration';
+import { clampTimeout } from './timers';
 import type { AddOptions, QueueDefinition } from './types';
 
 /**
@@ -77,7 +78,7 @@ export type ResolvedAdd = {
 	delayMs: number;
 	/** `-1` when the job has no `at`. */
 	atMs: number;
-	/** The job's own `timeout`, in ms; `undefined` stores none (the worker applies the queue's at run time). */
+	/** The job's own `timeout`, in ms, capped at the longest timer; `undefined` stores none (the worker applies the queue's at run time). */
 	timeoutMs: number | undefined;
 };
 
@@ -160,7 +161,9 @@ export function resolveAdd(
 		priority: (priority as number | undefined) ?? 0,
 		delayMs,
 		atMs: at instanceof Date ? Math.max(0, at.getTime()) : -1,
-		timeoutMs,
+		// Stored as a timer can wait it, so the hash never holds more digits
+		// than the claim trusts; the worker would cap it the same way.
+		timeoutMs: clampTimeout(timeoutMs),
 	};
 }
 

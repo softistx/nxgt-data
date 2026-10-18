@@ -193,6 +193,7 @@ describe('cancel', () => {
 		const outcomes = (await log.published()) as {
 			type: string;
 			id: string;
+			token?: string;
 			result?: number;
 		}[];
 		expect(outcomes.filter((o) => o.id === 'third')).toHaveLength(1);

@@ -69,6 +69,9 @@ describe('work', () => {
 				},
 			]);
 			expect((seen[0] as { signal: AbortSignal }).signal.aborted).toBe(false);
+			expect(typeof (seen[0] as { progress: unknown }).progress).toBe(
+				'function',
+			);
 		} finally {
 			await closeAll();
 		}

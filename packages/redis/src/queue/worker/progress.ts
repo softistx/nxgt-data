@@ -28,6 +28,10 @@ export function progressOf(
 			job.token,
 			value,
 		);
-		if (held) emit(context, 'progress', { id: job.id, progress: value });
+		// Aborted while the reply was on its way: stored under a token that still
+		// held, but the run is over, so nobody is told.
+		if (held && !signal.aborted) {
+			emit(context, 'progress', { id: job.id, progress: value });
+		}
 	};
 }

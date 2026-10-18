@@ -68,12 +68,13 @@ local function int(x) return string.format('%d', x) end
 -- an attempts of 'inf' would reclaim a crash-looping job forever, and a
 -- priority of 5000 or 'inf' has no ready score, and a timeout of 'inf' would
 -- never fire. This package writes whole decimal numbers only, so only those
--- are trusted.
+-- are trusted. A timeout is at most 15 digits: past that a double no longer
+-- holds it exactly, and 20 digits read back as garbage.
 local function whole(v) return v and string.match(v, '^%d+$') ~= nil end
 local function sound(f)
 	return f[1] and whole(f[2]) and whole(f[3]) and whole(f[4])
 		and tonumber(f[3]) >= 1 and tonumber(f[4]) <= 1000
-		and (not f[5] or (whole(f[5]) and tonumber(f[5]) >= 1))
+		and (not f[5] or (whole(f[5]) and #f[5] <= 15 and tonumber(f[5]) >= 1))
 end
 local function ready_score(priority)
 	return int(tonumber(priority) * 1099511627776 + redis.call('INCR', KEYS[6]))

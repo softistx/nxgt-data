@@ -66,6 +66,10 @@ describe('stored state', () => {
 		['timeout', '-4'],
 		['timeout', '1e3'],
 		['timeout', ''],
+		// Longer than 15 digits: past what a double holds exactly, and a 20-digit
+		// value turns into garbage or a negative number in Lua.
+		['timeout', '9'.repeat(16)],
+		['timeout', '9'.repeat(20)],
 	])('%s = %s is failed with INVALID, not claimed', async (field, value) => {
 		const fields: Record<string, string> = {
 			data: '{}',
@@ -86,6 +90,7 @@ describe('stored state', () => {
 		for (const [id, timeout] of [
 			['bad', 'inf'],
 			['good', '1500'],
+			['long', '9'.repeat(15)],
 		] as const) {
 			await send(
 				'HSET',
@@ -105,7 +110,22 @@ describe('stored state', () => {
 		}
 		const reply = await claim(client(), keys, 5, 30_000);
 		expect(reply.failedInvalid).toEqual(['bad']);
-		expect(reply.jobs.map((j) => [j.id, j.timeout])).toEqual([['good', 1500]]);
+		expect(reply.jobs.map((j) => [j.id, j.timeout])).toEqual([
+			['good', 1500],
+			['long', 999_999_999_999_999],
+		]);
+	});
+
+	test('the longest timeout add takes is stored at the timer cap, and claimed', async () => {
+		await bindQueue(client(), mailQueue).add(
+			{ to: 'a' },
+			{ id: 'a', timeout: Number.MAX_SAFE_INTEGER },
+		);
+		expect(await hget('a', 'timeout')).toBe('2147483647');
+		const reply = await claim(client(), keys, 1, 30_000);
+		expect(reply.jobs.map((j) => [j.id, j.timeout])).toEqual([
+			['a', 2_147_483_647],
+		]);
 	});
 
 	test('a hash with extra fields is still claimed', async () => {

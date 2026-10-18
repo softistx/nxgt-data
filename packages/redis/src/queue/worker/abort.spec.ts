@@ -346,6 +346,16 @@ describe('abort', () => {
 		});
 	});
 
+	test('a second close gets the first promise, and its grace is neither read nor checked', async () => {
+		await withWorkers(async (open) => {
+			const { worker } = open(() => undefined);
+			const first = worker.close({ grace: 100 });
+			const second = worker.close({ grace: -5 });
+			expect(second).toBe(first);
+			await second;
+		});
+	});
+
 	test("the per-job timeout of add wins over the definition's", async () => {
 		await withWorkers(async (open) => {
 			const hold = gate();

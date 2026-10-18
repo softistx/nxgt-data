@@ -79,12 +79,16 @@ export function useRedis() {
 	return servers;
 }
 
-/** Polls `read` until it gives what `expected` is, or fails after a while. */
+/**
+ * Polls `read` until it gives what `expected` is, or fails after 4 s: before
+ * Bun's 5 s test timeout, so a failure names what it saw instead of timing
+ * the test out and cascading into the next one.
+ */
 export async function eventually<T>(
 	read: () => Promise<T> | T,
 	expected: T,
 ): Promise<void> {
-	const deadline = Date.now() + 5_000;
+	const deadline = Date.now() + 4_000;
 	for (;;) {
 		const value = await read();
 		if (Bun.deepEquals(value, expected)) return;
