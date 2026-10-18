@@ -72,6 +72,8 @@ export interface WiringContext {
 	 * `close()` empties this before it closes the clients.
 	 */
 	readonly subscriptions: Set<Subscription>;
+	/** The first accepted `close()`'s promise, which every later call returns. Mutable, like `subscriptions`. */
+	closing?: Promise<void>;
 }
 
 /** The instance of a Redis object under `name`, or the reason there is none. */
