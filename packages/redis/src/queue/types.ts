@@ -181,7 +181,11 @@ export type WorkerEvents = {
 		delay: number;
 		error: { name: string; message: string };
 	};
-	/** A run failed for good. */
+	/**
+	 * A run failed for good. A job the claim found unreadable is reported with
+	 * `attempt: 0` and the error `INVALID: the stored job is not one this queue
+	 * wrote`.
+	 */
 	failed: {
 		id: string;
 		attempt: number;
@@ -202,7 +206,11 @@ export type Worker = {
 	 * after `grace` (default 30 seconds) once their signals have aborted.
 	 */
 	close(options?: { grace?: Duration }): Promise<void>;
-	/** Resolves once no job is running or claimed. */
+	/**
+	 * Resolves once no slot is running and the last claim found nothing ready;
+	 * at once when that already holds, and at once after `close`. The next
+	 * claimed job re-arms it.
+	 */
 	idle(): Promise<void>;
 	/** Listens to an event; returns the way to stop listening. */
 	on<E extends keyof WorkerEvents>(

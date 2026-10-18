@@ -38,6 +38,8 @@ export interface WorkerContext<S extends z.ZodType = z.ZodType> {
 	waiter: RedisClient | undefined;
 	/** True once a claim found nothing ready; false while the first claim is pending and again once a claim hands out a job. */
 	drained: boolean;
+	/** How many claims have been looked at: lets `idle()` tell a claim ran while it checked. */
+	claims: number;
 	/** Resolves the loop's wait for a free slot. */
 	slotFreed: (() => void) | undefined;
 }

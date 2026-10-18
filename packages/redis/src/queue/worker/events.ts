@@ -2,6 +2,14 @@ import type { ClaimReply } from '../scripts/replies';
 import type { WorkerEvents } from '../types';
 import type { WorkerContext } from './context';
 
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		typeof (value as { then?: unknown }).then === 'function'
+	);
+}
+
 type Listening = Pick<WorkerContext, 'listeners'>;
 
 /**
@@ -24,7 +32,7 @@ export function emit<E extends keyof WorkerEvents>(
 	for (const listener of [...set]) {
 		try {
 			const returned = listener(payload);
-			if (returned instanceof Promise) returned.then(undefined, report);
+			if (isThenable(returned)) returned.then(undefined, report);
 		} catch (thrown) {
 			report(thrown);
 		}

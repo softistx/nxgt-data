@@ -57,6 +57,7 @@ export function startWorker<S extends z.ZodType>(
 		listeners: {},
 		idleWaiters: new Set(),
 		drained: false,
+		claims: 0,
 		slots: new Set(),
 		stopSleeping: new Set(),
 		open: true,

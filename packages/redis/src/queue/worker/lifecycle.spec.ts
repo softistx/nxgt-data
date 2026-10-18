@@ -111,6 +111,19 @@ describe('progress', () => {
 			expect(refused[0]).toBeInstanceOf(TypeError);
 		});
 	});
+	test('a progress the token refuses emits nothing', async () => {
+		await withWorkers(async (open) => {
+			const { seen } = open(async (job) => {
+				await client().send('HDEL', [keys.job(job.id), 'token']);
+				await job.progress(10);
+			});
+			await bindQueue(client(), mailQueue).add({ to: 'a' }, { id: 'a' });
+			await eventually(() => seen.includes('active a'), true);
+			await Bun.sleep(100);
+			expect(seen.filter((e) => e.startsWith('progress'))).toEqual([]);
+			expect(await hget('a', 'progress')).toBeNull();
+		});
+	});
 });
 
 describe('events', () => {
@@ -124,6 +137,11 @@ describe('events', () => {
 			await bindQueue(client(), mailQueue).add({ to: 'a' }, { id: 'a' });
 			await eventually(() => seen, ['active a', 'completed a']);
 			expect(duration).toBeGreaterThanOrEqual(0);
+			await bindQueue(client(), mailQueue).add({ to: 'b' }, { id: 'b' });
+			await eventually(
+				() => seen,
+				['active a', 'completed a', 'active b', 'completed b'],
+			);
 		});
 	});
 
@@ -146,7 +164,12 @@ describe('events', () => {
 			await bindQueue(client(), mailQueue).add({ to: 'a' }, { id: 'a' });
 			// A worker that died: it claimed and never settled.
 			await claim(client(), keys, 1, 300);
-			await Bun.sleep(400);
+			await eventually(
+				async () =>
+					Number(await client().send('ZSCORE', [keys.active, 'a'])) <
+					Date.now(),
+				true,
+			);
 			const { seen } = open(() => undefined);
 			await eventually(() => seen.includes('stalled a'), true);
 			await eventually(() => hget('a', 'state'), 'completed');
@@ -165,6 +188,39 @@ describe('events', () => {
 			await bindQueue(client(), mailQueue).add({ to: 'b' }, { id: 'b' });
 			await eventually(() => hget('b', 'state'), 'completed');
 			expect(errors).toContain('bad listener');
+		});
+	});
+	test('a settle whose token is gone emits no completed or failed', async () => {
+		await withWorkers(async (open) => {
+			const { seen } = open(async (job) => {
+				await client().send('HDEL', [keys.job(job.id), 'token']);
+				if (job.id === 'b') throw new JobError('no', { retry: false });
+			});
+			const queue = bindQueue(client(), mailQueue);
+			await queue.add({ to: 'a' }, { id: 'a' });
+			await queue.add({ to: 'b' }, { id: 'b' });
+			await eventually(() => seen.length, 2);
+			await Bun.sleep(100);
+			expect(seen).toEqual(['active a', 'active b']);
+		});
+	});
+
+	test('a job the claim found unreadable reaches failed with attempt 0', async () => {
+		await withWorkers(async (open) => {
+			await bindQueue(client(), mailQueue).add({ to: 'a' }, { id: 'a' });
+			await client().send('HSET', [keys.job('a'), 'attempts', 'junk']);
+			const { worker } = open(() => undefined);
+			const failed: WorkerEvents['failed'][] = [];
+			worker.on('failed', (p) => void failed.push(p));
+			await eventually(() => failed.length, 1);
+			expect(failed[0]).toEqual({
+				id: 'a',
+				attempt: 0,
+				error: {
+					name: 'QueueError',
+					message: 'INVALID: the stored job is not one this queue wrote',
+				},
+			});
 		});
 	});
 });
@@ -206,6 +262,38 @@ describe('idle', () => {
 			await Bun.sleep(100);
 			hold.open();
 			expect(await idle).toBe(true);
+		});
+	});
+	test('after close resolves', async () => {
+		await withWorkers(async (open) => {
+			const { worker } = open(() => undefined);
+			await worker.close();
+			await worker.idle();
+		});
+	});
+
+	test('never polls: its checks do not grow while it waits', async () => {
+		await withWorkers(async (open) => {
+			const hold = gate();
+			const { worker } = open(async () => {
+				await hold.opened;
+			});
+			await worker.idle();
+			await bindQueue(client(), mailQueue).add({ to: 'a' }, { id: 'a' });
+			await eventually(() => hget('a', 'state'), 'active');
+			const zcards = async () =>
+				Number(
+					(await client().info('commandstats')).match(
+						/cmdstat_zcard:calls=(\d+)/,
+					)?.[1] ?? 0,
+				);
+			const idle = worker.idle();
+			await Bun.sleep(50);
+			const early = await zcards();
+			await Bun.sleep(300);
+			expect(await zcards()).toBe(early);
+			hold.open();
+			await idle;
 		});
 	});
 });

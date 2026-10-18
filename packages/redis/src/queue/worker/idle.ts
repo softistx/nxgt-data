@@ -2,7 +2,7 @@ import type { WorkerContext } from './context';
 
 type Draining = Pick<
 	WorkerContext,
-	'slots' | 'drained' | 'open' | 'idleWaiters' | 'client' | 'keys'
+	'slots' | 'drained' | 'claims' | 'open' | 'idleWaiters' | 'client' | 'keys'
 >;
 
 function isIdle(context: Draining): boolean {
@@ -12,6 +12,7 @@ function isIdle(context: Draining): boolean {
 /** Records what the last claim found, then wakes the `idle()` calls if that left the worker idle. */
 export function markDrained(context: Draining, drained: boolean): void {
 	context.drained = drained;
+	context.claims += 1;
 	settleIdle(context);
 }
 
@@ -23,19 +24,23 @@ export function settleIdle(context: Draining): void {
 }
 
 /**
- * Resolves once no slot runs and the last claim found nothing ready. A
- * worker that looks idle is confirmed against `ready` first: a job added a
- * moment ago may not have woken the loop yet, and `idle()` must wait for it.
+ * Resolves once no slot runs and the last claim found nothing ready. One
+ * `ZCARD` on `ready` confirms an idle-looking worker first: a job added a
+ * moment ago may not have woken the loop yet. When something waits, the call
+ * joins `idleWaiters`, and the loop's next claim that finds nothing, with no
+ * slot running, resolves it; the wake token guarantees that claim comes. It
+ * never polls.
  */
 export async function waitIdle(context: Draining): Promise<void> {
-	for (;;) {
-		if (!isIdle(context)) {
-			await new Promise<void>((resolve) => context.idleWaiters.add(resolve));
-			continue;
-		}
-		if (!context.open) return;
+	if (!context.open) return;
+	if (isIdle(context)) {
+		const before = context.claims;
 		const waiting = await context.client.send('ZCARD', [context.keys.ready]);
-		if (waiting === 0 && isIdle(context)) return;
-		await Bun.sleep(5);
+		if (!context.open) return;
+		// A claim that ran meanwhile has already looked at what the ZCARD saw.
+		if (waiting === 0 || context.claims !== before) {
+			if (isIdle(context)) return;
+		}
 	}
+	await new Promise<void>((resolve) => context.idleWaiters.add(resolve));
 }
