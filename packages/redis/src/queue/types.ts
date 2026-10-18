@@ -123,6 +123,12 @@ export type BoundQueue<
 > = {
 	readonly definition: QueueDefinition<S, R>;
 	/**
+	 * The prefix the queue is wired under, or `undefined` for one bound by
+	 * hand. It is part of the storage name and of `job.key`, never of
+	 * `definition.name`.
+	 */
+	readonly prefix: string | undefined;
+	/**
 	 * Adds a job: one script, one round trip. The payload is checked by the
 	 * schema and stored as its output, defaults applied.
 	 *

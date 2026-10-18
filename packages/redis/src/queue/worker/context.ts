@@ -23,6 +23,8 @@ export interface WorkerContext<S extends z.ZodType = z.ZodType> {
 	readonly keys: ReturnType<typeof queueKeys>;
 	readonly handler: (job: JobContext<S>) => unknown;
 	readonly concurrency: number;
+	/** The wiring's prefix, in front of the queue name in `job.key`; `undefined` by hand. */
+	readonly prefix: string | undefined;
 	readonly leases: Leases;
 	/** The listeners of each event, added by `Worker.on`. */
 	readonly listeners: {

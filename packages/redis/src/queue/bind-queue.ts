@@ -59,6 +59,16 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 }
 
 /**
+ * What wiring adds to a bound queue. Internal: a queue bound by hand has
+ * neither. `life` waits for the close protocol, and is always `undefined` here.
+ */
+export type QueueWiring = {
+	/** The deployment's prefix, kept apart from the name: `undefined` by hand. */
+	readonly prefix: string | undefined;
+	readonly life?: undefined;
+};
+
+/**
  * Binds a queue to a client. It checks the definition again — one written by
  * hand, or changed after `defineQueue`, would otherwise fail deep in a script.
  */
@@ -66,8 +76,30 @@ export function bindQueue<
 	S extends z.ZodType,
 	R extends z.ZodType | undefined = undefined,
 >(client: RedisClient, definition: QueueDefinition<S, R>): BoundQueue<S, R> {
+	return bindQueueWith(client, definition, {
+		prefix: undefined,
+		life: undefined,
+	});
+}
+
+/**
+ * Binds a queue under a wiring's prefix. The prefix stays a part of its own:
+ * the definition is never renamed, and the storage name — the hash tag of the
+ * keys — is `<prefix>:<name>`, or the name alone without a prefix.
+ */
+export function bindQueueWith<
+	S extends z.ZodType,
+	R extends z.ZodType | undefined = undefined,
+>(
+	client: RedisClient,
+	definition: QueueDefinition<S, R>,
+	wiring: QueueWiring,
+): BoundQueue<S, R> {
 	checkQueue<S, R>(definition, 'bindQueue');
-	const keys = queueKeys(definition.name);
+	const { prefix } = wiring;
+	const keys = queueKeys(
+		prefix === undefined ? definition.name : `${prefix}:${definition.name}`,
+	);
 
 	async function addMany(
 		items: readonly { data: z.input<S>; options?: AddOptions }[],
@@ -85,6 +117,7 @@ export function bindQueue<
 
 	return {
 		definition,
+		prefix,
 		async add(data, options) {
 			const resolved = resolveAdd(options, 'add', definition.name);
 			const json = encodeData(definition, data, 'add');
@@ -105,13 +138,10 @@ export function bindQueue<
 		remove: (id) => removeJob(client, keys, definition, id),
 		cancel: (id) => cancel(client, keys, id),
 		work(handler, options) {
-			return startWorker(
-				client,
-				definition,
-				keys,
-				handler,
-				resolveWork(options, definition.name),
-			);
+			return startWorker(client, definition, keys, handler, {
+				...resolveWork(options, definition.name),
+				prefix,
+			});
 		},
 	};
 }
