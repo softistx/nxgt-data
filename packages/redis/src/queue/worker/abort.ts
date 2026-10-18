@@ -53,19 +53,21 @@ function reasonOf(
 /** Registers a claimed job's run, with the controller its handler's signal comes from. */
 export function beginRun(context: Aborting, job: ClaimedJob): Run {
 	const run: Run = { token: job.token, controller: new AbortController() };
-	context.runs.set(job.id, run);
+	const tokens = context.runs.get(job.id) ?? new Map<string, Run>();
+	tokens.set(job.token, run);
+	context.runs.set(job.id, tokens);
 	return run;
 }
 
-/** Forgets a run, unless the id was claimed again under another token meanwhile. */
+/** Forgets one run; another run of the id (claimed again under another token) stays. */
 export function endRun(context: Aborting, job: ClaimedJob): void {
-	if (context.runs.get(job.id)?.token === job.token) {
-		context.runs.delete(job.id);
-	}
+	const tokens = context.runs.get(job.id);
+	tokens?.delete(job.token);
+	if (tokens?.size === 0) context.runs.delete(job.id);
 }
 
 /**
- * Aborts the run of `id` with `code`. With a `token`, only that run: a report
+ * Aborts the runs of `id` with `code`. With a `token`, only that run: a report
  * about an earlier run of the id never aborts the one claimed after it.
  * Answers whether a run was aborted.
  */
@@ -75,11 +77,14 @@ export function abortRun(
 	id: string,
 	token?: string,
 ): boolean {
-	const run = context.runs.get(id);
-	if (!run || run.controller.signal.aborted) return false;
-	if (token !== undefined && run.token !== token) return false;
-	run.controller.abort(reasonOf(context, code, id));
-	return true;
+	let aborted = false;
+	for (const run of [...(context.runs.get(id)?.values() ?? [])]) {
+		if (run.controller.signal.aborted) continue;
+		if (token !== undefined && run.token !== token) continue;
+		run.controller.abort(reasonOf(context, code, id));
+		aborted = true;
+	}
+	return aborted;
 }
 
 /** Aborts every run still going with `CLOSED`. */
@@ -152,13 +157,16 @@ function canceledId(message: string): string | undefined {
  * Listens to the queue's events for a `canceled` one and aborts that job's
  * run with `CANCELED`. Resolves with the function that stops listening, once
  * the SUBSCRIBE is live. A cancel published before then is not heard: the
- * lease renewal reports that job as `LEASE_LOST` instead.
+ * lease renewal reports that job as `LEASE_LOST` instead. A cancel heard
+ * while a finished handler's COMPLETE is in flight emits nothing: the settle
+ * is refused.
  */
 export function hearCancels(
 	context: WorkerContext,
 ): Promise<() => Promise<void>> {
 	return listen(context.client, context.keys.events, (message) => {
 		const id = canceledId(message);
+		// By id alone, every token of it: the CANCEL script deleted the job's hash.
 		if (id !== undefined) abortRun(context, 'CANCELED', id);
 	});
 }

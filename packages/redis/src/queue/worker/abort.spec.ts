@@ -5,7 +5,17 @@ import { bindQueue } from '../bind-queue';
 import { defineQueue } from '../define-queue';
 import { queueKeys } from '../keys';
 import type { JobContext, Worker, WorkerEvents } from '../types';
-import { clampTimeout, MAX_TIMER_MS } from './abort';
+import {
+	abortAll,
+	abortLost,
+	abortRun,
+	armTimeout,
+	beginRun,
+	clampTimeout,
+	endRun,
+	MAX_TIMER_MS,
+} from './abort';
+import type { WorkerContext } from './context';
 
 const servers = useRedis();
 const keys = queueKeys('mails');
@@ -73,6 +83,17 @@ async function withWorkers(
 }
 type Opened = { worker: Worker; seen: string[]; errors: unknown[] };
 
+/** Resolves once a worker's SUBSCRIBE to the queue's events is live. */
+async function subscribed(): Promise<void> {
+	await eventually(async () => {
+		const reply = (await client().send('PUBSUB', [
+			'NUMSUB',
+			keys.events,
+		])) as unknown[];
+		return Number(reply[1]) >= 1;
+	}, true);
+}
+
 /** Resolves with the signal's reason when it aborts. */
 function abortReason(signal: AbortSignal): Promise<unknown> {
 	return new Promise((resolve) => {
@@ -90,6 +111,55 @@ describe('clampTimeout', () => {
 		expect(clampTimeout(30 * 86_400_000)).toBe(2_147_483_647);
 		expect(clampTimeout(1_000)).toBe(1_000);
 		expect(clampTimeout(undefined)).toBeUndefined();
+	});
+});
+
+describe('the run registry', () => {
+	const job = (token: string, timeout?: number) => ({
+		id: 'a',
+		data: '{}',
+		attempt: 1,
+		attempts: 3,
+		token,
+		timeout,
+	});
+	const registry = () =>
+		({ runs: new Map(), definition: mailQueue }) as unknown as WorkerContext;
+
+	test('two runs of one id are both held: the first still times out, abortAll reaches both, endRun is by token', async () => {
+		const context = registry();
+		const first = beginRun(context, job('t1', 30));
+		const second = beginRun(context, job('t2'));
+		armTimeout(context, job('t1', 30));
+		await eventually(() => first.controller.signal.aborted, true);
+		expect((first.controller.signal.reason as QueueError).code).toBe('TIMEOUT');
+		expect(second.controller.signal.aborted).toBe(false);
+
+		const third = beginRun(context, job('t3'));
+		abortAll(context);
+		expect((second.controller.signal.reason as QueueError).code).toBe('CLOSED');
+		expect(third.controller.signal.aborted).toBe(true);
+
+		endRun(context, job('t1'));
+		expect(context.runs.get('a')?.size).toBe(2);
+		endRun(context, job('t2'));
+		endRun(context, job('t3'));
+		expect(context.runs.size).toBe(0);
+	});
+
+	test('a lost lease and a cancel match by token and by id', () => {
+		const context = registry();
+		const first = beginRun(context, job('t1'));
+		const second = beginRun(context, job('t2'));
+		abortLost(context, [{ id: 'a', token: 't2' }]);
+		expect(first.controller.signal.aborted).toBe(false);
+		expect((second.controller.signal.reason as QueueError).code).toBe(
+			'LEASE_LOST',
+		);
+		expect(abortRun(context, 'CANCELED', 'a')).toBe(true);
+		expect((first.controller.signal.reason as QueueError).code).toBe(
+			'CANCELED',
+		);
 	});
 });
 
@@ -151,7 +221,7 @@ describe('abort', () => {
 				started.open();
 				return hold.opened;
 			}, slow);
-			await Bun.sleep(100); // the worker is subscribed
+			await subscribed();
 			await bindQueue(client(), slow).add({ to: 'a' }, { id: 'a' });
 			await started.opened;
 			const at = Date.now();
@@ -311,7 +381,7 @@ describe('abort', () => {
 				if (job.id === 'a') return hold.opened; // ignores its signal
 				return undefined;
 			}, slow);
-			await Bun.sleep(100); // subscribed
+			await subscribed();
 			await bindQueue(client(), slow).add({ to: 'a' }, { id: 'a' });
 			await eventually(() => ran, ['a']);
 			await bindQueue(client(), slow).add({ to: 'b' }, { id: 'b' });
@@ -319,6 +389,29 @@ describe('abort', () => {
 			expect(ran).toEqual(['a']); // concurrency 1: b waits
 			await bindQueue(client(), slow).cancel('a');
 			await eventually(() => hget('b', 'state'), 'completed');
+			hold.open();
+		});
+	});
+
+	test('a progress after close cut the handler off is neither stored nor emitted', async () => {
+		await withWorkers(async (open) => {
+			const started = gate();
+			const hold = gate();
+			let report: ((value: number) => Promise<void>) | undefined;
+			const { worker } = open((job) => {
+				report = job.progress;
+				started.open();
+				return hold.opened;
+			});
+			const progressed: unknown[] = [];
+			worker.on('progress', (p) => void progressed.push(p));
+			await bindQueue(client(), mailQueue).add({ to: 'a' }, { id: 'a' });
+			await started.opened;
+			await worker.close({ grace: 50 });
+			await (report as (value: number) => Promise<void>)(50);
+			await Bun.sleep(50); // an emit would be synchronous after the store: a short wait is enough
+			expect(progressed).toEqual([]);
+			expect(await hget('a', 'progress')).toBeNull();
 			hold.open();
 		});
 	});

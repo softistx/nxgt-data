@@ -31,8 +31,8 @@ export interface WorkerContext<S extends z.ZodType = z.ZodType> {
 	readonly idleWaiters: Set<() => void>;
 	/** The jobs being run, one promise per slot. */
 	readonly slots: Set<Promise<void>>;
-	/** The running jobs by id, each with the controller its signal comes from. */
-	readonly runs: Map<string, Run>;
+	/** The running jobs by id, then token, each with the controller its signal comes from. */
+	readonly runs: Map<string, Map<string, Run>>;
 	/** Wakes the sleeps of the error backoff when the worker closes. */
 	readonly stopSleeping: Set<() => void>;
 	/** False once `close` was called. */

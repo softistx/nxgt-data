@@ -109,7 +109,7 @@ async function runHandler<S extends z.ZodType>(
 				attempt: job.attempt,
 				attempts: job.attempts,
 				signal: run.controller.signal,
-				progress: progressOf(context, job),
+				progress: progressOf(context, job, run.controller.signal),
 			}),
 		);
 	} finally {

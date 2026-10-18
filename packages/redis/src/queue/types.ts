@@ -195,7 +195,7 @@ export type WorkerEvents = {
 	};
 	/** A run lost its lease and was taken back. */
 	stalled: { id: string };
-	/** A running job was canceled. */
+	/** A running job was canceled. A cancel that arrives while the handler's completion is being settled emits nothing: the settle is refused. */
 	canceled: { id: string };
 	/** What the loop could not handle. */
 	error: unknown;
@@ -205,7 +205,8 @@ export type WorkerEvents = {
 export type Worker = {
 	/**
 	 * Stops taking jobs and resolves once the running ones have finished, or
-	 * after `grace` (default 30 seconds) once their signals have aborted.
+	 * after `grace` (default 30 seconds) once their signals have aborted. Only
+	 * the first call's `grace` counts; a later call gets the same promise.
 	 */
 	close(options?: { grace?: Duration }): Promise<void>;
 	/**
