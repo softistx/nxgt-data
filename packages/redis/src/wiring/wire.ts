@@ -1,6 +1,7 @@
 import { type PingResult, ping } from '../connection/connect';
 import type { LockOptions } from '../lock/with-lock';
 import { withLock } from '../lock/with-lock';
+import { closeAll } from './close';
 import {
 	type InstanceContext,
 	instanceAt,
@@ -95,24 +96,6 @@ function pingClient(
 	options: { timeoutMs?: number } = {},
 ): Promise<PingResult> {
 	return ping(instance.client, options.timeoutMs);
-}
-
-/**
- * Closes the subscriptions first, then the clients.
- *
- * In that order, and not the other way: a subscription holds a connection
- * duplicated from the client, and unsubscribing on a closed client is an
- * error nobody asked for. Idempotent — `@nxgt/redis` memoises both closes,
- * and the set is emptied as it goes.
- */
-async function closeAll(ctx: WiringContext): Promise<void> {
-	for (const subscription of [...ctx.subscriptions]) {
-		ctx.subscriptions.delete(subscription);
-		await subscription.close();
-	}
-	for (const instance of ctx.instances) {
-		await instance.connection?.close();
-	}
 }
 
 /** The object a Redis is. Every method is a plain function over the context. */
