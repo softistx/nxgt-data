@@ -12,6 +12,13 @@ export interface ChannelDefinition<S extends z.ZodType> {
 	 * named after the cache. This is what refuses it.
 	 */
 	readonly ttl?: never;
+	/**
+	 * A channel has none: it holds no job for a worker to lease. It is
+	 * declared as `never` because a `QueueDefinition` has no `ttl` and so is
+	 * otherwise structurally a channel — `publish(client, someQueue, …)` would
+	 * compile and publish on a channel named after the queue.
+	 */
+	readonly lease?: never;
 }
 
 /**

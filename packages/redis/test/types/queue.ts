@@ -4,13 +4,18 @@ import { RedisClient } from 'bun';
 import { z } from 'zod';
 import {
 	type BoundQueue,
+	bindCache,
+	bindIdempotency,
 	bindQueue,
+	bindRateLimit,
 	defineQueue,
 	type JobContext,
 	type JobHandle,
 	type JobView,
+	publish,
 	type QueueErrorCode,
 } from '../../src';
+import { createOrder, loginLimit, userCache, userCreated } from '../fixtures';
 
 const client = new RedisClient('redis://127.0.0.1:1');
 const mails = defineQueue({
@@ -79,3 +84,22 @@ void code;
 // @ts-expect-error not a code
 const bad: QueueErrorCode = 'LOST';
 void bad;
+
+// A queue is none of the other kinds, and none of them is a queue: each has
+// a field the other lacks, or declares it `never`.
+// @ts-expect-error a queue is not a cache
+bindCache(client, mails);
+// @ts-expect-error a queue is not a rate limit
+bindRateLimit(client, mails);
+// @ts-expect-error a queue is not an idempotent operation
+bindIdempotency(client, mails);
+// @ts-expect-error a queue is not a channel
+publish(client, mails, { to: 'a@b.c' });
+// @ts-expect-error a cache is not a queue
+bindQueue(client, userCache);
+// @ts-expect-error a rate limit is not a queue
+bindQueue(client, loginLimit);
+// @ts-expect-error an idempotent operation is not a queue
+bindQueue(client, createOrder);
+// @ts-expect-error a channel is not a queue
+bindQueue(client, userCreated);
