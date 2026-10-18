@@ -1,6 +1,7 @@
 import { type PingResult, ping } from '../connection/connect';
 import type { LockOptions } from '../lock/with-lock';
 import { withLock } from '../lock/with-lock';
+import { durationMs } from '../queue/duration';
 import { closeAll } from './close';
 import {
 	type InstanceContext,
@@ -13,6 +14,7 @@ import {
 	channelScopeOf,
 	idempotencyScopeOf,
 	limitScopeOf,
+	queueScopeOf,
 } from './scope';
 import type { Redis, RedisLockOptions } from './types';
 
@@ -32,6 +34,7 @@ function scopeFor(
 	let channels: object | undefined;
 	let limits: object | undefined;
 	let idempotency: object | undefined;
+	let queues: object | undefined;
 	return {
 		get cache() {
 			caches ??= cacheScopeOf(ctx, instance);
@@ -48,6 +51,10 @@ function scopeFor(
 		get idempotency() {
 			idempotency ??= idempotencyScopeOf(ctx, instance);
 			return idempotency;
+		},
+		get queues() {
+			queues ??= queueScopeOf(ctx, instance);
+			return queues;
 		},
 		client: instance.client,
 		prefix: instance.prefix,
@@ -80,6 +87,7 @@ interface LooseInstanceScope {
 	readonly channels: object;
 	readonly limits: object;
 	readonly idempotency: object;
+	readonly queues: object;
 	readonly client: unknown;
 	readonly prefix: string | undefined;
 	lock<T>(
@@ -111,6 +119,23 @@ export function wire<C>(ctx: WiringContext): Redis<C> {
 	const sole = (what: string) =>
 		instances[instanceAt(ctx, undefined, what).name] as LooseInstanceScope;
 
+	// Not `async`: a second call must return the first call's promise itself.
+	let closing: Promise<void> | undefined;
+	const close = (options?: { grace?: unknown }): Promise<void> => {
+		const given = options?.grace;
+		const grace = given === undefined ? undefined : durationMs(given);
+		if (given !== undefined && grace === undefined) {
+			// Before anything is memoised: a refused call closes nothing.
+			return Promise.reject(
+				new TypeError(
+					"close: grace is not a duration; a duration is a whole number of milliseconds or a string such as '10m'",
+				),
+			);
+		}
+		closing ??= closeAll(ctx, grace);
+		return closing;
+	};
+
 	const redis = {
 		// A getter, so the refusal lands when the property is read rather than
 		// when the Redis is built — the message can then name the call.
@@ -125,6 +150,9 @@ export function wire<C>(ctx: WiringContext): Redis<C> {
 		},
 		get idempotency() {
 			return sole('idempotency').idempotency;
+		},
+		get queues() {
+			return sole('queues').queues;
 		},
 		instances: Object.freeze(instances),
 		clients: Object.freeze(clients),
@@ -163,8 +191,8 @@ export function wire<C>(ctx: WiringContext): Redis<C> {
 			return Object.fromEntries(entries);
 		},
 
-		close: () => closeAll(ctx),
-		[Symbol.asyncDispose]: () => closeAll(ctx),
+		close,
+		[Symbol.asyncDispose]: () => close(),
 	};
 	return redis as unknown as Redis<C>;
 }

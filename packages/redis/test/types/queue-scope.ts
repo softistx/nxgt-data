@@ -5,10 +5,12 @@
 
 import { defineRedis } from '../../src/wiring/config/define-redis';
 import type {
+	CachesIn,
 	CachesOf,
 	QueuesIn,
 	QueuesOf,
 } from '../../src/wiring/config/types';
+import type { CacheScope } from '../../src/wiring/scope-types';
 import { userCache } from '../fixtures';
 import * as queues from '../wiring/queues';
 
@@ -43,8 +45,8 @@ type QueueAsCache = CachesOf<typeof queues>['mails'];
 
 // A queue under `caches` is wired as nothing, and under `queues` as itself.
 const wrong = defineRedis({ uri, caches: queues });
-// @ts-expect-error the cache scope of that instance holds no queue
-type WrongScope = CachesOf<(typeof wrong.instances.default)['caches']>['mails'];
+// @ts-expect-error `mails` is no key of that instance's cache scope: it wires no queue as a cache
+type WrongScope = CacheScope<CachesIn<typeof wrong, 'default'>>['mails'];
 defineRedis({ uri, queues });
 const wired: QueuesIn<{ uri: string; queues: typeof queues }, 'default'> =
 	queues;
