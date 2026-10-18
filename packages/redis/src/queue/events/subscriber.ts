@@ -40,7 +40,7 @@ function subscribeTo(state: Shared, channel: string): Entry {
 	const listeners = new Set<(message: string) => void>();
 	const ready = (async () => {
 		const subscriber = await state.connection;
-		await state.leaving.get(channel);
+		await state.leaving.get(channel)?.catch(() => undefined);
 		await subscriber.subscribe(channel, (message: string) => {
 			for (const listener of [...listeners]) {
 				// One listener's throw reaches neither the others nor the connection.
@@ -53,7 +53,11 @@ function subscribeTo(state: Shared, channel: string): Entry {
 	return { listeners, ready };
 }
 
-/** Drops a channel nobody listens to; closes the connection when none is left. */
+/**
+ * Drops a channel nobody listens to; closes the connection when none is left.
+ * It never rejects: a failed UNSUBSCRIBE or close leaves nothing for the
+ * caller to do, and the connection is on its way out either way.
+ */
 async function leave(
 	client: RedisClient,
 	state: Shared,
@@ -61,23 +65,31 @@ async function leave(
 	entry: Entry,
 ): Promise<void> {
 	state.channels.delete(channel);
-	if (state.channels.size === 0 && shared.get(client) === state) {
+	const current = shared.get(client) === state;
+	if (state.channels.size === 0) {
+		if (!current) return;
 		// Out of the map first, so a listen arriving from now on opens its own.
 		shared.delete(client);
 		await entry.ready.catch(() => undefined);
-		(await state.connection).close();
+		// A pending UNSUBSCRIBE of another channel must finish before the close
+		// that would kill it.
+		await Promise.all(
+			[...state.leaving.values()].map((p) => p.catch(() => undefined)),
+		);
+		try {
+			(await state.connection).close();
+		} catch {}
 		return;
 	}
 	const leaving = (async () => {
-		await entry.ready.catch(() => undefined);
-		await (await state.connection).unsubscribe(channel);
+		try {
+			await entry.ready.catch(() => undefined);
+			await (await state.connection).unsubscribe(channel);
+		} catch {}
 	})();
 	state.leaving.set(channel, leaving);
-	try {
-		await leaving;
-	} finally {
-		if (state.leaving.get(channel) === leaving) state.leaving.delete(channel);
-	}
+	await leaving;
+	if (state.leaving.get(channel) === leaving) state.leaving.delete(channel);
 }
 
 /**
@@ -87,11 +99,14 @@ async function leave(
  * of queues bound to it; each channel is subscribed once however many
  * listeners it has. Resolves once Redis confirmed the SUBSCRIBE, so a publish
  * right after the `await` is heard. A listener that throws reaches neither
- * the others nor the connection.
+ * the others nor the connection. A connection the server drops is not
+ * resubscribed here: a caller that must not miss an outcome re-reads state
+ * itself (`finished()` does).
  *
  * Resolves with the function that removes this listener: it unsubscribes a
  * channel left with none, closes the connection when the client has no
- * listener left, and is a no-op the second time.
+ * listener left, and is a no-op the second time. It never rejects: a failed
+ * UNSUBSCRIBE or close is swallowed.
  */
 export async function listen(
 	client: RedisClient,

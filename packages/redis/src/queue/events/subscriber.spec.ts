@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import type { RedisClient } from 'bun';
 import { eventually, useRedis } from '../../../test/fixtures';
 import { listen } from './subscriber';
 
@@ -109,5 +110,66 @@ describe('the shared subscriber', () => {
 		await client().publish('queue:{a}:events', '2');
 		await eventually(() => got, ['1', '2']);
 		for (const off of offs) await off();
+	});
+
+	test('concurrent last unlistens on two channels both resolve and close the connection', async () => {
+		const before = await connections();
+		const a = await listen(client(), 'queue:{a}:events', () => {});
+		const b = await listen(client(), 'queue:{b}:events', () => {});
+		const settled = await Promise.allSettled([a(), b()]);
+		expect(settled.map((s) => s.status)).toEqual(['fulfilled', 'fulfilled']);
+		await eventually(connections, before);
+	});
+
+	test('a failed open is followed by a successful retry', async () => {
+		let calls = 0;
+		const flaky = {
+			duplicate: async () => {
+				calls += 1;
+				if (calls === 1) throw new Error('refused');
+				return await client().duplicate();
+			},
+		} as unknown as RedisClient;
+		await expect(listen(flaky, 'queue:{a}:events', () => {})).rejects.toThrow(
+			'refused',
+		);
+		const got: string[] = [];
+		const off = await listen(flaky, 'queue:{a}:events', (m) => got.push(m));
+		await client().publish('queue:{a}:events', 'ok');
+		await eventually(() => got, ['ok']);
+		await off();
+	});
+
+	test('a listener may unlisten itself inside its callback', async () => {
+		const got: string[] = [];
+		let off: () => Promise<void> = async () => {};
+		off = await listen(client(), 'queue:{a}:events', (m) => {
+			got.push(m);
+			void off();
+		});
+		await client().publish('queue:{a}:events', '1');
+		await eventually(() => got, ['1']);
+		await off();
+	});
+
+	test('a rejected SUBSCRIBE rejects listen and leaves no entry', async () => {
+		let subscribes = 0;
+		const stub = {
+			duplicate: async () => ({
+				connect: async () => {},
+				subscribe: async () => {
+					subscribes += 1;
+					if (subscribes === 1) throw new Error('denied');
+				},
+				unsubscribe: async () => {},
+				close: () => {},
+			}),
+		} as unknown as RedisClient;
+		await expect(listen(stub, 'queue:{a}:events', () => {})).rejects.toThrow(
+			'denied',
+		);
+		const off = await listen(stub, 'queue:{a}:events', () => {});
+		expect(subscribes).toBe(2);
+		await off();
 	});
 });
