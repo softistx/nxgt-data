@@ -165,7 +165,9 @@ export function resolveAdd(
  * The JSON a handler's return is stored as: the result schema's **output**,
  * proved to survive the round trip, as {@link encodeData} does for a payload.
  * A queue without a `result` schema stores nothing (`undefined`), and so does
- * a handler that returned `undefined`: no result, whatever the schema. The refusal
+ * a handler that returned `undefined` when the schema accepts it (`z.void()`,
+ * `.optional()`): no result. A required schema refuses `undefined` as it
+ * refuses any value, so the job fails instead of completing empty. The refusal
  * names the queue and the zod issue codes, never the value.
  *
  * The text is what a worker hands to `complete`.
@@ -176,7 +178,7 @@ export function encodeResult(
 	queue: string,
 ): string | undefined {
 	const schema = definition.result;
-	if (schema === undefined || value === undefined) return undefined;
+	if (schema === undefined) return undefined;
 	const refused = (detail: string) =>
 		new QueueError(
 			'INVALID',
@@ -184,6 +186,7 @@ export function encodeResult(
 			`work on "${queue}": the result ${detail}`,
 		);
 	const parsed = schema.safeParse(value);
+	if (parsed.success && value === undefined) return undefined;
 	if (!parsed.success) {
 		throw refused(`does not match the result schema ${codesOf(parsed.error)}`);
 	}
@@ -208,7 +211,8 @@ export function encodeResult(
  * has no result (`value` is `undefined`); a result the schema refuses is
  * `{ ok: false }`, never thrown. `undefined` json runs the schema on
  * `undefined`: `z.void()` or `.optional()` reads back `undefined`, a required
- * schema is `{ ok: false }`.
+ * schema is `{ ok: false }`, reachable only through a write this package did
+ * not make, since `encodeResult` refuses `undefined` for one.
  */
 export function decodeResult(
 	definition: QueueDefinition<z.ZodType, z.ZodType | undefined>,

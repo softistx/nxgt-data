@@ -258,6 +258,27 @@ describe('the job handle', () => {
 	});
 });
 
+/** A client that counts the job-state reads and can answer the next ones from a script. */
+function spyOnReads() {
+	let reads = 0;
+	const script: (string | null)[][] = [];
+	const real = client();
+	const spy = new Proxy(real, {
+		get(target, prop) {
+			if (prop === 'hmget') {
+				return (...args: Parameters<typeof real.hmget>) => {
+					reads++;
+					const scripted = script.shift();
+					return scripted ? Promise.resolve(scripted) : target.hmget(...args);
+				};
+			}
+			const value = Reflect.get(target, prop, target);
+			return typeof value === 'function' ? value.bind(target) : value;
+		},
+	});
+	return { client: spy, script, reads: () => reads };
+}
+
 describe('the handle against stray and missed messages', () => {
 	const channel = 'queue:{sent}:events';
 	const publish = (text: string) => client().send('PUBLISH', [channel, text]);
@@ -303,10 +324,12 @@ describe('the handle against stray and missed messages', () => {
 		await bindQueue(client(), volatile).add(to('a'), { id: 'a' });
 		const vkeys = queueKeys('volatile');
 		const job = await take(volatile as unknown as typeof sent);
-		const handle = jobHandle(client(), volatile, vkeys, 'a', false, 150);
+		const spy = spyOnReads();
+		const handle = jobHandle(spy.client, volatile, vkeys, 'a', false, 150);
 		const started = Date.now();
 		const waited = rejection(handle.finished());
-		await listening();
+		// The first read has been made, and found the job running.
+		await eventually(() => spy.reads(), 1);
 		await complete(
 			client(),
 			{ ...vkeys, events: 'queue:{volatile}:elsewhere' },
@@ -323,6 +346,22 @@ describe('the handle against stray and missed messages', () => {
 	});
 });
 
+describe('the absent re-read count', () => {
+	test('a present re-read between two absent ones restarts the count', async () => {
+		const spy = spyOnReads();
+		const absent = [null, null, null];
+		const present = ['active', null, null];
+		// First read present, then absent, present, absent, absent: the reset
+		// means the second absent pair is what settles it.
+		spy.script.push(present, absent, present, absent, absent);
+		const handle = jobHandle(spy.client, sent, keys, 'ghost', false, 30);
+		const error = (await rejection(handle.finished())) as QueueError;
+		expect(error.code).toBe('NOT_FOUND');
+		expect(spy.script.length).toBe(0);
+		expect(spy.reads()).toBe(5);
+	});
+});
+
 describe('a result of undefined', () => {
 	const voided = defineQueue({
 		name: 'voided',
@@ -330,7 +369,7 @@ describe('a result of undefined', () => {
 		result: z.void(),
 	});
 
-	test('z.void() reads back undefined, a required schema is INVALID', async () => {
+	test('z.void() reads back undefined, and a required schema finding no result (a foreign write) is INVALID', async () => {
 		const handle = await bindQueue(client(), voided).add(to('a'), { id: 'a' });
 		const [job] = (await claim(client(), queueKeys('voided'), 1, 30_000)).jobs;
 		await complete(
@@ -356,7 +395,26 @@ describe('a result of undefined', () => {
 			schema: z.object({}),
 			result: z.number().optional(),
 		});
-		expect(encodeResult(sent, undefined, 'sent')).toBeUndefined();
+		expect(encodeResult(optional, undefined, 'optional')).toBeUndefined();
+		expect(
+			encodeResult(
+				defineQueue({
+					name: 'v',
+					schema: z.object({}),
+					result: z.void(),
+				}),
+				undefined,
+				'v',
+			),
+		).toBeUndefined();
+		let thrown: unknown;
+		try {
+			encodeResult(sent, undefined, 'sent');
+		} catch (error) {
+			thrown = error;
+		}
+		expect((thrown as QueueError).code).toBe('INVALID');
+		expect((thrown as QueueError).message).not.toContain('undefined');
 		expect(decodeResult(optional, undefined)).toEqual({
 			ok: true,
 			value: undefined,
