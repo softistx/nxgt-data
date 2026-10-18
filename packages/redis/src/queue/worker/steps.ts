@@ -80,7 +80,7 @@ export function stepsOf<S extends z.ZodType>(
 		}
 		const value = await fn();
 		const encoded = encodeStep(queue, name, value, schema, job.id);
-		if (signal.aborted) throw reasonOf();
+		// No abort check here: COMMIT is the fence, and a value that ran is stored either way.
 		const committed = await stepCommit(
 			context.client,
 			context.keys,
@@ -90,6 +90,8 @@ export function stepsOf<S extends z.ZodType>(
 			encoded,
 		);
 		if (!committed) throw lost();
+		// Committed, but the run ended meanwhile: the value is stored, the step still rejects.
+		if (signal.aborted) throw reasonOf();
 		const decoded = decodeStep(encoded, schema);
 		if (!decoded.ok) throw invalid('holds a value the schema refuses', name);
 		return decoded.value;

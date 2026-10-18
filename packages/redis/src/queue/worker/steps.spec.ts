@@ -273,6 +273,29 @@ describe('job.step by hand', () => {
 		expect(await hget('a', 'step:send')).toBe('"two"');
 	});
 
+	test.each(['CLOSED', 'TIMEOUT'] as const)(
+		'a run aborted with %s while fn runs still commits its value, and the step rejects with the reason',
+		async (code) => {
+			const { steps, context, job, signal } = await hold();
+			const started = gate();
+			const release = gate();
+			const pending = rejection(
+				steps.step('send', async () => {
+					started.open();
+					await release.opened;
+					return 'one';
+				}),
+			);
+			await started.opened;
+			abortRun(context, code, job.id, job.token);
+			release.open();
+			const error = await pending;
+			expect(error).toBe(signal.reason);
+			expect(codeOf(error)).toBe(code);
+			expect(await hget('a', 'step:send')).toBe('"one"');
+		},
+	);
+
 	test('the same name twice in one attempt is a TypeError before any round trip', async () => {
 		const { steps } = await hold();
 		await steps.step('send', () => 1);
