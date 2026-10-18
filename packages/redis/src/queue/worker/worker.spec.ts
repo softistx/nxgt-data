@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import type { RedisClient } from 'bun';
 import {
 	eventually,
@@ -192,14 +192,26 @@ describe('work', () => {
 
 	test('a thrown string is recorded readably', async () => {
 		const { work, closeAll } = suite();
+		// The jitter at its floor: the retry is due at once, and the settle's own
+		// claim takes it again in the same script, so `delayed` is never seen —
+		// and with a few ms of jitter it is seen only between two polls, if at
+		// all. Hence the retry is held, and the error it found is read then.
+		const random = spyOn(Math, 'random').mockReturnValue(0);
+		const hold = gate();
 		try {
-			work(() => {
-				throw 'nope';
+			let calls = 0;
+			work(async () => {
+				calls += 1;
+				if (calls === 1) throw 'nope';
+				await hold.opened;
 			});
 			await mails().add({ to: 'a' }, { id: 'a' });
-			await eventually(() => state('a'), 'delayed'); // retried, with the error kept
+			await eventually(() => calls, 2); // retried, with the error kept
+			expect(await hget('a', 'attempt')).toBe('2');
 			expect(await error('a')).toEqual({ name: 'Error', message: 'nope' });
 		} finally {
+			random.mockRestore();
+			hold.open();
 			await closeAll();
 		}
 	});
