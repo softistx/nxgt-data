@@ -59,6 +59,7 @@ application can handle.
   - [`list on "mails": state is one of waiting, delayed, active, completed, failed`](#list-on-mails-state-is-one-of-waiting-delayed-active-completed-failed)
   - [`add on "mails": the data does not match the schema (invalid_type)`](#add-on-mails-the-data-does-not-match-the-schema-invalid_type)
   - [`retry on "mails": job "receipt:42" is not failed`](#retry-on-mails-job-receipt42-is-not-failed)
+  - [`retry on "mails": fresh is true or false`](#retry-on-mails-fresh-is-true-or-false)
   - [`remove on "mails": no job "receipt:42"`](#remove-on-mails-no-job-receipt42)
   - [`remove on "mails": job "receipt:42" is running`](#remove-on-mails-job-receipt42-is-running)
   - [A job's `error` is `INVALID: the stored data does not match the schema`](#a-jobs-error-is-invalid-the-stored-data-does-not-match-the-schema)
@@ -794,6 +795,16 @@ const job = await queue.get('receipt:42');
 if (job?.state === 'failed') await queue.retry(job.id);
 ```
 
+### `retry on "mails": fresh is true or false`
+
+**When:** `queue.retry(id, { fresh })` with a `fresh` that is neither `true` nor `false` (a string, a number, `null`). A `TypeError`, thrown before any call to Redis, so the job is untouched.
+**Why:** `fresh` picks between resuming after the last finished step and running every step again, so a truthy value such as `'true'` or `1` is refused rather than guessed.
+**Fix:**
+
+```ts
+await queue.retry('receipt:42', { fresh: true });
+```
+
 ### `remove on "mails": no job "receipt:42"`
 
 **When:** `queue.remove(id)`. A `QueueError`, `code: 'NOT_FOUND'`.
@@ -981,7 +992,7 @@ for (const item of items) {
 
 **When:** `fn` of a step returned. The job fails at once, without retry, and its `error` is `{ name: 'QueueError', message: 'INVALID: step on "mails": step "send" returned a value that has no JSON form' }`. With a `schema`, the end of the message is `does not match the schema (invalid_type)`, or `does not match the schema once stored as JSON (invalid_type)`. Nothing was stored for the step.
 **Why:** `fn` already ran, so its side effect happened; only its value cannot be stored. The value is stored as JSON, and read back the same way on a retry, so it must survive the round trip: a `Date`, a `Map`, a `bigint`, `NaN` or `{ a: undefined }` has no JSON form. With a `schema` the stored text is its output, and it must accept that text too. Retrying would return the same value.
-**Fix:** return plain JSON, or a `schema` that turns the value into it. Make `fn` safe to repeat with `job.key` before you `retry` the job, since `fn` runs again.
+**Fix:** return plain JSON, or a `schema` that turns the value into it. Make `fn` safe to repeat with `job.key` before you `retry` the job, since `fn` runs again. Once `fn` is fixed, `retry(id, { fresh: true })` clears the stored step values and runs every step again; `job.key` is unchanged, so a repeat is still recognised downstream.
 
 ```ts
 await job.step('send', async () => {
@@ -994,7 +1005,7 @@ await job.step('send', async () => {
 
 **When:** a step whose value was stored by an earlier attempt, read back with a `schema`. The job fails without retry. The same message appears on the attempt that ran `fn`, if the stored text does not parse through the schema again.
 **Why:** the schema now refuses what was stored: it changed between two deploys while the job was waiting or retrying, or the step's name was kept for a different value. Retrying would read the same value.
-**Fix:** change a step's schema only in a way that still accepts the stored values (add `.optional()` to a new field), or give the step a new name when its value changes shape. Then `retry` the job: the new name runs `fn` again.
+**Fix:** change a step's schema only in a way that still accepts the stored values (add `.optional()` to a new field), or give the step a new name when its value changes shape. Then `retry` the job: the new name runs `fn` again. Or, with the schema fixed, `retry(id, { fresh: true })` clears the stored step values and runs every step again; `job.key` is unchanged.
 
 ```ts
 await job.step('send-v2', () => send(item), { schema: ReceiptV2 });

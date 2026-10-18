@@ -258,3 +258,13 @@ queue.work(async (job) => {
 	// @ts-expect-error `schema` is a zod schema
 	await job.step('x', () => 1, { schema: 5 });
 });
+
+// `retry` takes a boolean `fresh`, nothing else.
+void queue.retry('a');
+void queue.retry('a', {});
+void queue.retry('a', { fresh: true });
+void queue.retry('a', { fresh: false });
+// @ts-expect-error `fresh` is a boolean, not a string
+void queue.retry('a', { fresh: 'yes' });
+// @ts-expect-error `fresh` is a boolean, not a number
+void queue.retry('a', { fresh: 1 });

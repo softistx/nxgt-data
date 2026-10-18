@@ -5,7 +5,13 @@ import { runScript } from '../scripts/run-script';
 import type { queueKeys } from './keys';
 import { COUNTS, REMOVE, RETRY } from './scripts/admin';
 import { scriptKeys } from './scripts/claim';
-import type { JobState, JobView, QueueCounts, QueueDefinition } from './types';
+import type {
+	JobState,
+	JobView,
+	QueueCounts,
+	QueueDefinition,
+	RetryOptions,
+} from './types';
 import { STATES, toView } from './view';
 
 type Keys = ReturnType<typeof queueKeys>;
@@ -131,7 +137,23 @@ export async function countJobs(
 }
 
 /**
- * Puts a failed job back to `waiting`, its attempts reset.
+ * Checks `retry`'s options as `resolveAdd` checks `add`'s: a bare `TypeError`
+ * naming the call and the queue, never the value, and unknown keys ignored.
+ */
+export function resolveRetry(
+	options: RetryOptions | undefined,
+	queue: string,
+): boolean {
+	const { fresh } = (options ?? {}) as { fresh?: unknown };
+	if (fresh !== undefined && typeof fresh !== 'boolean') {
+		throw new TypeError(`retry on "${queue}": fresh is true or false`);
+	}
+	return fresh === true;
+}
+
+/**
+ * Puts a failed job back to `waiting`, its attempts reset, and with `fresh`
+ * its stored step values cleared.
  *
  * @throws QueueError `NOT_FOUND` when the job is not in `failed`.
  */
@@ -140,10 +162,12 @@ export async function retryJob(
 	keys: Keys,
 	definition: { name: string },
 	id: string,
+	fresh: boolean,
 ): Promise<void> {
 	const reply = await runScript(client, RETRY, scriptKeys(keys), [
 		keys.prefix,
 		id,
+		fresh ? '1' : '0',
 	]);
 	if (reply !== 1) {
 		throw new QueueError(

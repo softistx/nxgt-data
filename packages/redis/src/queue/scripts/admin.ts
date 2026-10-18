@@ -32,12 +32,16 @@ return {
  * It takes {@link CLAIM_FN} only for its shared helpers (`sound`,
  * `ready_score`, `wake`), so the score and the wake rule have one body.
  *
+ * With `ARGV[3]` at `'1'` (a fresh retry) it also deletes every hash field
+ * named `step:*`, in the same script and only once the retry is certain, so
+ * the handler's steps all run again. `data`, `priority` and the rest stay.
+ *
  * Only a job that is in `failed`, whose `state` says so and whose hash is
  * one this package could have written is retried; anything else changes
  * nothing.
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake.
- * ARGV: job-key prefix, id.
+ * ARGV: job-key prefix, id, fresh (`'1'` or `'0'`).
  * Returns 1 (retried) or 0 (not retryable, nothing changed).
  */
 export const RETRY = defineScript(`
@@ -54,6 +58,11 @@ redis.call('ZREM', KEYS[5], id)
 redis.call('HSET', key, 'state', 'waiting', 'attempt', 0, 'runAt', int(now))
 redis.call('HDEL', key, 'error', 'finished', 'token')
 redis.call('ZADD', KEYS[2], ready_score(f[4]), id)
+if ARGV[3] == '1' then
+	for _, name in ipairs(redis.call('HKEYS', key)) do
+		if string.sub(name, 1, 5) == 'step:' then redis.call('HDEL', key, name) end
+	end
+end
 wake(KEYS[7])
 return 1
 `);

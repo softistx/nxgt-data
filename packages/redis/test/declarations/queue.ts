@@ -1,7 +1,13 @@
 // A queue an app exports, defined and bound, behind exported values whose
 // types are inferred: a declaration build must be able to name each one
 // through `@nxgt/redis` and its peers alone (TS2883 otherwise).
-import { bindQueue, defineQueue, defineRedis, openRedis } from '@nxgt/redis';
+import {
+	bindQueue,
+	defineQueue,
+	defineRedis,
+	openRedis,
+	type RetryOptions,
+} from '@nxgt/redis';
 import type { RedisClient } from 'bun';
 import { z } from 'zod';
 
@@ -78,4 +84,9 @@ export function wiredWorker() {
 
 export function closeWiredQueues() {
 	return wiredQueues.close({ grace: '10s' });
+}
+
+/** A fresh retry: `RetryOptions` is nameable through the package. */
+export function retried(options?: RetryOptions) {
+	return mailQueue.retry('a', options);
 }
