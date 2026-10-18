@@ -70,13 +70,35 @@ describe('keepLeases', () => {
 		leases.add('a', 'old');
 		await eventually(() => calls.length, 1);
 		// The job was settled and claimed again while the renewal was in flight.
-		leases.delete('a');
+		leases.delete('a', 'old');
 		leases.add('a', 'new');
 		replies[0]?.(['a']); // Redis: the old token no longer holds
 		await Bun.sleep(5);
 		expect(lost).toEqual([]);
 		await eventually(() => calls.length > 1, true);
 		expect(calls[1]).toContain('new');
+		leases.stop();
+	});
+
+	test("a finished stale run does not end the new run's renewals", async () => {
+		const calls: unknown[][] = [];
+		const fake = {
+			evalsha: (...args: unknown[]) => {
+				calls.push(args);
+				return Promise.resolve([] as string[]);
+			},
+		} as unknown as RedisClient;
+		const leases = keepLeases(fake, keys, 30, () => undefined);
+		leases.add('a', 't1');
+		leases.add('a', 't2'); // claimed again, while the first run still goes on
+		leases.delete('a', 't1'); // the first run settles late
+		await eventually(() => calls.length > 0, true);
+		expect(calls.every((call) => call.includes('t2'))).toBe(true);
+		expect(calls.some((call) => call.includes('t1'))).toBe(false);
+		const before = calls.length;
+		leases.delete('a', 't2'); // the current run's own end does stop them
+		await Bun.sleep(30);
+		expect(calls.length).toBeLessThanOrEqual(before + 1);
 		leases.stop();
 	});
 });

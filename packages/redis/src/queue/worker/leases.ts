@@ -6,8 +6,12 @@ import { renew } from '../scripts/renew';
 export type Leases = {
 	/** Starts renewing a job's lease. */
 	add(id: string, token: string): void;
-	/** Stops renewing a job: it was settled. */
-	delete(id: string): void;
+	/**
+	 * Stops renewing a job: it was settled. Only when `token` is still the one
+	 * held: a stale run that finishes after the id was claimed again must not
+	 * end the new run's renewals.
+	 */
+	delete(id: string, token: string): void;
 	/** Stops every renewal; one still in flight then reports nothing. */
 	stop(): void;
 };
@@ -60,7 +64,9 @@ export function keepLeases(
 	);
 	return {
 		add: (id, token) => void held.set(id, token),
-		delete: (id) => void held.delete(id),
+		delete(id, token) {
+			if (held.get(id) === token) held.delete(id);
+		},
 		stop() {
 			stopped = true;
 			clearInterval(beat);

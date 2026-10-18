@@ -96,7 +96,7 @@ async function runJob<S extends z.ZodType>(
 	try {
 		return await runHandler(context, job, decoded.data);
 	} finally {
-		context.leases.delete(job.id);
+		context.leases.delete(job.id, job.token);
 	}
 }
 
