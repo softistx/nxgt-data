@@ -1,9 +1,10 @@
 import type { RedisClient } from 'bun';
 import type { z } from 'zod';
 import type { queueKeys } from '../keys';
-import type { JobContext, QueueDefinition, WorkerEvents } from '../types';
+import type { QueueDefinition } from '../types';
 import type { Run } from './abort';
 import type { Leases } from './leases';
+import type { JobContext, WorkerEvents } from './types';
 
 /**
  * What one running worker works from: the client, the queue, the handler and

@@ -33,23 +33,24 @@ export { withLock } from './lock/with-lock';
 export { bindQueue } from './queue/bind-queue';
 export { defineQueue } from './queue/define-queue';
 export type { Duration } from './queue/duration';
+export type { JobHandle } from './queue/handle-types';
+export type { ResultInputOf, ResultOf } from './queue/result-types';
 export type {
 	AddOptions,
 	BoundQueue,
-	Handler,
-	JobContext,
-	JobHandle,
 	JobState,
 	JobView,
 	QueueCounts,
 	QueueDefinition,
 	QueueInput,
-	ResultInputOf,
-	ResultOf,
+} from './queue/types';
+export type {
+	Handler,
+	JobContext,
 	Worker,
 	WorkerEvents,
 	WorkOptions,
-} from './queue/types';
+} from './queue/worker/types';
 export { bindRateLimit } from './rate-limit/bind-rate-limit';
 export { defineRateLimit } from './rate-limit/define-rate-limit';
 export type {

@@ -1,6 +1,6 @@
 import type { ClaimReply } from '../scripts/replies';
-import type { WorkerEvents } from '../types';
 import type { WorkerContext } from './context';
+import type { WorkerEvents } from './types';
 
 function isThenable(value: unknown): value is PromiseLike<unknown> {
 	return (

@@ -2,12 +2,7 @@ import type { RedisClient } from 'bun';
 import type { z } from 'zod';
 import type { Duration } from '../duration';
 import type { queueKeys } from '../keys';
-import type {
-	JobContext,
-	QueueDefinition,
-	Worker,
-	WorkOptions,
-} from '../types';
+import type { QueueDefinition } from '../types';
 import { abortLost, hearCancels } from './abort';
 import { closeWorker, resolveGrace } from './close';
 import type { WorkerContext } from './context';
@@ -15,6 +10,7 @@ import { emit, on } from './events';
 import { waitIdle } from './idle';
 import { keepLeases } from './leases';
 import { loop } from './loop';
+import type { JobContext, Worker, WorkOptions } from './types';
 
 /** Checks `work`'s options and resolves them: a bare `TypeError` that names the queue and never prints the value. */
 export function resolveWork(

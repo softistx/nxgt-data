@@ -1,4 +1,5 @@
 import { QueueError } from '../../errors/queue-error';
+import { parseEvent } from '../events/message';
 import { listen } from '../events/subscriber';
 import type { ClaimedJob } from '../scripts/replies';
 import type { WorkerContext } from './context';
@@ -141,18 +142,6 @@ function reasonFrom(signal: AbortSignal): QueueError {
 	return signal.reason as QueueError;
 }
 
-/** What a `canceled` event says: the job's id, or `undefined` for any other or malformed message. */
-function canceledId(message: string): string | undefined {
-	try {
-		const event: unknown = JSON.parse(message);
-		if (typeof event !== 'object' || event === null) return undefined;
-		const { type, id } = event as { type?: unknown; id?: unknown };
-		return type === 'canceled' && typeof id === 'string' ? id : undefined;
-	} catch {
-		return undefined;
-	}
-}
-
 /**
  * Listens to the queue's events for a `canceled` one and aborts that job's
  * run with `CANCELED`. Resolves with the function that stops listening, once
@@ -165,8 +154,8 @@ export function hearCancels(
 	context: WorkerContext,
 ): Promise<() => Promise<void>> {
 	return listen(context.client, context.keys.events, (message) => {
-		const id = canceledId(message);
+		const event = parseEvent(message);
 		// By id alone, every token of it: the CANCEL script deleted the job's hash.
-		if (id !== undefined) abortRun(context, 'CANCELED', id);
+		if (event?.type === 'canceled') abortRun(context, 'CANCELED', event.id);
 	});
 }

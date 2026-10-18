@@ -84,14 +84,7 @@ function resolve<S extends z.ZodType, R extends z.ZodType | undefined>(
 			`${call}: "${name}" has no schema; a payload is checked against one both ways`,
 		);
 	}
-	if (
-		input.result !== undefined &&
-		typeof input.result.safeParse !== 'function'
-	) {
-		throw new TypeError(
-			`${call}: "${name}" has a result that is not a schema; a result is checked against one both ways`,
-		);
-	}
+	checkResult(input.result, call, name);
 	const attempts = input.attempts ?? DEFAULTS.attempts;
 	if (!Number.isSafeInteger(attempts) || attempts < 1) {
 		throw new TypeError(
@@ -130,15 +123,7 @@ function resolve<S extends z.ZodType, R extends z.ZodType | undefined>(
 		name,
 		'keepFailed',
 	);
-	const timeout =
-		input.timeout === undefined
-			? undefined
-			: toMs(input.timeout, `${call}: "${name}" timeout`);
-	if (timeout !== undefined && timeout < 1) {
-		throw new TypeError(
-			`${call}: "${name}" has a timeout of ${timeout}ms; it must be at least 1ms, or left out for no limit`,
-		);
-	}
+	const timeout = timeoutOf(input.timeout, call, name);
 	return Object.freeze({
 		name,
 		schema: input.schema,
@@ -150,6 +135,33 @@ function resolve<S extends z.ZodType, R extends z.ZodType | undefined>(
 		keepFailed,
 		timeout,
 	});
+}
+
+function checkResult(
+	result: z.ZodType | undefined,
+	call: string,
+	name: string,
+): void {
+	if (result !== undefined && typeof result.safeParse !== 'function') {
+		throw new TypeError(
+			`${call}: "${name}" has a result that is not a schema; a result is checked against one both ways`,
+		);
+	}
+}
+
+function timeoutOf(
+	value: Duration | undefined,
+	call: string,
+	name: string,
+): number | undefined {
+	if (value === undefined) return undefined;
+	const timeout = toMs(value, `${call}: "${name}" timeout`);
+	if (timeout < 1) {
+		throw new TypeError(
+			`${call}: "${name}" has a timeout of ${timeout}ms; it must be at least 1ms, or left out for no limit`,
+		);
+	}
+	return timeout;
 }
 
 function keepCompleted(

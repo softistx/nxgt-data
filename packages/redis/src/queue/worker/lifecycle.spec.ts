@@ -6,7 +6,7 @@ import { bindQueue } from '../bind-queue';
 import { defineQueue } from '../define-queue';
 import { queueKeys } from '../keys';
 import { claim } from '../scripts/claim';
-import type { Worker, WorkerEvents } from '../types';
+import type { Worker, WorkerEvents } from './types';
 
 const servers = useRedis();
 const keys = queueKeys('mails');

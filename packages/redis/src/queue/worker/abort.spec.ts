@@ -4,7 +4,6 @@ import { QueueError } from '../../errors/queue-error';
 import { bindQueue } from '../bind-queue';
 import { defineQueue } from '../define-queue';
 import { queueKeys } from '../keys';
-import type { JobContext, Worker, WorkerEvents } from '../types';
 import {
 	abortAll,
 	abortLost,
@@ -16,6 +15,7 @@ import {
 	MAX_TIMER_MS,
 } from './abort';
 import type { WorkerContext } from './context';
+import type { JobContext, Worker, WorkerEvents } from './types';
 
 const servers = useRedis();
 const keys = queueKeys('mails');

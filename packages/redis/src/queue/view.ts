@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import { decodeData, decodeResult } from './encode';
-import type { JobState, JobView, QueueDefinition, ResultOf } from './types';
+import type { ResultOf } from './result-types';
+import type { JobState, JobView, QueueDefinition } from './types';
 
 /** The states a stored job may be in. */
 export const STATES: readonly string[] = [
