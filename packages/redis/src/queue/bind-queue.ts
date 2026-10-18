@@ -32,6 +32,8 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 ): Promise<JobHandle<R>[]> {
 	const handles: JobHandle<R>[] = [];
 	for (let from = 0; from < jobs.length; from += ADD_CHUNK) {
+		// Between chunks too: a batch stops cleanly with CLOSED.
+		refuseClosed(life, 'addMany', definition.name);
 		const chunk = jobs.slice(from, from + ADD_CHUNK);
 		const argv: (string | number)[] = [keys.prefix];
 		for (const { options, data } of chunk) {

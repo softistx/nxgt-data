@@ -1,6 +1,6 @@
 import type { Duration } from '../duration';
 import { durationMs } from '../duration';
-import { clampTimeout } from '../timers';
+import { clampTimeout, RELEASE_MS } from '../timers';
 import { abortAll } from './abort';
 import type { WorkerContext } from './context';
 import { settleIdle } from './idle';
@@ -64,6 +64,10 @@ export async function closeWorker(
 		await Promise.all([...context.slots]);
 	}
 	context.leases.stop();
-	await (await unlisten)();
+	// A cancel listener whose connection is gone never answers: bounded, and a
+	// rejection arriving late is swallowed.
+	const unlistened = (async () => (await unlisten)())();
+	unlistened.catch(() => undefined);
+	await within(unlistened, RELEASE_MS);
 	settleIdle(context);
 }

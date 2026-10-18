@@ -31,19 +31,43 @@ async function connections() {
 	return list.split('\n').filter((line) => line.trim() !== '').length;
 }
 
-/** A worker double: records its closes, and rejects when told to. */
-function fake(reject?: Error) {
+/** What a {@link fake} worker does around its close. */
+type FakeOptions = {
+	reject?: Error;
+	throws?: Error;
+	hold?: Promise<void>;
+	during?: () => Promise<void>;
+};
+
+/** A worker double whose close is memoised, as a real one's is: `closes` counts the first call's options and later calls. */
+function fake(options: FakeOptions = {}) {
 	const closes: unknown[] = [];
+	let first: Promise<void> | undefined;
 	const worker = {
-		close: async (options?: unknown) => {
-			closes.push(options);
-			if (reject) throw reject;
+		close: (given?: unknown) => {
+			closes.push(given);
+			if (options.throws) throw options.throws;
+			first ??= (async () => {
+				await options.during?.();
+				await options.hold;
+				if (options.reject) throw options.reject;
+			})();
+			return first;
 		},
 		on: () => () => undefined,
 		idle: async () => undefined,
 		[Symbol.asyncDispose]: async () => undefined,
 	} as unknown as Worker;
 	return { worker, closes };
+}
+
+/** A promise settled by hand. */
+function deferred() {
+	let release!: () => void;
+	const promise = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	return { promise, release };
 }
 
 describe('a wired queue and its Redis closing', () => {
@@ -144,17 +168,20 @@ describe('a wired queue and its Redis closing', () => {
 		expect(life.state).toBe('closed');
 	});
 
-	test('a worker whose close rejects does not keep the others open, and its error is rethrown last', async () => {
+	test('a worker whose close rejects does not keep the others open: its error is rethrown after both phases, the first one when two reject', async () => {
 		const life = openLife();
 		const boom = new Error('boom');
-		const bad = fake(boom);
+		const bad = fake({ reject: boom });
+		const worse = fake({ reject: new Error('worse') });
 		const good = fake();
 		trackWorker(life, bad.worker);
+		trackWorker(life, worse.worker);
 		trackWorker(life, good.worker);
 		const error = await rejection(closeLife(life, undefined));
 		expect(error).toBe(boom);
 		expect(good.closes.length).toBe(1);
 		expect(life.state).toBe('closed');
+		expect(life.waits.size).toBe(0);
 	});
 
 	test('admin calls pass through after close', async () => {
@@ -164,8 +191,73 @@ describe('a wired queue and its Redis closing', () => {
 		expect((await queue.counts()).waiting).toBe(1);
 		expect((await queue.get('a'))?.id).toBe('a');
 		expect((await queue.list('waiting')).length).toBe(1);
-		await queue.cancel('a');
+		expect(await queue.remove('a')).toBeUndefined();
 		expect((await queue.counts()).waiting).toBe(0);
+		const error = await rejection(queue.retry('a'));
+		expect((error as QueueError).code).toBe('NOT_FOUND');
+	});
+
+	test('a sync throw from a worker close is caught like a rejection, and phase 2 still runs', async () => {
+		const life = openLife();
+		const boom = new Error('sync');
+		trackWorker(life, fake({ throws: boom }).worker);
+		const good = fake();
+		trackWorker(life, good.worker);
+		const error = await rejection(closeLife(life, undefined));
+		expect(error).toBe(boom);
+		expect(good.closes.length).toBe(1);
+		expect(life.state).toBe('closed');
+	});
+
+	test('phase order: add works and a finished stays pending while the workers close; the finished rejects CLOSED after', async () => {
+		const { life, queue } = wired();
+		const seen: { state?: string; added?: string; early?: boolean } = {};
+		let pending: Promise<unknown> | undefined;
+		let settled = false;
+		const { worker } = fake({
+			during: async () => {
+				seen.state = life.state;
+				const handle = await queue.add(to('a'), { id: 'a' });
+				seen.added = handle.id;
+				pending = rejection(handle.finished()).then((error) => {
+					settled = true;
+					return error;
+				});
+				await subscribed(client(), keys.events);
+				seen.early = settled;
+			},
+		});
+		trackWorker(life, worker);
+		await closeLife(life, undefined);
+		expect(seen).toEqual({ state: 'closing', added: 'a', early: false });
+		const error = (await pending) as QueueError;
+		expect(error.code).toBe('CLOSED');
+	});
+
+	test('addMany stops with CLOSED between chunks, and what was sent stays written', async () => {
+		const life = openLife();
+		const real = client();
+		const proxy = new Proxy(real, {
+			get(target, prop) {
+				if (prop === 'evalsha') {
+					return async (...args: Parameters<typeof real.evalsha>) => {
+						const reply = await target.evalsha(...args);
+						life.state = 'closed';
+						return reply;
+					};
+				}
+				const value = Reflect.get(target, prop, target);
+				return typeof value === 'function' ? value.bind(target) : value;
+			},
+		});
+		const queue = bindQueueWith(proxy, mails, { prefix: undefined, life });
+		const items = Array.from({ length: 501 }, (_, i) => ({
+			data: to('a'),
+			options: { id: `j${i}` },
+		}));
+		const error = (await rejection(queue.addMany(items))) as QueueError;
+		expect(error.code).toBe('CLOSED');
+		expect((await bindQueue(real, mails).counts()).waiting).toBe(500);
 	});
 
 	test('a queue bound by hand never throws CLOSED', async () => {
@@ -175,5 +267,48 @@ describe('a wired queue and its Redis closing', () => {
 		const worker = queue.work(() => ({ count: 1 }));
 		expect(await handle.finished()).toEqual({ count: 1 });
 		await worker.close();
+	});
+
+	test('a worker closed by hand stays tracked until its close resolves, and closeLife waits for it', async () => {
+		const life = openLife();
+		const gate = deferred();
+		const held = fake({ hold: gate.promise });
+		const tracked = trackWorker(life, held.worker);
+		const byHand = tracked.close();
+		expect(life.workers.size).toBe(1);
+		let closed = false;
+		const all = closeLife(life, undefined).then(() => {
+			closed = true;
+		});
+		await Bun.sleep(30);
+		expect(closed).toBe(false);
+		gate.release();
+		await byHand;
+		await all;
+		expect(closed).toBe(true);
+		expect(life.workers.size).toBe(0);
+	});
+
+	test('a close refused for a bad grace leaves the worker tracked, and closeLife closes it', async () => {
+		const life = openLife();
+		const refused = fake({ reject: new TypeError('bad grace') });
+		const tracked = trackWorker(life, refused.worker);
+		const error = await rejection(tracked.close({ grace: -1 }));
+		expect((error as Error).message).toBe('bad grace');
+		expect(life.workers.has(refused.worker)).toBe(true);
+		const closing = rejection(closeLife(life, 10));
+		expect(((await closing) as Error).message).toBe('bad grace');
+		expect(refused.closes).toEqual([{ grace: -1 }, { grace: 10 }]);
+	});
+
+	test('asyncDispose on a tracked worker leaves the set once the close ends', async () => {
+		const life = openLife();
+		const gate = deferred();
+		const tracked = trackWorker(life, fake({ hold: gate.promise }).worker);
+		const disposed = tracked[Symbol.asyncDispose]();
+		expect(life.workers.size).toBe(1);
+		gate.release();
+		await disposed;
+		expect(life.workers.size).toBe(0);
 	});
 });

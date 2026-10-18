@@ -1,4 +1,5 @@
 import { QueueError } from '../errors/queue-error';
+import { clampTimeout, RELEASE_MS } from './timers';
 import type { Worker } from './worker/types';
 
 /**
@@ -18,6 +19,8 @@ export interface QueueLife {
 	readonly waits: Set<Promise<void>>;
 	/** Aborts when the refusal phase begins: pending `finished` calls reject. */
 	readonly closed: AbortController;
+	/** The promise of {@link closeLife}, once it ran: a second call returns it. */
+	closing?: Promise<void>;
 }
 
 /** A life for a Redis that is open. */
@@ -50,14 +53,21 @@ export function refuseClosed(
 }
 
 /**
- * Records `worker` in the life and answers it with a `close` that forgets it
- * first. `Object.create`, not a spread, so the rest of the worker stays live.
+ * Records `worker` in the life and answers it with a `close` that stays
+ * recorded until the close resolves: {@link closeLife} then awaits the close
+ * in flight (a worker's `close` is memoised) instead of missing it, and a
+ * close refused for a bad `grace` leaves the worker for `closeLife` to close.
+ * `Object.create`, not a spread, so the rest of the worker stays live.
  */
 export function trackWorker(life: QueueLife, worker: Worker): Worker {
 	life.workers.add(worker);
 	const forget = (options?: Parameters<Worker['close']>[0]) => {
-		life.workers.delete(worker);
-		return worker.close(options);
+		const closing = worker.close(options);
+		closing.then(
+			() => life.workers.delete(worker),
+			() => undefined,
+		);
+		return closing;
 	};
 	return Object.create(worker, {
 		close: { enumerable: true, value: forget },
@@ -92,20 +102,33 @@ export function trackWait(
 	};
 }
 
-const closing = new WeakMap<QueueLife, Promise<void>>();
+/** Closes one worker; a synchronous throw is a rejection like any other. */
+async function closeOne(worker: Worker, grace: number | undefined) {
+	await worker.close(grace === undefined ? undefined : { grace });
+}
+
+/** Resolves once `waits` all settled, or after {@link RELEASE_MS}: the timer never outlives the call. */
+async function released(waits: readonly Promise<void>[]): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const expired = new Promise<void>((resolve) => {
+		timer = setTimeout(resolve, clampTimeout(RELEASE_MS));
+	});
+	try {
+		await Promise.race([Promise.all(waits).then(() => undefined), expired]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
 
 async function run(life: QueueLife, grace: number | undefined): Promise<void> {
 	life.state = 'closing';
-	const workers = [...life.workers];
-	life.workers.clear();
 	const results = await Promise.allSettled(
-		workers.map((worker) =>
-			worker.close(grace === undefined ? undefined : { grace }),
-		),
+		[...life.workers].map((worker) => closeOne(worker, grace)),
 	);
+	life.workers.clear();
 	life.state = 'closed';
 	life.closed.abort();
-	await Promise.all([...life.waits]);
+	await released([...life.waits]);
 	const failed = results.find((result) => result.status === 'rejected');
 	if (failed) throw failed.reason;
 }
@@ -113,18 +136,16 @@ async function run(life: QueueLife, grace: number | undefined): Promise<void> {
 /**
  * Closes a life in its two phases. `grace` is already checked; `undefined`
  * gives each worker its default. A worker whose close rejects does not keep
- * the others open: the first error is rethrown once both phases are done.
- * Resolves only after every pending `finished` has rejected `CLOSED` and
- * unlistened. A second call returns the first call's promise.
+ * the others open: the first error, in the order the workers were started, is
+ * rethrown once both phases are done. Resolves once every pending `finished`
+ * has rejected `CLOSED` and unlistened, or after {@link RELEASE_MS} when a
+ * connection never answers its UNSUBSCRIBE. A second call returns the first
+ * call's promise: its `grace` is ignored.
  */
 export function closeLife(
 	life: QueueLife,
 	grace: number | undefined,
 ): Promise<void> {
-	let promise = closing.get(life);
-	if (!promise) {
-		promise = run(life, grace);
-		closing.set(life, promise);
-	}
-	return promise;
+	life.closing ??= run(life, grace);
+	return life.closing;
 }

@@ -135,11 +135,17 @@ export type BoundQueue<
 	 * @throws QueueError `INVALID` when the schema refuses the payload, or it
 	 * does not survive JSON; nothing is written.
 	 * @throws TypeError for a malformed option.
+	 *
+	 * An add in flight when the connection closes fails with the connection's
+	 * error, not `CLOSED`.
 	 */
 	add(data: z.input<S>, options?: AddOptions): Promise<JobHandle<R>>;
 	/**
 	 * Adds many jobs, one script per 500, handles in the order given. One bad
-	 * item refuses the whole call before anything is written.
+	 * item refuses the whole call before anything is written. On a wired queue
+	 * whose Redis closes in between, it stops with `CLOSED` before its next
+	 * script, the jobs already sent staying written. An add in flight when the
+	 * connection closes fails with the connection's error, not `CLOSED`.
 	 */
 	addMany(
 		items: readonly { data: z.input<S>; options?: AddOptions }[],
