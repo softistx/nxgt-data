@@ -16,7 +16,7 @@ import type { AddOptions, QueueDefinition } from './types';
  * `z.record` keys. Nothing is attached as a `cause` for the same reason.
  */
 export function encodeData<S extends z.ZodType>(
-	definition: QueueDefinition<S>,
+	definition: QueueDefinition<S, z.ZodType | undefined>,
 	data: unknown,
 	call: string,
 ): string {
@@ -54,7 +54,7 @@ export function encodeData<S extends z.ZodType>(
  * the caller decides what a job it cannot read becomes.
  */
 export function decodeData<S extends z.ZodType>(
-	definition: QueueDefinition<S>,
+	definition: QueueDefinition<S, z.ZodType | undefined>,
 	json: string,
 ): { ok: true; data: z.output<S> } | { ok: false } {
 	let raw: unknown;

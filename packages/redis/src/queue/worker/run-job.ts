@@ -16,7 +16,7 @@ function toError(thrown: unknown): { name: string; message: string } {
 
 /** The wait before the next attempt, or null when the job must not be retried. */
 function retryDelay(
-	definition: QueueDefinition<z.ZodType>,
+	definition: QueueDefinition<z.ZodType, z.ZodType | undefined>,
 	attempt: number,
 	error: unknown,
 ): number | null {
@@ -40,6 +40,9 @@ async function runHandler<S extends z.ZodType>(
 			data,
 			attempt: job.attempt,
 			attempts: job.attempts,
+			// Task 5 aborts it and writes the progress.
+			signal: new AbortController().signal,
+			progress: async () => {},
 		});
 	} catch (error) {
 		thrown = { error };

@@ -64,8 +64,14 @@ describe('add', () => {
 	test('an id already there is not added again', async () => {
 		const first = await mails().add(to('first'), { id: 'j1' });
 		const second = await mails().add(to('second'), { id: 'j1' });
-		expect(first).toEqual({ id: 'j1', deduplicated: false });
-		expect(second).toEqual({ id: 'j1', deduplicated: true });
+		expect({ id: first.id, deduplicated: first.deduplicated }).toEqual({
+			id: 'j1',
+			deduplicated: false,
+		});
+		expect({ id: second.id, deduplicated: second.deduplicated }).toEqual({
+			id: 'j1',
+			deduplicated: true,
+		});
 		const data = await servers.redis.client.hget(keys.job('j1'), 'data');
 		expect(JSON.parse(data ?? '').to).toBe('first');
 		expect(await send('ZCARD', keys.ready)).toBe(1);

@@ -42,6 +42,21 @@ test('keepCompleted: false keeps nothing, and a half-set one is filled', () => {
 	).toEqual({ age: 3_600_000, count: 5 });
 });
 
+test('keeps the result schema, and reads the timeout in milliseconds', () => {
+	const result = z.object({ id: z.string() });
+	const q = defineQueue({
+		name: 'm',
+		schema: z.string(),
+		result,
+		timeout: '2m',
+	});
+	expect(q.result).toBe(result);
+	expect(q.timeout).toBe(120_000);
+	const plain = defineQueue({ name: 'm', schema: z.string() });
+	expect(plain.result).toBeUndefined();
+	expect(plain.timeout).toBeUndefined();
+});
+
 test.each([
 	[{ name: '' }, /^defineQueue: a queue needs a name/],
 	[{ name: 'a{b' }, /^defineQueue: "a\{b" .* braces/],
@@ -53,6 +68,8 @@ test.each([
 	[{ lease: 29 }, /^defineQueue: "mails" has a lease of 29ms; .* at least 30/],
 	[{ keepCompleted: { count: -1 } }, /keepCompleted count/],
 	[{ schema: undefined }, /has no schema/],
+	[{ result: 5 }, /^defineQueue: "mails" has a result that is not a schema/],
+	[{ timeout: 0 }, /^defineQueue: "mails" has a timeout of 0ms; .* at least 1/],
 ])('refuses %p', (patch, message) => {
 	expect(() =>
 		defineQueue({ name: 'mails', schema: z.string(), ...patch } as never),

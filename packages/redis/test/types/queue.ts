@@ -125,3 +125,61 @@ queue.work(() => undefined, { grace: 1 });
 
 // @ts-expect-error every item's payload is checked, as `add`'s is
 queue.addMany([{ data: { to: 1 } }]);
+
+// A result schema types what a handler returns and what `finished` resolves to.
+const sized = defineQueue({
+	name: 'sized',
+	schema: z.string(),
+	result: z.object({ id: z.string() }),
+	timeout: '1m',
+});
+const sizedQueue = bindQueue(client, sized);
+sizedQueue.work(() => ({ id: 'x' }));
+sizedQueue.work(async () => ({ id: 'x' }));
+// @ts-expect-error `id` is a string
+sizedQueue.work(() => ({ id: 1 }));
+// @ts-expect-error a queue with a result must return one
+sizedQueue.work(() => {});
+// @ts-expect-error a queue without a result returns nothing
+queue.work(() => ({ id: 'x' }));
+queue.work(() => {});
+
+const finishedId = async (): Promise<string> => {
+	const handle = await sizedQueue.add('a');
+	return (await handle.finished()).id;
+};
+void finishedId;
+const finishedNothing = async (): Promise<undefined> =>
+	(await queue.add({ to: 'a@b.c' })).finished({ timeout: '1s' });
+void finishedNothing;
+
+// @ts-expect-error a timeout is a duration
+defineQueue({ name: 'x', schema: z.string(), timeout: '1w' });
+// @ts-expect-error a result is a schema
+defineQueue({ name: 'x', schema: z.string(), result: 5 });
+queue.add({ to: 'a@b.c' }, { timeout: '30s' });
+
+// The worker's events are named, and each carries its own payload.
+const worker = queue.work(() => {});
+worker.on('completed', (e) => e.duration.toFixed());
+worker.on('failed', (e) => e.error.message.length);
+// @ts-expect-error `completed` has no `nope`
+worker.on('completed', (e) => e.nope);
+// @ts-expect-error not an event
+worker.on('nope', () => undefined);
+
+queue.work((job) => {
+	void job.signal.aborted;
+	void job.progress(50);
+	// @ts-expect-error progress is a number
+	void job.progress('50');
+});
+const codes: QueueErrorCode[] = [
+	'CANCELED',
+	'FAILED',
+	'WAIT_TIMEOUT',
+	'TIMEOUT',
+	'LEASE_LOST',
+	'CLOSED',
+];
+void codes;

@@ -48,7 +48,7 @@ describe('work', () => {
 			work((job) => void seen.push(job));
 			await mails().add({ to: 'a' }, { id: 'a' });
 			await eventually(() => state('a'), 'completed');
-			expect(seen).toEqual([
+			expect(seen).toMatchObject([
 				{
 					id: 'a',
 					data: { to: 'a', template: 'welcome' },
@@ -56,6 +56,7 @@ describe('work', () => {
 					attempts: 3,
 				},
 			]);
+			expect((seen[0] as { signal: AbortSignal }).signal.aborted).toBe(false);
 		} finally {
 			await closeAll();
 		}

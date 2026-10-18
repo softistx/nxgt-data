@@ -35,10 +35,10 @@ function ms(
  * `bindQueue` makes them too, for a definition written by hand. It returns
  * nothing; `defineQueue` resolves the values itself.
  */
-export function checkQueue<S extends z.ZodType>(
-	input: QueueInput<S>,
-	call: string,
-): void {
+export function checkQueue<
+	S extends z.ZodType,
+	R extends z.ZodType | undefined = undefined,
+>(input: QueueInput<S, R> | QueueDefinition<S, R>, call: string): void {
 	resolve(input, call);
 }
 
@@ -59,16 +59,17 @@ export function checkQueue<S extends z.ZodType>(
  * normally at import. Its values are the code's, not a request's, so the
  * message quotes them.
  */
-export function defineQueue<S extends z.ZodType>(
-	input: QueueInput<S>,
-): QueueDefinition<S> {
+export function defineQueue<
+	S extends z.ZodType,
+	R extends z.ZodType | undefined = undefined,
+>(input: QueueInput<S, R>): QueueDefinition<S, R> {
 	return resolve(input, 'defineQueue');
 }
 
-function resolve<S extends z.ZodType>(
-	input: QueueInput<S>,
+function resolve<S extends z.ZodType, R extends z.ZodType | undefined>(
+	input: QueueInput<S, R> | QueueDefinition<S, R>,
 	call: string,
-): QueueDefinition<S> {
+): QueueDefinition<S, R> {
 	const { name } = input;
 	if (typeof name !== 'string' || name.length === 0) {
 		throw new TypeError(`${call}: a queue needs a name, for its keys`);
@@ -81,6 +82,14 @@ function resolve<S extends z.ZodType>(
 	if (typeof input.schema?.safeParse !== 'function') {
 		throw new TypeError(
 			`${call}: "${name}" has no schema; a payload is checked against one both ways`,
+		);
+	}
+	if (
+		input.result !== undefined &&
+		typeof input.result.safeParse !== 'function'
+	) {
+		throw new TypeError(
+			`${call}: "${name}" has a result that is not a schema; a result is checked against one both ways`,
 		);
 	}
 	const attempts = input.attempts ?? DEFAULTS.attempts;
@@ -121,14 +130,25 @@ function resolve<S extends z.ZodType>(
 		name,
 		'keepFailed',
 	);
+	const timeout =
+		input.timeout === undefined
+			? undefined
+			: toMs(input.timeout, `${call}: "${name}" timeout`);
+	if (timeout !== undefined && timeout < 1) {
+		throw new TypeError(
+			`${call}: "${name}" has a timeout of ${timeout}ms; it must be at least 1ms, or left out for no limit`,
+		);
+	}
 	return Object.freeze({
 		name,
 		schema: input.schema,
+		result: input.result as R,
 		attempts,
 		backoff: Object.freeze({ base, max }),
 		lease,
 		keepCompleted: keepCompleted(input.keepCompleted, call, name),
 		keepFailed,
+		timeout,
 	});
 }
 

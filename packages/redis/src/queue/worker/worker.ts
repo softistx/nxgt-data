@@ -39,7 +39,7 @@ export function resolveWork(
  */
 export function startWorker<S extends z.ZodType>(
 	client: RedisClient,
-	definition: QueueDefinition<S>,
+	definition: QueueDefinition<S, z.ZodType | undefined>,
 	keys: ReturnType<typeof queueKeys>,
 	handler: (job: JobContext<S>) => unknown,
 	options: { concurrency: number },
@@ -80,7 +80,15 @@ export function startWorker<S extends z.ZodType>(
 
 	return {
 		close,
-		on: (_event, listener) => on(context, listener),
+		// Task 5 types every event; for now only `error` is told.
+		on: (event, listener) =>
+			event === 'error'
+				? on(context, listener as (error: unknown) => void)
+				: () => undefined,
+		// Task 6 waits for the claims too.
+		idle: async () => {
+			await Promise.all([...context.slots]);
+		},
 		[Symbol.asyncDispose]: close,
 	};
 }

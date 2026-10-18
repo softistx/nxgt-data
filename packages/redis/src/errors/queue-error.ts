@@ -8,7 +8,19 @@ export type QueueErrorCode =
 	/** `retry` or `remove` named a job the queue does not hold in that state. */
 	| 'NOT_FOUND'
 	/** The job is running, so the call cannot change or remove it. */
-	| 'ACTIVE';
+	| 'ACTIVE'
+	/** The job was canceled before it finished. */
+	| 'CANCELED'
+	/** The job failed for good; `lastError` says how. */
+	| 'FAILED'
+	/** `finished` waited as long as its `timeout` allowed. */
+	| 'WAIT_TIMEOUT'
+	/** A run took longer than its `timeout`. */
+	| 'TIMEOUT'
+	/** A run lost its lease to another worker. */
+	| 'LEASE_LOST'
+	/** The call came after the worker or the queue was closed. */
+	| 'CLOSED';
 
 /**
  * The error of the queue, apart from `RedisError`. Redis's own failures come
@@ -23,12 +35,15 @@ export class QueueError extends Error {
 	readonly queue: string;
 	/** The id of the job the call was about, when it was about one. */
 	readonly job?: string;
+	/** For `FAILED`: the name and message of the handler's last error. */
+	readonly lastError?: { name: string; message: string };
 
 	constructor(
 		code: QueueErrorCode,
 		queue: string,
 		message: string,
 		job?: string,
+		lastError?: { name: string; message: string },
 	) {
 		super(message);
 		this.name = 'QueueError';
@@ -36,6 +51,9 @@ export class QueueError extends Error {
 		this.queue = queue;
 		if (job !== undefined) {
 			this.job = job;
+		}
+		if (lastError !== undefined) {
+			this.lastError = lastError;
 		}
 	}
 }

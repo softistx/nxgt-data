@@ -17,7 +17,7 @@ import type { Leases } from './leases';
  */
 export interface WorkerContext<S extends z.ZodType = z.ZodType> {
 	readonly client: RedisClient;
-	readonly definition: QueueDefinition<S>;
+	readonly definition: QueueDefinition<S, z.ZodType | undefined>;
 	readonly keys: ReturnType<typeof queueKeys>;
 	readonly handler: (job: JobContext<S>) => unknown;
 	readonly concurrency: number;

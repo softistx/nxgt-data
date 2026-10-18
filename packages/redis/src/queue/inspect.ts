@@ -47,11 +47,14 @@ function date(value: string | undefined): Date | undefined {
  * wrote (no `state` it knows) is `undefined`, as an absent job is: showing
  * guessed fields would be the "repair" the scripts refuse to do.
  */
-export function toView<S extends z.ZodType>(
-	definition: QueueDefinition<S>,
+export function toView<
+	S extends z.ZodType,
+	R extends z.ZodType | undefined = undefined,
+>(
+	definition: QueueDefinition<S, R>,
 	id: string,
 	hash: Record<string, string> | null,
-): JobView<S> | undefined {
+): JobView<S, R> | undefined {
 	if (!hash) return undefined;
 	const { state, data, attempt, attempts, priority } = hash;
 	const { error: stored, finished: end } = hash;
@@ -66,13 +69,14 @@ export function toView<S extends z.ZodType>(
 		return undefined;
 	}
 	const decoded = data === undefined ? undefined : decodeData(definition, data);
-	const view: JobView<S> = {
+	const view: JobView<S, R> = {
 		id,
 		state: state as JobState,
 		data: decoded?.ok ? decoded.data : undefined,
 		attempt: Number(attempt),
 		attempts: Number(attempts),
 		priority: Number(priority),
+		progress: Number(hash['progress'] ?? 0),
 		added,
 		runAt,
 	};
@@ -90,12 +94,15 @@ export function toView<S extends z.ZodType>(
 }
 
 /** One job, or `undefined` when there is none. */
-export async function getJob<S extends z.ZodType>(
+export async function getJob<
+	S extends z.ZodType,
+	R extends z.ZodType | undefined = undefined,
+>(
 	client: RedisClient,
 	keys: Keys,
-	definition: QueueDefinition<S>,
+	definition: QueueDefinition<S, R>,
 	id: string,
-): Promise<JobView<S> | undefined> {
+): Promise<JobView<S, R> | undefined> {
 	const hash = (await client.hgetall(keys.job(id))) as Record<
 		string,
 		string
@@ -112,13 +119,16 @@ export async function getJob<S extends z.ZodType>(
  * @throws TypeError for an `offset` that is not a whole number from 0, or a
  * `limit` that is not one from 1 to 1000.
  */
-export async function listJobs<S extends z.ZodType>(
+export async function listJobs<
+	S extends z.ZodType,
+	R extends z.ZodType | undefined = undefined,
+>(
 	client: RedisClient,
 	keys: Keys,
-	definition: QueueDefinition<S>,
+	definition: QueueDefinition<S, R>,
 	state: JobState,
 	page: { offset?: number; limit?: number } | undefined,
-): Promise<JobView<S>[]> {
+): Promise<JobView<S, R>[]> {
 	const offset = page?.offset ?? 0;
 	const limit = page?.limit ?? DEFAULT_LIMIT;
 	if (!Number.isInteger(offset) || offset < 0) {
@@ -143,7 +153,7 @@ export async function listJobs<S extends z.ZodType>(
 	const hashes = await Promise.all(
 		ids.map((id) => client.hgetall(keys.job(id))),
 	);
-	const views: JobView<S>[] = [];
+	const views: JobView<S, R>[] = [];
 	ids.forEach((id, i) => {
 		const hash = hashes[i] as Record<string, string> | null;
 		const view = toView(

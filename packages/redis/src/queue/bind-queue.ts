@@ -21,16 +21,16 @@ const ADD_CHUNK = 500;
  * Binds a queue to a client. It checks the definition again — one written by
  * hand, or changed after `defineQueue`, would otherwise fail deep in a script.
  */
-export function bindQueue<S extends z.ZodType>(
-	client: RedisClient,
-	definition: QueueDefinition<S>,
-): BoundQueue<S> {
-	checkQueue(definition, 'bindQueue');
+export function bindQueue<
+	S extends z.ZodType,
+	R extends z.ZodType | undefined = undefined,
+>(client: RedisClient, definition: QueueDefinition<S, R>): BoundQueue<S, R> {
+	checkQueue<S, R>(definition, 'bindQueue');
 	const keys = queueKeys(definition.name);
 
 	async function addMany(
 		items: readonly { data: z.input<S>; options?: AddOptions }[],
-	): Promise<JobHandle[]> {
+	): Promise<JobHandle<R>[]> {
 		// Everything is checked and encoded before the first script runs, so a
 		// bad item refuses the whole call with nothing written.
 		const jobs = items.map((item) => {
@@ -47,8 +47,8 @@ export function bindQueue<S extends z.ZodType>(
 			options: ReturnType<typeof resolveAdd>;
 			data: string;
 		}[],
-	): Promise<JobHandle[]> {
-		const handles: JobHandle[] = [];
+	): Promise<JobHandle<R>[]> {
+		const handles: JobHandle<R>[] = [];
 		for (let from = 0; from < jobs.length; from += ADD_CHUNK) {
 			const chunk = jobs.slice(from, from + ADD_CHUNK);
 			const argv: (string | number)[] = [keys.prefix];
@@ -69,7 +69,11 @@ export function bindQueue<S extends z.ZodType>(
 				argv,
 			)) as number[];
 			chunk.forEach(({ options }, i) => {
-				handles.push({ id: options.id, deduplicated: reply[i] === 1 });
+				// Task 4 returns the full handle: `finished` and `cancel` are not there yet.
+				handles.push({
+					id: options.id,
+					deduplicated: reply[i] === 1,
+				} as JobHandle<R>);
 			});
 		}
 		return handles;
@@ -93,6 +97,8 @@ export function bindQueue<S extends z.ZodType>(
 		counts: () => countJobs(client, keys),
 		retry: (id) => retryJob(client, keys, definition, id),
 		remove: (id) => removeJob(client, keys, definition, id),
+		// Task 4 implements it.
+		cancel: () => Promise.reject(new Error('cancel is not implemented yet')),
 		work(handler, options) {
 			return startWorker(
 				client,
