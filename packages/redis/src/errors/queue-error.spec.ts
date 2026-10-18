@@ -22,3 +22,21 @@ test('QueueError names the queue and the job, and is a QueueError by name', () =
 		'QueueError',
 	]);
 });
+
+test('QueueError has no own job or lastError key when none was given', () => {
+	const bare = new QueueError('FAILED', 'q', 'm');
+	expect(Object.keys(bare)).not.toContain('job');
+	expect(Object.keys(bare)).not.toContain('lastError');
+	expect('job' in bare).toBe(false);
+	expect('lastError' in bare).toBe(false);
+});
+
+test('QueueError carries lastError when given one', () => {
+	const e = new QueueError('FAILED', 'q', 'm', 'j1', {
+		name: 'Boom',
+		message: 'detail',
+	});
+	expect(e.lastError).toEqual({ name: 'Boom', message: 'detail' });
+	expect(Object.keys(e)).toContain('lastError');
+	expect(Object.keys(e)).toContain('job');
+});

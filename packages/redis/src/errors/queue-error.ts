@@ -33,10 +33,13 @@ export class QueueError extends Error {
 	readonly code: QueueErrorCode;
 	/** The queue's `name`. */
 	readonly queue: string;
-	/** The id of the job the call was about, when it was about one. */
-	readonly job?: string;
-	/** For `FAILED`: the name and message of the handler's last error. */
-	readonly lastError?: { name: string; message: string };
+	/**
+	 * The id of the job the call was about, when it was about one. `declare`d,
+	 * so an error about no job has no own `job` key at all.
+	 */
+	declare readonly job?: string;
+	/** For `FAILED`: the name and message of the handler's last error; `declare`d like `job`. */
+	declare readonly lastError?: { name: string; message: string };
 
 	constructor(
 		code: QueueErrorCode,
