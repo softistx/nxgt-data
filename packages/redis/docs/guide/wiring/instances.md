@@ -121,17 +121,34 @@ belongs to no cache and no channel.
 await redis.close();
 ```
 
-It closes every subscription it started, and then the clients it opened —
-in that order, because a subscription holds a connection duplicated from its
-client and unsubscribing on a closed one is an error nobody asked for. It is
-**idempotent**, and `await using` calls it for you:
+It closes in two phases for queues, then the subscriptions, then the clients:
+
+1. `work()` is refused, and the workers close with `grace` (default 30 s).
+   `add` and `finished` still work, and a `finished` whose job completes
+   within the grace resolves.
+2. `add`, `addMany` and `finished` throw `CLOSED`, and the `finished` calls
+   still pending reject `CLOSED` (after a flush, bounded).
+3. Every subscription it started closes, then the clients it opened, because a
+   subscription holds a connection duplicated from its client and
+   unsubscribing on a closed one is an error nobody asked for.
+
+```ts
+await redis.close({ grace: '20s' });
+```
+
+`close` is **memoised**: a second call returns the first one's promise and its
+`grace` is ignored. A malformed `grace` rejects before anything closes. It is
+bounded, so it never hangs on a Redis that stops answering. `await using`
+calls it:
 
 ```ts
 {
 	await using redis = await openRedis(config);
 	await redis.channels.created.subscribe(handler);
-}   // the subscription, then the client
+}   // the workers, the subscription, then the client
 ```
+
+The queue side is detailed in the [queues guide's Wiring section](../queues.md#wiring).
 
 **A client the configuration handed in is never closed**, `await using`
 included:

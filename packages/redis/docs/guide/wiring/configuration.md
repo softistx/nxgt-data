@@ -178,9 +178,12 @@ there are few enough to tell apart by their sentence.
 | both | `has both uri and client. Pass the URI to connect to, or the client you already opened.` |
 | `clientOptions` beside `client` | `has clientOptions beside a client. …` |
 | `prefix: '   '` | `has an empty prefix. Leave it out, or give it a name.` |
-| nothing wired | `wires no cache, no channel, no rate limit and no idempotency. …` |
+| nothing wired | `wires no cache, no channel, no rate limit, no idempotency and no queue. …` |
 | one name across a cache, a rate limit and an idempotency | `wires the cache "users" and the rate limit "login" under one name, "user". …` |
 | one definition, two keys | `wires the cache named "user" twice, under … and …` (also a channel, a rate limit, an idempotency) |
+| a prefix with `{` or `}`, and a queue wired | `has a prefix with braces, and it wires queues; a queue's name is its keys' hash tag, so the prefix in front of it cannot hold any.` |
+| one queue under two keys | `wires the queue named "mails" twice, under "mails" and "outbox". They would share every key in Redis. …` |
+| a name shared by a queue and another kind | `wires the cache "users" and the queue "mails" under one name, "mail". They would share every key in Redis. …` |
 | `instances: {}` | ``defineRedis: `instances` is empty. …`` |
 
 Each one in full, with its fix, is in

@@ -72,15 +72,15 @@ describe('tracked workers of a life', () => {
 		expect(life.workers.size).toBe(0);
 	});
 
-	test('a close refused for a bad grace leaves the worker tracked, and closeLife closes it', async () => {
+	test('a close refused for a bad grace is not memoised: the worker stays tracked, and closeLife closes it', async () => {
 		const life = openLife();
-		const refused = fake({ reject: new TypeError('bad grace') });
+		const refused = fake({ refuse: new TypeError('bad grace') });
 		const tracked = trackWorker(life, refused.worker);
 		const error = await rejection(tracked.close({ grace: -1 }));
 		expect((error as Error).message).toBe('bad grace');
 		expect(life.workers.has(refused.worker)).toBe(true);
-		const closing = rejection(closeLife(life, 10));
-		expect(((await closing) as Error).message).toBe('bad grace');
+		await closeLife(life, 10);
+		expect(life.workers.size).toBe(0);
 		expect(refused.closes).toEqual([{ grace: -1 }, { grace: 10 }]);
 	});
 

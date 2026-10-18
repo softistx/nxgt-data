@@ -3,6 +3,8 @@ import type { Worker } from '../src/queue/worker/types';
 /** What a {@link fake} worker does around its close. */
 export type FakeOptions = {
 	reject?: Error;
+	/** Refuses a negative `grace` as the real close does: a rejection that is not memoised. */
+	refuse?: Error;
 	throws?: Error;
 	hold?: Promise<void>;
 	during?: () => Promise<void>;
@@ -16,6 +18,10 @@ export function fake(options: FakeOptions = {}) {
 		close: (given?: unknown) => {
 			closes.push(given);
 			if (options.throws) throw options.throws;
+			const grace = (given as { grace?: unknown } | undefined)?.grace;
+			if (options.refuse && typeof grace === 'number' && grace < 0) {
+				return Promise.reject(options.refuse);
+			}
 			first ??= (async () => {
 				await options.during?.();
 				await options.hold;

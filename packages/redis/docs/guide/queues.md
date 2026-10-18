@@ -31,9 +31,9 @@ await worker.close();
 
 `defineQueue` describes the queue and talks to nothing — put it where it is
 imported, like a cache. `bindQueue(client, definition)` is what needs a client,
-and takes any Bun `RedisClient`. The queue is bound by hand: it is not yet
-wired by `defineRedis` (see [Wiring](#wiring)), so its keys carry no
-deployment prefix, only the queue's `name`. Every key of one queue is `queue:{<name>}:…`, so they share a
+and takes any Bun `RedisClient`. The queue is bound by hand: `defineRedis` can wire it
+instead (see [Wiring](#wiring)); bound by hand, its keys carry no deployment
+prefix, only the queue's `name`. Every key of one queue is `queue:{<name>}:…`, so they share a
 Redis Cluster slot; for the same reason a name cannot contain braces.
 
 ## Defining a queue
@@ -771,7 +771,8 @@ left under the old keys are not seen. Without a prefix, the wired keys are those
 of `bindQueue`. A prefix holding `{` or `}` is refused when the instance wires a
 queue, and `defineRedis` refuses one name wired twice, or shared with a cache,
 rate limit or idempotent operation; see
-[troubleshooting](troubleshooting.md#queues).
+[troubleshooting](../troubleshooting.md#wiring-defineredis-and-openredis), whose entries
+quote the refusal messages and the `CLOSED` ones (`add on "mails": the Redis is closed`).
 
 ### Nothing opens early
 
