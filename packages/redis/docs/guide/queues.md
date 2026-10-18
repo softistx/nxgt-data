@@ -436,8 +436,9 @@ is what [steps](#running-twice) are for.
 
 A job runs at least once, so a handler can run more than once for the same job:
 its process died, it lost its lease, or it ran past `timeout`. **Code outside a
-step runs again on every attempt.** `job.step(name, fn)` is how a side effect
-runs once per job instead.
+step runs again on every attempt.** `job.step(name, fn)` commits a side
+effect's value once per job instead, and `job.key(name)` covers the rare run
+twice.
 
 ```ts
 import { bindQueue, connectRedis, defineQueue } from '@nxgt/redis';
@@ -583,7 +584,9 @@ full lease ahead, and a commit); a stored one costs one.
 ### Errors
 
 A value that cannot be stored, or a stored one the schema refuses, rejects with
-a `QueueError` `INVALID`, which fails the job without retry. `LEASE_LOST` is
+a `QueueError` `INVALID`, which fails the job without retry: only a step's own
+refusal does, while any other `INVALID` the handler throws is retried as usual.
+The messages name the queue and the step, never the value. `LEASE_LOST` is
 described above. See [troubleshooting](../troubleshooting.md#queues) for the
 messages.
 
