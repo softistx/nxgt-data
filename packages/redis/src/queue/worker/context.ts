@@ -9,10 +9,11 @@ import type { Leases } from './leases';
  * the few things that change while it runs (the open flag, the waiting
  * connection, the slots).
  *
- * It holds **data only**. `run-job.ts`, `loop.ts` and `events.ts` are plain
- * functions that take it as their first argument, as `collection/context.ts`
- * does in `@nxgt/mongo` — a context of closures would only be the factory this
- * file split up, one size down.
+ * It holds data and the worker's live handles — the lease keeper, the
+ * waiting connection, the wake-ups — but no behaviour of its own. `run-job.ts`,
+ * `loop.ts` and `events.ts` are plain functions that take it as their first
+ * argument, as `collection/context.ts` does in `@nxgt/mongo` — a context of
+ * closures would only be the factory this file split up, one size down.
  */
 export interface WorkerContext<S extends z.ZodType = z.ZodType> {
 	readonly client: RedisClient;

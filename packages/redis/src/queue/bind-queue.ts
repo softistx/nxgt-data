@@ -81,7 +81,10 @@ export function bindQueue<S extends z.ZodType>(
 			const resolved = resolveAdd(options, 'add', definition.name);
 			const json = encodeData(definition, data, 'add');
 			const [handle] = await send([{ options: resolved, data: json }]);
-			if (!handle) throw new Error('add: the script answered nothing');
+			if (!handle)
+				throw new Error(
+					`add on "${definition.name}": the script answered nothing`,
+				);
 			return handle;
 		},
 		addMany,

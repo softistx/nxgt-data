@@ -25,8 +25,10 @@ export class JobError extends Error {
 	) {
 		super(message);
 		this.name = 'JobError';
-		this.retry = !(options && 'retry' in options);
-		if (options && 'retryIn' in options) {
+		// By value, not by key: without exactOptionalPropertyTypes a consumer's
+		// `{ retry: undefined }` compiles, and must mean "not given".
+		this.retry = options?.retry !== false;
+		if (options?.retryIn !== undefined) {
 			this.retryIn = toMs(options.retryIn, 'retryIn');
 		}
 	}

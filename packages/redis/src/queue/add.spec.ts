@@ -196,6 +196,17 @@ describe('add', () => {
 		expect(Bun.inspect(record)).not.toContain('Record-Key-7c2');
 	});
 
+	test('a payload with no JSON form is refused, with no cause', async () => {
+		const big = defineQueue({ name: 'big', schema: z.bigint() });
+		const error = await rejection(bindQueue(servers.redis.client, big).add(1n));
+		expect(error).toBeInstanceOf(QueueError);
+		expect((error as QueueError).message).toBe(
+			'add on "big": the data has no JSON form',
+		);
+		expect((error as QueueError).cause).toBeUndefined();
+		expect(await send('DBSIZE')).toBe(0);
+	});
+
 	test('add spends one script', async () => {
 		const before = await scriptCalls(servers.redis.client);
 		await mails().add(to('a'));
