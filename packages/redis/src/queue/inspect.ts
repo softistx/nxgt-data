@@ -131,7 +131,8 @@ export async function countJobs(
 }
 
 /**
- * Puts a failed job back to `waiting`, its attempts reset.
+ * Puts a failed job back to `waiting`, its attempts reset, and with `fresh`
+ * its stored step values cleared.
  *
  * @throws QueueError `NOT_FOUND` when the job is not in `failed`.
  */
@@ -140,10 +141,12 @@ export async function retryJob(
 	keys: Keys,
 	definition: { name: string },
 	id: string,
+	fresh: boolean,
 ): Promise<void> {
 	const reply = await runScript(client, RETRY, scriptKeys(keys), [
 		keys.prefix,
 		id,
+		fresh ? '1' : '0',
 	]);
 	if (reply !== 1) {
 		throw new QueueError(

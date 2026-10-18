@@ -155,7 +155,7 @@ export function bindQueueWith<
 		get: (id) => getJob(client, keys, definition, id),
 		list: (state, page) => listJobs(client, keys, definition, state, page),
 		counts: () => countJobs(client, keys),
-		retry: (id) => retryJob(client, keys, definition, id),
+		retry: (id) => retryJob(client, keys, definition, id, false),
 		remove: (id) => removeJob(client, keys, definition, id),
 		cancel: (id) => cancel(client, keys, id),
 		work(handler, options) {
