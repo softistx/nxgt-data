@@ -179,10 +179,20 @@ async function waitFinished(
 				);
 	let poll: ReturnType<typeof setInterval> | undefined;
 	let unlisten: (() => Promise<void>) | undefined;
+	let finished = false;
 	try {
-		unlisten = await listen(client, keys.events, (text) =>
+		// Raced like the reads, so a hung SUBSCRIBE cannot defeat the timeout; a late answer is unlistened.
+		const listening = listen(client, keys.events, (text) =>
 			apply(fromMessage(text, id)),
 		);
+		listening.then(
+			(off) => {
+				unlisten = off;
+				if (finished) off().catch(() => undefined);
+			},
+			() => undefined,
+		);
+		if ((await Promise.race([listening, over])) === OVER) return await done;
 		// An absent job is believed after two re-reads in a row: with
 		// keepCompleted false a completed job is deleted before its event lands.
 		let absent = 0;
@@ -210,7 +220,9 @@ async function waitFinished(
 	} finally {
 		clearTimeout(timer);
 		clearInterval(poll);
-		await unlisten?.();
+		finished = true;
+		// Never awaited: a hung UNSUBSCRIBE must not hold the outcome back.
+		unlisten?.().catch(() => undefined);
 	}
 }
 

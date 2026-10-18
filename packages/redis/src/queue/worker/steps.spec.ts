@@ -348,6 +348,7 @@ describe('job.step by hand', () => {
 		const reply = gate();
 		let delay = false;
 		const real = client();
+		// Overrides only evalsha/eval, which runScript calls: a changed call path times out, never falsely passes.
 		const proxy = {
 			evalsha: async (...args: unknown[]) => {
 				if (delay) {
@@ -448,6 +449,7 @@ describe('job.step end to end', () => {
 				job.signal.addEventListener('abort', () => aborted.open(), {
 					once: true,
 				});
+				if (job.signal.aborted) aborted.open();
 				await aborted.opened;
 				rejected = await rejection(
 					job.step('send', () => {

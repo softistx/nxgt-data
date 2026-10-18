@@ -510,4 +510,40 @@ describe('finished({ timeout }) is a hard bound', () => {
 		expect(Date.now() - started).toBeLessThan(600);
 		await eventually(connections, before);
 	});
+
+	test('finished({ timeout }) rejects on time even when the SUBSCRIBE never answers', async () => {
+		const never = new Promise<never>(() => undefined);
+		const real = client();
+		const subscribers: Array<{ close(): void }> = [];
+		const proxy = new Proxy(real, {
+			get(target, prop) {
+				if (prop === 'duplicate') {
+					return async () => {
+						const subscriber = await target.duplicate();
+						subscribers.push(subscriber);
+						return new Proxy(subscriber, {
+							get(inner, key) {
+								if (key === 'subscribe') return () => never;
+								const value = Reflect.get(inner, key, inner);
+								return typeof value === 'function' ? value.bind(inner) : value;
+							},
+						});
+					};
+				}
+				const value = Reflect.get(target, prop, target);
+				return typeof value === 'function' ? value.bind(target) : value;
+			},
+		});
+		try {
+			const handle = jobHandle(proxy, sent, keys, 'a', false);
+			const started = Date.now();
+			const error = (await rejection(
+				handle.finished({ timeout: 200 }),
+			)) as QueueError;
+			expect(error.code).toBe('WAIT_TIMEOUT');
+			expect(Date.now() - started).toBeLessThan(600);
+		} finally {
+			for (const subscriber of subscribers) subscriber.close();
+		}
+	});
 });
