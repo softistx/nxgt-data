@@ -574,6 +574,16 @@ most other commands no longer — Redis's own rule. `close()` gives that copy
 back; the client passed in is untouched and is still the one to `publish`
 with. Each subscription is one more connection.
 
+### Queues
+
+| | |
+| --- | --- |
+| `defineQueue({ name, schema, attempts?, backoff?, lease?, keepCompleted?, keepFailed? })` | describes a queue; talks to nothing. Frozen, every `Duration` resolved to milliseconds. Refuses a definition that could never work with a `TypeError` |
+| `bindQueue(client, definition)` | binds it to a `RedisClient`: `definition` (read-only), `add(data, { id?, priority?, delay? \| at? })`, `addMany(items)`, `work(handler, { concurrency? })` (a `Worker`: `close()`, `on('error', …)`), `get(id)`, `list(state, { offset?, limit? })`, `counts()`, `retry(id)` and `remove(id)`. Not wired by `defineRedis` yet |
+
+The types are `QueueDefinition`, `QueueInput`, `BoundQueue`, `Worker`, `JobContext`, `JobView` and `Duration`; `JobError` is what a handler throws to choose its retry.
+See the [queue guide](docs/guide/queues.md).
+
 ## Errors
 
 `RedisError` is what this package throws once it is talking to Redis, with a
