@@ -1,0 +1,325 @@
+import { describe, expect, test } from 'bun:test';
+import { eventually, gate, mailQueue, useRedis } from '../../../test/fixtures';
+import { QueueError } from '../../errors/queue-error';
+import { bindQueue } from '../bind-queue';
+import { defineQueue } from '../define-queue';
+import { queueKeys } from '../keys';
+import type { JobContext, Worker, WorkerEvents } from '../types';
+import { clampTimeout, MAX_TIMER_MS } from './abort';
+
+const servers = useRedis();
+const keys = queueKeys('mails');
+const client = () => servers.redis.client;
+const hget = (id: string, field: string) => client().hget(keys.job(id), field);
+const schema = mailQueue.schema;
+
+const timed = defineQueue({
+	name: 'mails',
+	schema,
+	lease: 300,
+	attempts: 3,
+	timeout: 100,
+	backoff: { base: 10, max: 50 },
+});
+const once = defineQueue({
+	name: 'mails',
+	schema,
+	lease: 300,
+	attempts: 1,
+	timeout: 100,
+});
+const slow = defineQueue({
+	name: 'mails',
+	schema,
+	lease: '30s',
+	backoff: { base: 10, max: 50 },
+});
+
+type Handler = (job: JobContext<typeof schema>) => unknown;
+
+/** Runs `body` with a way to start workers that are always closed. */
+async function withWorkers(
+	body: (
+		open: (handler: Handler, queue?: typeof timed) => Opened,
+	) => Promise<void>,
+) {
+	const workers: Worker[] = [];
+	const open = (
+		handler: Handler,
+		queue = mailQueue as typeof timed,
+	): Opened => {
+		const worker = bindQueue(client(), queue).work(handler as never);
+		workers.push(worker);
+		const seen: string[] = [];
+		const errors: unknown[] = [];
+		for (const event of [
+			'completed',
+			'retrying',
+			'failed',
+			'canceled',
+		] as const) {
+			worker.on(event, (p: WorkerEvents[typeof event]) => {
+				seen.push(`${event} ${(p as { id: string }).id}`);
+			});
+		}
+		worker.on('error', (e) => void errors.push(e));
+		return { worker, seen, errors };
+	};
+	try {
+		await body(open);
+	} finally {
+		for (const worker of workers) await worker.close({ grace: 100 });
+	}
+}
+type Opened = { worker: Worker; seen: string[]; errors: unknown[] };
+
+/** Resolves with the signal's reason when it aborts. */
+function abortReason(signal: AbortSignal): Promise<unknown> {
+	return new Promise((resolve) => {
+		if (signal.aborted) resolve(signal.reason);
+		signal.addEventListener('abort', () => resolve(signal.reason), {
+			once: true,
+		});
+	});
+}
+
+describe('clampTimeout', () => {
+	test('a timeout above the timer cap runs as the cap; below it, as is', () => {
+		expect(MAX_TIMER_MS).toBe(2_147_483_647);
+		expect(clampTimeout(2_147_483_648)).toBe(2_147_483_647);
+		expect(clampTimeout(30 * 86_400_000)).toBe(2_147_483_647);
+		expect(clampTimeout(1_000)).toBe(1_000);
+		expect(clampTimeout(undefined)).toBeUndefined();
+	});
+});
+
+describe('abort', () => {
+	test('a handler past its timeout is aborted, recorded TIMEOUT once, and retried', async () => {
+		await withWorkers(async (open) => {
+			const late = gate();
+			const reasons: unknown[] = [];
+			const attempts: number[] = [];
+			const { seen } = open((job) => {
+				attempts.push(job.attempt);
+				if (job.attempt === 1) {
+					void abortReason(job.signal).then((r) => reasons.push(r));
+					return late.opened; // ignores the signal, returns late
+				}
+				return undefined;
+			}, timed);
+			await bindQueue(client(), timed).add({ to: 'a' }, { id: 'a' });
+			await eventually(() => hget('a', 'state'), 'completed');
+			expect(attempts).toEqual([1, 2]);
+			expect(seen.filter((s) => s.startsWith('retrying'))).toEqual([
+				'retrying a',
+			]);
+			const reason = reasons[0] as QueueError;
+			expect(reason).toBeInstanceOf(QueueError);
+			expect(reason.code).toBe('TIMEOUT');
+			expect(reason.message).toContain('"mails"');
+			expect(reason.message).toContain('"a"');
+			late.open(); // the abandoned handler returns: refused, never a COMPLETE
+			await Bun.sleep(100);
+			expect(seen.filter((s) => s.startsWith('completed'))).toEqual([
+				'completed a',
+			]);
+			expect(await hget('a', 'attempt')).toBe('2');
+		});
+	});
+
+	test('the timeout is recorded as the attempt error', async () => {
+		await withWorkers(async (open) => {
+			const hold = gate();
+			open(() => hold.opened, once as unknown as typeof timed);
+			await bindQueue(client(), once).add({ to: 'a' }, { id: 'a' });
+			await eventually(() => hget('a', 'state'), 'failed');
+			expect(JSON.parse((await hget('a', 'error')) ?? 'null')).toEqual({
+				name: 'TIMEOUT',
+				message: 'the attempt ran past its timeout',
+			});
+			hold.open();
+		});
+	});
+
+	test('cancel aborts a running job at once, through the event', async () => {
+		await withWorkers(async (open) => {
+			const started = gate();
+			const hold = gate();
+			let signal: AbortSignal | undefined;
+			const { seen } = open((job) => {
+				signal = job.signal;
+				started.open();
+				return hold.opened;
+			}, slow);
+			await Bun.sleep(100); // the worker is subscribed
+			await bindQueue(client(), slow).add({ to: 'a' }, { id: 'a' });
+			await started.opened;
+			const at = Date.now();
+			expect(await bindQueue(client(), slow).cancel('a')).toBe(true);
+			const reason = (await Promise.race([
+				abortReason(signal as AbortSignal),
+				Bun.sleep(2_000).then(() => 'late'),
+			])) as QueueError;
+			expect(Date.now() - at).toBeLessThan(200);
+			expect(reason.code).toBe('CANCELED');
+			await eventually(() => seen.includes('canceled a'), true);
+			hold.open();
+		});
+	});
+
+	test('a lost lease aborts with LEASE_LOST and frees the slot', async () => {
+		await withWorkers(async (open) => {
+			const hold = gate();
+			const reasons: unknown[] = [];
+			const ran: string[] = [];
+			const { errors } = open((job) => {
+				ran.push(job.id);
+				if (job.id === 'a') {
+					void abortReason(job.signal).then((r) => reasons.push(r));
+					return hold.opened;
+				}
+				return undefined;
+			});
+			await bindQueue(client(), mailQueue).add({ to: 'a' }, { id: 'a' });
+			await eventually(() => ran, ['a']);
+			await client().send('HDEL', [keys.job('a'), 'token']); // taken away by hand
+			await eventually(() => reasons.length, 1);
+			expect((reasons[0] as QueueError).code).toBe('LEASE_LOST');
+			expect((errors[0] as QueueError).code).toBe('LEASE_LOST');
+			// The slot is free while a's handler still runs.
+			await bindQueue(client(), mailQueue).add({ to: 'b' }, { id: 'b' });
+			await eventually(() => hget('b', 'state'), 'completed');
+			hold.open();
+		});
+	});
+
+	test('close waits for a running job within grace', async () => {
+		await withWorkers(async (open) => {
+			const started = gate();
+			const { worker } = open(async () => {
+				started.open();
+				await Bun.sleep(150);
+			});
+			await bindQueue(client(), mailQueue).add({ to: 'a' }, { id: 'a' });
+			await started.opened;
+			await worker.close({ grace: 5_000 });
+			expect(await hget('a', 'state')).toBe('completed');
+		});
+	});
+
+	test('close aborts a handler that outlives grace, and resolves within grace', async () => {
+		await withWorkers(async (open) => {
+			const started = gate();
+			const hold = gate();
+			let signal: AbortSignal | undefined;
+			const { worker, seen } = open((job) => {
+				signal = job.signal;
+				started.open();
+				return hold.opened; // ignores the signal
+			});
+			await bindQueue(client(), mailQueue).add({ to: 'a' }, { id: 'a' });
+			await started.opened;
+			const at = Date.now();
+			await worker.close({ grace: 200 });
+			const took = Date.now() - at;
+			expect(took).toBeGreaterThanOrEqual(190);
+			expect(took).toBeLessThan(600);
+			expect((signal as AbortSignal).reason.code).toBe('CLOSED');
+			expect(seen).toEqual([]); // CLOSED emits nothing
+			expect(await hget('a', 'state')).toBe('active');
+			// Nobody renews it: once the lease lapsed, another worker reclaims it.
+			await eventually(
+				async () =>
+					Number(await client().send('ZSCORE', [keys.active, 'a'])) <
+					Date.now(),
+				true,
+			);
+			const second = open(() => undefined);
+			await eventually(() => hget('a', 'state'), 'completed');
+			expect(second.seen).toEqual(['completed a']);
+			expect(await hget('a', 'attempt')).toBe('2');
+			hold.open();
+		});
+	});
+
+	test('close with a malformed grace is refused without naming the value', async () => {
+		await withWorkers(async (open) => {
+			const { worker } = open(() => undefined);
+			const refused = await worker.close({ grace: -5 }).then(
+				() => undefined,
+				(e: unknown) => e,
+			);
+			expect(refused).toBeInstanceOf(TypeError);
+			expect((refused as Error).message).toContain('close on "mails"');
+			expect((refused as Error).message).not.toContain('-5');
+		});
+	});
+
+	test("the per-job timeout of add wins over the definition's", async () => {
+		await withWorkers(async (open) => {
+			const hold = gate();
+			const reasons: Record<string, unknown> = {};
+			open(
+				(job) => {
+					void abortReason(job.signal).then((r) => {
+						reasons[job.id] = r;
+					});
+					return hold.opened;
+				},
+				{ ...timed, timeout: 60_000 } as typeof timed,
+			);
+			const queue = bindQueue(client(), {
+				...timed,
+				timeout: 60_000,
+			} as typeof timed);
+			await queue.add({ to: 'a' }, { id: 'a', timeout: 100 });
+			await eventually(
+				() => (reasons['a'] as QueueError | undefined)?.code,
+				'TIMEOUT',
+			);
+			hold.open();
+		});
+	});
+
+	test("a longer per-job timeout than the definition's is not cut short", async () => {
+		await withWorkers(async (open) => {
+			const hold = gate();
+			const reasons: unknown[] = [];
+			const started = gate();
+			open((job) => {
+				void abortReason(job.signal).then((r) => reasons.push(r));
+				started.open();
+				return hold.opened;
+			}, timed);
+			await bindQueue(client(), timed).add(
+				{ to: 'b' },
+				{ id: 'b', timeout: '30s' },
+			);
+			await started.opened;
+			await Bun.sleep(300); // three times the definition's timeout
+			expect(reasons).toEqual([]);
+			hold.open();
+		});
+	});
+
+	test('concurrency counts only jobs not yet aborted', async () => {
+		await withWorkers(async (open) => {
+			const hold = gate();
+			const ran: string[] = [];
+			open((job) => {
+				ran.push(job.id);
+				if (job.id === 'a') return hold.opened; // ignores its signal
+				return undefined;
+			}, slow);
+			await Bun.sleep(100); // subscribed
+			await bindQueue(client(), slow).add({ to: 'a' }, { id: 'a' });
+			await eventually(() => ran, ['a']);
+			await bindQueue(client(), slow).add({ to: 'b' }, { id: 'b' });
+			await Bun.sleep(100);
+			expect(ran).toEqual(['a']); // concurrency 1: b waits
+			await bindQueue(client(), slow).cancel('a');
+			await eventually(() => hget('b', 'state'), 'completed');
+			hold.open();
+		});
+	});
+});

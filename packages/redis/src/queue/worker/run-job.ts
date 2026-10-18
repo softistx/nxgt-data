@@ -1,10 +1,20 @@
 import type { z } from 'zod';
 import { JobError } from '../../errors/job-error';
+import type { QueueError } from '../../errors/queue-error';
 import { backoffDelay } from '../backoff';
 import { decodeData, encodeResult } from '../encode';
+import { claim } from '../scripts/claim';
 import type { ClaimedJob, ClaimReply } from '../scripts/replies';
 import { complete, fail } from '../scripts/settle';
 import type { QueueDefinition } from '../types';
+import {
+	armTimeout,
+	beginRun,
+	endRun,
+	type Outcome,
+	type Run,
+	raceAbort,
+} from './abort';
 import type { WorkerContext } from './context';
 import { announce, emit } from './events';
 import { markDrained } from './idle';
@@ -60,33 +70,63 @@ async function failAttempt<S extends z.ZodType>(
 	return reply;
 }
 
+/** What an aborted run does: a timeout fails the attempt; the other three leave the job alone. */
+async function settleAborted<S extends z.ZodType>(
+	context: WorkerContext<S>,
+	job: ClaimedJob,
+	reason: QueueError,
+): Promise<ClaimReply | undefined> {
+	if (reason.code === 'TIMEOUT') {
+		return await failAttempt(
+			context,
+			job,
+			{ name: 'TIMEOUT', message: 'the attempt ran past its timeout' },
+			backoffDelay(job.attempt, context.definition.backoff),
+		);
+	}
+	if (reason.code === 'CANCELED') emit(context, 'canceled', { id: job.id });
+	if (reason.code === 'LEASE_LOST') emit(context, 'error', reason);
+	// CLOSED emits nothing: the lease is no longer renewed and lapses.
+	return undefined;
+}
+
 async function runHandler<S extends z.ZodType>(
 	context: WorkerContext<S>,
 	job: ClaimedJob,
 	data: z.output<S>,
-): Promise<ClaimReply> {
+	run: Run,
+): Promise<ClaimReply | undefined> {
 	const { client, keys, definition } = context;
 	emit(context, 'active', { id: job.id, attempt: job.attempt });
 	const started = performance.now();
-	let returned: unknown;
+	const disarm = armTimeout(context, job);
+	let outcome: Outcome;
 	try {
-		returned = await context.handler({
-			id: job.id,
-			data,
-			attempt: job.attempt,
-			attempts: job.attempts,
-			// Task 6 aborts it.
-			signal: new AbortController().signal,
-			progress: progressOf(context, job),
-		});
-	} catch (error) {
+		outcome = await raceAbort(run.controller.signal, () =>
+			context.handler({
+				id: job.id,
+				data,
+				attempt: job.attempt,
+				attempts: job.attempts,
+				signal: run.controller.signal,
+				progress: progressOf(context, job),
+			}),
+		);
+	} finally {
+		disarm();
+	}
+	if (outcome.kind === 'aborted') {
+		return await settleAborted(context, job, outcome.reason);
+	}
+	if (outcome.kind === 'threw') {
 		return await failAttempt(
 			context,
 			job,
-			toError(error),
-			retryDelay(definition, job.attempt, error),
+			toError(outcome.error),
+			retryDelay(definition, job.attempt, outcome.error),
 		);
 	}
+	const returned = outcome.value;
 	let result: string | undefined;
 	try {
 		result = encodeResult(definition, returned, definition.name);
@@ -121,11 +161,14 @@ async function runHandler<S extends z.ZodType>(
 	return reply;
 }
 
-/** Runs one job and settles it; answers the reply, whose job (if any) is the slot's next. */
+/**
+ * Runs one job and settles it; answers the reply, whose job (if any) is the
+ * slot's next, or `undefined` when the run was aborted and nothing settled.
+ */
 async function runJob<S extends z.ZodType>(
 	context: WorkerContext<S>,
 	job: ClaimedJob,
-): Promise<ClaimReply> {
+): Promise<ClaimReply | undefined> {
 	const decoded = decodeData(context.definition, job.data);
 	if (!decoded.ok) {
 		// The schema changed under a waiting job: never run, never retried.
@@ -141,12 +184,29 @@ async function runJob<S extends z.ZodType>(
 	}
 	// Renewed until the settle is done, not just the handler: a slow settle
 	// must not let the lease lapse under it.
+	const run = beginRun(context, job);
 	context.leases.add(job.id, job.token);
 	try {
-		return await runHandler(context, job, decoded.data);
+		return await runHandler(context, job, decoded.data, run);
 	} finally {
 		context.leases.delete(job.id, job.token);
+		endRun(context, job);
 	}
+}
+
+const NOTHING: ClaimReply = {
+	jobs: [],
+	stalled: [],
+	failedInvalid: [],
+	next: -1,
+};
+
+/** An aborted run settled nothing, so its slot claims its next job itself, unless the worker is closing. */
+async function claimAfterAbort<S extends z.ZodType>(
+	context: WorkerContext<S>,
+): Promise<ClaimReply> {
+	if (!context.open) return NOTHING;
+	return await claim(context.client, context.keys, 1, context.definition.lease);
 }
 
 /** One slot: runs the job it was given and each one its settle claimed. */
@@ -157,7 +217,8 @@ export async function runSlot<S extends z.ZodType>(
 	let job: ClaimedJob | undefined = first;
 	while (job) {
 		try {
-			const reply: ClaimReply = await runJob(context, job);
+			const reply: ClaimReply =
+				(await runJob(context, job)) ?? (await claimAfterAbort(context));
 			announce(context, reply);
 			job = reply.jobs[0];
 			if (!job) markDrained(context, true);

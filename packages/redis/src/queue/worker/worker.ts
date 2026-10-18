@@ -1,5 +1,6 @@
 import type { RedisClient } from 'bun';
 import type { z } from 'zod';
+import type { Duration } from '../duration';
 import type { queueKeys } from '../keys';
 import type {
 	JobContext,
@@ -7,9 +8,11 @@ import type {
 	Worker,
 	WorkOptions,
 } from '../types';
+import { abortLost, hearCancels } from './abort';
+import { closeWorker, resolveGrace } from './close';
 import type { WorkerContext } from './context';
 import { emit, on } from './events';
-import { settleIdle, waitIdle } from './idle';
+import { waitIdle } from './idle';
 import { keepLeases } from './leases';
 import { loop } from './loop';
 
@@ -51,9 +54,11 @@ export function startWorker<S extends z.ZodType>(
 		keys,
 		handler,
 		concurrency: options.concurrency,
-		// A lost lease needs nothing here: the handler runs on and its late settle
-		// is refused by the token check.
-		leases: keepLeases(client, keys, definition.lease, () => undefined),
+		// A lost lease aborts that run; its late settle would be refused anyway.
+		leases: keepLeases(client, keys, definition.lease, (lost) =>
+			abortLost(context, lost),
+		),
+		runs: new Map(),
 		listeners: {},
 		idleWaiters: new Set(),
 		drained: false,
@@ -67,19 +72,23 @@ export function startWorker<S extends z.ZodType>(
 	// Taken where it is made: a rejection nobody awaits ends a Bun process, and
 	// `close` is not always called.
 	const running = loop(context).catch((error) => emit(context, 'error', error));
+	// Heard from the start, but no claim waits for it. Resolves with the
+	// function that stops listening; a failure is reported, and the worker
+	// then learns of a cancel through the lease renewal instead.
+	const unlisten = hearCancels(context).catch((error) => {
+		emit(context, 'error', error);
+		return async () => undefined;
+	});
 	let closing: Promise<void> | undefined;
 
-	function close(): Promise<void> {
-		closing ??= (async () => {
-			context.open = false;
-			context.slotFreed?.();
-			for (const done of [...context.stopSleeping]) done();
-			context.waiter?.close(); // ends a pending BLPOP at once
-			await running;
-			await Promise.all([...context.slots]);
-			context.leases.stop();
-			settleIdle(context);
-		})();
+	function close(options?: { grace?: Duration }): Promise<void> {
+		let grace: number;
+		try {
+			grace = resolveGrace(options, definition.name);
+		} catch (error) {
+			return Promise.reject(error);
+		}
+		closing ??= closeWorker(context, running, unlisten, grace);
 		return closing;
 	}
 
@@ -87,6 +96,6 @@ export function startWorker<S extends z.ZodType>(
 		close,
 		on: (event, listener) => on(context, event, listener),
 		idle: () => waitIdle(context),
-		[Symbol.asyncDispose]: close,
+		[Symbol.asyncDispose]: () => close(),
 	};
 }

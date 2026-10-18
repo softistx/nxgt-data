@@ -2,6 +2,7 @@ import type { RedisClient } from 'bun';
 import type { z } from 'zod';
 import type { queueKeys } from '../keys';
 import type { JobContext, QueueDefinition, WorkerEvents } from '../types';
+import type { Run } from './abort';
 import type { Leases } from './leases';
 
 /**
@@ -30,6 +31,8 @@ export interface WorkerContext<S extends z.ZodType = z.ZodType> {
 	readonly idleWaiters: Set<() => void>;
 	/** The jobs being run, one promise per slot. */
 	readonly slots: Set<Promise<void>>;
+	/** The running jobs by id, each with the controller its signal comes from. */
+	readonly runs: Map<string, Run>;
 	/** Wakes the sleeps of the error backoff when the worker closes. */
 	readonly stopSleeping: Set<() => void>;
 	/** False once `close` was called. */

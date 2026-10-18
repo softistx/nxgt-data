@@ -48,6 +48,8 @@ export type QueueInput<
 	/**
 	 * How long one run may take before it is aborted and counted as a failed
 	 * attempt, at least 1 ms. No limit by default; `add` may set one per job.
+	 * Timeouts above about 24.8 days (2147483647 ms, the longest a timer waits)
+	 * run as 24.8 days.
 	 */
 	timeout?: Duration;
 };
@@ -209,7 +211,9 @@ export type Worker = {
 	/**
 	 * Resolves once no slot is running and the last claim found nothing ready;
 	 * at once when that already holds, and at once after `close`. The next
-	 * claimed job re-arms it.
+	 * claimed job re-arms it. A job that was aborted (canceled, timed out, lost
+	 * its lease or cut off by `close`) frees its slot at once, so `idle` can
+	 * resolve while its handler, which ignored the signal, still runs.
 	 */
 	idle(): Promise<void>;
 	/** Listens to an event; returns the way to stop listening. */
