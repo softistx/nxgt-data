@@ -169,7 +169,7 @@ deployment's prefix in front of it when wired, as the guards' names are.
 | `active` | zset | id → ms at which its lease lapses |
 | `completed`, `failed` | zset | id → ms it finished, for retention and `list` |
 | `seq` | string | the `INCR` counter behind FIFO order |
-| `wake` | list | tokens a blocked worker `BLPOP`s |
+| `wake` | list | at most one token a blocked worker `BLPOP`s |
 | `paused` | string | present while paused |
 | `rate` | string | the GCRA state of `rateLimit` |
 | `dedupe:<key>` | string | the job id holding a debounce/throttle key, with its TTL |
@@ -205,8 +205,10 @@ hash whose shape it does not recognise is refused, never "repaired".
   time to now + `ttl`; if it names an active job, add a new one (activity
   during a run is never lost). Throttle: if `dedupe:<key>` exists, report the
   job it names and add nothing; else set it with `PX ttl`. Then write the
-  hash, `ZADD delayed` (a future run time) or `ZADD ready`, and `LPUSH wake`
-  one token per ready job (the list is trimmed to 1000).
+  hash, `ZADD delayed` (a future run time) or `ZADD ready`, and push one
+  `wake` token if the list is empty (it holds at most one: "ready has work",
+  or a delayed job became the head of `delayed`; each woken worker passes the
+  baton, see CLAIM).
 - **CLAIM**(n, lease, token): if `paused`, return nothing. Reclaim up to 100
   lapsed leases from `active` — each counts as an attempt (a job that kills
   its process does not loop forever): back to `ready`, or to `failed` with
@@ -215,7 +217,10 @@ hash whose shape it does not recognise is refused, never "repaired".
   `defineRateLimit`, its Lua shared, not copied). Pop that many from `ready`
   (round-robin over groups from slice 7), set `state=active`, the token,
   `attempt+1`, and `ZADD active now+lease`. If `ready` still has jobs, push
-  one `wake` token back, so a blocked peer takes over. Return the jobs, the
+  one `wake` token back if the list is empty, so a blocked peer takes over; if
+  `ready` is empty, `DEL wake`. That `DEL wake` may erase a delayed-head token
+  pushed in the one round trip between a worker's empty claim and its `BLPOP`;
+  that job then waits at most the 5 s cap (accepted). Return the jobs, the
   stalled ids, and the ms until the next `delayed` job, schedule or rate
   admission (the next wait).
 - **RENEW**(token, ids…): for each id still holding the token, push its lease;
@@ -357,6 +362,7 @@ the job id (never the data):
 | `FAILED` | `finished()` on a job that failed for good |
 | `WAIT_TIMEOUT` | `finished({ timeout })` gave up waiting |
 | `NOT_FOUND` | `retry`, `remove`, `finished` on a job that is not there |
+| `ACTIVE` | `remove` on a job that is running; cancel it first |
 | `CLOSED` | `add` or `work` on a queue whose wiring is closed |
 
 `JobError` is the handler's, not the library's: it is how a handler says

@@ -5,7 +5,15 @@ item shipped in is the only number on this page.
 
 ## Now
 
-_Nothing in progress._
+- **A queue** — jobs typed by a schema, with delays and priorities, and
+  workers that run them at least once: a lease per job, retries with backoff,
+  and retention of what completed or failed, with a way to inspect it (on the
+  branch). Then the result of a job and waiting for it, cancellation and
+  timeouts, and durable steps, so that a job run twice skips the work it
+  already did, with a stable key to hand the provider. Then queues wired under
+  `defineRedis`, debounce and throttle, pause and resume with a queue-wide
+  rate limit, recurring jobs by cron with time zones, concurrency and fairness
+  per group, and a published benchmark.
 
 ## Next
 
@@ -16,7 +24,17 @@ _Nothing in progress._
   constraint carries, `"nope" is not an option here`. The intended message
   should be the one every case shows.
 
+- **Flows** — a parent job that waits for its children.
+- **A batch handler** — one handler called with several jobs at once.
+- **A rate limit per group** — a limit on how fast one group's jobs run,
+  beside the per-group concurrency.
+
 ## Later
+
+- **Promote, and change a waiting job's delay or priority** — move a delayed
+  job to run now, or re-time a job that has not started.
+- **Drain and obliterate a queue** — empty a queue of its waiting jobs, or
+  delete it and everything it stored.
 
 - **A `./hono` subpath** — a middleware that answers a spent limit with a 429
   and the `RateLimit-*` headers. Only once a consumer is found copying the
@@ -35,8 +53,6 @@ _Nothing in progress._
   compare-and-delete script.
 - **Retries of its own** — Bun's client reconnects; a command that fails
   fails, and what comes back is Redis's own error, as `RedisError`.
-- **A queue** — pub/sub is fire-and-forget. A message published while nobody
-  is subscribed is gone, and nothing is stored, acknowledged or replayed.
 - **An actor, or a session** — `@nxgt/mongo`'s `openMongo` derives its object with
   `as(actor)` and `withSession`, because MongoDB has something to stamp and
   something to carry. Redis has neither, so what `openRedis` gives back is the

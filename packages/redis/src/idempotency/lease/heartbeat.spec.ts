@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import type { RedisClient } from 'bun';
 import {
 	createOrder,
 	gate,
+	scriptCalls,
 	useClients,
 	useRedis,
 } from '../../../test/fixtures';
@@ -26,16 +26,6 @@ const SLOW_KEY = 'slow:u1/k1';
 /** 60 ms, renewed every 20 ms: many beats in a short test. */
 const quick = defineIdempotency({ ...createOrder, name: 'quick', lease: 60 });
 const QUICK_KEY = 'quick:u1/k1';
-
-/** Every script this server has run, from `INFO commandstats`. */
-async function scriptCalls(client: RedisClient): Promise<number> {
-	const info = await client.info('commandstats');
-	let calls = 0;
-	for (const [, n] of info.matchAll(/cmdstat_eval(?:sha)?:calls=(\d+)/g)) {
-		calls += Number(n);
-	}
-	return calls;
-}
 
 /** Waits six beats of `quick`, and says whether any script ran meanwhile. */
 async function renewedAfter(): Promise<boolean> {

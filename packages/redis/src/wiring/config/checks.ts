@@ -72,6 +72,7 @@ export function isChannel(
 		typeof it['name'] === 'string' &&
 		it['schema'] !== undefined &&
 		it['ttl'] === undefined &&
+		it['lease'] === undefined &&
 		typeof it['key'] !== 'function'
 	);
 }

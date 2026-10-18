@@ -5,6 +5,7 @@ import { defineCache } from '../src/cache/define-cache';
 import { defineChannel } from '../src/channel/define-channel';
 import { closeRedis } from '../src/connection/connect';
 import { defineIdempotency } from '../src/idempotency/define-idempotency';
+import { defineQueue } from '../src/queue/define-queue';
 import { defineRateLimit } from '../src/rate-limit/define-rate-limit';
 import { GCRA_AT_ARGV, type Rate, toResult } from '../src/rate-limit/gcra';
 import { runScript } from '../src/scripts/run-script';
@@ -229,4 +230,25 @@ export async function consumeAt(
 		[rate.per, rate.limit, rate.burst, cost, write ? 1 : 0, now],
 	);
 	return toResult(reply, rate);
+}
+
+/** A short lease and backoff, so a spec that waits for a retry waits milliseconds. */
+export const mailQueue = defineQueue({
+	name: 'mails',
+	schema: z.object({
+		to: z.string(),
+		template: z.string().default('welcome'),
+	}),
+	lease: 300,
+	backoff: { base: 10, max: 50 },
+});
+
+/** Every script this server has run, from `INFO commandstats`. */
+export async function scriptCalls(client: RedisClient): Promise<number> {
+	const info = await client.info('commandstats');
+	let calls = 0;
+	for (const [, n] of info.matchAll(/cmdstat_eval(?:sha)?:calls=(\d+)/g)) {
+		calls += Number(n);
+	}
+	return calls;
 }

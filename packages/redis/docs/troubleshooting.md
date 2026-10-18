@@ -1,6 +1,6 @@
 # Troubleshooting
 
-This package throws two errors of its own. `GuardError` is the rate limits' and idempotency's (`TIMEOUT` among its codes, for a call given `timeoutMs`), in
+This package throws three errors of its own. `QueueError` is the queue's, in [its own part](#queues) of this page. `GuardError` is the rate limits' and idempotency's (`TIMEOUT` among its codes, for a call given `timeoutMs`), in
 [its own part](#rate-limits-and-idempotency) of this page. `RedisError`, for everything else, has a `code` of
 `LOCK_HELD`, `LOCK_LOST`, `INVALID`, `CONNECTION` or `PING_TIMEOUT`, and the
 key or channel it happened on as `key` — never the value. `CONNECTION` and
@@ -38,6 +38,32 @@ application can handle.
   - [`This message does not match the schema "orders" carries:`](#this-message-does-not-match-the-schema-orders-carries)
   - [`A message on "orders" does not match its schema:`](#a-message-on-orders-does-not-match-its-schema)
   - [A published message never arrives](#a-published-message-never-arrives)
+- **Queues** (`QueueError`, and the `TypeError`s of `defineQueue`, `add`, `work` and `list`)
+  - [`defineQueue: a queue needs a name, for its keys`](#definequeue-a-queue-needs-a-name-for-its-keys)
+  - [`defineQueue: "my{queue}" has braces; the name is the keys' hash tag, so it cannot hold any`](#definequeue-myqueue-has-braces-the-name-is-the-keys-hash-tag-so-it-cannot-hold-any)
+  - [`defineQueue: "mails" has no schema; a payload is checked against one both ways`](#definequeue-mails-has-no-schema-a-payload-is-checked-against-one-both-ways)
+  - [`defineQueue: "mails" has attempts of 0; it is a whole number of runs, and must be at least 1`](#definequeue-mails-has-attempts-of-0-it-is-a-whole-number-of-runs-and-must-be-at-least-1)
+  - [`defineQueue: "mails" has a backoff base of 5000ms above its max of 1000ms`](#definequeue-mails-has-a-backoff-base-of-5000ms-above-its-max-of-1000ms)
+  - [`defineQueue: "mails" has a lease of 10ms; it is renewed every third of itself, so it must be at least 30ms`](#definequeue-mails-has-a-lease-of-10ms-it-is-renewed-every-third-of-itself-so-it-must-be-at-least-30ms)
+  - [`defineQueue: "mails" has a keepCompleted count of -1; it is a whole number of jobs, from 0`](#definequeue-mails-has-a-keepcompleted-count-of--1-it-is-a-whole-number-of-jobs-from-0)
+  - [`defineQueue: "mails" lease is "10 minutes"; a duration is a whole number of milliseconds or a string such as '10m'`](#definequeue-mails-lease-is-10-minutes-a-duration-is-a-whole-number-of-milliseconds-or-a-string-such-as-10m)
+  - [`add on "mails": id is a string of 1 to 256 characters without braces, which are a hash tag`](#add-on-mails-id-is-a-string-of-1-to-256-characters-without-braces-which-are-a-hash-tag)
+  - [`add on "mails": priority is a whole number from 0 to 1000`](#add-on-mails-priority-is-a-whole-number-from-0-to-1000)
+  - [`add on "mails": delay and at say the same thing; give one`](#add-on-mails-delay-and-at-say-the-same-thing-give-one)
+  - [`add on "mails": delay is a whole number of milliseconds or a string such as '10m'`](#add-on-mails-delay-is-a-whole-number-of-milliseconds-or-a-string-such-as-10m)
+  - [`add on "mails": at is a valid Date`](#add-on-mails-at-is-a-valid-date)
+  - [`work on "mails": concurrency is a whole number from 1 to 1000`](#work-on-mails-concurrency-is-a-whole-number-from-1-to-1000)
+  - [`list on "mails": offset is a whole number from 0`](#list-on-mails-offset-is-a-whole-number-from-0)
+  - [`list on "mails": limit is a whole number from 1 to 1000`](#list-on-mails-limit-is-a-whole-number-from-1-to-1000)
+  - [`list on "mails": state is one of waiting, delayed, active, completed, failed`](#list-on-mails-state-is-one-of-waiting-delayed-active-completed-failed)
+  - [`add on "mails": the data does not match the schema (invalid_type)`](#add-on-mails-the-data-does-not-match-the-schema-invalid_type)
+  - [`retry on "mails": job "receipt:42" is not failed`](#retry-on-mails-job-receipt42-is-not-failed)
+  - [`remove on "mails": no job "receipt:42"`](#remove-on-mails-no-job-receipt42)
+  - [`remove on "mails": job "receipt:42" is running`](#remove-on-mails-job-receipt42-is-running)
+  - [A job's `error` is `INVALID: the stored data does not match the schema`](#a-jobs-error-is-invalid-the-stored-data-does-not-match-the-schema)
+  - [A job's `error` is `INVALID: a stored job this package could not have written`](#a-jobs-error-is-invalid-a-stored-job-this-package-could-not-have-written)
+  - [A job ran twice](#a-job-ran-twice)
+  - [A job added with an `id` never runs](#a-job-added-with-an-id-never-runs)
 - **Wiring** (`defineRedis` and `openRedis`)
   - [`Property 'users' does not exist on type 'never'.`](#property-users-does-not-exist-on-type-never)
   - [`Property 'users' does not exist on type 'CacheScope<Record<never, never>>'.`](#property-users-does-not-exist-on-type-cachescoperecordnever-never)
@@ -513,6 +539,288 @@ not connected at that instant never sees it, and nothing is replayed.
 ```ts
 const delivered = await publish(client, orders, payload);
 if (delivered === 0) await queue.add(payload); // a stream or a queue, where it must not be lost
+```
+
+## Queues
+
+A queue throws a `QueueError` and a bare `TypeError`. `QueueError` has a `code`
+of `INVALID`, `NOT_FOUND` or `ACTIVE`, the `queue` it happened on and the `job`
+id when the call was about one — never the payload. Everything the code got
+wrong (a definition, an option, a page) is a `TypeError`, thrown before
+anything is written. A **handler's** error — a `JobError`, or anything it
+throws — is not thrown to the caller: it is kept on the job, which you read with
+`get` or `list`. See the [guide](guide/queues.md).
+
+### `defineQueue: a queue needs a name, for its keys`
+
+**When:** at `defineQueue` (or `bindQueue: …`, for a definition written by hand), with an empty or missing `name`.
+**Why:** the name is in every key the queue writes (`queue:{<name>}:…`).
+**Fix:**
+
+```ts
+export const mails = defineQueue({ name: 'mails', schema });
+```
+
+### `defineQueue: "my{queue}" has braces; the name is the keys' hash tag, so it cannot hold any`
+
+**When:** at `defineQueue`, with a `{` or `}` in `name`.
+**Why:** the name is the hash tag of every key, so all of one queue's keys land on the same Redis Cluster slot; a brace of your own would end the tag early.
+**Fix:**
+
+```ts
+defineQueue({ name: 'my-queue', schema });
+```
+
+### `defineQueue: "mails" has no schema; a payload is checked against one both ways`
+
+**When:** at `defineQueue`, with no `schema`, or one that is not a zod schema.
+**Why:** a payload is checked on `add`, and again before a handler sees it.
+**Fix:**
+
+```ts
+defineQueue({ name: 'mails', schema: z.object({ to: z.string() }) });
+```
+
+### `defineQueue: "mails" has attempts of 0; it is a whole number of runs, and must be at least 1`
+
+**When:** at `defineQueue`, with `attempts` below 1 or not a whole number.
+**Why:** `attempts` counts runs, the first included: 1 means no retry.
+**Fix:**
+
+```ts
+defineQueue({ name: 'mails', schema, attempts: 1 }); // run once, never retry
+```
+
+### `defineQueue: "mails" has a backoff base of 5000ms above its max of 1000ms`
+
+**When:** at `defineQueue`, with `backoff.base` above `backoff.max` (the max defaults to 1 hour).
+**Why:** the wait doubles from `base` up to `max`; a base above the cap has no meaning.
+**Fix:**
+
+```ts
+defineQueue({ name: 'mails', schema, backoff: { base: '5s', max: '5m' } });
+```
+
+### `defineQueue: "mails" has a lease of 10ms; it is renewed every third of itself, so it must be at least 30ms`
+
+**When:** at `defineQueue`, with a `lease` under 30 ms.
+**Why:** a running worker renews the lease every third of it, and a timer needs a few milliseconds to do that.
+**Fix:** give it the longest a handler can run without the process dying — the default is 30 seconds.
+
+```ts
+defineQueue({ name: 'mails', schema, lease: '1m' });
+```
+
+### `defineQueue: "mails" has a keepCompleted count of -1; it is a whole number of jobs, from 0`
+
+**When:** at `defineQueue`, with a `keepCompleted.count` that is negative or fractional.
+**Why:** it is how many completed jobs stay readable.
+**Fix:** use `keepCompleted: false` to keep none, or a count from 0.
+
+```ts
+defineQueue({ name: 'mails', schema, keepCompleted: { count: 100 } });
+```
+
+### `defineQueue: "mails" lease is "10 minutes"; a duration is a whole number of milliseconds or a string such as '10m'`
+
+**When:** at `defineQueue`, with a span the queue cannot read. The option named in the message is the one that is wrong: `lease`, `backoff base`, `backoff max`, `keepFailed` or `keepCompleted age`. The same message, as `add on "mails": delay is …`, comes from `add` and `addMany`, and `retryIn is …` from `new JobError`.
+**Why:** a duration is a whole number of milliseconds (not negative), or a number and a unit — `ms`, `s`, `m`, `h`, `d`. `'10 minutes'`, `'1w'`, `-5` and `0.5` are refused.
+**Fix:**
+
+```ts
+defineQueue({ name: 'mails', schema, lease: '10m' });
+```
+
+### `add on "mails": id is a string of 1 to 256 characters without braces, which are a hash tag`
+
+**When:** `add` or `addMany` (the message starts `addMany on` there) with an `id` that is empty, longer than 256, not a string, or holds a brace.
+**Why:** the id is part of the job's key, whose `{<queue>}` hash tag must stay the only one.
+**Fix:** leave the id out for a generated one, or build it from what identifies the job.
+
+```ts
+await queue.add(payload, { id: `receipt:${orderId}` });
+```
+
+### `add on "mails": priority is a whole number from 0 to 1000`
+
+**When:** `add` or `addMany` with a `priority` outside 0 to 1000, or not a whole number.
+**Why:** the priority is part of the job's score in the queue.
+**Fix:** a lower number runs first.
+
+```ts
+await queue.add(payload, { priority: 10 });
+```
+
+### `add on "mails": delay and at say the same thing; give one`
+
+**When:** `add` or `addMany` with both `delay` and `at`.
+**Why:** both set when the job becomes due.
+**Fix:**
+
+```ts
+await queue.add(payload, { delay: '10m' });
+// or
+await queue.add(payload, { at: new Date('2027-01-01T09:00:00Z') });
+```
+
+### `add on "mails": delay is a whole number of milliseconds or a string such as '10m'`
+
+**When:** `add` or `addMany` with a `delay` that is negative, fractional, or a string without a known unit (`'10min'`).
+**Why:** a delay is a whole number of milliseconds or a string with `ms`, `s`, `m`, `h` or `d`. The message never prints the value you passed.
+**Fix:**
+
+```ts
+await queue.add(payload, { delay: '10m' });
+```
+
+### `add on "mails": at is a valid Date`
+
+**When:** `add` or `addMany` with an `at` that is not a `Date`, or is `Invalid Date`.
+**Why:** a timestamp number or an ISO string is not read; `at` is a `Date`.
+**Fix:**
+
+```ts
+await queue.add(payload, { at: new Date(isoString) });
+```
+
+If `new Date(isoString)` is `Invalid Date`, gate the string first.
+
+### `work on "mails": concurrency is a whole number from 1 to 1000`
+
+**When:** `queue.work(handler, { concurrency })`, with a value outside 1 to 1000 or not a whole number.
+**Why:** that many jobs run at once in this worker.
+**Fix:** run more workers rather than a huge concurrency.
+
+```ts
+queue.work(handler, { concurrency: 8 });
+```
+
+### `list on "mails": offset is a whole number from 0`
+
+**When:** `queue.list(state, { offset })`.
+**Why:** a page starts at its offset into the state's order.
+**Fix:**
+
+```ts
+await queue.list('failed', { offset: 50, limit: 50 });
+```
+
+### `list on "mails": limit is a whole number from 1 to 1000`
+
+**When:** `queue.list(state, { limit })`, with a limit outside 1 to 1000.
+**Why:** a page reads each of its jobs; a bound keeps one call small.
+**Fix:** page through with `offset`.
+
+```ts
+await queue.list('completed', { limit: 1000 });
+```
+
+### `list on "mails": state is one of waiting, delayed, active, completed, failed`
+
+**When:** `queue.list(state)` with a state this queue does not have (the TypeScript types refuse it too).
+**Why:** the states are `waiting`, `delayed`, `active`, `completed` and `failed`.
+**Fix:**
+
+```ts
+await queue.list('completed');
+```
+
+### `add on "mails": the data does not match the schema (invalid_type)`
+
+**When:** `add` (or `addMany on "mails": …`, naming the call). A `QueueError`, `code: 'INVALID'`, `queue: 'mails'`; **nothing was written**, and for `addMany` nothing of the batch was. A payload that parses but does not survive JSON (a `z.date()`, a `Map`) says `… does not match the schema once stored as JSON (invalid_type)`, and one JSON cannot write at all (a `bigint`, `undefined` at the top) says `the data has no JSON form`.
+**Why:** the payload is refused by the queue's schema. The message carries the zod issue **codes** only, each once, never the data, the paths or zod's messages: a `z.strictObject` quotes the stray key it found and a `z.record` puts its keys in the path, and both came from a request. The error has no `cause` for the same reason.
+**Fix:** validate the body where it comes in, with the same schema, and answer with what that says; `queue.definition.schema.safeParse(body)` gives the issues.
+
+```ts
+try {
+	await queue.add(body);
+} catch (error) {
+	if (error instanceof QueueError && error.code === 'INVALID') {
+		console.error(error.message); // the call, the queue and the issue codes
+		return new Response('Bad payload', { status: 400 });
+	}
+	throw error;
+}
+```
+
+### `retry on "mails": job "receipt:42" is not failed`
+
+**When:** `queue.retry(id)`. A `QueueError`, `code: 'NOT_FOUND'`, with `job` set.
+**Why:** `retry` puts a **failed** job back; there is no such job in `failed` — it may not exist, still be running or waiting, have completed, or have been trimmed by `keepFailed`.
+**Fix:** look at it first.
+
+```ts
+const job = await queue.get('receipt:42');
+if (job?.state === 'failed') await queue.retry(job.id);
+```
+
+### `remove on "mails": no job "receipt:42"`
+
+**When:** `queue.remove(id)`. A `QueueError`, `code: 'NOT_FOUND'`.
+**Why:** the job does not exist — never added, already removed, or trimmed by `keepCompleted` or `keepFailed`.
+**Fix:** treat it as removed.
+
+```ts
+await queue.remove('receipt:42').catch((error) => {
+	if (!(error instanceof QueueError && error.code === 'NOT_FOUND')) throw error;
+});
+```
+
+### `remove on "mails": job "receipt:42" is running`
+
+**When:** `queue.remove(id)`. A `QueueError`, `code: 'ACTIVE'`.
+**Why:** a worker holds the job. Removing it would let a handler run on for a job the queue no longer knows, so it is refused.
+**Fix:** wait for it to settle — or for its lease to lapse, if the worker died — then remove it.
+
+```ts
+const job = await queue.get('receipt:42');
+if (job && job.state !== 'active') await queue.remove(job.id);
+```
+
+### A job's `error` is `INVALID: the stored data does not match the schema`
+
+**When:** reading a failed job with `get` or `list`: `error` is `{ name: 'QueueError', message: 'INVALID: the stored data does not match the schema' }`, and the job's `data` is `undefined`. Its handler never ran.
+**Why:** the schema changed while the job was waiting, so the stored payload no longer parses. It fails at once, without a retry, rather than reach a handler as something it is not.
+**Fix:** make the schema accept the old shape (a default, or `.optional()` on the new field), then `retry` the job. Change a queue's schema in two steps — widen it, drain the queue, then narrow it.
+
+```ts
+const schema = z.object({ to: z.string(), template: z.string().default('welcome') });
+await queue.retry(job.id);
+```
+
+### A job's `error` is `INVALID: a stored job this package could not have written`
+
+**When:** reading a failed job with `get` or `list`: `error` is `{ name: 'QueueError', message: 'INVALID: a stored job this package could not have written' }`. Its handler never ran.
+**Why:** a worker claimed an id whose Redis hash lacks what a job needs (`data`, a numeric `attempt`, `attempts` and `priority`), so something other than this package wrote or edited it. It is moved to `failed` once, and never run or repaired.
+**Fix:** find what wrote to the queue's keys (a script, `redis-cli`, another application sharing the name), then `remove` the job and `add` it again. A job this package wrote is never refused this way.
+
+```ts
+await queue.remove(job.id);
+await queue.add(payload, { id: job.id });
+```
+
+### A job ran twice
+
+**When:** a handler's side effect — a mail, a charge — happened two times for one job.
+**Why:** a queue runs a job **at least once**. If a worker dies, or loses Redis for a whole `lease`, another worker takes the job and runs it again; a handler slower than its lease can overlap its own second run, and the first run's late result is refused.
+**Fix:** make the handler idempotent, keyed on the job's id, which is the same on every run; and give `lease` more than the handler's slowest run.
+
+```ts
+queue.work(async ({ id, data }) => {
+	await provider.send(data.to, { idempotencyKey: id });
+});
+```
+
+Durable steps, which record what a handler has done, are on the [roadmap](roadmap.md).
+
+### A job added with an `id` never runs
+
+**When:** `add` returned `{ deduplicated: true }`, and the payload you sent is not what runs.
+**Why:** an id is taken for as long as the job is stored, completed and failed jobs included, until `keepCompleted` or `keepFailed` trims it. The second `add` with that id changes nothing.
+**Fix:** give each distinct job its own id, or `remove` the old one first.
+
+```ts
+const { deduplicated } = await queue.add(payload, { id: `receipt:${orderId}` });
 ```
 
 ## Wiring: `defineRedis` and `openRedis`

@@ -2,7 +2,7 @@
 
 Redis on **Bun's own client** — no third-party driver. One connection shared
 per URI, caches and channels described once and typed from their schema, and a
-lock that is safe to release — and rate limits and idempotent operations, wired the same way, each one atomic script timed by the Redis server's clock.
+lock that is safe to release — and rate limits and idempotent operations, wired the same way, each one atomic script timed by the Redis server's clock. A queue keeps jobs until a worker has finished them: delays, priorities, retries with backoff, at-least-once.
 
 ```ts
 import { defineRedis, openRedis } from '@nxgt/redis';
@@ -315,13 +315,51 @@ test('five logins a minute', async () => {
 The [testing guide](docs/guide/guard/testing.md) has whole specs for a rate
 limit and an idempotent operation.
 
+## Queue
+
+Jobs that must run, but not inside the request that asked for them — kept
+until a worker has finished each one, retried with backoff when it throws.
+
+```ts
+import { bindQueue, connectRedis, defineQueue, JobError } from '@nxgt/redis';
+import { z } from 'zod';
+
+const mails = defineQueue({
+	name: 'mails',
+	schema: z.object({ to: z.string() }),
+	attempts: 5,                     // runs before the job fails for good
+	backoff: { base: '2s' },         // doubles, with jitter
+});
+
+const redis = await connectRedis(process.env.REDIS_URL!);
+const queue = bindQueue(redis.client, mails);
+
+await queue.add({ to: 'ada@example.com' }, { id: 'welcome:ada', delay: '10m' });
+
+const worker = queue.work(
+	async ({ id, data }) => {
+		await sendMail(data.to, { idempotencyKey: id }); // may run again: be idempotent
+	},
+	{ concurrency: 4 },
+);
+worker.on('error', (error) => console.error(error));
+
+await worker.close(); // on shutdown: waits for the running jobs
+```
+
+A job runs **at least once**: after a crash it runs again, so the handler must
+be safe to repeat. Throw `new JobError(message, { retry: false })` to give up,
+or `{ retryIn: '5m' }` to choose the wait. The queue is bound by hand for now;
+`defineRedis` does not wire it yet. The [queue guide](docs/guide/queues.md)
+has priorities, retention, inspection and a spec.
+
 ## What it does not do
 
 - **No `multi`/`exec`.** Bun's client has none, and nothing here needs one:
   the lock is `SET NX PX`, one command, and its release is one script.
 - **It does not retry for you.** Bun's client reconnects; a command that fails
   fails, and the error is Redis's own.
-- **It is not a queue.** Pub/sub is fire-and-forget — see Traps.
+- **Pub/sub is not a queue.** It is fire-and-forget — see Traps; for a message that must not be lost, use the [queue](#queue).
 - **It listens to no signal.** Closing on shutdown is yours, with `close()` or
   `closeRedis()`.
 
@@ -536,6 +574,16 @@ most other commands no longer — Redis's own rule. `close()` gives that copy
 back; the client passed in is untouched and is still the one to `publish`
 with. Each subscription is one more connection.
 
+### Queues
+
+| | |
+| --- | --- |
+| `defineQueue({ name, schema, attempts?, backoff?, lease?, keepCompleted?, keepFailed? })` | describes a queue; talks to nothing. Frozen, every `Duration` resolved to milliseconds. Refuses a definition that could never work with a `TypeError` |
+| `bindQueue(client, definition)` | binds it to a `RedisClient`: `definition` (read-only), `add(data, { id?, priority?, delay? \| at? })`, `addMany(items)`, `work(handler, { concurrency? })` (a `Worker`: `close()`, `on('error', …)`), `get(id)`, `list(state, { offset?, limit? })`, `counts()`, `retry(id)` and `remove(id)`. Not wired by `defineRedis` yet |
+
+The types are `QueueDefinition`, `QueueInput`, `BoundQueue`, `Worker`, `JobContext`, `JobView` and `Duration`; `JobError` is what a handler throws to choose its retry.
+See the [queue guide](docs/guide/queues.md).
+
 ## Errors
 
 `RedisError` is what this package throws once it is talking to Redis, with a
@@ -584,6 +632,22 @@ refuse a definition that could never work with a `TypeError`, and `run` a
 `fingerprint` or a `wait` of the wrong kind; every guard call refuses a
 `timeoutMs` that is not a whole number of 1 or more the same way. Every message is in
 [troubleshooting](docs/troubleshooting.md#rate-limits-and-idempotency).
+
+`QueueError` is what a queue throws, with a `code`, the `queue` it happened on
+and the `job` id when the call was about one — never the payload. It is its own
+class, not a `RedisError`.
+
+| `QueueErrorCode` | |
+| --- | --- |
+| `INVALID` | `add` or `addMany` got a payload its schema refuses, or JSON cannot carry. Nothing was written |
+| `NOT_FOUND` | `retry` named a job that is not failed, or `remove` one that does not exist |
+| `ACTIVE` | `remove` named a job a worker is running |
+
+`defineQueue` (and `bindQueue`, for a definition written by hand) refuses a
+definition that could never work with a `TypeError`, and `add`, `work` and
+`list` an option out of range the same way. A handler's own error is kept on
+the job, not thrown. Every message is in
+[troubleshooting](docs/troubleshooting.md#queues).
 
 ## What does not compile
 
@@ -641,7 +705,7 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
 - **Pub/sub is fire-and-forget.** `publish` gives the number of subscribers
   Redis handed the message to — not a delivery guarantee. A subscriber that is
   not connected at that instant never sees it, and nothing is replayed. Use a
-  stream or a queue where a message must not be lost.
+  stream, or the [queue](#queue), where a message must not be lost.
 - **A handler's error never reaches your caller.** It goes to `onError`, which
   writes to `console.error` unless you pass one — a listener's throw has
   nowhere else to go, and Bun ends the process on an unhandled rejection. An
@@ -734,7 +798,7 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
 ## Documentation
 
 - [docs/README.md](docs/README.md) — the guide index: connections, caches,
-  locks and pub/sub, each with its options and a worked example, and the
+  locks, pub/sub and [queues](docs/guide/queues.md), each with its options and a worked example, and the
   wiring pages for `defineRedis` and `openRedis`.
 - [Wiring guides](docs/guide/wiring/configuration.md) — the configuration and
   its prefix, `redis.cache`, `redis.channels`, [`redis.limits` and
