@@ -94,7 +94,7 @@ bindRateLimit(client, mails);
 // @ts-expect-error a queue is not an idempotent operation
 bindIdempotency(client, mails);
 // @ts-expect-error a queue is not a channel
-publish(client, mails, { to: 'a@b.c' });
+publish(client, mails, { to: 'a@b.c', template: 'welcome' });
 // @ts-expect-error a cache is not a queue
 bindQueue(client, userCache);
 // @ts-expect-error a rate limit is not a queue
