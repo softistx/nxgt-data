@@ -59,9 +59,16 @@ export async function closeWorker(
 	};
 	if (!(await within(drained(), grace))) {
 		abortAll(context);
-		await running;
-		abortAll(context);
-		await Promise.all([...context.slots]);
+		// What is left: a CLAIM or a settle on a server that stopped answering
+		// without closing the socket must not hold `redis.close()`. Bounded,
+		// and a rejection arriving late is swallowed.
+		const left = (async () => {
+			await running;
+			abortAll(context);
+			await Promise.all([...context.slots]);
+		})();
+		left.catch(() => undefined);
+		await within(left, RELEASE_MS);
 	}
 	context.leases.stop();
 	// A cancel listener whose connection is gone never answers: bounded, and a
