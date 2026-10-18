@@ -8,7 +8,7 @@ import type {
 	WorkOptions,
 } from '../types';
 import type { WorkerContext } from './context';
-import { on } from './events';
+import { emit, on } from './events';
 import { keepLeases } from './leases';
 import { loop } from './loop';
 
@@ -60,7 +60,9 @@ export function startWorker<S extends z.ZodType>(
 		waiter: undefined,
 		slotFreed: undefined,
 	};
-	const running = loop(context);
+	// Taken where it is made: a rejection nobody awaits ends a Bun process, and
+	// `close` is not always called.
+	const running = loop(context).catch((error) => emit(context, error));
 	let closing: Promise<void> | undefined;
 
 	function close(): Promise<void> {
