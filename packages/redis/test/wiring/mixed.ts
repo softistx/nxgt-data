@@ -7,3 +7,4 @@ export { users } from './caches';
 export { created } from './channels';
 export { orders } from './idempotency';
 export { login } from './limits';
+export { mails } from './queues';

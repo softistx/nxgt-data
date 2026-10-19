@@ -4,6 +4,7 @@ import * as caches from '../../../test/wiring/caches';
 import * as channels from '../../../test/wiring/channels';
 import { defineCache } from '../../cache/define-cache';
 import { defineChannel } from '../../channel/define-channel';
+import { defineQueue } from '../../queue/definition/define-queue';
 import { defineRedis } from './define-redis';
 
 const uri = 'redis://127.0.0.1:6379';
@@ -65,8 +66,17 @@ describe('defineRedis', () => {
 
 	test('refuses an instance that wires nothing', () => {
 		expect(() => defineRedis({ uri })).toThrow(
-			'defineRedis: instance "default" wires no cache, no channel, no rate limit and no idempotency. ' +
+			'defineRedis: instance "default" wires no cache, no channel, no rate limit, no idempotency and no queue. ' +
 				'Pass the module that exports them, or drop the instance.',
+		);
+	});
+
+	test('does not wire a queue as a channel', () => {
+		const mails = defineQueue({ name: 'mails', schema: z.string() });
+		// Its `lease` is what tells it from a channel: it is left out, so the
+		// instance wires nothing and is refused rather than publishing on "mails".
+		expect(() => defineRedis({ uri, channels: { mails } })).toThrow(
+			'wires no cache, no channel',
 		);
 	});
 

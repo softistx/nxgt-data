@@ -1,93 +1,12 @@
-import type { z } from 'zod';
-import type { CacheDefinition } from '../../cache/types';
-import type { ChannelDefinition } from '../../channel/define-channel';
-import type { IdempotencyDefinition } from '../../idempotency/types';
-import type { RateLimitDefinition } from '../../rate-limit/types';
+import {
+	isCache,
+	isChannel,
+	isIdempotency,
+	isQueue,
+	isRateLimit,
+	wiredOf,
+} from './kinds';
 import type { InstanceConfig } from './types';
-
-/**
- * Whether a module export is a cache definition.
- *
- * By shape, not `instanceof`: `defineCache` returns the object it was given,
- * and two copies of `@nxgt/redis` in a tree would fail any identity test.
- * `ttl` is what tells it from a channel, which is why `ChannelDefinition`
- * declares `ttl?: never`.
- */
-export function isCache(
-	value: unknown,
-): value is CacheDefinition<never, z.ZodType> {
-	if (typeof value !== 'object' || value === null) return false;
-	const it = value as Record<string, unknown>;
-	return (
-		typeof it['name'] === 'string' &&
-		typeof it['key'] === 'function' &&
-		typeof it['ttl'] === 'number' &&
-		it['lease'] === undefined &&
-		it['schema'] !== undefined
-	);
-}
-
-/**
- * Whether a module export is a rate limit definition: `limit` and `per` are
- * what no other kind has.
- */
-export function isRateLimit(
-	value: unknown,
-): value is RateLimitDefinition<never> {
-	if (typeof value !== 'object' || value === null) return false;
-	const it = value as Record<string, unknown>;
-	return (
-		typeof it['name'] === 'string' &&
-		typeof it['key'] === 'function' &&
-		typeof it['limit'] === 'number' &&
-		typeof it['per'] === 'number'
-	);
-}
-
-/**
- * Whether a module export is an idempotency definition: a cache's shape with
- * a `lease`, which `defineIdempotency` always fills and a cache never has.
- */
-export function isIdempotency(
-	value: unknown,
-): value is IdempotencyDefinition<never, z.ZodType> {
-	if (typeof value !== 'object' || value === null) return false;
-	const it = value as Record<string, unknown>;
-	return (
-		typeof it['name'] === 'string' &&
-		typeof it['key'] === 'function' &&
-		typeof it['ttl'] === 'number' &&
-		typeof it['lease'] === 'number' &&
-		it['schema'] !== undefined
-	);
-}
-
-/** Whether a module export is a channel definition. */
-export function isChannel(
-	value: unknown,
-): value is ChannelDefinition<z.ZodType> {
-	if (typeof value !== 'object' || value === null) return false;
-	const it = value as Record<string, unknown>;
-	return (
-		typeof it['name'] === 'string' &&
-		it['schema'] !== undefined &&
-		it['ttl'] === undefined &&
-		typeof it['key'] !== 'function'
-	);
-}
-
-/** The definitions of a module object, by the key it is exported under. */
-export function wiredOf<T>(
-	module: object | undefined,
-	is: (value: unknown) => value is T,
-): readonly (readonly [string, T])[] {
-	if (module === undefined) return [];
-	const found: (readonly [string, T])[] = [];
-	for (const [key, value] of Object.entries(module)) {
-		if (is(value)) found.push([key, value] as const);
-	}
-	return found;
-}
 
 /**
  * Refuses a configuration that cannot be honoured.
@@ -102,7 +21,7 @@ export function wiredOf<T>(
 export function checkInstance(
 	call: 'defineRedis' | 'openRedis',
 	name: string,
-	instance: InstanceConfig<object, object>,
+	instance: InstanceConfig<object, object, object, object, object>,
 ): void {
 	// The call that raised it, not always `defineRedis`: the same checks run
 	// again in `openRedis`, and a message naming a function the application
@@ -129,24 +48,45 @@ export function checkInstance(
 		);
 	}
 	checkNothingWired(where, instance);
+	checkPrefixBraces(where, instance);
 	checkNoClash(where, instance);
 }
 
 function checkNothingWired(
 	where: string,
-	instance: InstanceConfig<object, object>,
+	instance: InstanceConfig<object, object, object, object, object>,
 ): void {
 	if (
 		wiredOf(instance.caches, isCache).length === 0 &&
 		wiredOf(instance.channels, isChannel).length === 0 &&
 		wiredOf(instance.limits, isRateLimit).length === 0 &&
-		wiredOf(instance.idempotency, isIdempotency).length === 0
+		wiredOf(instance.idempotency, isIdempotency).length === 0 &&
+		wiredOf(instance.queues, isQueue).length === 0
 	) {
 		throw new TypeError(
-			`${where} wires no cache, no channel, no rate limit and no ` +
-				'idempotency. Pass the module that exports them, or drop the instance.',
+			`${where} wires no cache, no channel, no rate limit, no idempotency ` +
+				'and no queue. Pass the module that exports them, or drop the instance.',
 		);
 	}
+}
+
+/**
+ * A queue's storage name, prefix included, is the hash tag of its keys, so a
+ * brace in the prefix would split the tag. Instances without queues keep
+ * accepting any prefix.
+ */
+function checkPrefixBraces(
+	where: string,
+	instance: InstanceConfig<object, object, object, object, object>,
+): void {
+	const { prefix } = instance;
+	if (prefix === undefined || !/[{}]/.test(prefix)) return;
+	if (wiredOf(instance.queues, isQueue).length === 0) return;
+	throw new TypeError(
+		`${where} has a prefix with braces, and it wires queues; a queue's ` +
+			"name is its keys' hash tag, so the prefix in front of it cannot " +
+			'hold any.',
+	);
 }
 
 type Group = readonly [
@@ -165,8 +105,13 @@ type Group = readonly [
  * Two definitions of different kinds with one name, in the same group list:
  * a cache, a rate limit and an idempotency all write `<name>:<key>`, so they
  * would meet in Redis: an idempotency's hash as `WRONGTYPE`, and a cache's
- * and a rate limit's strings overwriting each other. Only names
- * are compared — never what a key function would build.
+ * and a rate limit's strings overwriting each other. A queue's keys
+ * (`queue:{<name>}:…`) do not meet them byte for byte, except when there is
+ * no prefix: a cache, rate limit or idempotency named `queue` whose key
+ * function returns `{<name>}:<part>` can write one. That is contrived and
+ * accepted; the queue is refused against any same-named definition anyway, so
+ * one name means one thing per deployment. Only names are compared — never
+ * what a key function would build.
  */
 function refuseClash(where: string, groups: readonly Group[]): void {
 	const seen = new Map<string, { kind: string; key: string }>();
@@ -198,12 +143,13 @@ function refuseClash(where: string, groups: readonly Group[]): void {
  */
 function checkNoClash(
 	where: string,
-	instance: InstanceConfig<object, object>,
+	instance: InstanceConfig<object, object, object, object, object>,
 ): void {
 	refuseClash(where, [
 		['cache', wiredOf(instance.caches, isCache)],
 		['rate limit', wiredOf(instance.limits, isRateLimit)],
 		['idempotency', wiredOf(instance.idempotency, isIdempotency)],
+		['queue', wiredOf(instance.queues, isQueue)],
 	]);
 	refuseClash(where, [['channel', wiredOf(instance.channels, isChannel)]]);
 }

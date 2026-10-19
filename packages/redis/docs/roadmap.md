@@ -5,7 +5,35 @@ item shipped in is the only number on this page.
 
 ## Now
 
-_Nothing in progress._
+- **A queue** — jobs typed by a schema, run by workers at least once:
+  - **Core** — delays and priorities; workers that run jobs at least once, with
+    a lease per job, retries with backoff, and retention of what completed or
+    failed, with a way to inspect it. A job returns a typed result that
+    `finished()` awaits; it can be canceled, given a timeout and an
+    `AbortSignal`, and report progress. Workers emit typed events, tell you when
+    they are `idle()`, and `close({ grace })` lets running jobs finish.
+  - **Durable steps** — `job.step(name, fn, { schema? })` runs a side effect
+    once per job rather than once per attempt, so a retry skips the work already
+    done, and a stale worker is fenced out by token and lease; `job.key(name)`
+    gives a stable idempotency key to hand a provider; and `finished({ timeout })`
+    is a hard bound.
+  - **Flow control** — `debounce` and `throttle` on `add`, `pause()` and
+    `resume()`, and a queue-wide `rateLimit` shared by every worker (landed, not
+    yet released).
+  - **Recurring jobs** — `schedules` in `defineQueue` and
+    `queue.schedules.upsert`, `remove` and `list`, by cron with time zones or by
+    interval (landed, not yet released).
+  - **Groups** — `groups` in `defineQueue` and `group` on `add`, round-robin
+    between groups with a `concurrency` cap per group (landed, not yet
+    released).
+  - **Wiring** — queues are declared as `queues` in `defineRedis` and
+    `openRedis`, reached as `redis.queues.<key>` and built lazily on first use;
+    the deployment `prefix` is on every key and in `job.key`;
+    `redis.close({ grace })` closes the workers and refuses later adds with
+    `QueueError` `CLOSED`; and a queue whose name is shared with a cache, a rate
+    limit or an idempotency is refused.
+  - **Benchmark** — throughput and latency, published in the
+    [queue guide](guide/queues.md#benchmark) (landed, not yet released).
 
 ## Next
 
@@ -16,7 +44,19 @@ _Nothing in progress._
   constraint carries, `"nope" is not an option here`. The intended message
   should be the one every case shows.
 
+- **Flows** — a parent job that waits for its children.
+- **A batch handler** — one handler called with several jobs at once.
+- **A rate limit per group** — a limit on how fast one group's jobs run,
+  beside the per-group concurrency.
+- **A count bound on kept failures** — `keepFailed: { age, count }`, as
+  `keepCompleted` has, so a burst of failures cannot pile up for the whole age.
+
 ## Later
+
+- **Promote, and change a waiting job's delay or priority** — move a delayed
+  job to run now, or re-time a job that has not started.
+- **Drain and obliterate a queue** — empty a queue of its waiting jobs, or
+  delete it and everything it stored.
 
 - **A `./hono` subpath** — a middleware that answers a spent limit with a 429
   and the `RateLimit-*` headers. Only once a consumer is found copying the
@@ -26,6 +66,11 @@ _Nothing in progress._
 
 ## Not planned
 
+- **An in-memory fake of the queue** — the queue is Lua scripts on the
+  server, so a fake would test something else. Specs run against the real
+  scripts on `startTestRedis()`.
+- **An OpenTelemetry dependency** — a worker emits typed events in process;
+  wire them to your own telemetry.
 - **Running on Node** — the client is Bun's own `RedisClient`, which is why
   this package installs no driver at all. There is nothing to swap for Node,
   and a build for it is not coming: it needs Bun 1.4 or later, for
@@ -35,8 +80,6 @@ _Nothing in progress._
   compare-and-delete script.
 - **Retries of its own** — Bun's client reconnects; a command that fails
   fails, and what comes back is Redis's own error, as `RedisError`.
-- **A queue** — pub/sub is fire-and-forget. A message published while nobody
-  is subscribed is gone, and nothing is stored, acknowledged or replayed.
 - **An actor, or a session** — `@nxgt/mongo`'s `openMongo` derives its object with
   `as(actor)` and `withSession`, because MongoDB has something to stamp and
   something to carry. Redis has neither, so what `openRedis` gives back is the

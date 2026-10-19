@@ -31,6 +31,51 @@ const isCount = (n: unknown): n is number =>
 	typeof n === 'number' && Number.isSafeInteger(n) && n >= 1;
 
 /**
+ * The numeric checks of a rate, shared by `defineRateLimit` and the queue's
+ * `rateLimit` option, so both refuse the same values.
+ *
+ * @param call - the call that makes the checks, which opens each message.
+ * @param owner - the subject of each message's sentence, which then
+ * continues with `has a limit of …`: `"api"`, or `"mails" rateLimit`
+ * (what `defineQueue` passes).
+ */
+export function checkRateValues(
+	call: string,
+	owner: string,
+	limit: number,
+	per: number,
+	burst: number | undefined,
+): void {
+	if (!isCount(limit)) {
+		throw new TypeError(
+			`${call}: ${owner} has a limit of ${limit}; it is a whole number of requests, and must be at least 1`,
+		);
+	}
+	if (!isCount(per)) {
+		throw new TypeError(
+			`${call}: ${owner} has a per of ${per}; it is a whole number of milliseconds, and must be at least 1`,
+		);
+	}
+	if (burst !== undefined && !isCount(burst)) {
+		throw new TypeError(
+			`${call}: ${owner} has a burst of ${burst}; it is a whole number of requests, and must be at least 1`,
+		);
+	}
+	if ((burst ?? limit) * per > MAX_BURST_PER) {
+		throw new TypeError(
+			`${call}: ${owner} has a burst of ${burst ?? limit} and a per of ${per}ms; ` +
+				`burst × per must be at most ${MAX_BURST_PER} for the script to count exactly`,
+		);
+	}
+	if (((burst ?? limit) * per) / limit > MAX_REFILL) {
+		throw new TypeError(
+			`${call}: ${owner} would take longer than ten years to refill from empty ` +
+				'(burst × per ÷ limit); check that per is in milliseconds',
+		);
+	}
+}
+
+/**
  * The checks `defineRateLimit` makes, named after the call that made them —
  * `bindRateLimit` makes them too, for a definition written by hand.
  */
@@ -47,33 +92,7 @@ export function checkRateLimit<P>(
 			`${call}: "${name}" has no key function; it builds the rest of the key from the params`,
 		);
 	}
-	if (!isCount(limit)) {
-		throw new TypeError(
-			`${call}: "${name}" has a limit of ${limit}; it is a whole number of requests, and must be at least 1`,
-		);
-	}
-	if (!isCount(per)) {
-		throw new TypeError(
-			`${call}: "${name}" has a per of ${per}; it is a whole number of milliseconds, and must be at least 1`,
-		);
-	}
-	if (burst !== undefined && !isCount(burst)) {
-		throw new TypeError(
-			`${call}: "${name}" has a burst of ${burst}; it is a whole number of requests, and must be at least 1`,
-		);
-	}
-	if ((burst ?? limit) * per > MAX_BURST_PER) {
-		throw new TypeError(
-			`${call}: "${name}" has a burst of ${burst ?? limit} and a per of ${per}ms; ` +
-				`burst × per must be at most ${MAX_BURST_PER} for the script to count exactly`,
-		);
-	}
-	if (((burst ?? limit) * per) / limit > MAX_REFILL) {
-		throw new TypeError(
-			`${call}: "${name}" would take longer than ten years to refill from empty ` +
-				'(burst × per ÷ limit); check that per is in milliseconds',
-		);
-	}
+	checkRateValues(call, `"${name}"`, limit, per, burst);
 }
 
 /**

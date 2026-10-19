@@ -12,7 +12,7 @@ each one atomic script on the server, timed by the server's clock, on any Bun
 Start with the **wiring** pages if you want the whole thing in one object —
 `defineRedis` and `openRedis`, with every cache, channel, rate limit and idempotency typed under the
 name it is exported as — and with the lower-level pages (connections, caches,
-locks, pub/sub) for the pieces it is made of. The rate-limit and idempotency
+locks, pub/sub, queues) for the pieces it is made of. The rate-limit and idempotency
 pages are under `guide/guard/`.
 
 | Page | Read it when |
@@ -27,11 +27,12 @@ pages are under `guide/guard/`.
 | [Caches](guide/cache.md) | you want a value kept for a while, keyed by what identifies it and checked against a schema both ways |
 | [Locks](guide/locks.md) | one job, one worker: a cron that must not run twice, a migration, anything that must happen once |
 | [Pub/sub](guide/channels.md) | one process publishes an event and others react to it, with the payload typed by a schema |
+| [Queues](guide/queues.md) | work must happen but not in the request that asked for it, and must not be lost: adding jobs (`delay`, `at`, `priority`, `id`), the worker and `concurrency`, running at least once, retries and `JobError`, durable steps (`job.step`) and `job.key`, retention, inspecting and repairing, flow control (`pause` and `resume`, a queue `rateLimit`, `debounce` and `throttle`), groups (fair turns between tenants, priority within each, a per-group `concurrency`), recurring jobs (`schedules`: cron, time zones and DST, `every`, runtime `upsert`), results, waiting with `finished` and `cancel`, timeouts and the handler's `signal`, progress, `idle()` and `close({ grace })`, the worker's events, a spec, and the round trips |
 | [Rate limits](guide/guard/rate-limits.md) | you want to hold a caller to so many requests per window — logins per address, exports per user — with the algorithm, choosing `burst`, costs, a deadline per call (`timeoutMs`), and an HTTP recipe for any framework |
 | [Idempotency](guide/guard/idempotency.md) | an operation must happen once per client key however often it is retried — an order, a charge — with the fingerprint, the lease and its heartbeat, waiting for a running key with `wait`, a deadline per command (`timeoutMs`), `ttl` and `lease`, changing the schema, the storage, and an HTTP recipe for the `Idempotency-Key` header in any framework |
 | [Testing rate limits and idempotency](guide/guard/testing.md) | you are writing `bun test` specs for code that uses a limit or an idempotent operation: a real Redis from `@nxgt/redis/testing` (`startTestRedis`, building it ahead with `buildTestRedis` or `$REDIS_BIN`), emptying it between specs, why moving the clock refills nothing, and a Redis that does not answer in time |
 | [Upgrading from `@nxgt/redis-guard`](guide/guard/upgrading.md) | you are on `@nxgt/redis-guard` 0.2 or earlier: installing `zod`, shortening `lease`, matching on `code`, and a rolling deploy |
-| [Troubleshooting](troubleshooting.md) | a call threw — a `RedisError` or a `GuardError` — a connect hung, a cached value came back `undefined`, a limit allows more or less than you expected, or the same request ran twice, and you want the reason |
+| [Troubleshooting](troubleshooting.md) | a call threw — a `RedisError`, a `GuardError` or a `QueueError` — a connect hung, a cached value came back `undefined`, a limit allows more or less than you expected, or the same request ran twice, and you want the reason |
 | [Roadmap](roadmap.md) | you want to know what is coming, and what has been ruled out |
 
 The [README](../README.md) is the short version: install, one example per

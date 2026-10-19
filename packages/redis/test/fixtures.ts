@@ -1,10 +1,11 @@
-import { afterAll, beforeAll, beforeEach } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach } from 'bun:test';
 import { RedisClient } from 'bun';
 import { z } from 'zod';
 import { defineCache } from '../src/cache/define-cache';
 import { defineChannel } from '../src/channel/define-channel';
 import { closeRedis } from '../src/connection/connect';
 import { defineIdempotency } from '../src/idempotency/define-idempotency';
+import { defineQueue } from '../src/queue/definition/define-queue';
 import { defineRateLimit } from '../src/rate-limit/define-rate-limit';
 import { GCRA_AT_ARGV, type Rate, toResult } from '../src/rate-limit/gcra';
 import { runScript } from '../src/scripts/run-script';
@@ -78,12 +79,16 @@ export function useRedis() {
 	return servers;
 }
 
-/** Polls `read` until it gives what `expected` is, or fails after a while. */
+/**
+ * Polls `read` until it gives what `expected` is, or fails after 4 s: before
+ * Bun's 5 s test timeout, so a failure names what it saw instead of timing
+ * the test out and cascading into the next one.
+ */
 export async function eventually<T>(
 	read: () => Promise<T> | T,
 	expected: T,
 ): Promise<void> {
-	const deadline = Date.now() + 5_000;
+	const deadline = Date.now() + 4_000;
 	for (;;) {
 		const value = await read();
 		if (Bun.deepEquals(value, expected)) return;
@@ -94,6 +99,42 @@ export async function eventually<T>(
 		}
 		await Bun.sleep(20);
 	}
+}
+
+/**
+ * Resolves once at least `n` connections are subscribed to `channel`
+ * (`PUBSUB NUMSUB`), never a guessed sleep. A client's queues share one
+ * subscriber connection that SUBSCRIBEs once per channel, so NUMSUB counts
+ * connections, not listeners: several handles on one client are `n = 1`.
+ */
+export async function subscribed(
+	client: RedisClient,
+	channel: string,
+	n = 1,
+): Promise<void> {
+	await eventually(async () => {
+		const reply = (await client.send('PUBSUB', ['NUMSUB', channel])) as [
+			string,
+			number,
+		];
+		return Number(reply[1]) >= n;
+	}, true);
+}
+
+/**
+ * Resolves once at least `n` connections are blocked in `BLPOP`: a worker
+ * that found nothing to claim and waits on its queue's wake list.
+ */
+export async function blocked(client: RedisClient, n = 1): Promise<void> {
+	await eventually(async () => {
+		const list = (await client.send('CLIENT', ['LIST'])) as string;
+		// `cmd` is the last command run, still `blpop` once BLPOP returned;
+		// the `b` flag is set only while the connection really is blocked.
+		const waiting = list
+			.split('\n')
+			.filter((line) => / cmd=blpop /.test(line) && / flags=\S*b/.test(line));
+		return waiting.length >= n;
+	}, true);
 }
 
 /** Five a minute per address: the README's example. */
@@ -229,4 +270,76 @@ export async function consumeAt(
 		[rate.per, rate.limit, rate.burst, cost, write ? 1 : 0, now],
 	);
 	return toResult(reply, rate);
+}
+
+/** A short lease and backoff, so a spec that waits for a retry waits milliseconds. */
+export const mailQueue = defineQueue({
+	name: 'mails',
+	schema: z.object({
+		to: z.string(),
+		template: z.string().default('welcome'),
+	}),
+	lease: 300,
+	backoff: { base: 10, max: 50 },
+});
+
+/** Every script this server has run, from `INFO commandstats`. */
+export async function scriptCalls(client: RedisClient): Promise<number> {
+	const info = await client.info('commandstats');
+	let calls = 0;
+	for (const [, n] of info.matchAll(/cmdstat_eval(?:sha)?:calls=(\d+)/g)) {
+		calls += Number(n);
+	}
+	return calls;
+}
+
+/**
+ * Every command this server has run, by name, from `INFO commandstats`,
+ * leaving out the probes a spec makes itself: INFO and CLIENT LIST.
+ */
+export async function commandCalls(
+	client: RedisClient,
+): Promise<Record<string, number>> {
+	const info = await client.info('commandstats');
+	const calls: Record<string, number> = {};
+	for (const [, name, n] of info.matchAll(/cmdstat_([^:]+):calls=(\d+)/g)) {
+		if (name === 'info' || name === 'client|list' || name === 'client')
+			continue;
+		calls[name as string] = Number(n);
+	}
+	return calls;
+}
+
+/**
+ * Records what is published on a channel, through a subscriber of its own
+ * that the file closes after each test. Call it once per spec file, at its top
+ * level, and `await` the function it returns inside a test.
+ */
+export function useChannelLog() {
+	const subscribers: RedisClient[] = [];
+	afterEach(() => {
+		for (const subscriber of subscribers.splice(0)) subscriber.close();
+	});
+	return async (client: RedisClient, channel: string) => {
+		const messages: string[] = [];
+		const subscriber = await client.duplicate();
+		subscribers.push(subscriber);
+		await subscriber.subscribe(channel, (message) => {
+			messages.push(message);
+		});
+		return {
+			/**
+			 * What was published so far, parsed. A message a script publishes
+			 * arrives asynchronously, so this publishes a marker after it and
+			 * waits for the marker: whatever came before has come.
+			 */
+			async published(): Promise<unknown[]> {
+				await client.send('PUBLISH', [channel, '#']);
+				await eventually(() => messages.includes('#'), true);
+				return messages.filter((m) => m !== '#').map((m) => JSON.parse(m));
+			},
+			/** The raw text of what was published, in order, markers included. */
+			messages,
+		};
+	};
 }

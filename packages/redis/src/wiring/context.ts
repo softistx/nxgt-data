@@ -1,10 +1,12 @@
 import type { RedisClient } from 'bun';
 import type { Subscription } from '../channel/pubsub';
 import type { RedisConnection } from '../connection/connect';
+import type { QueueLife } from '../queue/binding/life';
 import type {
 	AnyCache,
 	AnyChannel,
 	AnyIdempotency,
+	AnyQueue,
 	AnyRateLimit,
 } from './types';
 
@@ -29,6 +31,7 @@ export interface InstanceContext {
 	readonly channels: readonly Wired<AnyChannel>[];
 	readonly limits: readonly Wired<AnyRateLimit>[];
 	readonly idempotency: readonly Wired<AnyIdempotency>[];
+	readonly queues: readonly Wired<AnyQueue>[];
 	/**
 	 * The connection the Redis opened, or `undefined` when the configuration
 	 * gave a client: what it did not open is not its to close.
@@ -54,6 +57,13 @@ export interface WiringContext {
 	readonly limits: Map<string, Map<string, unknown>>;
 	/** The bound idempotent operations already built, likewise. */
 	readonly idempotency: Map<string, Map<string, unknown>>;
+	/** The bound queues already built, likewise. */
+	readonly queues: Map<string, Map<string, unknown>>;
+	/**
+	 * The close protocol every wired queue of this Redis shares: its workers,
+	 * its pending `finished` calls and its state. Data, like the rest.
+	 */
+	readonly life: QueueLife;
 	/**
 	 * Every subscription this Redis started and nobody has closed.
 	 *
@@ -62,6 +72,8 @@ export interface WiringContext {
 	 * `close()` empties this before it closes the clients.
 	 */
 	readonly subscriptions: Set<Subscription>;
+	/** The first accepted `close()`'s promise, which every later call returns. Mutable, like `subscriptions`. */
+	closing?: Promise<void>;
 }
 
 /** The instance of a Redis object under `name`, or the reason there is none. */

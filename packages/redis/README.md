@@ -2,7 +2,7 @@
 
 Redis on **Bun's own client** — no third-party driver. One connection shared
 per URI, caches and channels described once and typed from their schema, and a
-lock that is safe to release — and rate limits and idempotent operations, wired the same way, each one atomic script timed by the Redis server's clock.
+lock that is safe to release — and rate limits and idempotent operations, wired the same way, each one atomic script timed by the Redis server's clock. A queue keeps jobs until a worker has finished them: delays, priorities, retries with backoff, at-least-once.
 
 ```ts
 import { defineRedis, openRedis } from '@nxgt/redis';
@@ -315,13 +315,94 @@ test('five logins a minute', async () => {
 The [testing guide](docs/guide/guard/testing.md) has whole specs for a rate
 limit and an idempotent operation.
 
+## Queue
+
+Jobs that must run, but not inside the request that asked for them — kept
+until a worker has finished each one, retried with backoff when it throws.
+
+```ts
+import { bindQueue, defineQueue, defineRedis, JobError, openRedis } from '@nxgt/redis';
+import { z } from 'zod';
+
+// queues.ts, exported with `export const mails = …`
+const mails = defineQueue({
+	name: 'mails',
+	schema: z.object({ to: z.string() }),
+	attempts: 5,                     // runs before the job fails for good
+	backoff: { base: '2s' },         // doubles, with jitter
+});
+
+// the `queues` key takes the module: `import * as queues from './queues'`
+const redis = await openRedis(
+	defineRedis({
+		uri: process.env.REDIS_URL!,
+		prefix: 'myapp:prod',
+		queues: { mails },
+	}),
+);
+const queue = redis.queues.mails;
+
+await queue.add({ to: 'ada@example.com' }, { id: 'welcome:ada', delay: '10m' });
+
+const worker = queue.work(
+	async ({ id, data }) => {
+		await sendMail(data.to, { idempotencyKey: id }); // may run again: be idempotent
+	},
+	{ concurrency: 4 },
+);
+worker.on('error', (error) => console.error(error));
+
+await redis.close({ grace: '10s' }); // on shutdown: workers get up to 10 s, then the rest is aborted
+```
+
+A job can run more than once, so put each side effect in a durable step: its
+value is committed once and a later attempt gets it back, never overwritten by
+a stale attempt. The fence is checked at the step's edges, not while `fn` runs,
+so `fn` may run more than once (a crash, or a lease lapsing mid-`fn`): pass
+`job.key(name)` downstream, a key that is the same on every attempt, for the
+other side to deduplicate on.
+
+```ts
+queue.work(async (job) => {
+	await job.step('send', () => sendMail(job.data.to, { idempotencyKey: job.key('send') }));
+});
+```
+
+Every `add` returns a handle that waits for the outcome; give the queue a
+`result` schema and `finished()` resolves with the handler's typed return
+(without one, it resolves `undefined`; `finished({ timeout })` is a hard bound, rejecting `WAIT_TIMEOUT` on time even if the connection hangs). `timeout` bounds a run, and the
+handler's `signal` aborts when it is canceled, times out or the worker closes:
+
+```ts
+const resizes = defineQueue({
+	name: 'resizes',
+	schema: z.object({ imageId: z.string() }),
+	result: z.object({ url: z.string() }),
+	timeout: '5m',
+});
+const resizing = bindQueue(redis.instances.default.client, resizes); // by hand: no prefix
+resizing.work(async ({ data, signal }) => ({ url: await resize(data.imageId, { signal }) }));
+
+const handle = await resizing.add({ imageId: 'img-1' });
+const { url } = await handle.finished({ timeout: '30s' }); // or QueueError FAILED, CANCELED, WAIT_TIMEOUT…
+```
+
+A job runs **at least once**: after a crash it runs again, so the handler must
+be safe to repeat. Throw `new JobError(message, { retry: false })` to give up,
+or `{ retryIn: '5m' }` to choose the wait. `redis.queues.mails` is the queue
+under the deployment's prefix; after `redis.close()`, `add`, `addMany`,
+`finished` and `work` throw `QueueError` `CLOSED`. A queue can also be bound by
+hand with `bindQueue(client, definition)`, with no prefix and no `CLOSED`. The
+[queue guide](docs/guide/queues.md) has results, timeouts, progress, events, priorities, flow control, retention, inspection and a spec.
+A complete example, with a producer, a worker, groups per tenant and a nightly schedule, is `examples/queue-mails` in the [repository](https://github.com/softistx/nxgt-data/tree/develop/examples/queue-mails); the guide's [benchmark](docs/guide/queues.md#benchmark) gives throughput and latency, measured locally.
+
 ## What it does not do
 
 - **No `multi`/`exec`.** Bun's client has none, and nothing here needs one:
   the lock is `SET NX PX`, one command, and its release is one script.
 - **It does not retry for you.** Bun's client reconnects; a command that fails
   fails, and the error is Redis's own.
-- **It is not a queue.** Pub/sub is fire-and-forget — see Traps.
+- **Pub/sub is not a queue.** It is fire-and-forget — see Traps; for a message that must not be lost, use the [queue](#queue).
 - **It listens to no signal.** Closing on shutdown is yours, with `close()` or
   `closeRedis()`.
 
@@ -384,13 +465,13 @@ results** — see [the guards' wiring page](docs/guide/wiring/guards.md).
 | `client` | — | A client the application opened. **Never closed** by `openRedis` |
 | `clientOptions` | `{}` | Bun's `RedisOptions`, passed with `uri`. Refused beside `client` |
 | `prefix` | — | Put in front of every key, channel, lock, rate-limit key and idempotency key this instance writes |
-| `caches`, `channels`, `limits`, `idempotency` | — | `import * as caches from './caches'`, as it is |
+| `caches`, `channels`, `limits`, `idempotency`, `queues` | — | `import * as caches from './caches'`, as it is |
 | `instances` | — | Several Redis instances, each taking the keys above. Written *instead* of them |
 
 `defineRedis` **connects to nothing and reads no environment variable**; what
 is wrong with the wiring throws there, where the application starts. A single
 instance is named `default`; with several, `redis.cache` and `redis.channels`
-are `never` (as are `redis.limits` and `redis.idempotency`) and `redis.instances.<name>` says which, as does `{ on: 'cache' }`
+are `never` (as are `redis.limits`, `redis.idempotency` and `redis.queues`) and `redis.instances.<name>` says which, as does `{ on: 'cache' }`
 on `redis.lock`.
 
 ```ts
@@ -402,6 +483,11 @@ await redis.close();                                  // or `await using redis =
 `close()` closes every subscription the wiring started and then the clients it
 opened, in that order; a `client` the configuration handed in is left alone.
 `RedisOf<typeof config>` writes the type of the result from the configuration.
+The scopes are exported for code that names them: `InstanceScope`, `CacheScope`,
+`ChannelScope`, `LimitScope`, `IdempotencyScope` and `QueueScope`, with their
+top-level forms `SoleInstance`, `SoleCache`, `SoleChannels`, `SoleLimits`,
+`SoleIdempotency` and `SoleQueues`, and `BoundChannel`, `PayloadOf`, `Redis` and
+`RedisLockOptions`.
 The wiring raises a bare `TypeError` naming the instance and what to do — all
 at wiring time — and what a call throws is the `RedisError` of the next
 sections. Every message is in
@@ -536,6 +622,25 @@ most other commands no longer — Redis's own rule. `close()` gives that copy
 back; the client passed in is untouched and is still the one to `publish`
 with. Each subscription is one more connection.
 
+### Queues
+
+| | |
+| --- | --- |
+| `defineQueue({ name, schema, result?, attempts?, backoff?, lease?, keepCompleted?, keepFailed?, timeout?, rateLimit?, groups?, schedules? })` | describes a queue; talks to nothing. Frozen, every `Duration` resolved to milliseconds. Refuses a definition that could never work with a `TypeError` |
+| `bindQueue(client, definition)` | binds it to a `RedisClient`: `definition` (read-only), `add(data, { id?, priority?, timeout?, group?, delay? \| at? })` (or `debounce` or `throttle` in place of `id`) (a `JobHandle`: `id`, `deduplicated`, `finished({ timeout? })`, `cancel()`), `addMany(items)` (each item takes the same options, `group` checked the same way), `work(handler, { concurrency? })` (the handler's `job` has `id`, `data`, `attempt`, `attempts`, `signal`, `progress(value)`, `step(name, fn, { schema? })` and `key(name)`; a `Worker`: `close({ grace? })`, `idle()`, `on(event, listener)`), `get(id)` (a `JobView`, with `group` for a job in a named group), `list(state, { offset?, limit? })`, `counts()` (the five states and `paused`), `pause()`, `resume()`, `retry(id, { fresh? })` (`fresh: true` clears the stored steps), `remove(id)`, `cancel(id)` and `schedules`. Bound by hand: no prefix, never `CLOSED` |
+| `schedules: { [id]: { cron, timezone? } \| { every } & { data } }` | on `defineQueue`: recurring jobs, a five-field cron (Vixie day rule, names, steps; no macros, seconds, `L`, `W`, `#`) in an IANA zone, or an interval of at least 1 s. Fire only while a worker runs (see [recurring jobs](docs/guide/queues.md#recurring-jobs)) |
+| `queue.schedules.upsert(id, schedule)`, `remove(id)`, `list({ offset?, limit? })` | runtime schedules; `upsert` refuses a definition's id. Types `Schedule`, `ScheduleView` (`origin`, `next`) and `QueueSchedules` (see [recurring jobs](docs/guide/queues.md#recurring-jobs)) |
+| `rateLimit: { limit, per, burst? }` | on `defineQueue`: at most `limit` jobs start per `per`, shared by every worker and process of the queue; only a job that starts is charged |
+| `groups: { concurrency? }`, `add(data, { group })` | on `defineQueue`: fair turns between groups of jobs (a tenant, a customer), round-robin between groups and by priority inside one; `concurrency` caps one group's running jobs across every worker. Every process must share it (`QueueError` `GROUPS_MISMATCH`). `group` on a queue without `groups`, and a malformed group name, are refused at run time (`TypeError`), not by the types; see [groups](docs/guide/queues.md#groups) |
+| `queue.pause()`, `queue.resume()` | stop and restart claims for every worker; running jobs finish, lapsed leases are still reclaimed, `resume` wakes a worker at once; both work after `redis.close()` |
+| `add(data, { debounce: { key, wait } })`, `add(data, { throttle: { key, window } })` | debounce keeps the last data and runs `wait` after the last add; throttle keeps the first job and answers its id for `window`. `deduplicated` on the handle; see [flow control](docs/guide/queues.md#flow-control) |
+| `defineRedis({ queues })` | wires every queue of the module as `redis.queues.<key>`, under the deployment's prefix (keys `queue:{<prefix>:<name>}:…`, `job.key(name)` as `<prefix>:<queue>:<id>:<name>`), built on first read |
+| `redis.close({ grace? })` | closes the queues' workers with `grace` (default 30 s), then refuses `add`, `addMany`, `finished` and `work` with `CLOSED` and rejects pending `finished`; admin calls still pass. Memoised: a second call's `grace` is ignored; a malformed one rejects before anything closes |
+
+The types are `QueueDefinition`, `QueueInput`, `BoundQueue`, `Worker`, `WorkerEvents`, `WorkOptions`, `JobContext`, `StepOptions`, `Handler`, `JobHandle`, `AddOptions`, `RetryOptions`, `JobView`, `JobState`, `QueueCounts`, `QueueRateLimit`, `QueueRate`, `QueueGroups`, `QueueGroupsInput`, `DebounceOptions`, `ThrottleOptions`, `ResultOf`, `ResultInputOf` and `Duration`; `JobError` is what a handler throws to choose its retry.
+Wired, `QueueScope` is `redis.queues`, `SoleQueues` its top-level form, and `QueuesOf` and `QueuesIn` read the queues off a configuration.
+See the [queue guide](docs/guide/queues.md) and its [durable steps](docs/guide/queues.md#running-twice).
+
 ## Errors
 
 `RedisError` is what this package throws once it is talking to Redis, with a
@@ -584,6 +689,29 @@ refuse a definition that could never work with a `TypeError`, and `run` a
 `fingerprint` or a `wait` of the wrong kind; every guard call refuses a
 `timeoutMs` that is not a whole number of 1 or more the same way. Every message is in
 [troubleshooting](docs/troubleshooting.md#rate-limits-and-idempotency).
+
+`QueueError` is what a queue throws, with a `code`, the `queue` it happened on
+and the `job` id when the call was about one — never the payload. It is its own
+class, not a `RedisError`.
+
+| `QueueErrorCode` | |
+| --- | --- |
+| `INVALID` | `add` or `addMany` got a payload its schema refuses (or throws on), or JSON cannot carry (nothing was written); a handler's result fails the result schema (the job fails, no retry); or `finished` read a stored result the result schema now refuses |
+| `NOT_FOUND` | `retry` named a job that is not failed, `remove` one that does not exist, `finished` waited on one that is not in the queue, or `schedules.remove` named a schedule that does not exist |
+| `ACTIVE` | `remove` named a job a worker is running |
+| `CANCELED` | `finished` waited on a job that was canceled; also a handler's `signal.reason` |
+| `FAILED` | `finished` waited on a job that failed for good; `lastError` is `{ name, message }` |
+| `WAIT_TIMEOUT` | `finished` waited as long as its `timeout` allowed; the job is untouched |
+| `TIMEOUT` | a run passed its `timeout`: a handler's `signal.reason` |
+| `LEASE_LOST` | a run lost its lease, or was canceled while the worker missed the event: a handler's `signal.reason` |
+| `CLOSED` | `add`, `addMany`, `finished` or `work` on a wiring whose `redis.close()` has run, or a `finished` still pending when it closed; also a handler's `signal.reason` once the worker closed and its grace passed |
+| `GROUPS_MISMATCH` | a call on a queue whose stored `groups` mode (`queue:{<name>}:groups:mode`) differs from this process's `groups` or `concurrency`; nothing was written. Every process must share `groups`; to change it, drain the queue and delete the marker |
+
+`defineQueue` (and `bindQueue`, for a definition written by hand) refuses a
+definition that could never work with a `TypeError`, and `add`, `work` and
+`list` an option out of range the same way. A handler's own error is kept on
+the job, not thrown. Every message is in
+[troubleshooting](docs/troubleshooting.md#queues).
 
 ## What does not compile
 
@@ -641,7 +769,7 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
 - **Pub/sub is fire-and-forget.** `publish` gives the number of subscribers
   Redis handed the message to — not a delivery guarantee. A subscriber that is
   not connected at that instant never sees it, and nothing is replayed. Use a
-  stream or a queue where a message must not be lost.
+  stream, or the [queue](#queue), where a message must not be lost.
 - **A handler's error never reaches your caller.** It goes to `onError`, which
   writes to `console.error` unless you pass one — a listener's throw has
   nowhere else to go, and Bun ends the process on an unhandled rejection. An
@@ -734,7 +862,7 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
 ## Documentation
 
 - [docs/README.md](docs/README.md) — the guide index: connections, caches,
-  locks and pub/sub, each with its options and a worked example, and the
+  locks, pub/sub and [queues](docs/guide/queues.md), each with its options and a worked example, and the
   wiring pages for `defineRedis` and `openRedis`.
 - [Wiring guides](docs/guide/wiring/configuration.md) — the configuration and
   its prefix, `redis.cache`, `redis.channels`, [`redis.limits` and

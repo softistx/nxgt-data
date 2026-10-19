@@ -15,6 +15,9 @@ export type { PingResult, RedisConnection } from './connection/connect';
 export { closeRedis, connectRedis } from './connection/connect';
 export type { GuardErrorCode } from './errors/guard-error';
 export { GuardError } from './errors/guard-error';
+export { JobError } from './errors/job-error';
+export type { QueueErrorCode } from './errors/queue-error';
+export { QueueError } from './errors/queue-error';
 export type { RedisErrorCode } from './errors/redis-error';
 export { RedisError } from './errors/redis-error';
 export { bindIdempotency } from './idempotency/bind-idempotency';
@@ -27,6 +30,42 @@ export type {
 } from './idempotency/types';
 export type { LockOptions } from './lock/with-lock';
 export { withLock } from './lock/with-lock';
+export { bindQueue } from './queue/binding/bind-queue';
+export { defineQueue } from './queue/definition/define-queue';
+export type { Duration } from './queue/duration';
+export type {
+	QueueSchedules,
+	Schedule,
+	ScheduleView,
+} from './queue/schedule/types';
+export type {
+	DebounceOptions,
+	QueueGroups,
+	QueueGroupsInput,
+	QueueRate,
+	QueueRateLimit,
+	RetryOptions,
+	ThrottleOptions,
+} from './queue/types/flow';
+export type { JobHandle } from './queue/types/handle';
+export type {
+	AddOptions,
+	BoundQueue,
+	JobState,
+	JobView,
+	QueueCounts,
+	QueueDefinition,
+	QueueInput,
+} from './queue/types/queue';
+export type { ResultInputOf, ResultOf } from './queue/types/result';
+export type {
+	Handler,
+	JobContext,
+	StepOptions,
+	Worker,
+	WorkerEvents,
+	WorkOptions,
+} from './queue/worker/types';
 export { bindRateLimit } from './rate-limit/bind-rate-limit';
 export { defineRateLimit } from './rate-limit/define-rate-limit';
 export type {
@@ -48,6 +87,8 @@ export type {
 	InstancesOf,
 	LimitsIn,
 	LimitsOf,
+	QueuesIn,
+	QueuesOf,
 	RedisConfig,
 	RedisConfigInput,
 } from './wiring/config/types';
@@ -60,6 +101,7 @@ export type {
 	InstanceScope,
 	LimitScope,
 	PayloadOf,
+	QueueScope,
 	Redis,
 	RedisLockOptions,
 	RedisOf,
@@ -68,4 +110,5 @@ export type {
 	SoleIdempotency,
 	SoleInstance,
 	SoleLimits,
+	SoleQueues,
 } from './wiring/types';

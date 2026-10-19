@@ -6,6 +6,7 @@ import {
 	subscribe,
 } from '../channel/pubsub';
 import { bindIdempotency } from '../idempotency/bind-idempotency';
+import { bindQueueWith } from '../queue/binding/bind-queue';
 import { bindRateLimit } from '../rate-limit/bind-rate-limit';
 import {
 	type InstanceContext,
@@ -17,6 +18,7 @@ import type {
 	AnyCache,
 	AnyChannel,
 	AnyIdempotency,
+	AnyQueue,
 	AnyRateLimit,
 	BoundChannel,
 } from './types';
@@ -179,5 +181,25 @@ export function idempotencyScopeOf(
 			at(ctx.idempotency, instance, key, () =>
 				bindIdempotency(instance.client, underPrefix(instance, definition)),
 			),
+	);
+}
+
+/**
+ * Queues bound with the prefix kept apart from the name, and the Redis's life
+ * handed to each: `work` and `add` refuse once the Redis closes, and its
+ * workers close with it. Nothing here touches the server: a queue connects
+ * on its first call.
+ */
+export function queueScopeOf(
+	ctx: WiringContext,
+	instance: InstanceContext,
+): object {
+	return scopeOf(instance.queues, (key: string, definition: AnyQueue) =>
+		at(ctx.queues, instance, key, () =>
+			bindQueueWith(instance.client, definition, {
+				prefix: instance.prefix,
+				life: ctx.life,
+			}),
+		),
 	);
 }

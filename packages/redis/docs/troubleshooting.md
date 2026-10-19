@@ -1,6 +1,6 @@
 # Troubleshooting
 
-This package throws two errors of its own. `GuardError` is the rate limits' and idempotency's (`TIMEOUT` among its codes, for a call given `timeoutMs`), in
+This package throws three errors of its own. `QueueError` is the queue's, in [its own part](#queues) of this page. `GuardError` is the rate limits' and idempotency's (`TIMEOUT` among its codes, for a call given `timeoutMs`), in
 [its own part](#rate-limits-and-idempotency) of this page. `RedisError`, for everything else, has a `code` of
 `LOCK_HELD`, `LOCK_LOST`, `INVALID`, `CONNECTION` or `PING_TIMEOUT`, and the
 key or channel it happened on as `key` — never the value. `CONNECTION` and
@@ -38,6 +38,102 @@ application can handle.
   - [`This message does not match the schema "orders" carries:`](#this-message-does-not-match-the-schema-orders-carries)
   - [`A message on "orders" does not match its schema:`](#a-message-on-orders-does-not-match-its-schema)
   - [A published message never arrives](#a-published-message-never-arrives)
+- **Queues** (`QueueError`, and the `TypeError`s of `defineQueue`, `add`, `work` and `list`)
+  - [`defineQueue: a queue needs a name, for its keys`](#definequeue-a-queue-needs-a-name-for-its-keys)
+  - [`defineQueue: "my{queue}" has braces; the name is the keys' hash tag, so it cannot hold any`](#definequeue-myqueue-has-braces-the-name-is-the-keys-hash-tag-so-it-cannot-hold-any)
+  - [`defineQueue: "a:b" has a colon; job.key joins the queue name, job id and step name with colons, so the name cannot hold one`](#definequeue-ab-has-a-colon-jobkey-joins-the-queue-name-job-id-and-step-name-with-colons-so-the-name-cannot-hold-one)
+  - [`defineQueue: "mails" has no schema; a payload is checked against one both ways`](#definequeue-mails-has-no-schema-a-payload-is-checked-against-one-both-ways)
+  - [`defineQueue: "mails" has attempts of 0; it is a whole number of runs, and must be at least 1`](#definequeue-mails-has-attempts-of-0-it-is-a-whole-number-of-runs-and-must-be-at-least-1)
+  - [`defineQueue: "mails" has a backoff base of 5000ms above its max of 1000ms`](#definequeue-mails-has-a-backoff-base-of-5000ms-above-its-max-of-1000ms)
+  - [`defineQueue: "mails" has a lease of 10ms; it is renewed every third of itself, so it must be at least 30ms`](#definequeue-mails-has-a-lease-of-10ms-it-is-renewed-every-third-of-itself-so-it-must-be-at-least-30ms)
+  - [`defineQueue: "mails" has a keepCompleted count of -1; it is a whole number of jobs, from 0`](#definequeue-mails-has-a-keepcompleted-count-of--1-it-is-a-whole-number-of-jobs-from-0)
+  - [`defineQueue: "mails" lease is "10 minutes"; a duration is a whole number of milliseconds or a string such as '10m'`](#definequeue-mails-lease-is-10-minutes-a-duration-is-a-whole-number-of-milliseconds-or-a-string-such-as-10m)
+  - [`defineQueue: "mails" rateLimit has a limit of 0; it is a whole number of requests, and must be at least 1`](#definequeue-mails-ratelimit-has-a-limit-of-0-it-is-a-whole-number-of-requests-and-must-be-at-least-1)
+  - [`defineQueue: "mails" rateLimit has a per of 0; it is a whole number of milliseconds, and must be at least 1`](#definequeue-mails-ratelimit-has-a-per-of-0-it-is-a-whole-number-of-milliseconds-and-must-be-at-least-1)
+  - [`defineQueue: "mails" rateLimit has a burst of 0; it is a whole number of requests, and must be at least 1`](#definequeue-mails-ratelimit-has-a-burst-of-0-it-is-a-whole-number-of-requests-and-must-be-at-least-1)
+  - [`defineQueue: "mails" rateLimit has a burst of 100 and a per of 9007199254741ms; burst × per must be at most 9007199254740 for the script to count exactly`](#definequeue-mails-ratelimit-has-a-burst-of-100-and-a-per-of-9007199254741ms-burst--per-must-be-at-most-9007199254740-for-the-script-to-count-exactly)
+  - [`defineQueue: "mails" rateLimit would take longer than ten years to refill from empty (burst × per ÷ limit); check that per is in milliseconds`](#definequeue-mails-ratelimit-would-take-longer-than-ten-years-to-refill-from-empty-burst--per--limit-check-that-per-is-in-milliseconds)
+  - [`defineQueue: "mails" has a rateLimit that is not an object; it is { limit, per, burst? }`](#definequeue-mails-has-a-ratelimit-that-is-not-an-object-it-is--limit-per-burst-)
+  - [`defineQueue: "mails" has groups that is not an object; it is { concurrency? }`](#definequeue-mails-has-groups-that-is-not-an-object-it-is--concurrency-)
+  - [`defineQueue: "mails" has groups concurrency; it is a whole number of jobs per group, at least 1, or left out for no cap`](#definequeue-mails-has-groups-concurrency-it-is-a-whole-number-of-jobs-per-group-at-least-1-or-left-out-for-no-cap)
+  - [`add on "mails": group needs groups in defineQueue`](#add-on-mails-group-needs-groups-in-definequeue)
+  - [`add on "mails": group is a string of 1 to 256 characters without braces or colons`](#add-on-mails-group-is-a-string-of-1-to-256-characters-without-braces-or-colons)
+  - [`add on "mails": the queue was started with no groups and this process has groups { concurrency: 2 }; every process must share groups (drain the queue and delete queue:{mails}:groups:mode to change it)`](#add-on-mails-the-queue-was-started-with-no-groups-and-this-process-has-groups--concurrency-2--every-process-must-share-groups-drain-the-queue-and-delete-queuemailsgroupsmode-to-change-it)
+  - [`add on "mails": the queue was started with groups { concurrency: 2 } and this process has groups { concurrency: 3 }; every process must share groups (drain the queue and delete queue:{mails}:groups:mode to change it)`](#add-on-mails-the-queue-was-started-with-groups--concurrency-2--and-this-process-has-groups--concurrency-3--every-process-must-share-groups-drain-the-queue-and-delete-queuemailsgroupsmode-to-change-it)
+  - [Every ungrouped queue gains a `queue:{mails}:groups:mode` key](#every-ungrouped-queue-gains-a-queuemailsgroupsmode-key)
+  - [`add on "mails": id is a string of 1 to 256 characters without braces, which are a hash tag`](#add-on-mails-id-is-a-string-of-1-to-256-characters-without-braces-which-are-a-hash-tag)
+  - [`add on "mails": priority is a whole number from 0 to 1000`](#add-on-mails-priority-is-a-whole-number-from-0-to-1000)
+  - [`add on "mails": delay and at say the same thing; give one`](#add-on-mails-delay-and-at-say-the-same-thing-give-one)
+  - [`add on "mails": delay is a whole number of milliseconds or a string such as '10m'`](#add-on-mails-delay-is-a-whole-number-of-milliseconds-or-a-string-such-as-10m)
+  - [`add on "mails": at is a valid Date`](#add-on-mails-at-is-a-valid-date)
+  - [`add on "mails": timeout is at least 1 millisecond, as a whole number or a string such as '10m'`](#add-on-mails-timeout-is-at-least-1-millisecond-as-a-whole-number-or-a-string-such-as-10m)
+  - [`add on "mails": debounce and throttle cannot be combined; give one`](#add-on-mails-debounce-and-throttle-cannot-be-combined-give-one)
+  - [`add on "mails": debounce and id cannot be combined; the key names the job`](#add-on-mails-debounce-and-id-cannot-be-combined-the-key-names-the-job)
+  - [`add on "mails": debounce and delay cannot be combined; wait sets the run time`](#add-on-mails-debounce-and-delay-cannot-be-combined-wait-sets-the-run-time)
+  - [`add on "mails": debounce is an object { key, wait }`](#add-on-mails-debounce-is-an-object--key-wait-)
+  - [`add on "mails": debounce.key is a string of 1 to 256 characters without braces, which are a hash tag`](#add-on-mails-debouncekey-is-a-string-of-1-to-256-characters-without-braces-which-are-a-hash-tag)
+  - [`add on "mails": debounce.wait is at least 1 millisecond, as a whole number or a string such as '10m'`](#add-on-mails-debouncewait-is-at-least-1-millisecond-as-a-whole-number-or-a-string-such-as-10m)
+  - [`work on "mails": concurrency is a whole number from 1 to 1000`](#work-on-mails-concurrency-is-a-whole-number-from-1-to-1000)
+  - [`list on "mails": offset is a whole number from 0`](#list-on-mails-offset-is-a-whole-number-from-0)
+  - [`list on "mails": limit is a whole number from 1 to 1000`](#list-on-mails-limit-is-a-whole-number-from-1-to-1000)
+  - [`list on "mails": state is one of waiting, delayed, active, completed, failed`](#list-on-mails-state-is-one-of-waiting-delayed-active-completed-failed)
+  - [`add on "mails": the data does not match the schema (invalid_type)`](#add-on-mails-the-data-does-not-match-the-schema-invalid_type)
+  - [`retry on "mails": job "receipt:42" is not failed`](#retry-on-mails-job-receipt42-is-not-failed)
+  - [`retry on "mails": fresh is true or false`](#retry-on-mails-fresh-is-true-or-false)
+  - [`remove on "mails": no job "receipt:42"`](#remove-on-mails-no-job-receipt42)
+  - [`remove on "mails": job "receipt:42" is running`](#remove-on-mails-job-receipt42-is-running)
+  - [A job's `error` is `INVALID: the stored data does not match the schema`](#a-jobs-error-is-invalid-the-stored-data-does-not-match-the-schema)
+  - [A job's `error` is `INVALID: a stored job this package could not have written`](#a-jobs-error-is-invalid-a-stored-job-this-package-could-not-have-written)
+  - [`finished on "mails": job "receipt:42" failed`](#finished-on-mails-job-receipt42-failed)
+  - [`finished on "mails": job "receipt:42" was canceled`](#finished-on-mails-job-receipt42-was-canceled)
+  - [`finished on "mails": job "receipt:42" is not in the queue`](#finished-on-mails-job-receipt42-is-not-in-the-queue)
+  - [`finished on "mails": job "receipt:42" did not finish in time`](#finished-on-mails-job-receipt42-did-not-finish-in-time)
+  - [`finished on "mails": job "receipt:42" has a result the result schema refuses`](#finished-on-mails-job-receipt42-has-a-result-the-result-schema-refuses)
+  - [`finished on "mails": timeout is at least 1 millisecond, as a whole number or a string such as '10m'`](#finished-on-mails-timeout-is-at-least-1-millisecond-as-a-whole-number-or-a-string-such-as-10m)
+  - [`defineQueue: "mails" has a timeout of 0ms; it must be at least 1ms, or left out for no limit`](#definequeue-mails-has-a-timeout-of-0ms-it-must-be-at-least-1ms-or-left-out-for-no-limit)
+  - [`run on "mails": job "receipt:42" ran past its timeout`](#run-on-mails-job-receipt42-ran-past-its-timeout)
+  - [A job's `error` is `TIMEOUT: the attempt ran past its timeout`](#a-jobs-error-is-timeout-the-attempt-ran-past-its-timeout)
+  - [`run on "mails": job "receipt:42" lost its lease`](#run-on-mails-job-receipt42-lost-its-lease)
+  - [`step on "mails": name is a string of 1 to 128 characters without ":"`](#step-on-mails-name-is-a-string-of-1-to-128-characters-without-)
+  - [`step on "mails": step "send" already ran in this attempt`](#step-on-mails-step-send-already-ran-in-this-attempt)
+  - [A job's `error` is `INVALID: step on "mails": step "send" returned a value …`](#a-jobs-error-is-invalid-step-on-mails-step-send-returned-a-value-)
+  - [A job's `error` is `INVALID: step on "mails": step "send" holds a value the schema refuses`](#a-jobs-error-is-invalid-step-on-mails-step-send-holds-a-value-the-schema-refuses)
+  - [`run on "mails": job "receipt:42" lost its lease` from `job.step`](#run-on-mails-job-receipt42-lost-its-lease-from-jobstep)
+  - [`run on "mails": job "receipt:42" was aborted because the worker closed`](#run-on-mails-job-receipt42-was-aborted-because-the-worker-closed)
+  - [`close on "mails": grace is a whole number of milliseconds or a string such as '10s'`](#close-on-mails-grace-is-a-whole-number-of-milliseconds-or-a-string-such-as-10s)
+  - [`progress on "mails": progress is a number from 0 to 100`](#progress-on-mails-progress-is-a-number-from-0-to-100)
+  - [`defineQueue: "mails" has a result that is not a schema; a result is checked against one both ways`](#definequeue-mails-has-a-result-that-is-not-a-schema-a-result-is-checked-against-one-both-ways)
+  - [A job's `error` is `INVALID: the result does not match the result schema`](#a-jobs-error-is-invalid-the-result-does-not-match-the-result-schema)
+  - [A handler keeps running after its job was canceled, timed out or lost](#a-handler-keeps-running-after-its-job-was-canceled-timed-out-or-lost)
+  - [`finished` takes up to 5 seconds longer than the job](#finished-takes-up-to-5-seconds-longer-than-the-job)
+  - [`queue script reply not recognised: <what>` and `add on "mails": the script answered nothing`](#queue-script-reply-not-recognised-what-and-add-on-mails-the-script-answered-nothing)
+  - [`WRONGTYPE Operation against a key holding the wrong kind of value` from a queue](#wrongtype-operation-against-a-key-holding-the-wrong-kind-of-value-from-a-queue)
+  - [My worker does nothing](#my-worker-does-nothing)
+  - [A job ran twice](#a-job-ran-twice)
+  - [A job added with an `id` never runs](#a-job-added-with-an-id-never-runs)
+  - [`defineQueue: "mails" schedule "nightly": cron minute: 61 is out of range 0-59`](#definequeue-mails-schedule-nightly-cron-minute-61-is-out-of-range-0-59)
+  - [`defineQueue: "mails" schedule "nightly": cron minute: step 0 must be at least 1`](#definequeue-mails-schedule-nightly-cron-minute-step-0-must-be-at-least-1)
+  - [`defineQueue: "mails" schedule "nightly": cron hour: range 17-9 is reversed`](#definequeue-mails-schedule-nightly-cron-hour-range-17-9-is-reversed)
+  - [`defineQueue: "mails" schedule "nightly": cron month: "foo" is not a value or a name`](#definequeue-mails-schedule-nightly-cron-month-foo-is-not-a-value-or-a-name)
+  - [`defineQueue: "mails" schedule "nightly": cron minute: "1/2/3" has more than one "/"`](#definequeue-mails-schedule-nightly-cron-minute-123-has-more-than-one-)
+  - [`defineQueue: "mails" schedule "nightly": cron needs five fields (minute hour day-of-month month day-of-week), got 6`](#definequeue-mails-schedule-nightly-cron-needs-five-fields-minute-hour-day-of-month-month-day-of-week-got-6)
+  - [`defineQueue: "mails" schedule "nightly": cron needs five fields (minute hour day-of-month month day-of-week), got 1`](#definequeue-mails-schedule-nightly-cron-needs-five-fields-minute-hour-day-of-month-month-day-of-week-got-1)
+  - [`defineQueue: "mails" schedule "nightly": cron day of month and day of week: no day of a 400-year cycle matches, so it would never match`](#definequeue-mails-schedule-nightly-cron-day-of-month-and-day-of-week-no-day-of-a-400-year-cycle-matches-so-it-would-never-match)
+  - [`defineQueue: "mails" schedule "nightly": timezone "Mars/Base" is not a time zone name Intl accepts, such as "UTC" or "Europe/Paris"`](#definequeue-mails-schedule-nightly-timezone-marsbase-is-not-a-time-zone-name-intl-accepts-such-as-utc-or-europeparis)
+  - [`defineQueue: "mails" schedule "nightly" has both cron and every; give one`](#definequeue-mails-schedule-nightly-has-both-cron-and-every-give-one)
+  - [`defineQueue: "mails" schedule "nightly" has neither cron nor every; give one`](#definequeue-mails-schedule-nightly-has-neither-cron-nor-every-give-one)
+  - [`defineQueue: "mails" schedule "nightly" has a timezone with every; a timezone goes with a cron`](#definequeue-mails-schedule-nightly-has-a-timezone-with-every-a-timezone-goes-with-a-cron)
+  - [`defineQueue: "mails" schedule "nightly" is not an object with cron or every, and data`](#definequeue-mails-schedule-nightly-is-not-an-object-with-cron-or-every-and-data)
+  - [`defineQueue: "mails" schedule "nightly" has an every under 1 second; it is at least 1s`](#definequeue-mails-schedule-nightly-has-an-every-under-1-second-it-is-at-least-1s)
+  - [`defineQueue: "mails" a schedule id is a string of 1 to 256 characters without braces or colons`](#definequeue-mails-a-schedule-id-is-a-string-of-1-to-256-characters-without-braces-or-colons)
+  - [`defineQueue: "mails" has 1001 schedules; at most 1000, which is what one sync takes`](#definequeue-mails-has-1001-schedules-at-most-1000-which-is-what-one-sync-takes)
+  - [`bindQueue: "mails" has schedules that are not the ones defineQueue resolves`](#bindqueue-mails-has-schedules-that-are-not-the-ones-definequeue-resolves)
+  - [`defineQueue: "mails" schedule "nightly" data does not match the schema (invalid_type)`](#definequeue-mails-schedule-nightly-data-does-not-match-the-schema-invalid_type)
+  - [`schedules.upsert on "mails": "nightly" belongs to the definition; change it in defineQueue`](#schedulesupsert-on-mails-nightly-belongs-to-the-definition-change-it-in-definequeue)
+  - [`schedules.remove on "mails": no schedule "nightly"`](#schedulesremove-on-mails-no-schedule-nightly)
+  - [`add on "mails": id cannot start with "schedule:", which names scheduled occurrences`](#add-on-mails-id-cannot-start-with-schedule-which-names-scheduled-occurrences)
+  - [My schedule does not fire](#my-schedule-does-not-fire)
+  - [`ERR the definition set holds more than 2000 ids`](#err-the-definition-set-holds-more-than-2000-ids)
 - **Wiring** (`defineRedis` and `openRedis`)
   - [`Property 'users' does not exist on type 'never'.`](#property-users-does-not-exist-on-type-never)
   - [`Property 'users' does not exist on type 'CacheScope<Record<never, never>>'.`](#property-users-does-not-exist-on-type-cachescoperecordnever-never)
@@ -46,13 +142,20 @@ application can handle.
   - [`defineRedis: instance "default" has both uri and client. Pass the URI to connect to, or the client you already opened.`](#defineredis-instance-default-has-both-uri-and-client-pass-the-uri-to-connect-to-or-the-client-you-already-opened)
   - [`defineRedis: instance "default" has clientOptions beside a client. The client was opened with its own; pass a uri, or drop the options.`](#defineredis-instance-default-has-clientoptions-beside-a-client-the-client-was-opened-with-its-own-pass-a-uri-or-drop-the-options)
   - [`defineRedis: instance "default" has an empty prefix. Leave it out, or give it a name.`](#defineredis-instance-default-has-an-empty-prefix-leave-it-out-or-give-it-a-name)
-  - [`defineRedis: instance "default" wires no cache, no channel, no rate limit and no idempotency. Pass the module that exports them, or drop the instance.`](#defineredis-instance-default-wires-no-cache-no-channel-no-rate-limit-and-no-idempotency-pass-the-module-that-exports-them-or-drop-the-instance)
-  - [`openRedis: instance "main" wires no cache, no channel, no rate limit and no idempotency. …`](#defineredis-instance-default-wires-no-cache-no-channel-no-rate-limit-and-no-idempotency-pass-the-module-that-exports-them-or-drop-the-instance) — the same, from `openRedis`
+  - [`defineRedis: instance "default" wires no cache, no channel, no rate limit, no idempotency and no queue. Pass the module that exports them, or drop the instance.`](#defineredis-instance-default-wires-no-cache-no-channel-no-rate-limit-no-idempotency-and-no-queue-pass-the-module-that-exports-them-or-drop-the-instance)
+  - [`openRedis: instance "main" wires no cache, no channel, no rate limit, no idempotency and no queue. …`](#defineredis-instance-default-wires-no-cache-no-channel-no-rate-limit-no-idempotency-and-no-queue-pass-the-module-that-exports-them-or-drop-the-instance) — the same, from `openRedis`
   - [`defineRedis: instance "default" wires the cache named "user" twice, under "users" and "people". They would share every key in Redis. Export one of them, or give it a name of its own.`](#defineredis-instance-default-wires-the-cache-named-user-twice-under-users-and-people-they-would-share-every-key-in-redis-export-one-of-them-or-give-it-a-name-of-its-own)
   - [`defineRedis: instance "default" wires the rate limit named "login" twice, …` (and `wires the idempotency named …`, `wires the channel named …`)](#defineredis-instance-default-wires-the-cache-named-user-twice-under-users-and-people-they-would-share-every-key-in-redis-export-one-of-them-or-give-it-a-name-of-its-own)
   - [`defineRedis: instance "default" wires the cache "users" and the rate limit "login" under one name, "user". They would share every key in Redis. Give one of them a name of its own.`](#defineredis-instance-default-wires-the-cache-users-and-the-rate-limit-login-under-one-name-user-they-would-share-every-key-in-redis-give-one-of-them-a-name-of-its-own)
   - [``defineRedis: `instances` is empty. Give it one, or write the single instance as the configuration itself.``](#defineredis-instances-is-empty-give-it-one-or-write-the-single-instance-as-the-configuration-itself)
   - [`openRedis: instance "main" has neither uri nor client. Give it one.`](#openredis-instance-main-has-neither-uri-nor-client-give-it-one)
+  - [`defineRedis: instance "default" wires the queue named "mails" twice, under "mails" and "outbox". They would share every key in Redis. Export one of them, or give it a name of its own.`](#defineredis-instance-default-wires-the-queue-named-mails-twice-under-mails-and-outbox-they-would-share-every-key-in-redis-export-one-of-them-or-give-it-a-name-of-its-own)
+  - [`defineRedis: instance "default" wires the cache "users" and the queue "mails" under one name, "mail". They would share every key in Redis. Give one of them a name of its own.`](#defineredis-instance-default-wires-the-cache-users-and-the-queue-mails-under-one-name-mail-they-would-share-every-key-in-redis-give-one-of-them-a-name-of-its-own)
+  - [`defineRedis: instance "default" has a prefix with braces, and it wires queues; a queue's name is its keys' hash tag, so the prefix in front of it cannot hold any.`](#defineredis-instance-default-has-a-prefix-with-braces-and-it-wires-queues-a-queues-name-is-its-keys-hash-tag-so-the-prefix-in-front-of-it-cannot-hold-any)
+  - [`add on "mails": the Redis is closed`](#add-on-mails-the-redis-is-closed) — also `addMany` and `finished`
+  - [`work on "mails": the Redis is closing`](#work-on-mails-the-redis-is-closing)
+  - [`finished on "mails": job "receipt:42" was pending when the Redis closed`](#finished-on-mails-job-receipt42-was-pending-when-the-redis-closed)
+  - [`close: grace is not a duration; a duration is a whole number of milliseconds or a string such as '10m'`](#close-grace-is-not-a-duration-a-duration-is-a-whole-number-of-milliseconds-or-a-string-such-as-10m)
   - [`cache: this Redis holds 2 Redis instances, and this call lives on one. Name it, as { on: 'cache' }.`](#cache-this-redis-holds-2-redis-instances-and-this-call-lives-on-one-name-it-as--on-cache-)
   - [`lock: this Redis has no instance named "events". It wires "cache", "pubsub".`](#lock-this-redis-has-no-instance-named-events-it-wires-cache-pubsub)
   - [A key, a channel or a lock is not where you expect it in `redis-cli`](#a-key-a-channel-or-a-lock-is-not-where-you-expect-it-in-redis-cli)
@@ -515,6 +618,1072 @@ const delivered = await publish(client, orders, payload);
 if (delivered === 0) await queue.add(payload); // a stream or a queue, where it must not be lost
 ```
 
+## Queues
+
+A queue throws a `QueueError` and a bare `TypeError`. `QueueError` has a `code`
+of `INVALID`, `NOT_FOUND`, `ACTIVE`, `CANCELED`, `FAILED`, `WAIT_TIMEOUT`, `TIMEOUT`, `LEASE_LOST`, `CLOSED` or `GROUPS_MISMATCH`, the `queue` it happened on and the `job`
+id when the call was about one — never the payload. Everything the code got
+wrong (a definition, an option, a page) is a `TypeError`, thrown before
+anything is written. A **handler's** error — a `JobError`, or anything it
+throws — is not thrown to the caller: it is kept on the job, which you read with
+`get` or `list`. See the [guide](guide/queues.md).
+
+### `defineQueue: a queue needs a name, for its keys`
+
+**When:** at `defineQueue` (or `bindQueue: …`, for a definition written by hand), with an empty or missing `name`.
+**Why:** the name is in every key the queue writes (`queue:{<name>}:…`).
+**Fix:**
+
+```ts
+export const mails = defineQueue({ name: 'mails', schema });
+```
+
+### `defineQueue: "my{queue}" has braces; the name is the keys' hash tag, so it cannot hold any`
+
+**When:** at `defineQueue`, with a `{` or `}` in `name`.
+**Why:** the name is the hash tag of every key, so all of one queue's keys land on the same Redis Cluster slot; a brace of your own would end the tag early.
+**Fix:**
+
+```ts
+defineQueue({ name: 'my-queue', schema });
+```
+
+### `defineQueue: "a:b" has a colon; job.key joins the queue name, job id and step name with colons, so the name cannot hold one`
+
+**When:** at `defineQueue`, with a `:` in `name`.
+**Why:** `job.key(name)` is `<queue>:<job id>:<step name>`; a colon in the queue name would make two different jobs share a key.
+**Fix:**
+
+```ts
+defineQueue({ name: 'a-b', schema });
+```
+
+### `defineQueue: "mails" has no schema; a payload is checked against one both ways`
+
+**When:** at `defineQueue`, with no `schema`, or one that is not a zod schema.
+**Why:** a payload is checked on `add`, and again before a handler sees it.
+**Fix:**
+
+```ts
+defineQueue({ name: 'mails', schema: z.object({ to: z.string() }) });
+```
+
+### `defineQueue: "mails" has attempts of 0; it is a whole number of runs, and must be at least 1`
+
+**When:** at `defineQueue`, with `attempts` below 1 or not a whole number.
+**Why:** `attempts` counts runs, the first included: 1 means no retry.
+**Fix:**
+
+```ts
+defineQueue({ name: 'mails', schema, attempts: 1 }); // run once, never retry
+```
+
+### `defineQueue: "mails" has a backoff base of 5000ms above its max of 1000ms`
+
+**When:** at `defineQueue`, with `backoff.base` above `backoff.max` (the max defaults to 1 hour).
+**Why:** the wait doubles from `base` up to `max`; a base above the cap has no meaning.
+**Fix:**
+
+```ts
+defineQueue({ name: 'mails', schema, backoff: { base: '5s', max: '5m' } });
+```
+
+### `defineQueue: "mails" has a lease of 10ms; it is renewed every third of itself, so it must be at least 30ms`
+
+**When:** at `defineQueue`, with a `lease` under 30 ms.
+**Why:** a running worker renews the lease every third of it, and a timer needs a few milliseconds to do that.
+**Fix:** give it the longest a handler can run without the process dying — the default is 30 seconds.
+
+```ts
+defineQueue({ name: 'mails', schema, lease: '1m' });
+```
+
+### `defineQueue: "mails" has a keepCompleted count of -1; it is a whole number of jobs, from 0`
+
+**When:** at `defineQueue`, with a `keepCompleted.count` that is negative or fractional.
+**Why:** it is how many completed jobs stay readable.
+**Fix:** use `keepCompleted: false` to keep none, or a count from 0.
+
+```ts
+defineQueue({ name: 'mails', schema, keepCompleted: { count: 100 } });
+```
+
+### `defineQueue: "mails" lease is "10 minutes"; a duration is a whole number of milliseconds or a string such as '10m'`
+
+**When:** at `defineQueue`, with a span the queue cannot read. The option named in the message is the one that is wrong: `lease`, `backoff base`, `backoff max`, `keepFailed`, `keepCompleted age`, `timeout` or `rateLimit per`. The same words, as `add on "mails": delay is …`, come from `add` and `addMany`, and `retryIn is …` from `new JobError`. `defineQueue` and `new JobError` print the value (`is "10 minutes"`), because it is the code's own; `add` does not quote it, because a request may have chosen it.
+**Why:** a duration is a whole number of milliseconds (not negative), or a number and a unit — `ms`, `s`, `m`, `h`, `d`. `'10 minutes'`, `'1w'`, `-5` and `0.5` are refused.
+**Fix:**
+
+```ts
+defineQueue({ name: 'mails', schema, lease: '10m' });
+```
+
+### `defineQueue: "mails" rateLimit has a limit of 0; it is a whole number of requests, and must be at least 1`
+
+**When:** `defineQueue` with a `rateLimit` whose `limit`, `per` or `burst` is zero, negative, fractional or not a number. The same sentence comes with `a per of …` (milliseconds) or `a burst of …` (requests).
+**Why:** the queue's `rateLimit` follows the numeric rules of `defineRateLimit`, so each value must be a whole number of at least 1. The message names the value that failed.
+**Fix:**
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	rateLimit: { limit: 10, per: '1s', burst: 20 }, // burst defaults to limit
+});
+```
+
+### `defineQueue: "mails" rateLimit has a per of 0; it is a whole number of milliseconds, and must be at least 1`
+
+**When:** `defineQueue` with a `rateLimit.per` of `0` (or `'0s'`). A `per` such as `-1`, `1.5` or `'10min'` is refused earlier, as `defineQueue: "mails" rateLimit per is …; a duration is a whole number of milliseconds or a string such as '10m'`.
+**Why:** `per` is the window the `limit` is spent over; it must be at least one millisecond.
+**Fix:**
+
+```ts
+rateLimit: { limit: 10, per: '1s' }
+```
+
+### `defineQueue: "mails" rateLimit has a burst of 0; it is a whole number of requests, and must be at least 1`
+
+**When:** `defineQueue` with a `rateLimit.burst` of `0`, negative or fractional.
+**Why:** `burst` is the bucket's size, how many claims can go at once; leave it out and it equals `limit`.
+**Fix:**
+
+```ts
+rateLimit: { limit: 10, per: '1s', burst: 10 }
+```
+
+### `defineQueue: "mails" rateLimit has a burst of 100 and a per of 9007199254741ms; burst × per must be at most 9007199254740 for the script to count exactly`
+
+**When:** `defineQueue` with a `burst` (or `limit`) times `per`, in milliseconds, above `Number.MAX_SAFE_INTEGER / 1000`.
+**Why:** the Redis script counts in integers and stays exact only under that product. A `per` of years is the usual cause.
+**Fix:**
+
+```ts
+rateLimit: { limit: 100, per: '1h' } // not '100y'
+```
+
+### `defineQueue: "mails" rateLimit would take longer than ten years to refill from empty (burst × per ÷ limit); check that per is in milliseconds`
+
+**When:** `defineQueue` with a `rateLimit` whose bucket takes more than ten years to refill.
+**Why:** it is almost always a `per` written in a unit smaller than milliseconds: `per: 4e11` (400 billion ms, about 12 years) with `limit: 1` throws, while a minute is `per: 60_000`. A bare `per: 60` does not throw: it is 60 milliseconds.
+**Fix:**
+
+```ts
+rateLimit: { limit: 5, per: '1m' } // a string says the unit
+```
+
+### `defineQueue: "mails" has a rateLimit that is not an object; it is { limit, per, burst? }`
+
+**When:** `defineQueue` with a `rateLimit` of a number, a string or `null`.
+**Why:** a rate limit is three values, not one.
+**Fix:**
+
+```ts
+rateLimit: { limit: 10, per: '1s' }
+```
+
+### `defineQueue: "mails" has groups that is not an object; it is { concurrency? }`
+
+**When:** `defineQueue` with `groups` set to `true`, a number or a string.
+**Why:** `groups` turns on per-group ordering and is an object, even an empty one.
+**Fix:**
+
+```ts
+groups: {} // groups with no cap
+```
+
+### `defineQueue: "mails" has groups concurrency; it is a whole number of jobs per group, at least 1, or left out for no cap`
+
+**When:** `defineQueue` with `groups: { concurrency }` of 0, a negative, a fraction or a non-number.
+**Why:** `concurrency` is how many jobs of one group run at once; 0 is not "no cap", which is the absence of the option.
+**Fix:**
+
+```ts
+groups: { concurrency: 1 } // one job at a time per group
+// or
+groups: {} // no cap
+```
+
+### `add on "mails": group needs groups in defineQueue`
+
+**When:** `add` or `addMany` (the message starts `addMany on` there) with a `group`, on a queue defined without `groups`.
+**Why:** an ungrouped queue keeps no per-group state, so a group would be silently ignored; the call is refused before anything is written.
+**Fix:**
+
+```ts
+const mails = defineQueue({ name: 'mails', schema, groups: { concurrency: 1 } });
+await mails.add(payload, { group: 'tenant-1' });
+```
+
+### `add on "mails": group is a string of 1 to 256 characters without braces or colons`
+
+**When:** `add` or `addMany` with a `group` that is empty, longer than 256 characters, not a string, or holds a brace or a colon. The message never prints the value.
+**Why:** the group is part of the keys that track it, which are joined with colons and live under the queue's `{mails}` hash tag.
+**Fix:** build the group from an id, not from free text.
+
+```ts
+await mails.add(payload, { group: `tenant-${tenantId}` }); // 'tenant-1', not 'tenant:1'
+```
+
+### `add on "mails": the queue was started with no groups and this process has groups { concurrency: 2 }; every process must share groups (drain the queue and delete queue:{mails}:groups:mode to change it)`
+
+**When:** a `QueueError` of code `GROUPS_MISMATCH`, from a call on a queue that already holds jobs: during a rolling deploy where old and new processes define `groups` differently, or when one process (a script, a test) defines the queue with another config. The call is `add` here, and `addMany`, `retry`, `remove`, `cancel`, `claim`, `complete`, `fail` or `fire` on the other paths.
+**Why:** the first call writes the queue's mode to the key `queue:{mails}:groups:mode` (`0` ungrouped, `1:<concurrency>` grouped, `1:0` for `groups: {}`), and every later call checks its own mode against it before writing anything. The wordings are the two modes in `the queue was started with X and this process has Y`, each of `no groups`, `groups {}` or `groups { concurrency: N }`.
+**Fix:** share the same `groups` in every process, through one exported definition.
+
+```ts
+// queues.ts, imported by the API and the worker alike
+export const mails = defineQueue({ name: 'mails', schema, groups: { concurrency: 2 } });
+```
+
+To change the mode on purpose, stop every process, drain the queue, then delete the marker; the next call writes the new one.
+
+```sh
+redis-cli DEL 'queue:{mails}:groups:mode'
+```
+
+### `add on "mails": the queue was started with groups { concurrency: 2 } and this process has groups { concurrency: 3 }; every process must share groups (drain the queue and delete queue:{mails}:groups:mode to change it)`
+
+**When:** the same `GROUPS_MISMATCH` as above, when both sides are grouped but the `concurrency` differs; `groups {}` is a third value, not the same as any number.
+**Why:** the cap is part of the marker, so two processes with `concurrency: 2` and `3` would disagree on how many jobs of a group may run, and one could run a job twice or leak a slot.
+**Fix:** one `concurrency` in every process; to change it, drain the queue and delete the marker as above.
+
+```ts
+groups: { concurrency: 2 } // the same literal everywhere
+```
+
+### Every ungrouped queue gains a `queue:{mails}:groups:mode` key
+
+**When:** after upgrading to a version with groups, on a queue that never used them: its first `add`, `claim` or other write sets `queue:{mails}:groups:mode` to `0`. No error.
+**Why:** the marker is written for ungrouped queues too, so that a process that later adds `groups` is refused instead of stranding jobs.
+**Fix:** nothing to do. Do not delete the key while the queue runs. To turn `groups` on later, drain the queue and delete the marker first, as in the entry above, then deploy `groups` to every process at once.
+
+### `add on "mails": id is a string of 1 to 256 characters without braces, which are a hash tag`
+
+**When:** `add` or `addMany` (the message starts `addMany on` there) with an `id` that is empty, longer than 256, not a string, or holds a brace.
+**Why:** the id is part of the job's key, whose `{<queue>}` hash tag must stay the only one.
+**Fix:** leave the id out for a generated one, or build it from what identifies the job.
+
+```ts
+await queue.add(payload, { id: `receipt:${orderId}` });
+```
+
+### `add on "mails": priority is a whole number from 0 to 1000`
+
+**When:** `add` or `addMany` with a `priority` outside 0 to 1000, or not a whole number.
+**Why:** the priority is part of the job's score in the queue.
+**Fix:** a lower number runs first.
+
+```ts
+await queue.add(payload, { priority: 10 });
+```
+
+### `add on "mails": delay and at say the same thing; give one`
+
+**When:** `add` or `addMany` with both `delay` and `at`.
+**Why:** both set when the job becomes due.
+**Fix:**
+
+```ts
+await queue.add(payload, { delay: '10m' });
+// or
+await queue.add(payload, { at: new Date('2027-01-01T09:00:00Z') });
+```
+
+### `add on "mails": delay is a whole number of milliseconds or a string such as '10m'`
+
+**When:** `add` or `addMany` with a `delay` that is negative, fractional, or a string without a known unit (`'10min'`).
+**Why:** a delay is a whole number of milliseconds or a string with `ms`, `s`, `m`, `h` or `d`. The message never prints the value you passed.
+**Fix:**
+
+```ts
+await queue.add(payload, { delay: '10m' });
+```
+
+### `add on "mails": at is a valid Date`
+
+**When:** `add` or `addMany` with an `at` that is not a `Date`, or is `Invalid Date`.
+**Why:** a timestamp number or an ISO string is not read; `at` is a `Date`.
+**Fix:**
+
+```ts
+await queue.add(payload, { at: new Date(isoString) });
+```
+
+If `new Date(isoString)` is `Invalid Date`, gate the string first.
+
+### `add on "mails": timeout is at least 1 millisecond, as a whole number or a string such as '10m'`
+
+**When:** `add` or `addMany` with a `timeout` that is `0`, negative, fractional, or a string without a known unit (`'10min'`).
+**Why:** a job's own `timeout` replaces the queue's for that job, and a run cannot be limited to less than a millisecond. The message never prints the value you passed.
+**Fix:**
+
+```ts
+await queue.add(payload, { timeout: '30s' });
+```
+
+### `add on "mails": debounce and throttle cannot be combined; give one`
+
+**When:** `add` or `addMany` with both `debounce` and `throttle`.
+**Why:** each names the job's key in its own way; a job is one or the other.
+**Fix:**
+
+```ts
+await queue.add(payload, { throttle: { key: 'digest:42', window: '1m' } });
+```
+
+### `add on "mails": debounce and id cannot be combined; the key names the job`
+
+**When:** `add` or `addMany` with `debounce` (or `throttle`) and an `id`. The message starts `throttle and id` for a throttle.
+**Why:** the `key` of the debounce or throttle is the job's name; an `id` would name it twice.
+**Fix:**
+
+```ts
+await queue.add(payload, { debounce: { key: `receipt:${orderId}`, wait: '5s' } });
+```
+
+### `add on "mails": debounce and delay cannot be combined; wait sets the run time`
+
+**When:** `add` or `addMany` with `debounce` and `delay` or `at` (the message says `debounce and at` for the second). A throttle may carry a `delay` or `at`.
+**Why:** a debounce runs the job once `wait` has passed since the last add; a `delay` would set the run time a second time.
+**Fix:**
+
+```ts
+await queue.add(payload, { debounce: { key: 'digest:42', wait: '5s' } });
+```
+
+### `add on "mails": debounce is an object { key, wait }`
+
+**When:** `add` or `addMany` with a `debounce` that is not an object, such as `true` or `'5s'`. A throttle says `throttle is an object { key, window }`.
+**Why:** it needs a key to name the job and a span.
+**Fix:**
+
+```ts
+await queue.add(payload, { debounce: { key: 'digest:42', wait: '5s' } });
+await queue.add(payload, { throttle: { key: 'digest:42', window: '1m' } });
+```
+
+### `add on "mails": debounce.key is a string of 1 to 256 characters without braces, which are a hash tag`
+
+**When:** `add` or `addMany` with a `debounce.key` (or `throttle.key`) that is empty, longer than 256 characters, has braces, or is not a string.
+**Why:** the key becomes part of a Redis key, and braces would change its hash tag.
+**Fix:**
+
+```ts
+await queue.add(payload, { throttle: { key: `digest:${userId}`, window: '1m' } });
+```
+
+### `add on "mails": debounce.wait is at least 1 millisecond, as a whole number or a string such as '10m'`
+
+**When:** `add` or `addMany` with a `debounce.wait` (or `throttle.window`, named `throttle.window` in the message) that is missing, `0`, negative, fractional or a string without a known unit.
+**Why:** the span is a duration of at least one millisecond. The message never prints the value.
+**Fix:**
+
+```ts
+await queue.add(payload, { debounce: { key: 'digest:42', wait: '5s' } });
+```
+
+### `work on "mails": concurrency is a whole number from 1 to 1000`
+
+**When:** `queue.work(handler, { concurrency })`, with a value outside 1 to 1000 or not a whole number.
+**Why:** that many jobs run at once in this worker.
+**Fix:** run more workers rather than a huge concurrency.
+
+```ts
+queue.work(handler, { concurrency: 8 });
+```
+
+### `list on "mails": offset is a whole number from 0`
+
+**When:** `queue.list(state, { offset })`. `queue.schedules.list({ offset })` reads `schedules.list on "mails": offset is a whole number from 0`.
+**Why:** a page starts at its offset into the state's order.
+**Fix:**
+
+```ts
+await queue.list('failed', { offset: 50, limit: 50 });
+```
+
+### `list on "mails": limit is a whole number from 1 to 1000`
+
+**When:** `queue.list(state, { limit })`, with a limit outside 1 to 1000. `queue.schedules.list({ limit })` reads `schedules.list on "mails": limit is a whole number from 1 to 1000`.
+**Why:** a page reads each of its jobs; a bound keeps one call small.
+**Fix:** page through with `offset`.
+
+```ts
+await queue.list('completed', { limit: 1000 });
+```
+
+### `list on "mails": state is one of waiting, delayed, active, completed, failed`
+
+**When:** `queue.list(state)` with a state this queue does not have (the TypeScript types refuse it too).
+**Why:** the states are `waiting`, `delayed`, `active`, `completed` and `failed`.
+**Fix:**
+
+```ts
+await queue.list('completed');
+```
+
+### `add on "mails": the data does not match the schema (invalid_type)`
+
+**When:** `add` (or `addMany on "mails": …`, naming the call). A `QueueError`, `code: 'INVALID'`, `queue: 'mails'`; **nothing was written**, and for `addMany` nothing of the batch was. A payload that parses but does not survive JSON (a `z.date()`, a `Map`) says `… does not match the schema once stored as JSON (invalid_type)`, and one JSON cannot write at all (a `bigint`, `undefined` at the top) says `the data has no JSON form`. A schema whose refine or transform throws on the payload says `(a check threw)` in place of the codes, and the thrown message is dropped.
+**Why:** the payload is refused by the queue's schema. The message carries the zod issue **codes** only, each once, never the data, the paths or zod's messages: a `z.strictObject` quotes the stray key it found and a `z.record` puts its keys in the path, and both came from a request. The error has no `cause` for the same reason.
+**Fix:** validate the body where it comes in, with the same schema, and answer with what that says; `queue.definition.schema.safeParse(body)` gives the issues.
+
+```ts
+try {
+	await queue.add(body);
+} catch (error) {
+	if (error instanceof QueueError && error.code === 'INVALID') {
+		console.error(error.message); // the call, the queue and the issue codes
+		return new Response('Bad payload', { status: 400 });
+	}
+	throw error;
+}
+```
+
+### `retry on "mails": job "receipt:42" is not failed`
+
+**When:** `queue.retry(id)`. A `QueueError`, `code: 'NOT_FOUND'`, with `job` set.
+**Why:** `retry` puts a **failed** job back; there is no such job in `failed` — it may not exist, still be running or waiting, have completed, or have been trimmed by `keepFailed`.
+**Fix:** look at it first.
+
+```ts
+const job = await queue.get('receipt:42');
+if (job?.state === 'failed') await queue.retry(job.id);
+```
+
+### `retry on "mails": fresh is true or false`
+
+**When:** `queue.retry(id, { fresh })` with a `fresh` that is neither `true` nor `false` (a string, a number, `null`). A `TypeError`, thrown before any call to Redis, so the job is untouched.
+**Why:** `fresh` picks between resuming after the last finished step and running every step again, so a truthy value such as `'true'` or `1` is refused rather than guessed.
+**Fix:**
+
+```ts
+await queue.retry('receipt:42', { fresh: true });
+```
+
+### `remove on "mails": no job "receipt:42"`
+
+**When:** `queue.remove(id)`. A `QueueError`, `code: 'NOT_FOUND'`.
+**Why:** the job does not exist — never added, already removed, or trimmed by `keepCompleted` or `keepFailed`.
+**Fix:** treat it as removed.
+
+```ts
+await queue.remove('receipt:42').catch((error) => {
+	if (!(error instanceof QueueError && error.code === 'NOT_FOUND')) throw error;
+});
+```
+
+### `remove on "mails": job "receipt:42" is running`
+
+**When:** `queue.remove(id)`. A `QueueError`, `code: 'ACTIVE'`.
+**Why:** a worker holds the job. Removing it would let a handler run on for a job the queue no longer knows, so it is refused.
+**Fix:** wait for it to settle — or for its lease to lapse, if the worker died — then remove it.
+
+```ts
+const job = await queue.get('receipt:42');
+if (job && job.state !== 'active') await queue.remove(job.id);
+```
+
+### A job's `error` is `INVALID: the stored data does not match the schema`
+
+**When:** reading a failed job with `get` or `list`: `error` is `{ name: 'QueueError', message: 'INVALID: the stored data does not match the schema' }`, and the job's `data` is `undefined`. Its handler never ran.
+**Why:** the schema changed while the job was waiting, so the stored payload no longer parses. It fails at once, without a retry, rather than reach a handler as something it is not.
+**Fix:** make the schema accept the old shape (a default, or `.optional()` on the new field), then `retry` the job. Change a queue's schema in two steps — widen it, drain the queue, then narrow it.
+
+```ts
+const schema = z.object({ to: z.string(), template: z.string().default('welcome') });
+await queue.retry(job.id);
+```
+
+### A job's `error` is `INVALID: a stored job this package could not have written`
+
+**When:** reading a failed job with `get` or `list`: `error` is `{ name: 'QueueError', message: 'INVALID: a stored job this package could not have written' }`. Its handler never ran.
+**Why:** a worker claimed an id whose Redis hash lacks what a job needs (`data`, a numeric `attempt`, `attempts` and `priority`), so something other than this package wrote or edited it. It is moved to `failed` once, and never run or repaired.
+**Fix:** find what wrote to the queue's keys (a script, `redis-cli`, another application sharing the name), then `remove` the job and `add` it again. A job this package wrote is never refused this way.
+
+```ts
+await queue.remove(job.id);
+await queue.add(payload, { id: job.id });
+```
+
+### `finished on "mails": job "receipt:42" failed`
+
+**When:** `await job.finished()` rejects with a `QueueError` of code `FAILED` once the job has failed for good (its attempts are spent, or a `JobError` said not to retry).
+**Why:** `finished` waits for the final outcome, and a failure is an outcome. `lastError` carries the `name` and `message` of the handler's last error. The message never holds the payload, so log it as it is.
+**Fix:**
+
+```ts
+try {
+	await job.finished();
+} catch (error) {
+	if (error instanceof QueueError && error.code === 'FAILED') {
+		console.error(error.job, error.lastError?.name, error.lastError?.message);
+	} else throw error;
+}
+```
+
+### `finished on "mails": job "receipt:42" was canceled`
+
+**When:** `finished()` rejects with code `CANCELED`, after `job.cancel()` or `queue.cancel` ran on that job, from any process.
+**Why:** a canceled job has no result. `finished` hears the cancel on the events channel. A cancel deletes the job, so if that event was missed, the re-read finds nothing and `finished` rejects with `NOT_FOUND` instead (next entry).
+**Fix:** catch `CANCELED` where you wait, as for `FAILED`, and treat it as an outcome, not a fault. Handle `NOT_FOUND` the same way when your own code cancels jobs.
+
+### `finished on "mails": job "receipt:42" is not in the queue`
+
+**When:** `finished()` rejects with code `NOT_FOUND`.
+**Why:** the job is not stored: it was never added, was removed, or is gone because `keepCompleted: false` (or a count or age) trimmed it before `finished` read it. With `keepCompleted: false` this can also happen during the wait: a job that completes is deleted at once, so if its event is missed, the re-reads find nothing and the wait ends here instead of with the result. A job canceled while its event was missed also reads as absent, and ends here rather than as `CANCELED`. A job that completes or is canceled just as `finished` starts is not this case: `finished` lets an event already on its way land before it believes the first read. An absent job found by a later re-read is believed only after two re-reads in a row, to leave a completed job's event time to land.
+**Fix:** wait on the handle `add` returned, before the job can be trimmed, and keep completed jobs long enough for a late reader.
+
+```ts
+const job = await queue.add(payload);
+const result = await job.finished({ timeout: '30s' });
+```
+
+```ts
+defineQueue({ name: 'mails', schema, keepCompleted: { count: 100 } });
+```
+
+### `finished on "mails": job "receipt:42" did not finish in time`
+
+**When:** `finished({ timeout })` rejects with code `WAIT_TIMEOUT`.
+**Why:** the job was still waiting or running when the wait's `timeout` passed. Only the wait ends: the job keeps its place and runs on.
+**Fix:** wait longer, or catch it and look again later with `get`.
+
+```ts
+const job = await queue.add(payload);
+await job.finished({ timeout: '2m' });
+```
+
+### `finished on "mails": job "receipt:42" has a result the result schema refuses`
+
+**When:** `finished()` rejects with code `INVALID`, for a job that completed.
+**Why:** the stored result no longer passes the queue's `result` schema as it is **now**: the schema changed after the job completed (a field made required, a type narrowed), or a refine or transform in it throws on that value. The worker checked the result against the schema it had when it stored it, so this is a reader's schema disagreeing with a writer's. The message names the queue and the job, never the result.
+**Fix:** keep the result schema readable for what is already stored — add fields as optional, or with a `.default()` — and catch `INVALID` where a stored result may predate the change. A refine or transform should return `false` or add an issue, not throw.
+
+```ts
+const resizes = defineQueue({
+	name: 'resizes',
+	schema: z.object({ imageId: z.string() }),
+	result: z.object({ url: z.string(), bytes: z.number().optional() }), // new field: optional
+});
+```
+
+### `finished on "mails": timeout is at least 1 millisecond, as a whole number or a string such as '10m'`
+
+**When:** `finished`, `add` or `addMany` is given a `timeout` that is not a duration, or is 0. The message names the call, `finished on` or `add on`, and never prints the value.
+**Why:** a duration is a whole number of milliseconds or a number and a unit (`ms`, `s`, `m`, `h`, `d`), and a timeout of 0 would end at once.
+**Fix:**
+
+```ts
+await job.finished({ timeout: '10m' });
+```
+
+### `defineQueue: "mails" has a timeout of 0ms; it must be at least 1ms, or left out for no limit`
+
+**When:** at `defineQueue`, with `timeout: 0`. A `timeout` that is not a duration reads as the duration entry above, naming `timeout`.
+**Why:** `timeout` is how long one attempt may run before its signal aborts; 0 would abort every run at once.
+**Fix:** a span of at least one millisecond, or leave `timeout` out for no limit.
+
+```ts
+defineQueue({ name: 'mails', schema, timeout: '30s' });
+```
+
+### `run on "mails": job "receipt:42" ran past its timeout`
+
+**When:** this is the `signal.reason` (a `QueueError` of code `TIMEOUT`) that a handler's `signal` carries once an attempt ran longer than the job's `timeout`, or the queue's.
+**Why:** the worker aborts the signal, frees the slot, and fails the attempt with the stored error `TIMEOUT: the attempt ran past its timeout` (next entry), so it can retry.
+**Fix:** pass the signal to whatever the handler waits on, so the work stops with the abort, and raise `timeout` if the work is slow rather than stuck.
+
+```ts
+queue.work(async ({ data, signal }) => {
+	await fetch(data.url, { signal });
+});
+```
+
+### A job's `error` is `TIMEOUT: the attempt ran past its timeout`
+
+**When:** reading a failed or retrying job with `get` or `list`, or in a `failed` or `retrying` event: `error` is `{ name: 'TIMEOUT', message: 'the attempt ran past its timeout' }`.
+**Why:** the attempt ran past its `timeout`. It is retried with the queue's backoff while attempts remain, unlike an `INVALID` failure.
+**Fix:** as for the entry above. A timed-out job that `finished` waits on ends as `FAILED` with this `lastError` once its attempts are spent.
+
+### `run on "mails": job "receipt:42" lost its lease`
+
+**When:** a worker's `error` event carries a `QueueError` of code `LEASE_LOST`, and the handler's `signal` aborts with it.
+**Why:** another worker took the job: the lease was not renewed in time (a stalled process, a lost Redis connection), or a `cancel` was published before this worker's subscription was live, so the renewal found the job gone and reported it as lost rather than canceled. The run is abandoned and its late return is dropped.
+**Fix:** listen for `error`, and give `lease` more than the longest pause the process can take.
+
+```ts
+const worker = queue.work(handler);
+worker.on('error', (error) => {
+	if (error instanceof QueueError && error.code === 'LEASE_LOST') {
+		console.warn(error.queue, error.job);
+	}
+});
+```
+
+### `step on "mails": name is a string of 1 to 128 characters without ":"`
+
+**When:** `job.step(name, fn)` in a handler, before anything runs. `job.key(name)` says the same as `key on "mails": name is …`. A `TypeError`, not a `QueueError`.
+**Why:** the name is part of the Redis field the step is stored under, so it must be a string of 1 to 128 characters, and `:` is the separator. An empty name, a number or a name built from a value that turned out empty is refused, and no round trip is made.
+**Fix:** a fixed name, or one built from an id with no colon.
+
+```ts
+await job.step(`send-${item.id.replaceAll(':', '-')}`, () => send(item));
+```
+
+### `step on "mails": step "send" already ran in this attempt`
+
+**When:** `job.step('send', …)` a second time in one run of the handler. A `TypeError`, thrown before any round trip. Two cases: a loop that reuses one name, and a retry written inside the handler around a step whose `fn` threw (the name is spent once the step begins).
+**Why:** a step is stored once per job under its name, so a name used twice in an attempt would hand back the first value for the second call. The names are kept per attempt: the next attempt may use them again, and replays what was stored.
+**Fix:** one name per call, and retry by throwing, so the queue runs the next attempt, which skips the steps that finished.
+
+```ts
+for (const item of items) {
+	await job.step(`send-${item.id}`, () => send(item));
+}
+// no try/catch around a step to call it again: let it throw, the queue retries the job
+```
+
+### A job's `error` is `INVALID: step on "mails": step "send" returned a value …`
+
+**When:** `fn` of a step returned. The job fails at once, without retry, and its `error` is `{ name: 'QueueError', message: 'INVALID: step on "mails": step "send" returned a value that has no JSON form' }`. With a `schema`, the end of the message is `does not match the schema (invalid_type)`, or `does not match the schema once stored as JSON (invalid_type)`. Nothing was stored for the step.
+**Why:** `fn` already ran, so its side effect happened; only its value cannot be stored. The value is stored as JSON, and read back the same way on a retry, so it must survive the round trip: a `Date`, a `Map`, a `bigint`, `NaN` or `{ a: undefined }` has no JSON form. With a `schema` the stored text is its output, and it must accept that text too. Retrying would return the same value.
+**Fix:** return plain JSON, or a `schema` that turns the value into it. Make `fn` safe to repeat with `job.key` before you `retry` the job, since `fn` runs again. Once `fn` is fixed, `retry(id, { fresh: true })` clears the stored step values and runs every step again; `job.key` is unchanged, so a repeat is still recognised downstream.
+
+```ts
+await job.step('send', async () => {
+	const sent = await send(item);
+	return { id: sent.id, at: sent.at.toISOString() }; // not the Date
+});
+```
+
+### A job's `error` is `INVALID: step on "mails": step "send" holds a value the schema refuses`
+
+**When:** a step whose value was stored by an earlier attempt, read back with a `schema`. The job fails without retry. The same message appears on the attempt that ran `fn`, if the stored text does not parse through the schema again.
+**Why:** the schema now refuses what was stored: it changed between two deploys while the job was waiting or retrying, or the step's name was kept for a different value. Retrying would read the same value.
+**Fix:** change a step's schema only in a way that still accepts the stored values (add `.optional()` to a new field), or give the step a new name when its value changes shape. Then `retry` the job: the new name runs `fn` again. Or, with the schema fixed, `retry(id, { fresh: true })` clears the stored step values and runs every step again; `job.key` is unchanged.
+
+```ts
+await job.step('send-v2', () => send(item), { schema: ReceiptV2 });
+```
+
+### `run on "mails": job "receipt:42" lost its lease` from `job.step`
+
+**When:** `job.step(...)` rejects with a `QueueError`, `code: 'LEASE_LOST'`, and `fn` did not run. The worker's `error` event carries it too, as in the entry above.
+**Why:** the step is fenced by the job's token and lease: the lease lapsed before the step began or committed (a long synchronous block, an event-loop stall, a `lease` shorter than the pauses of the process), or another worker took the job over. The queue refuses the step so a stale attempt never runs it nor writes its value. Whatever the other attempt does is not undone by this one.
+**Fix:** give `lease` more than the longest pause, keep synchronous blocks short or yield between slices, and cut a long job into smaller steps so each one commits on its own.
+
+```ts
+const queue = defineQueue({ name: 'mails', schema, lease: '2m' });
+
+await job.step('render', () => render(batch));
+await new Promise((resolve) => setImmediate(resolve)); // let the lease renew
+await job.step('send', () => send(batch));
+```
+
+It is safe to let the error go: the attempt is abandoned, the job is taken back, and the next attempt replays the steps that committed and runs `fn` of the one that did not, so a committed value is never overwritten by a stale attempt. The fence is checked at the step's edges, not while `fn` runs, so `fn` may run more than once (a crash, or a lease lapsing mid-`fn`): make it safe to repeat, and pass `job.key(name)` downstream.
+
+### `run on "mails": job "receipt:42" was aborted because the worker closed`
+
+**When:** the handler's `signal` aborts with a `QueueError` of code `CLOSED`, after `worker.close()` waited its `grace` and a job was still running.
+**Why:** `close` waits up to `grace` (30 seconds by default) for running jobs, then aborts what remains. Nothing is emitted, the lease lapses, and another worker runs the job again.
+**Fix:** give `close` a `grace` longer than the slowest handler, and let handlers stop on `signal`.
+
+```ts
+await worker.close({ grace: '1m' });
+```
+
+### `close on "mails": grace is a whole number of milliseconds or a string such as '10s'`
+
+**When:** `worker.close({ grace })` with a value that is not a duration. The value is not printed.
+**Why:** `grace` is a duration: a whole number of milliseconds, or a number and a unit.
+**Fix:**
+
+```ts
+await worker.close({ grace: '10s' });
+```
+
+### `progress on "mails": progress is a number from 0 to 100`
+
+**When:** a handler calls `progress(value)` with a value outside 0 to 100, `NaN`, or not a number. The returned promise rejects with a `TypeError`.
+**Why:** progress is a percentage. A call after the run was aborted stores nothing and does not throw.
+**Fix:**
+
+```ts
+queue.work(async ({ data, progress }) => {
+	await progress(Math.min(100, Math.round(done / total * 100)));
+});
+```
+
+### `defineQueue: "mails" has a result that is not a schema; a result is checked against one both ways`
+
+**When:** at `defineQueue`, with a `result` that has no `safeParse`, such as a type or a plain object.
+**Why:** a result is checked against its schema when stored and again when `finished` reads it, as a payload is.
+**Fix:**
+
+```ts
+defineQueue({ name: 'mails', schema, result: z.object({ messageId: z.string() }) });
+```
+
+### A job's `error` is `INVALID: the result does not match the result schema`
+
+**When:** reading a failed job with `get` or `list`: `error` is `{ name: 'QueueError', message: 'INVALID: the result does not match the result schema' }`. The handler ran to the end.
+**Why:** what the handler returned fails the queue's `result` schema, or has no JSON form (a `Date`, a `bigint`). A handler that returns nothing fails this way when `result` is required: `undefined` is refused like any other value. The job is not retried, and the stored message keeps the zod codes out, because a result may hold data.
+**Fix:** return what the schema describes, or mark it optional when a run may return nothing.
+
+```ts
+defineQueue({ name: 'mails', schema, result: z.object({ messageId: z.string() }).optional() });
+```
+
+### A handler keeps running after its job was canceled, timed out or lost
+
+**When:** the work continues (a request, a query) although `finished` rejected or the slot took another job.
+**Why:** the worker only aborts `signal`. A handler that does not watch it keeps running, and what it returns later is dropped, with no event; its side effects still happen.
+**Fix:** pass `signal` to everything the handler awaits, or check it between steps.
+
+```ts
+queue.work(async ({ signal }) => {
+	for (const step of steps) {
+		signal.throwIfAborted();
+		await step();
+	}
+});
+```
+
+### `finished` takes up to 5 seconds longer than the job
+
+**When:** `finished()` resolves or rejects several seconds after the job ended, with no error.
+**Why:** `finished` hears the outcome on the queue's events channel. If that message is lost (a dropped connection), it learns the outcome only on its re-read, which runs every 5 seconds.
+**Fix:** none needed for correctness. Keep `keepCompleted` above zero so the re-read finds the job, and set a `timeout` that allows the 5 seconds.
+
+### `queue script reply not recognised: <what>` and `add on "mails": the script answered nothing`
+
+**When:** a call on a queue throws a plain `Error`, not a `QueueError`. A consumer is unlikely to meet either.
+**Why:** the first means a Redis script answered in a shape this package does not read (the script and its parser drifted apart, or the queue's keys were edited by something else). The second means `add` got no handle back from its script. Neither message holds data.
+**Fix:** nothing in your code changes it. Check that every process runs the same version of the package, then report it, with the message, as an issue on the package's repository.
+
+### `WRONGTYPE Operation against a key holding the wrong kind of value` from a queue
+
+**When:** a worker's claim, or a `COMPLETE` or `FAIL`, rejects with `WRONGTYPE` on a queue that has a `rateLimit`. A job may already be settled when the call fails, so it can be counted done and still reject.
+**Why:** the queue keeps its limiter in `queue:{name}:rate`, which must be a hash. Something else wrote a string, list or set to that key.
+**Fix:** never write to a key under `queue:{name}:`; delete the stray key, and the queue recreates its own.
+
+```ts
+await client.del('queue:{mails}:rate'); // the name you gave defineQueue, in braces
+```
+
+### My worker does nothing
+
+**When:** `queue.work` is running, jobs are `waiting`, and no handler is called.
+**Why:** either the queue is paused, or its `rateLimit` has no token left, so claims return nothing until the bucket refills.
+**Fix:** look at `counts().paused`; `resume()` lifts a pause. Otherwise wait for the refill, or raise `rateLimit.limit` and `burst`.
+
+```ts
+const { paused, waiting } = await queue.counts();
+if (paused) await queue.resume();
+```
+
+### A job ran twice
+
+**When:** a handler's side effect — a mail, a charge — happened two times for one job.
+**Why:** a queue runs a job **at least once**. If a worker dies, or loses Redis for a whole `lease`, another worker takes the job and runs it again; a handler slower than its lease can overlap its own second run, and the first run's late result is refused.
+**Fix:** make the handler idempotent, keyed on the job's id, which is the same on every run; and give `lease` more than the handler's slowest run.
+
+```ts
+queue.work(async ({ id, data }) => {
+	await provider.send(data.to, { idempotencyKey: id });
+});
+```
+
+Durable steps, which record what a handler has done, are on the [roadmap](roadmap.md).
+
+### A job added with an `id` never runs
+
+**When:** `add` returned `{ deduplicated: true }`, and the payload you sent is not what runs.
+**Why:** an id is taken for as long as the job is stored, completed and failed jobs included, until `keepCompleted` or `keepFailed` trims it. The second `add` with that id changes nothing.
+**Fix:** give each distinct job its own id, or `remove` the old one first.
+
+```ts
+const { deduplicated } = await queue.add(payload, { id: `receipt:${orderId}` });
+```
+
+### `defineQueue: "mails" schedule "nightly": cron minute: 61 is out of range 0-59`
+
+**When:** `defineQueue`, or `schedules.upsert` (its message opens `schedules.upsert on "mails": schedule "nightly": cron …`), with a field value outside its range. The field named is `minute` (0-59), `hour` (0-23), `day of month` (1-31), `month` (1-12) or `day of week` (0-7).
+**Why:** A cron field takes only the values of its range; `7` is Sunday as well as `0`.
+**Fix:** Write the value inside the range:
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	schedules: { nightly: { cron: '0 3 * * *', data: { to: 'ops@example.com', template: 'report' } } },
+});
+```
+
+### `defineQueue: "mails" schedule "nightly": cron minute: step 0 must be at least 1`
+
+**When:** A cron with `*/0` or `a-b/0`.
+**Why:** A step of 0 would never advance.
+**Fix:** Use a step of 1 or more:
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	schedules: { nightly: { cron: '*/5 * * * *', data: { to: 'ops@example.com', template: 'report' } } },
+});
+```
+
+### `defineQueue: "mails" schedule "nightly": cron hour: range 17-9 is reversed`
+
+**When:** A cron with a range whose start is after its end.
+**Why:** A range runs upward and does not wrap past the end of the field.
+**Fix:** Split it in two, as a list:
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	schedules: { nightly: { cron: '0 17-23,0-9 * * *', data: { to: 'ops@example.com', template: 'report' } } },
+});
+```
+
+### `defineQueue: "mails" schedule "nightly": cron month: "foo" is not a value or a name`
+
+**When:** A cron with a word the field does not know. Months take `jan`-`dec`, days of week `sun`-`sat`; the same refusal reads `is not a value or a range` or `is not a step` for other malformed text.
+**Why:** Only numbers and the month and weekday names are read, in any case.
+**Fix:** Use a number or a known name:
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	schedules: { nightly: { cron: '0 3 * jan *', data: { to: 'ops@example.com', template: 'report' } } },
+});
+```
+
+### `defineQueue: "mails" schedule "nightly": cron minute: "1/2/3" has more than one "/"`
+
+**When:** A cron item with two slashes. A range with two dashes reads `cron minute: "1-2-3" is not a value or a range`.
+**Why:** an item is `value`, `a-b`, `*`, with at most one `/step` after it.
+**Fix:**
+
+```ts
+schedules: { nightly: { cron: '*/5 * * * *', data: { to: 'ops@example.com', template: 'report' } } },
+```
+
+### `defineQueue: "mails" schedule "nightly": cron needs five fields (minute hour day-of-month month day-of-week), got 6`
+
+**When:** A cron with a number of fields other than five, such as a seconds field.
+**Why:** A cron is minute, hour, day of month, month and day of week, with no seconds.
+**Fix:** Give five fields; use `every` for an interval under a minute (at least `1s`):
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	schedules: { nightly: { cron: '*/10 * * * *', data: { to: 'ops@example.com', template: 'report' } } },
+});
+```
+
+### `defineQueue: "mails" schedule "nightly": cron needs five fields (minute hour day-of-month month day-of-week), got 1`
+
+**When:** A macro such as `@daily`, `@hourly` or `@reboot`.
+**Why:** Macros are not read, so the text counts as one field.
+**Fix:** Write the macro out:
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	schedules: { nightly: { cron: '0 0 * * *', data: { to: 'ops@example.com', template: 'report' } } },
+});
+```
+
+### `defineQueue: "mails" schedule "nightly": cron day of month and day of week: no day of a 400-year cycle matches, so it would never match`
+
+**When:** A cron whose date does not exist, such as `0 0 31 2 *`.
+**Why:** The parser walks a full 400-year calendar and finds no day.
+**Fix:** Pick a date that exists:
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	schedules: { nightly: { cron: '0 0 28 2 *', data: { to: 'ops@example.com', template: 'report' } } },
+});
+```
+
+### `defineQueue: "mails" schedule "nightly": timezone "Mars/Base" is not a time zone name Intl accepts, such as "UTC" or "Europe/Paris"`
+
+**When:** `timezone` of a cron schedule is not a zone `Intl` knows.
+**Why:** The zone is checked with `Intl.DateTimeFormat`, and the runtime's zone data decides.
+**Fix:** Use an IANA name; it defaults to `"UTC"`:
+
+```ts
+schedules: { nightly: { cron: '0 3 * * *', timezone: 'Europe/Paris', data: { to: 'ops@example.com', template: 'report' } } },
+```
+
+### `defineQueue: "mails" schedule "nightly" has both cron and every; give one`
+
+**When:** A schedule with `cron` and `every` together.
+**Why:** They are two ways to say when.
+**Fix:** Keep one:
+
+```ts
+nightly: { every: '1h', data: { to: 'ops@example.com', template: 'report' } }
+```
+
+### `defineQueue: "mails" schedule "nightly" has neither cron nor every; give one`
+
+**When:** A schedule with no `cron` and no `every`.
+**Why:** Nothing says when it fires.
+**Fix:** Give one:
+
+```ts
+nightly: { cron: '0 3 * * *', data: { to: 'ops@example.com', template: 'report' } }
+```
+
+### `defineQueue: "mails" schedule "nightly" has a timezone with every; a timezone goes with a cron`
+
+**When:** `timezone` next to `every`.
+**Why:** An interval counts elapsed time and has no wall clock.
+**Fix:** Drop the timezone, or use a cron:
+
+```ts
+nightly: { every: '1h', data: { to: 'ops@example.com', template: 'report' } }
+```
+
+### `defineQueue: "mails" schedule "nightly" is not an object with cron or every, and data`
+
+**When:** `defineQueue`, or `schedules.upsert` (its message opens `schedules.upsert on "mails": schedule "nightly" …`), with a schedule that is not an object. The same kind of refusal reads `has a cron that is not text` or `has a timezone that is not text`, and `defineQueue: "mails" schedules is an object of schedule id to schedule` when `schedules` itself is an array, `null` or not an object.
+**Why:** a schedule is `{ cron, timezone?, data }` or `{ every, data }`, and `schedules` maps each id to one.
+**Fix:**
+
+```ts
+schedules: { nightly: { cron: '0 3 * * *', timezone: 'Europe/Paris', data: { to: 'ops@example.com', template: 'report' } } },
+```
+
+### `defineQueue: "mails" schedule "nightly" has an every under 1 second; it is at least 1s`
+
+**When:** `every` below 1000 ms. A value that is not a number of milliseconds or a string such as `'10m'` reads `has an every that is not a duration; …`. One above 999999999999999 ms reads `has an every above 999999999999999 ms`.
+**Why:** A schedule fires at most once a second.
+**Fix:** Give `1s` or more:
+
+```ts
+nightly: { every: '1s', data: { to: 'ops@example.com', template: 'report' } }
+```
+
+### `defineQueue: "mails" a schedule id is a string of 1 to 256 characters without braces or colons`
+
+**When:** A schedule id that is empty, too long, or holds `{`, `}` or `:`. `schedules.upsert` and `schedules.remove` read `schedules.upsert on "mails": a schedule id is …`.
+**Why:** The id is part of the Redis key and of the job id `schedule:<id>:<due>`, where braces and colons would split it.
+**Fix:** Use a plain id:
+
+```ts
+schedules: { 'nightly-report': { cron: '0 3 * * *', data: { to: 'ops@example.com', template: 'report' } } },
+```
+
+### `defineQueue: "mails" has 1001 schedules; at most 1000, which is what one sync takes`
+
+**When:** A definition with more than 1 000 static schedules.
+**Why:** The worker writes the whole set in one script call.
+**Fix:** Keep the static set under 1 000 and add the rest at run time with `schedules.upsert` (the definition set as a whole stays under 2 000):
+
+```ts
+const queue = bindQueue(redis.client, mails);
+await queue.schedules.upsert(`tenant-${id}`, { every: '1h', data: { to, template: 'digest' } });
+```
+
+### `bindQueue: "mails" has schedules that are not the ones defineQueue resolves`
+
+**When:** `bindQueue` with a definition that was not made by `defineQueue`, or one copied with a changed `schedules`. Every other refusal of `defineQueue` is checked again here and opens `bindQueue: "mails" …` instead.
+**Why:** `bindQueue` trusts only what `defineQueue` resolved, so it checks the definition again.
+**Fix:** bind the definition `defineQueue` returned, and change a schedule in `defineQueue`.
+
+```ts
+const queue = bindQueue(redis.client, mails);
+```
+
+### `defineQueue: "mails" schedule "nightly" data does not match the schema (invalid_type)`
+
+**When:** A schedule whose `data` does not pass the queue's `schema`, in `defineQueue` or in `schedules.upsert`, which prints `schedules.upsert on "mails": schedule "n2" data does not match the schema (invalid_type)`. It is a `QueueError` with code `INVALID`, not a `TypeError`. Only the zod issue code in the parentheses varies; the message never quotes the data.
+**Why:** Each occurrence is a job, so its payload has to pass the schema, and survive the JSON round trip, now rather than when it fires.
+**Fix:** Give data that the schema accepts as its output:
+
+```ts
+nightly: { cron: '0 3 * * *', data: { to: 'ops@example.com', template: 'report' } },
+```
+
+### `schedules.upsert on "mails": "nightly" belongs to the definition; change it in defineQueue`
+
+**When:** `schedules.upsert` or `schedules.remove` (`schedules.remove on "mails": …`) on an id that `defineQueue` declares.
+**Why:** Each worker start re-syncs the definition, which would undo the change.
+**Fix:** Edit it in `defineQueue`, or use another id for a runtime schedule:
+
+```ts
+const queue = bindQueue(redis.client, mails);
+await queue.schedules.upsert('nightly-extra', {
+	cron: '0 4 * * *',
+	data: { to: 'ops@example.com', template: 'report' },
+});
+```
+
+### `schedules.remove on "mails": no schedule "nightly"`
+
+**When:** `schedules.remove` on an id the queue does not hold. It is a `QueueError` with code `NOT_FOUND`.
+**Why:** the schedule was never added, or was already removed.
+**Fix:** treat it as removed, or list first.
+
+```ts
+try {
+	await queue.schedules.remove('nightly-extra');
+} catch (error) {
+	if (!(error instanceof QueueError) || error.code !== 'NOT_FOUND') throw error;
+}
+```
+
+### `add on "mails": id cannot start with "schedule:", which names scheduled occurrences`
+
+**When:** `queue.add(data, { id })` with an id starting `schedule:`.
+**Why:** Occurrences of a schedule are added as `schedule:<id>:<due ms>`, and the prefix is theirs alone.
+**Fix:** Use another prefix:
+
+```ts
+await redis.queues.mails.add(data, { id: `receipt:${orderId}` });
+```
+
+### My schedule does not fire
+
+**When:** `schedules.list()` shows the schedule, but no job comes.
+**Why:** Occurrences are added by a worker, not by Redis. Three causes. (1) No `queue.work` is running, so nothing fires, and a missed occurrence is added once when a worker returns. (2) The queue is paused: the worker still fires, but only at its 5 s cadence, so a schedule can be late by that much. (3) The spec no longer parses (a stored cron or zone the running version refuses): the worker defers it an hour and emits an `error` event `schedule "nightly" of "mails" no longer parses; deferred for an hour`, never quoting the spec.
+**Fix:** Read `next` in `schedules.list()` (soonest first). A `next` in the past means no worker is firing; one an hour ahead of where it should be means the deferral. Then check the worker and listen for `error`:
+
+```ts
+const queue = redis.queues.mails;
+for (const s of await queue.schedules.list()) console.log(s.id, s.next, s.origin);
+const { paused } = await queue.counts();
+if (paused) await queue.resume();
+const worker = queue.work(handler);
+worker.on('error', (error) => console.error(error));
+```
+
+### `ERR the definition set holds more than 2000 ids`
+
+**When:** A worker starts (the sync of the definition) and the `error` event carries this reply, again on each retry, or `ERR at most 1000 schedules per call`.
+**Why:** SYNC keeps the ids the definition owns in the set `schedules:definition` and refuses to sweep more than 2 000. A definition can never exceed 1 000 schedules, so the set was polluted by writes that are not SYNC's. Nothing is written. Jobs keep running meanwhile. Only the static schedules are not updated until a SYNC succeeds, which the worker retries every 1 to 30 s. Until then, a schedule removed from the definition still fires.
+**Fix:** Remove from the set only the ids that have no definition-owned schedule behind them, then let the next SYNC run. Do not `DEL` the whole set. An id it still held for an older definition would then never be swept, and that schedule would keep firing, since `upsert` and `remove` refuse definition-owned ids.
+
+```sh
+key='queue:{mails}'
+redis-cli SMEMBERS "$key:schedules:definition" | while read -r id; do
+	[ "$(redis-cli HGET "$key:schedule:$id" origin)" = definition ] ||
+		redis-cli SREM "$key:schedules:definition" "$id"
+done
+```
+
 ## Wiring: `defineRedis` and `openRedis`
 
 Everything in this part is a bare `TypeError` raised at **wiring time**, or a type error on the object `openRedis` gives back; the sentence names the instance and what to do, and no request produces one. What a *call* on a wired cache, channel, lock, rate limit or idempotency throws is the `RedisError` described above, with the instance's prefix in the key it names: a value refused by `redis.cache.users.set` reads `This value does not match the schema "myapp:prod:user" stores:`, a lock `The lock "myapp:import" is held by somebody else …`, a message `A message on "myapp:prod:user.created" does not match its schema:`. A wired guard's `GuardError` carries the prefixed name, as a cache's `RedisError` does: `enforce on "myapp:prod:login": the limit of 5 per 60000ms is spent; …`, with `definition` `myapp:prod:login`. The headings of the guard entries below say `login`, the name without a prefix.
@@ -660,15 +1829,16 @@ choice; an empty one is a mistake.
 defineRedis({ uri, prefix: process.env.REDIS_PREFIX ?? 'myapp:dev', caches });
 ```
 
-#### `defineRedis: instance "default" wires no cache, no channel, no rate limit and no idempotency. Pass the module that exports them, or drop the instance.`
+#### `defineRedis: instance "default" wires no cache, no channel, no rate limit, no idempotency and no queue. Pass the module that exports them, or drop the instance.`
 
-**When:** calling `defineRedis` with no `caches`, `channels`, `limits` and
-`idempotency`, or with objects that hold no definition in them. (Before 0.6.0
-it read `wires no cache and no channel`.)
+**When:** calling `defineRedis` with no `caches`, `channels`, `limits`, `idempotency`
+and `queues`, or with objects that hold no definition in them. (It read
+`wires no cache and no channel` before 0.6.0, and stopped at `and no idempotency`
+before queues were wired.)
 **Why:** definitions are recognised **by shape** — a cache has a `name`, a
 `key` function, a numeric `ttl` and a `schema`; a channel has a `name` and a
 `schema` and no `ttl`; a rate limit has a `name`, a `key` function, a `limit`
-and a `per`; an idempotency is a cache's shape with a numeric `lease`. An object that holds none of those is usually a module
+and a `per`; an idempotency is a cache's shape with a numeric `lease`; a queue is a `defineQueue` definition. An object that holds none of those is usually a module
 of types only, a default export read as a namespace, or a barrel that
 re-exports builders rather than definitions.
 **Fix:** pass the module as it is:
@@ -680,15 +1850,16 @@ export const users = defineCache({ name: 'user', key: (id: string) => id, ttl: 3
 // src/redis/index.ts
 import * as caches from './caches';
 import * as channels from './channels';
+import * as queues from './queues';
 
-export const config = defineRedis({ uri, caches, channels, limits, idempotency });
+export const config = defineRedis({ uri, caches, channels, limits, idempotency, queues });
 ```
 
 Anything else in those modules — a schema, a type, a constant — is skipped,
 not refused, and so is a definition of another kind: each slot keeps only its
 own, so one module may be passed to several slots. A cache passed as `limits`
 alone, an idempotency whose `lease` was overwritten with something that is not
-a number, a rate limit with no `per`: none is wired, and an instance left with
+a number, a rate limit with no `per`, a queue passed as `caches`: none is wired, and an instance left with
 nothing is this error.
 
 #### `defineRedis: instance "default" wires the cache "users" and the rate limit "login" under one name, "user". They would share every key in Redis. Give one of them a name of its own.`
@@ -774,6 +1945,16 @@ export const redis = await openRedis(config);
 ```
 
 ### Wiring runtime
+
+#### `close: grace is not a duration; a duration is a whole number of milliseconds or a string such as '10m'`
+
+**When:** `redis.close({ grace })` with a value that is not a duration. The returned promise rejects with a `TypeError` and closes nothing; the value is not printed.
+**Why:** `grace` is a duration: a whole number of milliseconds, or a string with a unit.
+**Fix:**
+
+```ts
+await redis.close({ grace: '10s' });
+```
 
 #### `cache: this Redis holds 2 Redis instances, and this call lives on one. Name it, as { on: 'cache' }.`
 
@@ -862,6 +2043,108 @@ bindRateLimit(client, login).keyFor({ ip });  // 'login:203.0.113.7'
 ```
 
 ### Closing
+
+#### `defineRedis: instance "default" wires the queue named "mails" twice, under "mails" and "outbox". They would share every key in Redis. Export one of them, or give it a name of its own.`
+
+**When:** calling `defineRedis` (or `openRedis`) with `queues` whose module
+exports one definition under two keys, or two definitions with one `name`.
+**Why:** a queue's keys are built from its `name` alone, so both exports would
+read and write the same jobs: a worker on one would run what the other added.
+**Fix:** one `name` per definition, one export per definition:
+
+```ts
+export const mails = defineQueue({ name: 'mails', schema });
+export const outbox = defineQueue({ name: 'outbox', schema });
+```
+
+#### `defineRedis: instance "default" wires the cache "users" and the queue "mails" under one name, "mail". They would share every key in Redis. Give one of them a name of its own.`
+
+**When:** calling `defineRedis` (or `openRedis`) with a queue and a cache, a
+rate limit or an idempotency that have one `name` on one instance. The kinds in
+the sentence are the two that met, in the order cache, rate limit, idempotency,
+queue.
+**Why:** a queue's keys (`queue:{<name>}:…`) do not meet a cache's byte for
+byte, but one name is refused to mean one thing per deployment. Only names are
+compared.
+**Fix:** rename the **definition's** `name`, not its export:
+
+```ts
+export const mails = defineQueue({ name: 'mail.jobs', schema });
+```
+
+#### `defineRedis: instance "default" has a prefix with braces, and it wires queues; a queue's name is its keys' hash tag, so the prefix in front of it cannot hold any.`
+
+**When:** calling `defineRedis` (or `openRedis`) with a `prefix` holding `{` or
+`}` on an instance that wires `queues`. An instance without queues keeps
+accepting any prefix.
+**Why:** a queue's storage name, prefix included, is the hash tag of its keys
+(`queue:{<prefix>:<name>}:…`), so a brace in the prefix would split the tag and
+the keys would no longer share one cluster slot.
+**Fix:** drop the braces from the prefix:
+
+```ts
+defineRedis({ uri, prefix: 'myapp:dev', queues });   // not 'myapp:{dev}'
+```
+
+#### `add on "mails": the Redis is closed`
+
+**When:** `add`, `addMany` or `finished` on a queue from `redis.queues`, after
+`redis.close()` reached its second phase; the same sentence with `addMany on`
+or `finished on`. It rejects with a `QueueError` of code `CLOSED`.
+**Why:** `redis.close()` runs in two phases. First the queues refuse `work` and
+close their workers, giving each the `grace`; jobs in flight can still `add`
+and a `finished` stays pending. Then the queues refuse `add`, `addMany` and
+`finished`, and end every `finished` still waiting. The admin calls (`get`,
+`list`, `counts`, `retry`, `remove`, `cancel`) are never refused, so a status
+page keeps answering. An `addMany` refused between chunks keeps what it already
+wrote. A queue bound by hand, not wired, is never refused.
+**Fix:** stop adding before the close, and close last:
+
+```ts
+const redis = await openRedis(config);
+
+process.once('SIGTERM', async () => {
+  server.stop();                          // no new request adds a job
+  await redis.close({ grace: '10s' });    // last: workers drain, then the clients close
+});
+```
+
+A job added from another job's handler during the grace is fine.
+
+#### `work on "mails": the Redis is closing`
+
+**When:** calling `work` on a wired queue once `redis.close()` began; the
+sentence ends `closed` when it finished. It throws a `QueueError` of code
+`CLOSED`.
+**Why:** `work` is refused from the first phase, so a worker can never start
+beside a close that is already stopping the others. The running workers get
+the `grace` to finish, then their jobs are aborted with `CLOSED` as the signal's
+reason.
+**Fix:** start every worker at boot, before the signal handler can fire, and
+let the handler's `await redis.close({ grace })` be what stops them:
+
+```ts
+redis.queues.mails.work(handler);
+process.once('SIGTERM', () => redis.close({ grace: '10s' }));
+```
+
+#### `finished on "mails": job "receipt:42" was pending when the Redis closed`
+
+**When:** a `finished(id)` still waiting when `redis.close()` reached its
+second phase. It rejects with a `QueueError` of code `CLOSED`.
+**Why:** the job did not finish within the `grace`, so the close ends the wait
+rather than leave a listener on a connection it is about to close. A job that
+completes during the grace resolves its `finished` with the result, never
+`CLOSED`.
+**Fix:** give the workers enough `grace` to finish what is in flight, and treat
+this as "unknown": read the job after a restart with `get`, which is never
+refused:
+
+```ts
+await redis.close({ grace: '30s' });
+// next boot
+const job = await redis.queues.mails.get('receipt:42');
+```
 
 #### The process does not exit, or the connection count climbs
 

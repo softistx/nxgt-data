@@ -10,6 +10,7 @@
         "@changesets/cli": "^3.0.1",
         "@types/bun": "^1.4.0",
         "typescript": "~6.0.3",
+        "zod": "4.6.5",
       },
     },
     "examples/hono-api": {
@@ -43,6 +44,19 @@
       "devDependencies": {
         "@types/bun": "^1.4.0",
         "mongodb-memory-server-core": "11.2.0",
+        "typescript": "~6.0.3",
+      },
+    },
+    "examples/queue-mails": {
+      "name": "queue-mails-example",
+      "version": "0.0.0",
+      "dependencies": {
+        "@nxgt/redis": "workspace:^",
+        "zod": "4.6.5",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.4.0",
+        "redis-memory-server": "0.17.1",
         "typescript": "~6.0.3",
       },
     },
@@ -497,6 +511,8 @@
     "pluralize": ["pluralize@8.0.0", "", {}, "sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA=="],
 
     "punycode": ["punycode@2.3.1", "", {}, "sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg=="],
+
+    "queue-mails-example": ["queue-mails-example@workspace:examples/queue-mails"],
 
     "redis-memory-server": ["redis-memory-server@0.17.1", "", { "dependencies": { "camelcase": "^6.3.0", "cross-spawn": "^7.0.3", "debug": "^4.3.4", "find-cache-dir": "^3.3.2", "find-package-json": "^1.2.0", "get-port": "^5.1.1", "https-proxy-agent": "^7.0.0", "lockfile": "^1.0.4", "rimraf": "^5.0.1", "semver": "^7.5.3", "tar": "^7.5.4", "tmp": "^0.2.1" }, "bin": { "redis-memory-server": "bin/index.js" } }, "sha512-obdMVFkzLRM+NaCeuZObYNUY5klmAvv91Hq8UBtGsz6YbZd1s5DauaZpIbmjkDoMgxagWIP3/UJiSkuarXTlBg=="],
 

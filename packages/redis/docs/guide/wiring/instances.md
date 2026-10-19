@@ -37,10 +37,11 @@ redis.cache === redis.instances.default.cache;        // true
 redis.channels === redis.instances.default.channels;  // true
 redis.limits === redis.instances.default.limits;      // true
 redis.idempotency === redis.instances.default.idempotency;  // true
+redis.queues === redis.instances.default.queues;  // true
 redis.clients.default === redis.instances.default.client;  // true
 ```
 
-`redis.cache`, `redis.channels`, `redis.limits` and `redis.idempotency` are the shortcut; the long way is always
+`redis.cache`, `redis.channels`, `redis.limits`, `redis.idempotency` and `redis.queues` are the shortcut; the long way is always
 there, and it is what a helper written over any configuration uses.
 
 ## What is on an instance
@@ -51,6 +52,7 @@ there, and it is what a helper written over any configuration uses.
 | `channels` | `ChannelScope` | the channels, likewise |
 | `limits` | `LimitScope` | the [rate limits](guards.md), likewise, under this instance's prefix |
 | `idempotency` | `IdempotencyScope` | the [idempotent operations](guards.md), likewise |
+| `queues` | `QueueScope` | the [queues](../queues.md), likewise, under this instance's prefix |
 | `client` | `RedisClient` | Bun's own client, for a command the wiring does not wrap |
 | `prefix` | `string \| undefined` | what goes in front of every key it writes |
 | `lock(key, work, options?)` | `Promise<T>` | `withLock` on a key this instance's prefix is in front of |
@@ -119,17 +121,36 @@ belongs to no cache and no channel.
 await redis.close();
 ```
 
-It closes every subscription it started, and then the clients it opened —
-in that order, because a subscription holds a connection duplicated from its
-client and unsubscribing on a closed one is an error nobody asked for. It is
-**idempotent**, and `await using` calls it for you:
+It closes in two phases for queues, then the subscriptions, then the clients:
+
+1. `work()` is refused, and the workers close with `grace` (default 30 s).
+   `add` and `finished` still work, and a `finished` whose job completes
+   within the grace resolves.
+2. `add`, `addMany` and `finished` throw `CLOSED`, and the `finished` calls
+   still pending reject `CLOSED` (after a flush, bounded).
+3. Every subscription it started closes, then the clients it opened, because a
+   subscription holds a connection duplicated from its client and
+   unsubscribing on a closed one is an error nobody asked for.
+
+```ts
+await redis.close({ grace: '20s' });
+```
+
+`close` is **memoised**: a second call returns the first one's promise and its
+`grace` is ignored. A malformed `grace` rejects before anything closes. The queues'
+part is bounded, so a Redis that stops answering does not hold it: after the
+grace, what is left waits at most two seconds. Unsubscribing the channels is
+not bounded. `await using`
+calls it:
 
 ```ts
 {
 	await using redis = await openRedis(config);
 	await redis.channels.created.subscribe(handler);
-}   // the subscription, then the client
+}   // the workers, the subscription, then the client
 ```
+
+The queue side is detailed in the [queues guide's Wiring section](../queues.md#wiring).
 
 **A client the configuration handed in is never closed**, `await using`
 included:
@@ -237,12 +258,14 @@ interface Redis<C> extends AsyncDisposable {
 	readonly channels: SoleChannels<C>;
 	readonly limits: SoleLimits<C>;
 	readonly idempotency: SoleIdempotency<C>;
+	readonly queues: SoleQueues<C>;
 	readonly instances: {
 		readonly [N in InstanceName<C>]: InstanceScope<
 			CachesIn<C, N>,
 			ChannelsIn<C, N>,
 			LimitsIn<C, N>,
-			IdempotencyIn<C, N>
+			IdempotencyIn<C, N>,
+			QueuesIn<C, N>
 		>;
 	};
 	readonly clients: { readonly [N in InstanceName<C>]: RedisClient };
@@ -258,7 +281,7 @@ same for every request and is never derived. That is also why `close()`
 always belongs to the one you are holding.
 
 `SoleInstance<C>` is the only instance's whole scope, and `SoleCache<C>`,
-`SoleChannels<C>`, `SoleLimits<C>` and `SoleIdempotency<C>` are its parts put at the top level; all of them are
+`SoleChannels<C>`, `SoleLimits<C>`, `SoleIdempotency<C>` and `SoleQueues<C>` are its parts put at the top level; all of them are
 `never` when it holds more than one instance. `InstanceScope`,
-`CacheScope`, `ChannelScope`, `LimitScope`, `IdempotencyScope` and `BoundChannel` are exported for an
+`CacheScope`, `ChannelScope`, `LimitScope`, `IdempotencyScope`, `QueueScope` and `BoundChannel` are exported for an
 application that names them in its own signatures.
