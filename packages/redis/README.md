@@ -321,7 +321,7 @@ Jobs that must run, but not inside the request that asked for them — kept
 until a worker has finished each one, retried with backoff when it throws.
 
 ```ts
-import { defineQueue, defineRedis, JobError, openRedis } from '@nxgt/redis';
+import { bindQueue, defineQueue, defineRedis, JobError, openRedis } from '@nxgt/redis';
 import { z } from 'zod';
 
 // queues.ts, exported with `export const mails = …`
@@ -705,6 +705,7 @@ class, not a `RedisError`.
 | `TIMEOUT` | a run passed its `timeout`: a handler's `signal.reason` |
 | `LEASE_LOST` | a run lost its lease, or was canceled while the worker missed the event: a handler's `signal.reason` |
 | `CLOSED` | the worker closed and its grace passed: only ever a handler's `signal.reason` |
+| `GROUPS_MISMATCH` | a call on a queue whose stored `groups` mode (`queue:{<name>}:groups:mode`) differs from this process's `groups` or `concurrency`; nothing was written. Every process must share `groups`; to change it, drain the queue and delete the marker |
 
 `defineQueue` (and `bindQueue`, for a definition written by hand) refuses a
 definition that could never work with a `TypeError`, and `add`, `work` and
