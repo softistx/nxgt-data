@@ -1,5 +1,35 @@
 # @nxgt/redis
 
+## 0.9.0
+
+### Minor Changes
+
+- [#214](https://github.com/softistx/nxgt-data/pull/214) [`71e82fd`](https://github.com/softistx/nxgt-data/commit/71e82fd0702a89cf6af76cc9aeec92d4c3996781) Thanks [@SteveGT96](https://github.com/SteveGT96)! - A queue: `defineQueue` and `bindQueue` — jobs typed by a schema, delays, priorities, at-least-once workers with leases, retries with backoff, retention and inspection.
+
+- [#220](https://github.com/softistx/nxgt-data/pull/220) [`1432ac3`](https://github.com/softistx/nxgt-data/commit/1432ac39c0817d3d836a2949120a14a55072beeb) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Queue flow control. `pause()` and `resume()` stop and restart every worker of a queue, running jobs finishing as they go, and `counts()` gains `paused`. A queue's `rateLimit: { limit, per, burst? }` caps how many jobs start per span across every worker of every process, counted by the same GCRA as `defineRateLimit`. `add` and `addMany` take `debounce: { key, wait }` (jobs added under one key collapse into one that runs `wait` after the last, replacing the data of a job that has not started) or `throttle: { key, window }` (the first add under a key wins for `window`, later ones answer its id with `deduplicated: true`). Each is refused with a `TypeError` when combined with `id`, with each other, or (for `debounce`) with `delay` or `at`. New types: `QueueRateLimit`, `QueueRate`, `DebounceOptions` and `ThrottleOptions`.
+
+- [#222](https://github.com/softistx/nxgt-data/pull/222) [`3569833`](https://github.com/softistx/nxgt-data/commit/35698336cd99643f92e937ee31188d1617aa83ec) Thanks [@SteveGT96](https://github.com/SteveGT96)! - A queue's jobs can be grouped. `defineQueue({ groups: {} })` gives each group fair turns, and `groups: { concurrency: n }` also caps the jobs of one group that run at once, across every worker. `add(data, { group })` and `addMany` items take the group name (no `:` or braces); jobs without one form a default group with no cap, and `get` shows `group` for a named one, and the resolved `QueueGroups` type is exported beside `QueueGroupsInput`. A claim serves the groups in round-robin, the most urgent job first within a group, so one tenant cannot hold up the others, and workers do not spin while every ready job sits in a full group. `group` on a queue defined without `groups` is a `TypeError`.
+  
+  Every queue now writes a marker, `queue:{<name>}:groups:mode`. A process whose definition disagrees with it on `groups` or on `concurrency` gets a `QueueError` with the new code `GROUPS_MISMATCH` and writes nothing. To change modes, drain the queue and `DEL` the marker.
+
+- [#215](https://github.com/softistx/nxgt-data/pull/215) [`817fbad`](https://github.com/softistx/nxgt-data/commit/817fbad6504702bca8af2193f6535a3716cc7594) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Queue jobs return a typed result; `add` gives a handle with `finished()` and `cancel()`; a job has a `timeout`, an `AbortSignal` and `progress()`; workers emit typed events and have `idle()` and `close({ grace })`.
+
+- [#224](https://github.com/softistx/nxgt-data/pull/224) [`7cc1634`](https://github.com/softistx/nxgt-data/commit/7cc16346405f30c5153c12e69b11743c5903db97) Thanks [@SteveGT96](https://github.com/SteveGT96)! - A worker that closes gives back the jobs a claim still in flight took for it: they are `waiting` again at once, with their attempt and group slot returned, instead of waiting out a lease.
+
+- [#219](https://github.com/softistx/nxgt-data/pull/219) [`4b59a39`](https://github.com/softistx/nxgt-data/commit/4b59a390a2d79749f1da14f55c05a69bd9f9d928) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `retry(id, { fresh: true })` clears a failed job's stored step values, so every `job.step` runs again; `retry(id)` still resumes after the last finished step. `job.key(name)` is the same either way. A `fresh` that is not `true` or `false` is a `TypeError`. New type: `RetryOptions`.
+
+- [#221](https://github.com/softistx/nxgt-data/pull/221) [`2f89016`](https://github.com/softistx/nxgt-data/commit/2f8901683a2f5fef45abff673f48e5abca9ba4da) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Queues run recurring jobs. A schedule is a five-field cron with an optional IANA time zone, or an `every` interval, and it is declared in `defineQueue({ schedules })` or managed at run time with `queue.schedules.upsert`, `remove` and `list`. A worker fires each schedule that is due as the job `schedule:<id>:<ms>`, exactly once across processes, and an outage fires the missed occurrence once rather than once per missed tick. Static schedules are synced once per client per process, when the first worker of a queue starts: one that leaves the definition is removed, and runtime schedules are never touched. Schedules fire while a queue is paused, and nothing fires while no worker runs.
+  
+  A job id given to `add` cannot start with `schedule:`, which names scheduled occurrences.
+
+- [#216](https://github.com/softistx/nxgt-data/pull/216) [`8fc58bb`](https://github.com/softistx/nxgt-data/commit/8fc58bb272eba9b39a28e6edc77c1a993c8e3bfd) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Queue handlers get durable steps: `job.step(name, fn)` commits a side effect's value once per job, fenced against a stale worker, so a retry gets the stored value back instead of running `fn` again. `fn` may still run more than once (a crash, or a lease lapsing mid-step), so `job.key(name)` gives a stable idempotency key to hand downstream.
+  
+  A queue name cannot hold `:`, so `job.key` is unambiguous: `defineQueue` throws a `TypeError` for one.
+  
+  `StepOptions` is exported. `finished({ timeout })` is a hard bound: it rejects `WAIT_TIMEOUT` on time even when a connection hangs.
+
+- [#218](https://github.com/softistx/nxgt-data/pull/218) [`6dc386a`](https://github.com/softistx/nxgt-data/commit/6dc386a7f7de81dad51f84f53ace345fc7ddb906) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Queues are wired like caches and guards: `defineRedis({ queues })` (and `openRedis`) gives `redis.queues.<key>` under the deployment's prefix, and `redis.close({ grace })` closes their workers first. Once the Redis is closed, a queue refuses `add`, `addMany`, `work` and `finished` (pending ones too) with `QueueError` `CLOSED`; admin calls (`get`, `list`, `counts`, `retry`, `remove`, `cancel`) still pass through. Two things are refused when queues are wired: a prefix with braces, and a queue name shared with a cache, a rate limit or an idempotency. `job.key` carries the prefix: `<prefix>:<queue>:<id>:<step>`.
+
 ## 0.8.0
 
 ### Minor Changes
