@@ -6,7 +6,7 @@ import { decodeData } from '../encode';
 import type { queueKeys } from '../keys';
 import { SCHEDULES, UNSCHEDULE, UPSERT } from '../scripts/schedule';
 import type { QueueDefinition } from '../types';
-import { firstNext, resolveSchedule } from './define';
+import { firstNext, ID_RULE, isScheduleId, resolveSchedule } from './define';
 import type { QueueSchedules, ScheduleView } from './types';
 
 type Keys = ReturnType<typeof queueKeys>;
@@ -68,6 +68,11 @@ export function scheduleHandle<
 		},
 		async remove(id) {
 			const call = 'schedules.remove';
+			if (!isScheduleId(id)) {
+				throw new TypeError(
+					`${call} on "${name}": a schedule id is ${ID_RULE}`,
+				);
+			}
 			const reply = await runScript(
 				client,
 				UNSCHEDULE,

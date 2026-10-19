@@ -3,11 +3,11 @@ import { claim } from '../scripts/claim';
 import type { ClaimedJob } from '../scripts/replies';
 import type { WorkerContext } from './context';
 import { announce, emit } from './events';
+import { fireDue, MAX_WAIT, waitMs } from './fire';
 import { markDrained, settleIdle } from './idle';
 import { runSlot } from './run-job';
+import { syncSchedules } from './sync';
 
-/** The longest a worker blocks: how it notices a token that went missing. */
-const MAX_WAIT = 5_000;
 /** The wait after a Redis failure, doubling up to the cap, reset by a success. */
 const FIRST_RETRY = 1_000;
 const MAX_RETRY = 30_000;
@@ -44,12 +44,12 @@ function start<S extends z.ZodType>(
 
 async function waitForWork(
 	context: WorkerContext,
-	next: number,
+	wait: number,
 ): Promise<void> {
 	context.waiter ??= await context.client.duplicate();
 	// Closed while the connection was opening: nothing to wait for.
 	if (!context.open) return;
-	const ms = Math.max(1, Math.min(next >= 0 ? next : MAX_WAIT, MAX_WAIT));
+	const ms = Math.max(1, Math.min(wait, MAX_WAIT));
 	await context.waiter.send('BLPOP', [context.keys.wake, String(ms / 1000)]);
 }
 
@@ -68,6 +68,9 @@ export async function loop<S extends z.ZodType>(
 				context.slotFreed = undefined;
 				continue;
 			}
+			// Before the first claim; every later call finds it done.
+			await syncSchedules(context);
+			if (!context.open) break;
 			const reply = await claim(
 				context.client,
 				context.keys,
@@ -79,9 +82,11 @@ export async function loop<S extends z.ZodType>(
 			announce(context, reply);
 			// A reply past the close's bound starts nothing: no lease renews it.
 			if (context.open) for (const job of reply.jobs) start(context, job);
-			markDrained(context, reply.jobs.length === 0);
+			// Between the claim and the wait, so a busy worker fires too.
+			const round = await fireDue(context, reply.due);
+			markDrained(context, reply.jobs.length === 0 && round.added === 0);
 			if (context.open && context.slots.size < context.concurrency) {
-				await waitForWork(context, reply.next);
+				await waitForWork(context, waitMs(reply.next, round, Date.now()));
 			}
 		} catch (error) {
 			// Closing the connection ends a pending wait: expected then, and only then.

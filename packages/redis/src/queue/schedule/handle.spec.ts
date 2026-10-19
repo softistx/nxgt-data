@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
-import { useRedis } from '../../../test/fixtures';
+import { scriptCalls, useRedis } from '../../../test/fixtures';
 import { rejection } from '../../../test/rejection';
 import { def, scheduleCalls } from '../../../test/schedule-calls';
 import * as queues from '../../../test/wiring/queues';
@@ -117,6 +117,8 @@ describe('schedules.upsert and list', () => {
 	});
 
 	test('validates before any round trip', async () => {
+		await q().schedules.list();
+		const before = await scriptCalls(client());
 		const bad = [
 			{ cron: '* * * * *', every: '1m', data },
 			{ data },
@@ -148,7 +150,20 @@ describe('schedules.upsert and list', () => {
 		expect(invalid.message).toStartWith(
 			'schedules.upsert on "mails": schedule "x" data does not match the schema',
 		);
-		expect(await client().zcard('queue:{mails}:schedules')).toBe(0);
+		const removal = (await rejection(q().schedules.remove('a:b'))) as Error;
+		expect(removal).toBeInstanceOf(TypeError);
+		expect(removal.message).toBe(
+			'schedules.remove on "mails": a schedule id is a string of 1 to 256 characters without braces or colons',
+		);
+		expect(await scriptCalls(client())).toBe(before);
+	});
+
+	test('list gives data undefined for a stored data that no longer parses', async () => {
+		await q().schedules.upsert('s', { every: '1m', data });
+		await client().hset('queue:{mails}:schedule:s', { data: '{"to":1}' });
+		const [view] = await q().schedules.list();
+		expect(view?.id).toBe('s');
+		expect(view?.data).toBeUndefined();
 	});
 });
 

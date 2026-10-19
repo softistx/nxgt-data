@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { useRedis } from '../../../test/fixtures';
+import { rejection } from '../../../test/rejection';
 import {
 	DATA,
 	type Def,
@@ -105,6 +106,24 @@ describe('SYNC', () => {
 		expect(String(error)).toContain('1000');
 		expect(await send('ZCARD', keys.schedules)).toBe(0);
 		expect(await sync(many.slice(0, 1000))).toEqual([1000, 0]);
+	});
+});
+
+describe('SYNC set cap', () => {
+	test('refuses, before any write, when the definition set holds more than 2000 ids', async () => {
+		await sync([def('a', 1000)]);
+		const ids = Array.from({ length: 2000 }, (_, n) => `stale${n}`);
+		await send('SADD', keys.schedulesDefinition, ...ids);
+		const refused = await rejection(sync([def('b', 2000)]));
+		expect(String(refused)).toContain('definition set');
+		expect(await score('b')).toBeNull();
+		expect(await send('SCARD', keys.schedulesDefinition)).toBe(2001);
+	});
+
+	test('accepts a set of exactly 2000 ids', async () => {
+		const ids = Array.from({ length: 2000 }, (_, n) => `stale${n}`);
+		await send('SADD', keys.schedulesDefinition, ...ids);
+		expect(await sync([def('b', 2000)])).toEqual([1, 0]);
 	});
 });
 

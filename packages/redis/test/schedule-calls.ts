@@ -1,7 +1,13 @@
 import type { RedisClient } from 'bun';
 import { queueKeys } from '../src/queue/keys';
 import { scriptKeys } from '../src/queue/scripts/claim';
-import { FIRE, SYNC, UNSCHEDULE, UPSERT } from '../src/queue/scripts/schedule';
+import {
+	DEFER,
+	FIRE,
+	SYNC,
+	UNSCHEDULE,
+	UPSERT,
+} from '../src/queue/scripts/schedule';
 import { runScript } from '../src/scripts/run-script';
 
 /** Test helpers: the schedule scripts called as the client will call them. */
@@ -75,6 +81,13 @@ export function scheduleCalls(client: () => RedisClient) {
 				3,
 				timeout,
 			]),
+		defer: (id: string, due: number, until: number) =>
+			runScript(
+				client(),
+				DEFER,
+				[keys.schedules],
+				[keys.schedule, id, due, until],
+			),
 		sync: (defs: Def[]) =>
 			runScript(
 				client(),

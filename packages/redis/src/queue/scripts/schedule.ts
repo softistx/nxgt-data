@@ -125,13 +125,40 @@ return added and 1 or 0
 `);
 
 /**
+ * Moves a due schedule whose spec the client cannot parse out of the way: when
+ * `schedules` still scores the id at `due` and the hash is sound, sets the
+ * score to `until`, adding no job. A moved score, a missing or unsound hash
+ * does nothing. An `until` that is not a whole number above `due` is an error
+ * reply before any write, as for {@link FIRE}'s `next`.
+ *
+ * KEYS: schedules.
+ * ARGV: schedule-key prefix, id, due (ms), until (ms).
+ * Returns 1 (deferred) or 0.
+ */
+export const DEFER = defineScript(`
+${SCHEDULE_SOUND_FN}
+local due, untl = ARGV[3], ARGV[4]
+if not (string.match(due, '^%d+$') and string.match(untl, '^%d+$')
+	and tonumber(untl) > tonumber(due)) then
+	return redis.error_reply('ERR until must be a whole number of ms after due')
+end
+local score = redis.call('ZSCORE', KEYS[1], ARGV[2])
+if not score or tonumber(score) ~= tonumber(due) then return 0 end
+local f = redis.call('HMGET', ARGV[1] .. ARGV[2], ${SCHEDULE_FIELDS})
+if not schedule_sound(f) then return 0 end
+redis.call('ZADD', KEYS[1], string.format('%d', tonumber(untl)), ARGV[2])
+return 1
+`);
+
+/**
  * Makes the stored definition schedules match a list: each one is written
  * with `origin=definition`, keeping the stored score when `kind`, `spec`
  * and `timezone` are those already stored (so a restart does not push a
  * schedule's next occurrence) and taking `next` otherwise. A runtime
  * schedule of the same id is taken over. Every stored `origin=definition`
  * hash whose id is not in the list is deleted; runtime ones are left alone.
- * At most 1 000 schedules per call, refused whole above that. The ids a
+ * At most 1 000 schedules per call, refused whole above that, and refused
+ * (an error reply, before any write) while the set holds more than 2 000 ids. The ids a
  * definition owns are kept in the set `schedulesDefinition`, which only this
  * script writes: the sweep reads that set, bounded by two calls' caps, never
  * the whole of `schedules`.
@@ -146,6 +173,9 @@ ${WRITE_FN}
 local prefix = ARGV[1]
 local count = (#ARGV - 1) / 6
 if count > 1000 then return redis.error_reply('ERR at most 1000 schedules per call') end
+if redis.call('SCARD', KEYS[2]) > 2000 then
+	return redis.error_reply('ERR the definition set holds more than 2000 ids')
+end
 local listed = {}
 for i = 2, #ARGV, 6 do
 	local id, kind, spec, zone, data, nxt = ARGV[i], ARGV[i + 1], ARGV[i + 2], ARGV[i + 3], ARGV[i + 4], ARGV[i + 5]
