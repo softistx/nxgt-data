@@ -402,9 +402,10 @@ the job id (never the data):
 - **Round trips, pinned by specs** that count commands through a wrapped
   client: `add` 1, `addMany` 1 per 500, CLAIM of n 1, a busy worker 1 per job
   (COMPLETE/FAIL claim the next), RENEW 1 per worker per `lease / 3`.
-  Under a `rateLimit` a busy worker may spend up to about 3 round trips per
-  job, since a settle's claim may be refused by the rate; the 1-per-job budget
-  holds without a limit.
+  The 1-per-job budget holds without a `rateLimit`. Under one, a settle whose
+  claim the rate refuses is followed by the worker loop's own claims while it
+  waits for an admission, so a job can cost more than one round trip (not
+  measured; bounded by one claim per `retryAfter`, never a spin).
   A regression is a failing spec.
 - **Bounded scripts**: no script scans a whole structure; every loop has a
   cap (reclaim 100, promote 1000, trim per call), so one call cannot hold the
