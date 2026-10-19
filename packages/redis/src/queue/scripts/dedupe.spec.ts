@@ -3,7 +3,7 @@ import { mailQueue, useRedis } from '../../../test/fixtures';
 import { bindQueue } from '../bind-queue';
 import { queueKeys } from '../keys';
 import { claim } from './claim';
-import { complete } from './settle';
+import { complete, fail } from './settle';
 
 const servers = useRedis();
 const keys = queueKeys('mails');
@@ -142,6 +142,36 @@ describe('debounce in ADD', () => {
 		expect(await send('PTTL', dedupe('j'))).toBeLessThanOrEqual(
 			DAY + 3_600_000,
 		);
+	});
+
+	test('debounce does not join a job in retry backoff: it has run, so a new one is added', async () => {
+		const id = await seeded('k');
+		const [job] = (await claim(client(), keys, 1, 30_000, undefined)).jobs;
+		await client().hset(keys.job(id), { 'step:send': '"done"' });
+		await fail(
+			client(),
+			keys,
+			mailQueue,
+			id,
+			job?.token ?? '',
+			{ name: 'Error', message: 'boom' },
+			3_600_000,
+			false,
+		);
+		const hash = await client().hgetall(keys.job(id));
+		expect([hash['state'], hash['attempt']]).toEqual(['delayed', '1']);
+		const due = await send('ZSCORE', keys.delayed, id);
+
+		const handle = await mails().add(
+			{ to: 'new' },
+			{ debounce: { key: 'k', wait: '1h' } },
+		);
+
+		expect(handle.id).not.toBe(id);
+		expect(handle.deduplicated).toBe(false);
+		expect(await client().hgetall(keys.job(id))).toEqual(hash);
+		expect(await send('ZSCORE', keys.delayed, id)).toBe(due);
+		expect(await send('GET', dedupe('k'))).toBe(handle.id);
 	});
 
 	test('a key that names a hash this script could not have written adds a new job and leaves it alone', async () => {

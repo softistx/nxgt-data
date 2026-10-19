@@ -35,6 +35,16 @@ describe('RETRY', () => {
 		expect(await client().hget(keys.job('a'), 'step:one')).toBe('{"n":1}');
 		expect(await client().hget(keys.job('a'), 'step:two')).toBe('');
 	});
+	test('RETRY on a paused queue leaves no wake token, and RESUME leaves one', async () => {
+		const mails = await failedWithSteps();
+		await mails.pause();
+		await client().send('DEL', [keys.wake]);
+		await mails.retry('a');
+		expect(await client().send('LLEN', [keys.wake])).toBe(0);
+		await mails.resume();
+		expect(await client().send('LLEN', [keys.wake])).toBe(1);
+	});
+
 	/** A failed job `a` holding two step fields, one named as a prefix of the other. */
 	async function failedWithSteps(data = { to: 'step:x' }) {
 		const mails = bindQueue(client(), mailQueue);

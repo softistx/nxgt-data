@@ -65,7 +65,7 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 			await runScript(
 				client,
 				ADD,
-				[keys.delayed, keys.ready, keys.seq, keys.wake],
+				[keys.delayed, keys.ready, keys.seq, keys.wake, keys.paused],
 				argv,
 			),
 			chunk.length,

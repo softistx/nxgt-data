@@ -146,6 +146,14 @@ defineQueue({
 });
 // @ts-expect-error a rate limit needs a limit
 defineQueue({ name: 'x', schema: z.string(), rateLimit: { per: '1m' } });
+// @ts-expect-error nor does it go without the span it is counted over
+defineQueue({ name: 'x', schema: z.string(), rateLimit: { limit: 1 } });
+
+// `paused` is a boolean, not a count.
+const paused: boolean = ({} as QueueCounts)['paused'];
+const pausedIsNotANumber: QueueCounts['paused'] extends boolean ? true : never =
+	true;
+void [paused, pausedIsNotANumber];
 
 // The codes a refusal can carry.
 const code: QueueErrorCode = 'ACTIVE';

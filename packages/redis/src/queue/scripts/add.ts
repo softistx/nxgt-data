@@ -36,7 +36,8 @@ import { WAKE_FN } from './wake';
  *   job is added and the key set to its id with `PX ttlMs` (the window).
  * - `debounce` (`mode` `d`, `delayMs` the wait): when the key names a job
  *   whose hash says `waiting` (and it is in `ready`) or `delayed` (and it is
- *   in `delayed`), that job's `data` is replaced and it moves to `delayed` at
+ *   in `delayed`) and has not run (`attempt` 0: a job in retry backoff is under
+ *   way, like an active one), that job's `data` is replaced and it moves to `delayed` at
  *   now + wait, keeping its priority, attempts and timeout; the key's PX is
  *   refreshed and the reply is its id. While the key lives the job's state
  *   decides, not the TTL, which is `wait` plus a day: a memory bound, so a job
@@ -44,7 +45,10 @@ import { WAKE_FN } from './wake';
  *   hash of a shape this script could not have written (it is left alone)
  *   adds a new job and points the key at it. A run under way is never touched.
  *
- * KEYS: delayed, ready, seq, wake.
+ * No `wake` token is left while `paused` exists: `RESUME` leaves one when
+ * `ready` or `delayed` holds jobs, so one now would be spent on nothing.
+ *
+ * KEYS: delayed, ready, seq, wake, paused.
  * ARGV: job-key prefix, dedupe-key prefix, then per job `id, data, priority,
  * attempts, delayMs, atMs, timeoutMs, mode, dedupeKey, ttlMs` — `atMs` is -1
  * when the job has no `at`, and a past one is due now; `timeoutMs` is -1 when
@@ -56,6 +60,11 @@ import { WAKE_FN } from './wake';
 export const ADD = defineScript(`
 ${WAKE_FN}
 local prefix, dprefix = ARGV[1], ARGV[2]
+-- A paused queue's workers are told by RESUME, so no token is left meanwhile.
+local paused = redis.call('EXISTS', KEYS[5]) == 1
+local function poke()
+	if not paused then wake(KEYS[4]) end
+end
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
 -- Whether a stored key value is an id this script could have written.
@@ -64,8 +73,10 @@ local function is_id(held)
 end
 -- The job a debounce key names, when it is still waiting; nil otherwise.
 local function waiting_job(held)
-	local f = redis.call('HMGET', prefix .. held, 'state', 'priority')
+	local f = redis.call('HMGET', prefix .. held, 'state', 'priority', 'attempt')
 	if tonumber(f[2]) == nil then return nil end
+	-- A job that has run once (a retry in backoff) counts as under way.
+	if f[3] ~= '0' then return nil end
 	if f[1] == 'waiting' and redis.call('ZSCORE', KEYS[2], held) then return held end
 	if f[1] == 'delayed' and redis.call('ZSCORE', KEYS[1], held) then return held end
 	return nil
@@ -86,7 +97,7 @@ for i = 3, #ARGV, 10 do
 		local runAt = now + delay
 		redis.call('HSET', prefix .. hit, 'data', data, 'state', 'delayed', 'runAt', runAt)
 		redis.call('ZREM', KEYS[2], hit)
-		if is_head(KEYS[1], runAt) then wake(KEYS[4]) end
+		if is_head(KEYS[1], runAt) then poke() end
 		redis.call('ZADD', KEYS[1], string.format('%d', runAt), hit)
 		redis.call('SET', dprefix .. dkey, hit, 'PX', ttl)
 		out[#out + 1] = hit
@@ -106,9 +117,9 @@ for i = 3, #ARGV, 10 do
 		if due then
 			local score = tonumber(priority) * 1099511627776 + redis.call('INCR', KEYS[3])
 			redis.call('ZADD', KEYS[2], string.format('%d', score), id)
-			wake(KEYS[4])
+			poke()
 		else
-			if is_head(KEYS[1], runAt) then wake(KEYS[4]) end
+			if is_head(KEYS[1], runAt) then poke() end
 			redis.call('ZADD', KEYS[1], string.format('%d', runAt), id)
 		end
 		if mode ~= '' then redis.call('SET', dprefix .. dkey, id, 'PX', ttl) end

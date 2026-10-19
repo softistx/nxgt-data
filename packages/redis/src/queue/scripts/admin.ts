@@ -56,7 +56,8 @@ return 1
 /**
  * Puts a failed job back in `ready`: `state=waiting`, `attempt=0`, `runAt`
  * now, the `error` and `finished` of the last run removed, a fresh ready
- * score from its stored priority, and a `wake` token when none is there.
+ * score from its stored priority, and a `wake` token when none is there and
+ * the queue is not paused (`RESUME` leaves one).
  * It takes {@link CLAIM_FN} only for its shared helpers (`sound`,
  * `ready_score`, `wake`), so the score and the wake rule have one body.
  *
@@ -69,7 +70,7 @@ return 1
  * nothing.
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake, events, paused,
- * rate (it reads only the first seven).
+ * rate (it reads the first seven, and `paused`).
  * ARGV: job-key prefix, id, fresh (`'1'` or `'0'`).
  * Returns 1 (retried) or 0 (not retryable, nothing changed).
  */
@@ -92,7 +93,7 @@ if ARGV[3] == '1' then
 		if string.sub(name, 1, 5) == 'step:' then redis.call('HDEL', key, name) end
 	end
 end
-wake(KEYS[7])
+if redis.call('EXISTS', KEYS[9]) == 0 then wake(KEYS[7]) end
 return 1
 `);
 

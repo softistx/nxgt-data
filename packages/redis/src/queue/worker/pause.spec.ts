@@ -16,6 +16,7 @@ const servers = useRedis();
 const keys = queueKeys('mails');
 const client = () => servers.redis.client;
 const mails = () => bindQueue(client(), mailQueue);
+const send = (...args: string[]) => client().send(args[0] ?? '', args.slice(1));
 const state = (id: string) => client().hget(keys.job(id), 'state');
 
 const opened: Worker[] = [];
@@ -42,6 +43,32 @@ describe('a paused queue', () => {
 		// One claim per worker, then each blocks until its 5 s cap.
 		expect((await scriptCalls(client())) - before).toBeLessThanOrEqual(2);
 		expect(await state('a')).toBe('waiting');
+	});
+
+	test('adds to a paused queue wake nobody, and resume starts a blocked worker', async () => {
+		const queue = mails();
+		await queue.pause();
+		const started = gate();
+		work(() => {
+			started.open();
+			return { messageId: 'x' };
+		});
+		work(() => ({ messageId: 'x' }));
+		await blocked(client(), 2);
+		// Loads ADD in the server's cache: a cold EVALSHA costs two calls.
+		await queue.add({ to: 'warm' }, { id: 'warm' });
+		await send('DEL', keys.wake);
+		const before = await scriptCalls(client());
+		for (let i = 0; i < 10; i++) await queue.add({ to: `j${i}` });
+		// Only the ten ADDs: no token was left, so no worker claimed.
+		expect((await scriptCalls(client())) - before).toBe(10);
+		expect(await send('LLEN', keys.wake)).toBe(0);
+
+		await queue.resume();
+		const late = Bun.sleep(500).then(() => 'late');
+		expect(await Promise.race([started.opened.then(() => 'ran'), late])).toBe(
+			'ran',
+		);
 	});
 
 	test('resume wakes a blocked worker within 500 ms', async () => {
