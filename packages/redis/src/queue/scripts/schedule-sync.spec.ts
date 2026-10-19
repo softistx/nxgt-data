@@ -1,8 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import { useRedis } from '../../../test/fixtures';
+import {
+	DATA,
+	type Def,
+	def,
+	keys,
+	scheduleCalls,
+} from '../../../test/schedule-calls';
 import { runScript } from '../../scripts/run-script';
 import { SCHEDULES } from './schedule';
-import { DATA, type Def, def, keys, scheduleCalls } from './schedule-calls';
 
 const servers = useRedis();
 const client = () => servers.redis.client;
@@ -57,6 +63,30 @@ describe('SYNC', () => {
 		await sync([]);
 		expect(await score('a')).toBeNull();
 		expect(await score('mine')).toBe(4000);
+	});
+
+	test('a definition ranked behind 100 000 runtime schedules is still removed when it leaves', async () => {
+		await sync([def('last', 9_000_000_000_000)]);
+		for (let chunk = 0; chunk < 10; chunk += 1) {
+			const pairs: string[] = [];
+			for (let i = 0; i < 10_001; i += 1)
+				pairs.push(String(i), `r${chunk}-${i}`);
+			await send('ZADD', keys.schedules, ...pairs);
+		}
+		expect(await send('ZCARD', keys.schedules)).toBeGreaterThan(100_000);
+		expect(await sync([])).toEqual([0, 1]);
+		expect(await score('last')).toBeNull();
+		expect(await hash('last')).toEqual({});
+		expect(await send('SCARD', keys.schedulesDefinition)).toBe(0);
+	});
+
+	test('a stale set entry never deletes a runtime schedule', async () => {
+		await upsert('mine', 4000);
+		await send('SADD', keys.schedulesDefinition, 'mine');
+		expect(await sync([])).toEqual([0, 0]);
+		expect((await hash('mine')).origin).toBe('runtime');
+		expect(await score('mine')).toBe(4000);
+		expect(await send('SCARD', keys.schedulesDefinition)).toBe(0);
 	});
 
 	test('a definition takes over a runtime schedule of the same id', async () => {

@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import { useRedis } from '../../../test/fixtures';
+import {
+	DATA,
+	def,
+	type Fields,
+	keys,
+	scheduleCalls,
+} from '../../../test/schedule-calls';
 import { claim } from './claim';
-import { DATA, def, type Fields, keys, scheduleCalls } from './schedule-calls';
 
 const servers = useRedis();
 const client = () => servers.redis.client;
@@ -48,6 +54,44 @@ describe('UPSERT and UNSCHEDULE', () => {
 });
 
 describe('FIRE', () => {
+	test.each([
+		['equal to due', 1000],
+		['below due', 999],
+	])('a next %s is an error reply and writes nothing', async (_n, next) => {
+		await upsert('digest', 1000);
+		let error: unknown;
+		await fire('digest', 1000, next).catch((e: unknown) => {
+			error = e;
+		});
+		expect(String(error)).toContain('next');
+		expect(await send('ZCARD', keys.ready)).toBe(0);
+		expect(await score('digest')).toBe(1000);
+	});
+
+	test.each([['1.5'], ['soon'], ['-5'], ['1e9']])(
+		'a next of %s is an error reply and writes nothing',
+		async (next) => {
+			await upsert('digest', 1000);
+			let error: unknown;
+			await fire('digest', 1000, next as unknown as number).catch(
+				(e: unknown) => {
+					error = e;
+				},
+			);
+			expect(String(error)).toContain('next');
+			expect(await send('ZCARD', keys.ready)).toBe(0);
+			expect(await score('digest')).toBe(1000);
+		},
+	);
+
+	test('a schedule whose time has not come is never fired early', async () => {
+		const future = Date.now() + 3_600_000;
+		await upsert('digest', future);
+		expect(await fire('digest', future, future + 60_000)).toBe(0);
+		expect(await send('ZCARD', keys.ready)).toBe(0);
+		expect(await score('digest')).toBe(future);
+	});
+
 	test('fires an occurrence once: copies data, attempts and timeout, leaves a wake token', async () => {
 		await upsert('digest', 1000);
 		expect(await fire('digest', 1000, 61_000, 2500)).toBe(1);

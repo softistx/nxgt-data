@@ -84,7 +84,8 @@ return 0
  * (so a second caller, or a stale one, finds nothing to do) and the hash is
  * sound, adds the job `schedule:<id>:<due>` through `add_job` (the Lua of
  * `ADD`) with the hash's `data`, priority 0 and the given attempts and
- * timeout, then moves the schedule to `next`. The job's id already existing
+ * timeout, then moves the schedule to `next`. A `due` in the future, or a `next`
+ * that is not a whole number above `due`, fires nothing (the latter is an error reply). The job's id already existing
  * adds nothing, but the schedule still moves on. No wake token is left
  * while `paused` exists: the job waits in `ready` for `RESUME`.
  *
@@ -98,6 +99,12 @@ ${WAKE_FN}
 ${SCHEDULE_SOUND_FN}
 local prefix = ARGV[1]
 local id, due = ARGV[3], ARGV[4]
+-- Before any write: a next that is not a whole ms after due would leave the
+-- schedule due again at once, or a job added and the schedule not moved.
+if not (string.match(due, '^%d+$') and string.match(ARGV[5], '^%d+$')
+	and tonumber(ARGV[5]) > tonumber(due)) then
+	return redis.error_reply('ERR next must be a whole number of ms after due')
+end
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
 local DELAYED, READY, SEQ = KEYS[1], KEYS[2], KEYS[6]
@@ -108,6 +115,8 @@ end
 ${ADD_JOB_FN}
 local score = redis.call('ZSCORE', KEYS[11], id)
 if not score or tonumber(score) ~= tonumber(due) then return 0 end
+-- Never early: an occurrence whose time has not come is not fired.
+if tonumber(due) > now then return 0 end
 local f = redis.call('HMGET', ARGV[2] .. id, ${SCHEDULE_FIELDS})
 if not schedule_sound(f) then return 0 end
 local added = add_job('schedule:' .. id .. ':' .. due, f[4], '0', ARGV[6], 0, -1, tonumber(ARGV[7]))
@@ -122,10 +131,12 @@ return added and 1 or 0
  * schedule's next occurrence) and taking `next` otherwise. A runtime
  * schedule of the same id is taken over. Every stored `origin=definition`
  * hash whose id is not in the list is deleted; runtime ones are left alone.
- * At most 1 000 schedules per call, refused whole above that. The sweep
- * reads the first 100 000 ids of `schedules`.
+ * At most 1 000 schedules per call, refused whole above that. The ids a
+ * definition owns are kept in the set `schedulesDefinition`, which only this
+ * script writes: the sweep reads that set, bounded by two calls' caps, never
+ * the whole of `schedules`.
  *
- * KEYS: schedules.
+ * KEYS: schedules, schedulesDefinition.
  * ARGV: schedule-key prefix, then per schedule `id, kind, spec, timezone,
  * data, next` (the timezone `''` for an `every`).
  * Returns `{written, removed}`.
@@ -140,6 +151,7 @@ for i = 2, #ARGV, 6 do
 	local id, kind, spec, zone, data, nxt = ARGV[i], ARGV[i + 1], ARGV[i + 2], ARGV[i + 3], ARGV[i + 4], ARGV[i + 5]
 	local key = prefix .. id
 	listed[id] = true
+	redis.call('SADD', KEYS[2], id)
 	local f = redis.call('HMGET', key, 'kind', 'spec', 'timezone')
 	local same = f[1] == kind and f[2] == spec and (f[3] or '') == (kind == 'cron' and zone or '')
 		and redis.call('ZSCORE', KEYS[1], id) ~= false
@@ -147,11 +159,14 @@ for i = 2, #ARGV, 6 do
 	if not same then redis.call('ZADD', KEYS[1], string.format('%d', tonumber(nxt)), id) end
 end
 local removed = 0
-for _, id in ipairs(redis.call('ZRANGE', KEYS[1], 0, 99999)) do
-	if not listed[id] and redis.call('HGET', prefix .. id, 'origin') == 'definition' then
-		redis.call('DEL', prefix .. id)
-		redis.call('ZREM', KEYS[1], id)
-		removed = removed + 1
+for _, id in ipairs(redis.call('SMEMBERS', KEYS[2])) do
+	if not listed[id] then
+		redis.call('SREM', KEYS[2], id)
+		if redis.call('HGET', prefix .. id, 'origin') == 'definition' then
+			redis.call('DEL', prefix .. id)
+			redis.call('ZREM', KEYS[1], id)
+			removed = removed + 1
+		end
 	end
 end
 return {count, removed}

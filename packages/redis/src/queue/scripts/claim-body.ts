@@ -66,12 +66,15 @@ end
  *    5000 while paused (the worker's own cap: it only has to notice a lost
  *    resume token), and, while the rate refuses the jobs in `ready`, the
  *    GCRA's `retryAfter` for one job when that is sooner;
- * 6. reports up to 20 schedules due now (`schedules` scored at or below
- *    `now`, earliest first) as `{id, kind, spec, timezone, due}`, paused or
- *    not: schedules fire while paused. The claim fires nothing: the client
+ * 6. reports up to 20 sound schedules due now (the first 100 scored at or
+ *    below `now`, earliest first, are read, so an unsound hash does not hide
+ *    a sound one) as `{id, kind, spec, timezone, due}`, paused or not:
+ *    schedules fire while paused. The claim fires nothing: the client
  *    computes each `next` and calls `FIRE`. A hash that fails
- *    `schedule_sound` is left out and left alone. `next` is also bounded by
- *    the first schedule not yet due, and is 0 while a sound one is due.
+ *    `schedule_sound` is left out and left alone. `next` is 0 only when 20
+ *    were reported (a backlog drains at once); otherwise it is bounded by the
+ *    first schedule not yet due, so a due one nobody fires cannot make
+ *    workers spin.
  *
  * `rate` is `{per, limit, burst, us}` (`us` the script's `TIME` in µs, `per`
  * in ms) or `nil` for no limit. The pop is bounded by what a GCRA peek at
@@ -135,19 +138,34 @@ local function admitted(n, paused, rate)
 	if one[1] == 0 then return 0 end
 	return math.min(n, one[2] + 1)
 end
--- The schedules due now, up to 20 and only sound ones (skipped, never repaired),
--- each {id, kind, spec, timezone, due}; and the ms until the first one that is
--- not due yet. An unsound due schedule must not keep the wait at zero.
+-- The schedules due now: the first 20 sound ones of the first 100 due (an
+-- unsound hash is skipped, never repaired, and does not hide a sound one),
+-- each {id, kind, spec, timezone, due}.
 local function due_schedules(sprefix, now)
 	local out = {}
-	local rows = redis.call('ZRANGEBYSCORE', KEYS[11], '-inf', int(now), 'LIMIT', 0, 20, 'WITHSCORES')
+	local rows = redis.call('ZRANGEBYSCORE', KEYS[11], '-inf', int(now), 'LIMIT', 0, 100, 'WITHSCORES')
 	for i = 1, #rows, 2 do
 		local f = redis.call('HMGET', sprefix .. rows[i], ${SCHEDULE_FIELDS})
-		if schedule_sound(f) then
+		if #out < 20 and schedule_sound(f) then
 			out[#out + 1] = {rows[i], f[1], f[2], f[3] or '', tonumber(rows[i + 1])}
 		end
 	end
 	return out
+end
+-- The ms a worker may wait: 0 for a full page of due schedules (a backlog
+-- drains at once), else the sooner of the first delayed job, the first
+-- schedule not yet due, and the rate's retry; -1 for nothing.
+local function next_wait(now, backlog, retry)
+	if backlog then return 0 end
+	local wait = -1
+	local first = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+	if first[2] then wait = math.max(0, tonumber(first[2]) - now) end
+	local head = redis.call('ZRANGEBYSCORE', KEYS[11], '(' .. int(now), '+inf', 'LIMIT', 0, 1, 'WITHSCORES')
+	if head[2] and (wait < 0 or tonumber(head[2]) - now < wait) then
+		wait = tonumber(head[2]) - now
+	end
+	if retry >= 0 and (wait < 0 or retry < wait) then wait = retry end
+	return wait
 end
 local function claim(n, lease, tokens, now, rate, sprefix)
 	local jobs, stalled, invalid = {}, {}, {}
@@ -218,19 +236,7 @@ local function claim(n, lease, tokens, now, rate, sprefix)
 		redis.call('DEL', KEYS[7])
 	end
 	if paused then return {jobs, stalled, invalid, 5000, scheduled} end
-	local nextDue = -1
-	local first = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
-	if first[2] then nextDue = math.max(0, tonumber(first[2]) - now) end
-	if #scheduled > 0 then
-		nextDue = 0
-	else
-		local head = redis.call('ZRANGEBYSCORE', KEYS[11], '(' .. int(now), '+inf', 'LIMIT', 0, 1, 'WITHSCORES')
-		if head[2] and (nextDue < 0 or tonumber(head[2]) - now < nextDue) then
-			nextDue = tonumber(head[2]) - now
-		end
-	end
-	if retry >= 0 and (nextDue < 0 or retry < nextDue) then nextDue = retry end
-	return {jobs, stalled, invalid, nextDue, scheduled}
+	return {jobs, stalled, invalid, next_wait(now, #scheduled >= 20, retry), scheduled}
 end
 `;
 

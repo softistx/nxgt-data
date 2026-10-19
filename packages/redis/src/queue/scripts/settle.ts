@@ -56,8 +56,7 @@ end
  * ARGV: job-key prefix, id, token, keepAge (ms, -1 to keep nothing),
  * keepCount, lease (ms), claim token (`''` for no claim), result (JSON,
  * `''` for none), then the rate's `per`, `limit` and `burst` (`0 0 0` for
- * none), and the schedule-key prefix.
- * Returns `{settled, jobs, stalled, invalid, next, due}`.
+ * none) and the schedule-key prefix. Returns `{settled, jobs, stalled, invalid, next, due}`.
  */
 export const COMPLETE = defineScript(`
 local prefix = ARGV[1]
@@ -107,8 +106,7 @@ return out
  * ARGV: job-key prefix, id, token, error (JSON `{name, message}`), retryIn
  * (ms, -1 for no retry), keepFailed age (ms), lease (ms), claim token (`''`
  * for no claim), then the rate's `per`, `limit` and `burst` (`0 0 0` for
- * none), and the schedule-key prefix.
- * Returns `{settled, final, jobs, stalled, invalid, next, due}`.
+ * none) and the schedule-key prefix. Returns `{settled, final, jobs, stalled, invalid, next, due}`.
  */
 export const FAIL = defineScript(`
 local prefix = ARGV[1]

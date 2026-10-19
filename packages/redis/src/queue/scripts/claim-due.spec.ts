@@ -115,7 +115,7 @@ describe('claim reports due schedules', () => {
 		expect(bare.due).toEqual([]);
 	});
 
-	test('next is the schedules head when sooner than the delayed head, and 0 when one is due', async () => {
+	test('next is the schedules head when sooner than the delayed head', async () => {
 		const now = Date.now();
 		await bindQueue(client(), mailQueue).add(
 			{ to: 'x' },
@@ -125,12 +125,47 @@ describe('claim reports due schedules', () => {
 		const soon = await claim(client(), keys, 5, 30_000, undefined);
 		expect(soon.next).toBeGreaterThan(20_000);
 		expect(soon.next).toBeLessThanOrEqual(30_000);
-		await every('due', now - 5);
-		const due = await claim(client(), keys, 5, 30_000, undefined);
-		expect(due.next).toBe(0);
 		await send('DEL', keys.schedules);
 		const delayedOnly = await claim(client(), keys, 5, 30_000, undefined);
 		expect(delayedOnly.next).toBeGreaterThan(3_000_000);
+	});
+
+	test('a due schedule nobody fires never makes next 0', async () => {
+		await every('due', Date.now() - 5);
+		const alone = await claim(client(), keys, 5, 30_000, undefined);
+		expect(alone.due.map((d) => d.id)).toEqual(['due']);
+		expect(alone.next).toBe(-1);
+		await every('later', Date.now() + 30_000);
+		const again = await claim(client(), keys, 5, 30_000, undefined);
+		expect(again.due.map((d) => d.id)).toEqual(['due']);
+		expect(again.next).toBeGreaterThan(20_000);
+		expect(again.next).toBeLessThanOrEqual(30_000);
+	});
+
+	test('a full page of 20 due schedules gives next 0, so a backlog drains', async () => {
+		for (let i = 0; i < 20; i += 1) await every(`s${i}`, 1000 + i);
+		await every('later', Date.now() + 30_000);
+		const reply = await claim(client(), keys, 5, 30_000, undefined);
+		expect(reply.due).toHaveLength(20);
+		expect(reply.next).toBe(0);
+	});
+
+	test('25 unsound hashes at the head do not hide a sound schedule behind them', async () => {
+		for (let i = 0; i < 25; i += 1) {
+			await schedule(`bad${i}`, 1000 + i, [
+				'kind',
+				'weekly',
+				'spec',
+				'1',
+				'data',
+				DATA,
+				'origin',
+				'runtime',
+			]);
+		}
+		await every('good', 5000);
+		const reply = await claim(client(), keys, 5, 30_000, undefined);
+		expect(reply.due.map((d) => d.id)).toEqual(['good']);
 	});
 
 	test('the delayed head wins when it is sooner', async () => {
