@@ -21,10 +21,9 @@
 
 import { cpus, release } from 'node:os';
 import { RedisClient } from 'bun';
+import { z } from 'zod';
 import type { BoundQueue } from '../packages/redis/dist/index';
 import { bindQueue, defineQueue } from '../packages/redis/dist/index';
-// The root has no zod of its own: the package's, which the queue itself uses.
-import { z } from '../packages/redis/node_modules/zod';
 import pkg from '../packages/redis/package.json';
 import { startRedis } from '../packages/redis/test/server';
 import { percentile, perSecond, renderTable } from './bench-queue-format';

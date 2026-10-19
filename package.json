@@ -27,7 +27,8 @@
 		"@changesets/changelog-github": "^1.0.1",
 		"@changesets/cli": "^3.0.1",
 		"@types/bun": "^1.4.0",
-		"typescript": "~6.0.3"
+		"typescript": "~6.0.3",
+		"zod": "4.6.5"
 	},
 	"overrides": {
 		"typescript": "~6.0.3"
