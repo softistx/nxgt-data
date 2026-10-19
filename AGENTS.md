@@ -1055,12 +1055,12 @@ the file.
 
 ## Known state
 
-`bun run test` is **2666 pass, 0 fail**, measured by a full run on
+`bun run test` is **2685 pass, 0 fail**, measured by a full run on
 2026-10-19 (the queue effort, before its release): drizzle 167, meilisearch
-130, mongo 667, drizzle-meilisearch 42, mongo-meilisearch 75, redis 972, s3
+130, mongo 667, drizzle-meilisearch 42, mongo-meilisearch 75, redis 991, s3
 157, backup 196, mongo-backup 68, `mongo-backup-job-example` 2,
 `queue-mails-example` 4, hono-api-example 43 and the scripts' 143. The queue
-brought redis from 255 to 972 and added the example; s3 and the scripts grew in
+brought redis from 255 to 991 and added the example; s3 and the scripts grew in
 efforts of their own. The earlier 1842 (2026-10-05) was 1812 plus the 30 specs of the wired guards (`wiring/guards.spec.ts` and
 `wiring/config/guard-refusals.spec.ts`); no other spec was added. (1812 was
 measured on 2026-10-04, after `@nxgt/redis-guard` was dropped: the earlier 1815
