@@ -24,8 +24,9 @@ item shipped in is the only number on this page.
   `pause()` and `resume()`, and a queue-wide `rateLimit` shared by every worker
   (landed, not yet released). Recurring jobs: `schedules` in `defineQueue` and
   `queue.schedules.upsert`, `remove` and `list`, by cron with time zones or by
-  interval (landed, not yet released). Still to come in the same release: concurrency and fairness per group; and a
-  published benchmark.
+  interval (landed, not yet released). Groups: `groups` in `defineQueue` and `group` on `add`, round-robin between
+  groups with a `concurrency` cap per group (landed, not yet released). Still to
+  come in the same release: a published benchmark.
 
 ## Next
 
