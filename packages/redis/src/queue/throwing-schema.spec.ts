@@ -41,7 +41,7 @@ const keys = queueKeys('throws');
 const hget = (id: string, field: string) => client().hget(keys.job(id), field);
 
 async function claimOne() {
-	const [job] = (await claim(client(), keys, 1, 30_000)).jobs;
+	const [job] = (await claim(client(), keys, 1, 30_000, undefined)).jobs;
 	if (!job) throw new Error('nothing to claim');
 	return job;
 }

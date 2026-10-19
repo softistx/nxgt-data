@@ -163,7 +163,7 @@ describe('events', () => {
 		await withWorkers(async (open) => {
 			await bindQueue(client(), mailQueue).add({ to: 'a' }, { id: 'a' });
 			// A worker that died: it claimed and never settled.
-			await claim(client(), keys, 1, 300);
+			await claim(client(), keys, 1, 300, undefined);
 			await eventually(
 				async () =>
 					Number(await client().send('ZSCORE', [keys.active, 'a'])) <

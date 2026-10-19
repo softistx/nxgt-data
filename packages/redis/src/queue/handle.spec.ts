@@ -38,7 +38,9 @@ async function connections() {
 
 /** Claims the one job of `queue`, as a worker would. */
 async function take(queue = sent) {
-	const [job] = (await claim(client(), queueKeys(queue.name), 1, 30_000)).jobs;
+	const [job] = (
+		await claim(client(), queueKeys(queue.name), 1, 30_000, undefined)
+	).jobs;
 	if (!job) throw new Error('nothing to claim');
 	return job;
 }
@@ -376,7 +378,9 @@ describe('a result of undefined', () => {
 
 	test('z.void() reads back undefined, and a required schema finding no result (a foreign write) is INVALID', async () => {
 		const handle = await bindQueue(client(), voided).add(to('a'), { id: 'a' });
-		const [job] = (await claim(client(), queueKeys('voided'), 1, 30_000)).jobs;
+		const [job] = (
+			await claim(client(), queueKeys('voided'), 1, 30_000, undefined)
+		).jobs;
 		await complete(
 			client(),
 			queueKeys('voided'),

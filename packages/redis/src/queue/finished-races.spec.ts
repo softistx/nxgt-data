@@ -55,7 +55,7 @@ function settleBeforeFirstRead(
 
 async function claimOne() {
 	await bindQueue(client(), volatile).add({ to: 'a' }, { id: 'a' });
-	const [job] = (await claim(client(), vkeys, 1, 30_000)).jobs;
+	const [job] = (await claim(client(), vkeys, 1, 30_000, undefined)).jobs;
 	if (!job) throw new Error('nothing to claim');
 	return job;
 }

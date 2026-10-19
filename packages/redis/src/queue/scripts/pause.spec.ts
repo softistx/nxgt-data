@@ -15,7 +15,7 @@ describe('a paused claim', () => {
 	test('reclaims and promotes but pops nothing, and leaves no wake token', async () => {
 		const queue = mails();
 		await queue.add({ to: 'lapsed' }, { id: 'lapsed' });
-		await claim(client(), keys, 1, 30_000);
+		await claim(client(), keys, 1, 30_000, undefined);
 		await send('ZADD', keys.active, '1', 'lapsed');
 		await queue.add({ to: 'due' }, { id: 'due', delay: 60_000 });
 		await send('ZADD', keys.delayed, '1', 'due');
@@ -23,7 +23,7 @@ describe('a paused claim', () => {
 		await send('LPUSH', keys.wake, '1');
 		await queue.pause();
 
-		const reply = await claim(client(), keys, 5, 30_000);
+		const reply = await claim(client(), keys, 5, 30_000, undefined);
 
 		expect(reply.jobs).toEqual([]);
 		expect(reply.stalled).toEqual(['lapsed']);
@@ -43,7 +43,7 @@ describe('a paused claim', () => {
 		const queue = mails();
 		await queue.add({ to: 'a' }, { id: 'a' });
 		await queue.add({ to: 'b' }, { id: 'b' });
-		const [job] = (await claim(client(), keys, 1, 30_000)).jobs;
+		const [job] = (await claim(client(), keys, 1, 30_000, undefined)).jobs;
 		if (!job) throw new Error('not claimed');
 		await queue.pause();
 
@@ -68,6 +68,8 @@ describe('a paused claim', () => {
 		await queue.add({ to: 'a' }, { id: 'a' });
 		await queue.pause();
 		await queue.resume();
-		expect((await claim(client(), keys, 1, 30_000)).jobs).toHaveLength(1);
+		expect(
+			(await claim(client(), keys, 1, 30_000, undefined)).jobs,
+		).toHaveLength(1);
 	});
 });

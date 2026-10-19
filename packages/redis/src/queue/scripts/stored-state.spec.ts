@@ -38,7 +38,7 @@ describe('stored state', () => {
 		await send('ZADD', keys.ready, '1', 'nodata');
 		await send('ZADD', keys.ready, '2', 'nan');
 		await bindQueue(client(), mailQueue).add({ to: 'ok' }, { id: 'ok' });
-		const reply = await claim(client(), keys, 5, 30_000);
+		const reply = await claim(client(), keys, 5, 30_000, undefined);
 		expect(reply.jobs.map((j) => j.id)).toEqual(['ok']);
 		expect(reply.failedInvalid.sort()).toEqual(['nan', 'nodata']);
 		for (const id of ['nodata', 'nan']) {
@@ -80,7 +80,7 @@ describe('stored state', () => {
 		};
 		await send('HSET', keys.job('odd'), ...Object.entries(fields).flat());
 		await send('ZADD', keys.ready, '1', 'odd');
-		const reply = await claim(client(), keys, 1, 30_000);
+		const reply = await claim(client(), keys, 1, 30_000, undefined);
 		expect(reply.jobs).toEqual([]);
 		expect(reply.failedInvalid).toEqual(['odd']);
 		expect(await hget('odd', 'state')).toBe('failed');
@@ -108,7 +108,7 @@ describe('stored state', () => {
 			);
 			await send('ZADD', keys.ready, '1', id);
 		}
-		const reply = await claim(client(), keys, 5, 30_000);
+		const reply = await claim(client(), keys, 5, 30_000, undefined);
 		expect(reply.failedInvalid).toEqual(['bad']);
 		expect(reply.jobs.map((j) => [j.id, j.timeout])).toEqual([
 			['good', 1500],
@@ -122,7 +122,7 @@ describe('stored state', () => {
 			{ id: 'a', timeout: Number.MAX_SAFE_INTEGER },
 		);
 		expect(await hget('a', 'timeout')).toBe('2147483647');
-		const reply = await claim(client(), keys, 1, 30_000);
+		const reply = await claim(client(), keys, 1, 30_000, undefined);
 		expect(reply.jobs.map((j) => [j.id, j.timeout])).toEqual([
 			['a', 2_147_483_647],
 		]);
@@ -148,14 +148,14 @@ describe('stored state', () => {
 			'g1',
 		);
 		await send('ZADD', keys.ready, '1', 'x');
-		const reply = await claim(client(), keys, 1, 30_000);
+		const reply = await claim(client(), keys, 1, 30_000, undefined);
 		expect(reply.jobs.map((j) => j.id)).toEqual(['x']);
 		expect(reply.failedInvalid).toEqual([]);
 	});
 
 	test('an id in ready with no hash is dropped', async () => {
 		await send('ZADD', keys.ready, '1', 'ghost');
-		const reply = await claim(client(), keys, 5, 30_000);
+		const reply = await claim(client(), keys, 5, 30_000, undefined);
 		expect(reply.jobs).toEqual([]);
 		expect(reply.failedInvalid).toEqual([]);
 		expect(reply.stalled).toEqual([]);
@@ -168,7 +168,7 @@ describe('stored state', () => {
 		await send('HSET', keys.job('odd'), 'data', '{}', 'attempt', 'x');
 		await send('ZADD', keys.ready, '1', 'odd');
 		await send('ZADD', keys.ready, '2', 'ghost');
-		await claim(client(), keys, 2, 30_000);
+		await claim(client(), keys, 2, 30_000, undefined);
 		expect(await log.published()).toEqual([
 			{
 				type: 'failed',
@@ -184,7 +184,7 @@ describe('stored state', () => {
 	test('an untrusted lapsed lease is failed with INVALID, not retried', async () => {
 		await send('HSET', keys.job('odd'), 'data', '{}', 'attempt', 'x');
 		await send('ZADD', keys.active, '1', 'odd');
-		const reply = await claim(client(), keys, 1, 30_000);
+		const reply = await claim(client(), keys, 1, 30_000, undefined);
 		expect(reply.failedInvalid).toEqual(['odd']);
 		expect(await hget('odd', 'state')).toBe('failed');
 	});

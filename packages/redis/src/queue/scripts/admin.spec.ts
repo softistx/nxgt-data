@@ -16,7 +16,7 @@ describe('RETRY', () => {
 	test('RETRY keeps step fields', async () => {
 		const mails = bindQueue(client(), mailQueue);
 		await mails.add({ to: 'a' }, { id: 'a' });
-		const [job] = (await claim(client(), keys, 1, 30_000)).jobs;
+		const [job] = (await claim(client(), keys, 1, 30_000, undefined)).jobs;
 		if (!job) throw new Error('not claimed');
 		await stepCommit(client(), keys, 'a', job.token, 'one', '{"n":1}');
 		await stepCommit(client(), keys, 'a', job.token, 'two', '');
@@ -39,7 +39,7 @@ describe('RETRY', () => {
 	async function failedWithSteps(data = { to: 'step:x' }) {
 		const mails = bindQueue(client(), mailQueue);
 		await mails.add(data, { id: 'a', priority: 7 });
-		const [job] = (await claim(client(), keys, 1, 30_000)).jobs;
+		const [job] = (await claim(client(), keys, 1, 30_000, undefined)).jobs;
 		if (!job) throw new Error('not claimed');
 		await stepCommit(client(), keys, 'a', job.token, 'a', '1');
 		await stepCommit(client(), keys, 'a', job.token, 'ab', '2');

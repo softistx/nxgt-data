@@ -4,6 +4,7 @@ import {
 	blocked,
 	eventually,
 	scriptCalls,
+	useClients,
 	useRedis,
 } from '../../../test/fixtures';
 import { bindQueue } from '../bind-queue';
@@ -15,6 +16,7 @@ import type { Worker } from './types';
 const servers = useRedis();
 const keys = queueKeys('limited');
 const client = () => servers.redis.client;
+const clients = useClients(servers);
 // Two a minute, a burst of two: one more only after 30 s, so a count of two
 // stays two for the whole spec.
 const limited = defineQueue({
@@ -34,9 +36,9 @@ describe('a rate-limited queue', () => {
 		const q = queue();
 		await q.addMany(Array.from({ length: 6 }, (_, n) => ({ data: { n } })));
 		const ran: number[] = [];
-		for (let i = 0; i < 2; i++) {
+		for (const own of clients()) {
 			opened.push(
-				q.work(
+				bindQueue(own, limited).work(
 					(job) => {
 						ran.push(job.data.n);
 					},
@@ -54,7 +56,7 @@ describe('a rate-limited queue', () => {
 		const q = queue();
 		await q.addMany(Array.from({ length: 4 }, (_, n) => ({ data: { n } })));
 		// Loads CLAIM in the server's cache: a cold EVALSHA costs two calls.
-		await claim(client(), keys, 0, 30_000);
+		await claim(client(), keys, 0, 30_000, undefined);
 		for (let i = 0; i < 2; i++) opened.push(q.work(() => undefined));
 		await eventually(async () => (await q.counts()).completed, 2);
 		await blocked(client(), 2);

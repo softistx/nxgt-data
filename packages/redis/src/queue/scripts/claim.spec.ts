@@ -33,7 +33,7 @@ describe('claim', () => {
 		expect(await hget('queue', 'timeout')).toBeNull();
 		expect(await hget('job', 'timeout')).toBe('2000');
 		expect(await hget('none', 'timeout')).toBeNull();
-		const reply = await claim(client(), keys, 5, 30_000);
+		const reply = await claim(client(), keys, 5, 30_000, undefined);
 		expect(reply.jobs.map((j) => [j.id, j.timeout])).toEqual([
 			['queue', undefined],
 			['job', 2000],
@@ -46,7 +46,7 @@ describe('claim', () => {
 		await mails().add(to('urgent'), { id: 'urgent', priority: 0 });
 		const [seconds, micros] = (await send('TIME')) as [string, string];
 		const now = Number(seconds) * 1000 + Math.floor(Number(micros) / 1000);
-		const reply = await claim(client(), keys, 1, 30_000);
+		const reply = await claim(client(), keys, 1, 30_000, undefined);
 		expect(reply.jobs).toHaveLength(1);
 		const job = reply.jobs[0];
 		expect(job?.id).toBe('urgent');
@@ -70,11 +70,11 @@ describe('claim', () => {
 	test('claims at most n, and pushes a wake token when ready is left non-empty', async () => {
 		for (const id of ['a', 'b', 'c']) await mails().add(to(id), { id });
 		expect(await send('LLEN', keys.wake)).toBe(1);
-		const first = await claim(client(), keys, 2, 30_000);
+		const first = await claim(client(), keys, 2, 30_000, undefined);
 		expect(first.jobs.map((j) => j.id)).toEqual(['a', 'b']);
 		expect(new Set(first.jobs.map((j) => j.token)).size).toBe(2);
 		expect(await send('LLEN', keys.wake)).toBe(1);
-		const last = await claim(client(), keys, 2, 30_000);
+		const last = await claim(client(), keys, 2, 30_000, undefined);
 		expect(last.jobs.map((j) => j.id)).toEqual(['c']);
 		// Nothing left: the token is deleted, so no worker wakes for nothing.
 		expect(await send('LLEN', keys.wake)).toBe(0);
@@ -83,9 +83,11 @@ describe('claim', () => {
 	test('promotes due delayed jobs, and reports the ms to the next one', async () => {
 		await mails().add(to('due'), { id: 'due', delay: 50 });
 		await mails().add(to('later'), { id: 'later', delay: '1m' });
-		expect((await claim(client(), keys, 5, 30_000)).jobs).toEqual([]);
+		expect((await claim(client(), keys, 5, 30_000, undefined)).jobs).toEqual(
+			[],
+		);
 		await Bun.sleep(80);
-		const reply = await claim(client(), keys, 5, 30_000);
+		const reply = await claim(client(), keys, 5, 30_000, undefined);
 		expect(reply.jobs.map((j) => j.id)).toEqual(['due']);
 		expect(reply.next).toBeGreaterThan(58_000);
 		expect(reply.next).toBeLessThanOrEqual(60_000);
@@ -95,15 +97,15 @@ describe('claim', () => {
 	test('a promoted job gets its ready score from its stored priority', async () => {
 		await mails().add(to('p'), { id: 'p', priority: 7, delay: 10 });
 		await Bun.sleep(30);
-		const reply = await claim(client(), keys, 1, 30_000);
+		const reply = await claim(client(), keys, 1, 30_000, undefined);
 		expect(reply.jobs.map((j) => j.id)).toEqual(['p']);
 	});
 
 	test('reclaims a lapsed lease as an attempt', async () => {
 		await mails().add(to('x'), { id: 'x', priority: 3 });
-		const first = await claim(client(), keys, 1, 30_000);
+		const first = await claim(client(), keys, 1, 30_000, undefined);
 		await send('ZADD', keys.active, '1', 'x');
-		const reply = await claim(client(), keys, 1, 30_000);
+		const reply = await claim(client(), keys, 1, 30_000, undefined);
 		expect(reply.stalled).toEqual(['x']);
 		// reclaimed, then claimed again in the same script: attempt 2
 		expect(reply.jobs[0]?.attempt).toBe(2);
@@ -113,12 +115,12 @@ describe('claim', () => {
 
 	test('a reclaimed job returns to ready, scored from its priority and a fresh seq', async () => {
 		await mails().add(to('x'), { id: 'x', priority: 3 });
-		await claim(client(), keys, 1, 30_000);
+		await claim(client(), keys, 1, 30_000, undefined);
 		await send('ZADD', keys.active, '1', 'x');
 		// n = 1 would claim it again at once; ask the script for the state
 		// between with a second job taking the only slot
 		await mails().add(to('y'), { id: 'y', priority: 0 });
-		const reply = await claim(client(), keys, 1, 30_000);
+		const reply = await claim(client(), keys, 1, 30_000, undefined);
 		expect(reply.stalled).toEqual(['x']);
 		expect(reply.jobs.map((j) => j.id)).toEqual(['y']);
 		expect(await hget('x', 'state')).toBe('waiting');
@@ -132,10 +134,10 @@ describe('claim', () => {
 	test('a lapsed lease on the last attempt publishes the failure', async () => {
 		const log = await channelLog(client(), keys.events);
 		await mails().add(to('x'), { id: 'x' });
-		await claim(client(), keys, 1, 30_000);
+		await claim(client(), keys, 1, 30_000, undefined);
 		await send('HSET', keys.job('x'), 'attempt', '3');
 		await send('ZADD', keys.active, '1', 'x');
-		await claim(client(), keys, 1, 30_000);
+		await claim(client(), keys, 1, 30_000, undefined);
 		expect(await log.published()).toEqual([
 			{
 				type: 'failed',
@@ -148,18 +150,18 @@ describe('claim', () => {
 	test('a lapsed lease with attempts left publishes nothing', async () => {
 		const log = await channelLog(client(), keys.events);
 		await mails().add(to('x'), { id: 'x' });
-		await claim(client(), keys, 1, 30_000);
+		await claim(client(), keys, 1, 30_000, undefined);
 		await send('ZADD', keys.active, '1', 'x');
-		await claim(client(), keys, 1, 30_000);
+		await claim(client(), keys, 1, 30_000, undefined);
 		expect(await log.published()).toEqual([]);
 	});
 
 	test('a lapsed lease on the last attempt fails with "lease lapsed"', async () => {
 		await mails().add(to('x'), { id: 'x' });
-		await claim(client(), keys, 1, 30_000);
+		await claim(client(), keys, 1, 30_000, undefined);
 		await send('HSET', keys.job('x'), 'attempt', '3');
 		await send('ZADD', keys.active, '1', 'x');
-		const reply = await claim(client(), keys, 1, 30_000);
+		const reply = await claim(client(), keys, 1, 30_000, undefined);
 		expect(reply.stalled).toEqual(['x']);
 		expect(reply.jobs).toEqual([]);
 		expect(await hget('x', 'state')).toBe('failed');
@@ -192,7 +194,7 @@ describe('claim', () => {
 			);
 			await send('ZADD', keys.active, '1', `j${i}`);
 		}
-		const reply = await claim(client(), keys, 1, 30_000);
+		const reply = await claim(client(), keys, 1, 30_000, undefined);
 		expect(reply.stalled).toHaveLength(100);
 		expect(await send('ZCARD', keys.active)).toBe(20 + 1);
 	});
@@ -220,7 +222,7 @@ describe('claim', () => {
 		const now = Number(seconds) * 1000;
 		await send('ZADD', keys.active, String(now + 5_000), 'soon');
 		await send('ZADD', keys.active, String(now - 1_000), 'gone');
-		const reply = await claim(client(), keys, 1, 30_000);
+		const reply = await claim(client(), keys, 1, 30_000, undefined);
 		expect(reply.stalled).toEqual(['gone']);
 		expect(await hget('soon', 'token')).toBe('t');
 	});
@@ -243,7 +245,7 @@ describe('claim', () => {
 			);
 			await send('ZADD', keys.delayed, '1', `d${i}`);
 		}
-		const reply = await claim(client(), keys, 1, 30_000);
+		const reply = await claim(client(), keys, 1, 30_000, undefined);
 		expect(reply.jobs).toHaveLength(1);
 		expect(await send('ZCARD', keys.delayed)).toBe(1);
 		expect(await send('ZCARD', keys.ready)).toBe(999);
@@ -252,8 +254,8 @@ describe('claim', () => {
 
 	test('a lease that has not lapsed is left alone', async () => {
 		await mails().add(to('x'), { id: 'x' });
-		await claim(client(), keys, 1, 30_000);
-		const reply = await claim(client(), keys, 1, 30_000);
+		await claim(client(), keys, 1, 30_000, undefined);
+		const reply = await claim(client(), keys, 1, 30_000, undefined);
 		expect(reply.stalled).toEqual([]);
 		expect(await hget('x', 'attempt')).toBe('1');
 	});

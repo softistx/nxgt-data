@@ -68,7 +68,7 @@ export async function claim(
 	keys: ReturnType<typeof queueKeys>,
 	n: number,
 	lease: number,
-	rate?: QueueRate,
+	rate: QueueRate | undefined,
 ): Promise<ClaimReply> {
 	const tokens = Array.from({ length: n }, newToken);
 	return parseClaimReply(

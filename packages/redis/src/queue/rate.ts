@@ -1,5 +1,5 @@
 import { checkRateValues } from '../rate-limit/define-rate-limit';
-import { type Duration, toMs } from './duration';
+import { toMs } from './duration';
 import type { QueueRate, QueueRateLimit } from './flow-types';
 
 /**
@@ -11,7 +11,7 @@ import type { QueueRate, QueueRateLimit } from './flow-types';
  * and the queue.
  */
 export function resolveRateLimit(
-	value: QueueRateLimit | QueueRate | undefined,
+	value: QueueRateLimit | undefined,
 	call: string,
 	name: string,
 ): QueueRate | undefined {
@@ -22,7 +22,7 @@ export function resolveRateLimit(
 		);
 	}
 	const { limit, burst } = value;
-	const per = toMs(value.per as Duration, `${call}: "${name}" rateLimit per`);
+	const per = toMs(value.per, `${call}: "${name}" rateLimit per`);
 	checkRateValues(call, `"${name}" rateLimit`, limit, per, burst);
 	return Object.freeze({ limit, per, burst: burst ?? limit });
 }

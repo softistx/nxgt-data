@@ -47,23 +47,25 @@ describe('a claim under a queue rate', () => {
 	});
 
 	test('a reclaimed lease is not charged', async () => {
-		const one = { limit: 1, per: 60_000, burst: 1 };
+		const five = { limit: 5, per: 60_000, burst: 5 };
 		await addMany(1);
-		await claim(client(), keys, 1, 30_000, one);
-		const charged = await client().get(keys.rate);
-		expect(charged).not.toBeNull();
+		await claim(client(), keys, 1, 30_000, five);
 		await send('ZADD', keys.active, '1', 'j0');
 
-		const reply = await claim(client(), keys, 1, 30_000, one);
+		const reply = await claim(client(), keys, 0, 30_000, five);
 
 		expect(reply.stalled).toEqual(['j0']);
 		expect(reply.jobs).toEqual([]);
-		expect(await client().get(keys.rate)).toBe(charged);
+		expect(
+			(await checkRate(client(), keys.rate, five, 0, false)).remaining,
+		).toBe(4);
 	});
 
 	test('no rateLimit, no rate key written', async () => {
 		await addMany(2);
-		expect((await claim(client(), keys, 2, 30_000)).jobs).toHaveLength(2);
+		expect(
+			(await claim(client(), keys, 2, 30_000, undefined)).jobs,
+		).toHaveLength(2);
 		expect(await send('EXISTS', keys.rate)).toBe(0);
 	});
 

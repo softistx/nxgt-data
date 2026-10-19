@@ -22,7 +22,7 @@ describe('keepLeases', () => {
 		const queue = bindQueue(client(), mailQueue);
 		await queue.add({ to: 'a' }, { id: 'a' });
 		await queue.add({ to: 'b' }, { id: 'b' });
-		const { jobs } = await claim(client(), keys, 2, mailQueue.lease);
+		const { jobs } = await claim(client(), keys, 2, mailQueue.lease, undefined);
 		const first = Number(await score('a'));
 		const calls = await scriptCalls(client());
 		const leases = keepLeases(client(), keys, mailQueue.lease, () => {
@@ -43,7 +43,7 @@ describe('keepLeases', () => {
 		const queue = bindQueue(client(), mailQueue);
 		await queue.add({ to: 'a' }, { id: 'a' });
 		await queue.add({ to: 'b' }, { id: 'b' });
-		const { jobs } = await claim(client(), keys, 2, mailQueue.lease);
+		const { jobs } = await claim(client(), keys, 2, mailQueue.lease, undefined);
 		const lost: string[][] = [];
 		const leases = keepLeases(client(), keys, mailQueue.lease, (entries) =>
 			lost.push(entries.map((e) => e.id)),

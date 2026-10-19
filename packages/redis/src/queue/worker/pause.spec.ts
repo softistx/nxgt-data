@@ -34,7 +34,7 @@ describe('a paused queue', () => {
 		await queue.pause();
 		await queue.add({ to: 'a' }, { id: 'a' });
 		// Loads CLAIM in the server's cache: a cold EVALSHA costs two calls.
-		await claim(client(), keys, 1, 30_000);
+		await claim(client(), keys, 1, 30_000, undefined);
 		const before = await scriptCalls(client());
 		work(() => ({ messageId: 'x' }));
 		work(() => ({ messageId: 'x' }));
