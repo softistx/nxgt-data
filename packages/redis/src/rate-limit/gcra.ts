@@ -49,99 +49,105 @@ import type { LimitResult } from './types';
  *   is only compared with `ahead`, an exact integer at most the tolerance,
  *   which its rounding cannot reverse.
  *
- * ARGV: `per` (ms), `limit`, `burst`, `cost`, and `1` to write or `0` not to.
- * Returns `{ allowed, remaining, resetAfter, retryAfter }`, the last two in
+ * `gcra(key, now_us, per, limit, burst, cost, write)` takes `now_us` (µs),
+ * `per` (ms), the whole numbers `limit`, `burst` and `cost`, and `write`, a
+ * boolean. Returns `{ allowed, remaining, resetAfter, retryAfter }`, the last two in
  * milliseconds, rounded up so that waiting that long is always enough.
  */
-function gcraSource(now: string): string {
-	return `
-local now = ${now}
-local per = tonumber(ARGV[1])
-local limit = tonumber(ARGV[2])
-local burst = tonumber(ARGV[3])
-local cost = tonumber(ARGV[4])
-local unit = per * 1000
-local tolerance = burst * unit
-local SAFE = 9007199254740991
+export const GCRA_FN = `
+local function gcra(key, now, per, limit, burst, cost, write)
+	local SAFE = 9007199254740991
+	local unit = per * 1000
+	local tolerance = burst * unit
 
--- ceil(a / b) for integers 0 <= a <= 2^53 and 1 <= b <= 2^53: the double
--- estimate is within one, so one step each way settles it.
-local function ceildiv(a, b)
-	local q = math.ceil(a / b)
-	if q > 0 and (q - 1) * b >= a then q = q - 1 end
-	if q * b < a then q = q + 1 end
-	return q
-end
--- Ticks to milliseconds, rounded up: ceil(ceil(t / limit) / 1000) is
--- ceil(t / (limit * 1000)), without the product, which may not be exact.
-local function ms(ticks)
-	return ceildiv(ceildiv(ticks, limit), 1000)
-end
--- The most requests of cost 1 that fit in free ticks (free <= tolerance).
-local function left(free)
-	if free <= 0 then return 0 end
-	local n = math.floor(free / unit)
-	if n > burst then n = burst end
-	if n > 0 and n * unit > free then n = n - 1 end
-	if n < burst and (n + 1) * unit <= free then n = n + 1 end
-	return n
-end
-
--- A stored state, only if this script could have written it.
-local function state(stored)
-	if not stored then return nil end
-	local b, a = string.match(stored, '^(%d+) (%d+)$')
-	if not b or #b > 16 or #a > 16 then return nil end
-	b = tonumber(b)
-	a = tonumber(a)
-	if b > SAFE or a > tolerance then return nil end
-	if b > now and b - now > ceildiv(tolerance, limit) then return nil end
-	return b, a
-end
-
-local base, d = now, 0
-local seen, ahead = state(redis.call('GET', KEYS[1]))
-if seen then
-	if seen > now then
-		base, d = seen, ahead
-	else
-		local drained = (now - seen) * limit
-		if drained < ahead then d = ahead - drained end
+	-- ceil(a / b) for integers 0 <= a <= 2^53 and 1 <= b <= 2^53: the double
+	-- estimate is within one, so one step each way settles it.
+	local function ceildiv(a, b)
+		local q = math.ceil(a / b)
+		if q > 0 and (q - 1) * b >= a then q = q - 1 end
+		if q * b < a then q = q + 1 end
+		return q
 	end
-end
--- How far base is ahead of this server's clock, in ms, rounded up: time
--- this clock must pass before the bucket drains at all.
-local lag = ceildiv(base - now, 1000)
+	-- Ticks to milliseconds, rounded up: ceil(ceil(t / limit) / 1000) is
+	-- ceil(t / (limit * 1000)), without the product, which may not be exact.
+	local function ms(ticks)
+		return ceildiv(ceildiv(ticks, limit), 1000)
+	end
+	-- The most requests of cost 1 that fit in free ticks (free <= tolerance).
+	local function left(free)
+		if free <= 0 then return 0 end
+		local n = math.floor(free / unit)
+		if n > burst then n = burst end
+		if n > 0 and n * unit > free then n = n - 1 end
+		if n < burst and (n + 1) * unit <= free then n = n + 1 end
+		return n
+	end
 
-local free = tolerance - d
-local need = cost * unit
-if need > free then
-	return {0, left(free), ms(d) + lag, ms(need - free) + lag}
+	-- A stored state, only if this script could have written it.
+	local function state(stored)
+		if not stored then return nil end
+		local b, a = string.match(stored, '^(%d+) (%d+)$')
+		if not b or #b > 16 or #a > 16 then return nil end
+		b = tonumber(b)
+		a = tonumber(a)
+		if b > SAFE or a > tolerance then return nil end
+		if b > now and b - now > ceildiv(tolerance, limit) then return nil end
+		return b, a
+	end
+
+	local base, d = now, 0
+	local seen, ahead = state(redis.call('GET', key))
+	if seen then
+		if seen > now then
+			base, d = seen, ahead
+		else
+			local drained = (now - seen) * limit
+			if drained < ahead then d = ahead - drained end
+		end
+	end
+	-- How far base is ahead of this server's clock, in ms, rounded up: time
+	-- this clock must pass before the bucket drains at all.
+	local lag = ceildiv(base - now, 1000)
+
+	local free = tolerance - d
+	local need = cost * unit
+	if need > free then
+		return {0, left(free), ms(d) + lag, ms(need - free) + lag}
+	end
+	local after = d + need
+	if write and cost > 0 then
+		redis.call('SET', key, string.format('%.0f %.0f', base, after),
+			'PX', string.format('%.0f', ms(after) + lag))
+	end
+	return {1, left(free - need), ms(after) + lag, 0}
 end
-local after = d + need
-if ARGV[5] == '1' and cost > 0 then
-	redis.call('SET', KEYS[1], string.format('%.0f %.0f', base, after),
-		'PX', string.format('%.0f', ms(after) + lag))
-end
-return {1, left(free - need), ms(after) + lag, 0}
 `;
-}
+
+/**
+ * The call both scripts end with: `now` is a local of the script, the
+ * rest is `ARGV` — `per` (ms), `limit`, `burst`, `cost`, and `1` to write.
+ */
+const CALL = `
+return gcra(KEYS[1], now, tonumber(ARGV[1]), tonumber(ARGV[2]),
+	tonumber(ARGV[3]), tonumber(ARGV[4]), ARGV[5] == '1')
+`;
 
 /** The script, timed by the server's own clock. */
-const GCRA = defineScript(
-	gcraSource(
-		"(function() local t = redis.call('TIME') return tonumber(t[1]) * 1000000 + tonumber(t[2]) end)()",
-	),
-);
+const GCRA = defineScript(`
+${GCRA_FN}
+local t = redis.call('TIME')
+local now = tonumber(t[1]) * 1000000 + tonumber(t[2])
+${CALL}`);
 
 /**
  * The same script with `now` taken from `ARGV[6]`, in microseconds. **For
  * the specs only**, which need many calls at one instant; nothing exported
  * from the package reaches it.
  */
-export const GCRA_AT_ARGV: Script = defineScript(
-	gcraSource('tonumber(ARGV[6])'),
-);
+export const GCRA_AT_ARGV: Script = defineScript(`
+${GCRA_FN}
+local now = tonumber(ARGV[6])
+${CALL}`);
 
 /** What the script needs from a definition, resolved. */
 export interface Rate {

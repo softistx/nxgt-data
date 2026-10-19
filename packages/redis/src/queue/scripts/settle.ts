@@ -2,7 +2,8 @@ import type { RedisClient } from 'bun';
 import { defineScript, runScript } from '../../scripts/run-script';
 import type { queueKeys } from '../keys';
 import type { QueueDefinition } from '../types';
-import { CLAIM_FN, NOW_LUA, newToken, scriptKeys } from './claim';
+import { newToken, scriptKeys } from './claim';
+import { CLAIM_FN, NOW_LUA } from './claim-body';
 import { type ClaimReply, parseComplete, parseFail } from './replies';
 
 /*

@@ -1,5 +1,5 @@
 import { defineScript } from '../../scripts/run-script';
-import { CLAIM_FN, NOW_LUA } from './claim';
+import { CLAIM_FN, NOW_LUA } from './claim-body';
 
 /*
  * The scripts of inspection and repair. `RETRY` and `REMOVE` act on one job
