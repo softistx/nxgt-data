@@ -49,6 +49,7 @@ Redis Cluster slot; for the same reason a name cannot contain braces.
 | `keepCompleted` | `false \| { age?: Duration; count?: number }` | `{ age: '1h', count: 1000 }` | how long finished jobs stay readable, and how many; `false` removes a job the moment it completes |
 | `keepFailed` | `Duration` | `7d` | how long a failed job stays readable |
 | `result` | zod schema | none | what a handler returns, checked when it returns and again when it is read; see [Results](#results) |
+| `schedules` | `Record<string, Schedule>` | none | recurring jobs by cron or interval; see [Recurring jobs](#recurring-jobs) |
 | `timeout` | `Duration` | none | how long one run may take before it is aborted and counted as a failed attempt; at least 1 ms; see [Timeouts](#timeouts-and-the-abort-signal) |
 | `rateLimit` | `{ limit, per, burst? }` | none | at most `limit` jobs start per `per`, across every worker; see [Flow control](#flow-control) |
 
@@ -750,6 +751,165 @@ value:
 `throttle` with `delay` or `at` is allowed: the job is due then, and the window
 runs from the add.
 
+## Recurring jobs
+
+A schedule adds a job on a cron or an interval, so a nightly digest or a
+five-minute sync is described next to the queue instead of in a cron daemon.
+
+```ts
+import { bindQueue, connectRedis, defineQueue } from '@nxgt/redis';
+import { z } from 'zod';
+
+export const reports = defineQueue({
+	name: 'reports',
+	schema: z.object({ kind: z.string() }),
+	schedules: {
+		digest: { cron: '30 18 * * mon-fri', timezone: 'Europe/Paris', data: { kind: 'digest' } },
+		sync: { every: '10m', data: { kind: 'sync' } },
+	},
+});
+
+const redis = await connectRedis(process.env.REDIS_URL!);
+const queue = bindQueue(redis.client, reports);
+
+// Schedules fire only while a worker runs.
+const worker = queue.work(async ({ data }) => {
+	await build(data.kind); // your code
+});
+```
+
+Each occurrence is an ordinary job, added with the queue's `attempts` and
+`timeout` and priority 0, so retries, retention and `get` work as for any job.
+
+### Static and runtime schedules
+
+| | Static | Runtime |
+| --- | --- | --- |
+| Declared | `defineQueue({ schedules })`, `data` checked when the definition is made | `queue.schedules.upsert(id, schedule)`, `data` checked then |
+| Stored | by the first worker of the process on that queue (SYNC), one round trip | at once, one round trip |
+| Changed by | editing the definition | `upsert` again, or `remove` |
+
+```ts
+await queue.schedules.upsert('weekly', { cron: '0 8 * * mon', data: { kind: 'weekly' } });
+
+const all = await queue.schedules.list({ limit: 50 }); // soonest `next` first
+// [{ id, cron?, every?, timezone?, data, origin: 'definition' | 'runtime', next: Date }, ...]
+
+await queue.schedules.remove('weekly');
+```
+
+```ts
+type Schedule<S> =
+	| { cron: string; timezone?: string; data: z.input<S> }
+	| { every: Duration; data: z.input<S> };
+
+type QueueSchedules<S> = {
+	upsert(id: string, schedule: Schedule<S>): Promise<void>;
+	remove(id: string): Promise<void>;
+	list(page?: { offset?: number; limit?: number }): Promise<ScheduleView<S>[]>;
+};
+```
+
+| Call | Throws |
+| --- | --- |
+| `upsert` | `TypeError` for a malformed schedule, cron, time zone or id, before any round trip; `TypeError` for an id that belongs to the definition (`schedules.upsert on "reports": "digest" belongs to the definition; change it in defineQueue`); `QueueError` `INVALID` when the schema refuses `data` |
+| `remove` | `QueueError` `NOT_FOUND` when there is none; `TypeError` for a definition's id. Occurrences already added stay |
+| `list` | `TypeError` for an `offset` below 0 or a `limit` outside 1 to 1000 (default 100) |
+
+`ScheduleView.data` is `undefined` when the stored payload no longer parses
+with the schema. All three calls work after `redis.close()`, like the other
+admin calls.
+
+Ownership is one rule, the definition wins:
+
+- `upsert` and `remove` refuse an id the definition owns.
+- At SYNC, a static id that matches a stored runtime schedule takes it over.
+- A static schedule removed from the definition is removed at the next first
+  worker start of a process; runtime schedules are never touched by SYNC.
+- A definition may hold at most 1000 schedules.
+
+A schedule id is 1 to 256 characters, with no braces and no `:`.
+
+### Cron
+
+Five fields: minute (0-59), hour (0-23), day of month (1-31), month (1-12 or
+`jan`-`dec`) and day of week (0-7 or `sun`-`sat`; 0 and 7 are both Sunday).
+Names are case-insensitive. A field takes `*`, `a`, `a-b`, `*/n`, `a-b/n`,
+`a/n` and comma lists of these.
+
+```ts
+'*/15 * * * *'      // every 15 minutes
+'0 9 * * mon-fri'   // 09:00 on weekdays
+'0 0 1,15 * *'      // midnight on the 1st and the 15th
+'0 12 * jan-mar *'  // noon every day of the first quarter
+```
+
+`a/n` runs from `a` to the field's maximum, so `1/2` in minutes is 1, 3, 5, up
+to 59. In day of week the maximum is Saturday: `1/2` is Monday, Wednesday,
+Friday.
+
+**The day rule** is Vixie cron's. When the day-of-month or the day-of-week
+field begins with `*` (`*` or `*/n`), a day must match both fields. When
+neither does, it may match either.
+
+```ts
+'0 0 13 * fri'    // the 13th OR any Friday
+'0 0 * * fri'     // every Friday (the day of month is a star)
+'0 0 */2 * mon'   // Mondays that fall on an odd day of month: both must match
+```
+
+Not supported, and refused: macros (`@daily`), a seconds field, `L`, `W` and
+`#`. A cron that can never match, such as `0 0 30 2 *`, is refused too; the
+check walks one 400-year calendar cycle, a few milliseconds, when the schedule
+is defined.
+
+### Time zones
+
+`timezone` is any IANA name `Intl.DateTimeFormat` accepts, default `'UTC'`; an
+unknown name is refused with the name in the message. The cron is read as wall
+time in that zone.
+
+```ts
+{ cron: '30 2 * * *', timezone: 'Europe/Paris', data }
+```
+
+- A wall time that does not exist runs at the first instant after the gap. On
+  the spring-forward Sunday, `02:30` in Paris does not exist and runs at
+  `03:00`.
+- A wall time that happens twice runs once, at its first instant. On the
+  fall-back Sunday, `02:30` runs at the first `02:30` and not again at the
+  second.
+
+### Intervals
+
+`every` takes a `Duration` of at least 1 second. The first occurrence is the
+time of the `upsert` (or of SYNC) plus `every`, and the occurrences stay on
+that grid, so the phase never drifts with the time a run took.
+
+```ts
+await queue.schedules.upsert('poll', { every: '90s', data: { kind: 'poll' } });
+```
+
+### When occurrences fire
+
+- **An outage fires the missed occurrence once**, not one per missed tick; an
+  interval keeps its phase afterwards.
+- **Nothing fires without a running worker.** The schedule only waits.
+- **A paused queue still fires**, checked at the paused queue's 5 s cadence;
+  the jobs wait in `ready` until `resume()`.
+- **A schedule that no longer parses** (a stored spec the code cannot read,
+  after a downgrade) is deferred an hour at a time, and the worker emits an
+  `error` event each time; the others keep firing.
+- **Two processes never fire one occurrence twice.** The occurrence is a job
+  with the id `schedule:<id>:<due in ms>`, and the schedule moves on in the same
+  script.
+
+Because of that id, a job id given to `add` cannot start with `schedule:`; it
+is refused with a `TypeError`.
+
+Ownership of a schedule is kept in a set that Redis could evict under a
+`maxmemory` policy that removes keys; give a queue's Redis `noeviction`.
+
 ## Retries and backoff
 
 A handler that throws is retried until `attempts` runs have been spent, then the
@@ -1040,6 +1200,9 @@ waits for a retry waits milliseconds rather than seconds.
 | an idle worker | none while it waits; it blocks on a connection of its own |
 | `job.step` | 2 when it runs, 1 when its value is already stored |
 | `counts` | 1 |
+| a worker's first claim | 1 more, for SYNC of the static schedules, once per queue per process |
+| a due schedule | 1 per occurrence fired; the claim carries up to 20 due schedules |
+| `schedules.upsert`, `remove`, `list` | 1 |
 | `list` | 1 for the ids, and the jobs' reads pipelined into 1 more |
 
 See also [Pub/sub](channels.md), for events nobody has to be sure received, and

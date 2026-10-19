@@ -103,6 +103,25 @@ application can handle.
   - [My worker does nothing](#my-worker-does-nothing)
   - [A job ran twice](#a-job-ran-twice)
   - [A job added with an `id` never runs](#a-job-added-with-an-id-never-runs)
+  - [`defineQueue: "mails" schedule "nightly": cron minute: 61 is out of range 0-59`](#definequeue-mails-schedule-nightly-cron-minute-61-is-out-of-range-0-59)
+  - [`defineQueue: "mails" schedule "nightly": cron minute: step 0 must be at least 1`](#definequeue-mails-schedule-nightly-cron-minute-step-0-must-be-at-least-1)
+  - [`defineQueue: "mails" schedule "nightly": cron hour: range 17-9 is reversed`](#definequeue-mails-schedule-nightly-cron-hour-range-17-9-is-reversed)
+  - [`defineQueue: "mails" schedule "nightly": cron month: "foo" is not a value or a name`](#definequeue-mails-schedule-nightly-cron-month-foo-is-not-a-value-or-a-name)
+  - [`defineQueue: "mails" schedule "nightly": cron needs five fields (minute hour day-of-month month day-of-week), got 6`](#definequeue-mails-schedule-nightly-cron-needs-five-fields-minute-hour-day-of-month-month-day-of-week-got-6)
+  - [`defineQueue: "mails" schedule "nightly": cron needs five fields (minute hour day-of-month month day-of-week), got 1`](#definequeue-mails-schedule-nightly-cron-needs-five-fields-minute-hour-day-of-month-month-day-of-week-got-1)
+  - [`defineQueue: "mails" schedule "nightly": cron day of month and day of week: no day of a 400-year cycle matches, so it would never match`](#definequeue-mails-schedule-nightly-cron-day-of-month-and-day-of-week-no-day-of-a-400-year-cycle-matches-so-it-would-never-match)
+  - [`defineQueue: "mails" schedule "nightly": timezone "Mars/Base" is not a time zone name Intl accepts, such as "UTC" or "Europe/Paris"`](#definequeue-mails-schedule-nightly-timezone-marsbase-is-not-a-time-zone-name-intl-accepts-such-as-utc-or-europeparis)
+  - [`defineQueue: "mails" schedule "nightly": has both cron and every; give one`](#definequeue-mails-schedule-nightly-has-both-cron-and-every-give-one)
+  - [`defineQueue: "mails" schedule "nightly": has neither cron nor every; give one`](#definequeue-mails-schedule-nightly-has-neither-cron-nor-every-give-one)
+  - [`defineQueue: "mails" schedule "nightly": has a timezone with every; a timezone goes with a cron`](#definequeue-mails-schedule-nightly-has-a-timezone-with-every-a-timezone-goes-with-a-cron)
+  - [`defineQueue: "mails" schedule "nightly": has an every under 1 second; it is at least 1s`](#definequeue-mails-schedule-nightly-has-an-every-under-1-second-it-is-at-least-1s)
+  - [`defineQueue: "mails" a schedule id is a string of 1 to 256 characters without braces or colons`](#definequeue-mails-a-schedule-id-is-a-string-of-1-to-256-characters-without-braces-or-colons)
+  - [`defineQueue: "mails" has 1001 schedules; at most 1000, which is what one sync takes`](#definequeue-mails-has-1001-schedules-at-most-1000-which-is-what-one-sync-takes)
+  - [`defineQueue: "mails" schedule "nightly": data is refused by the schema (QueueError `INVALID`)`](#definequeue-mails-schedule-nightly-data-is-refused-by-the-schema-queueerror-invalid)
+  - [`schedules.upsert on "mails": "nightly" belongs to the definition; change it in defineQueue`](#schedulesupsert-on-mails-nightly-belongs-to-the-definition-change-it-in-definequeue)
+  - [`add on "mails": id cannot start with "schedule:", which names scheduled occurrences`](#add-on-mails-id-cannot-start-with-schedule-which-names-scheduled-occurrences)
+  - [My schedule does not fire](#my-schedule-does-not-fire)
+  - [`ERR the definition set holds more than 2000 ids`](#err-the-definition-set-holds-more-than-2000-ids)
 - **Wiring** (`defineRedis` and `openRedis`)
   - [`Property 'users' does not exist on type 'never'.`](#property-users-does-not-exist-on-type-never)
   - [`Property 'users' does not exist on type 'CacheScope<Record<never, never>>'.`](#property-users-does-not-exist-on-type-cachescoperecordnever-never)
@@ -1288,6 +1307,227 @@ Durable steps, which record what a handler has done, are on the [roadmap](roadma
 
 ```ts
 const { deduplicated } = await queue.add(payload, { id: `receipt:${orderId}` });
+```
+
+### `defineQueue: "mails" schedule "nightly": cron minute: 61 is out of range 0-59`
+
+**When:** `defineQueue`, or `schedules.upsert` (its message opens `schedules.upsert on "mails": schedule "nightly": cron …`), with a field value outside its range. The field named is `minute` (0-59), `hour` (0-23), `day of month` (1-31), `month` (1-12) or `day of week` (0-7).
+**Why:** A cron field takes only the values of its range; `7` is Sunday as well as `0`.
+**Fix:** Write the value inside the range:
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	schedules: { nightly: { cron: '0 3 * * *', data: {} } },
+});
+```
+
+### `defineQueue: "mails" schedule "nightly": cron minute: step 0 must be at least 1`
+
+**When:** A cron with `*/0` or `a-b/0`.
+**Why:** A step of 0 would never advance.
+**Fix:** Use a step of 1 or more:
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	schedules: { nightly: { cron: '*/5 * * * *', data: {} } },
+});
+```
+
+### `defineQueue: "mails" schedule "nightly": cron hour: range 17-9 is reversed`
+
+**When:** A cron with a range whose start is after its end.
+**Why:** A range runs upward and does not wrap past the end of the field.
+**Fix:** Split it in two, as a list:
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	schedules: { nightly: { cron: '0 17-23,0-9 * * *', data: {} } },
+});
+```
+
+### `defineQueue: "mails" schedule "nightly": cron month: "foo" is not a value or a name`
+
+**When:** A cron with a word the field does not know. Months take `jan`-`dec`, days of week `sun`-`sat`; the same refusal reads `is not a value or a range` or `is not a step` for other malformed text.
+**Why:** Only numbers and the month and weekday names are read, in any case.
+**Fix:** Use a number or a known name:
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	schedules: { nightly: { cron: '0 3 * jan *', data: {} } },
+});
+```
+
+### `defineQueue: "mails" schedule "nightly": cron needs five fields (minute hour day-of-month month day-of-week), got 6`
+
+**When:** A cron with a number of fields other than five, such as a seconds field.
+**Why:** A cron is minute, hour, day of month, month and day of week, with no seconds.
+**Fix:** Give five fields; use `every` for an interval under a minute (at least `1s`):
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	schedules: { nightly: { cron: '*/10 * * * *', data: {} } },
+});
+```
+
+### `defineQueue: "mails" schedule "nightly": cron needs five fields (minute hour day-of-month month day-of-week), got 1`
+
+**When:** A macro such as `@daily`, `@hourly` or `@reboot`.
+**Why:** Macros are not read, so the text counts as one field.
+**Fix:** Write the macro out:
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	schedules: { nightly: { cron: '0 0 * * *', data: {} } },
+});
+```
+
+### `defineQueue: "mails" schedule "nightly": cron day of month and day of week: no day of a 400-year cycle matches, so it would never match`
+
+**When:** A cron whose date does not exist, such as `0 0 31 2 *`.
+**Why:** The parser walks a full 400-year calendar and finds no day.
+**Fix:** Pick a date that exists:
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	schedules: { nightly: { cron: '0 0 28 2 *', data: {} } },
+});
+```
+
+### `defineQueue: "mails" schedule "nightly": timezone "Mars/Base" is not a time zone name Intl accepts, such as "UTC" or "Europe/Paris"`
+
+**When:** `timezone` of a cron schedule is not a zone `Intl` knows.
+**Why:** The zone is checked with `Intl.DateTimeFormat`, and the runtime's zone data decides.
+**Fix:** Use an IANA name; it defaults to `"UTC"`:
+
+```ts
+schedules: { nightly: { cron: '0 3 * * *', timezone: 'Europe/Paris', data: {} } },
+```
+
+### `defineQueue: "mails" schedule "nightly": has both cron and every; give one`
+
+**When:** A schedule with `cron` and `every` together.
+**Why:** They are two ways to say when.
+**Fix:** Keep one:
+
+```ts
+nightly: { every: '1h', data: {} }
+```
+
+### `defineQueue: "mails" schedule "nightly": has neither cron nor every; give one`
+
+**When:** A schedule with no `cron` and no `every`.
+**Why:** Nothing says when it fires.
+**Fix:** Give one:
+
+```ts
+nightly: { cron: '0 3 * * *', data: {} }
+```
+
+### `defineQueue: "mails" schedule "nightly": has a timezone with every; a timezone goes with a cron`
+
+**When:** `timezone` next to `every`.
+**Why:** An interval counts elapsed time and has no wall clock.
+**Fix:** Drop the timezone, or use a cron:
+
+```ts
+nightly: { every: '1h', data: {} }
+```
+
+### `defineQueue: "mails" schedule "nightly": has an every under 1 second; it is at least 1s`
+
+**When:** `every` below 1000 ms. A value that is not a number of milliseconds or a string such as `'10m'` reads `has an every that is not a duration; …`.
+**Why:** A schedule fires at most once a second.
+**Fix:** Give `1s` or more:
+
+```ts
+nightly: { every: '1s', data: {} }
+```
+
+### `defineQueue: "mails" a schedule id is a string of 1 to 256 characters without braces or colons`
+
+**When:** A schedule id that is empty, too long, or holds `{`, `}` or `:`. `schedules.upsert` and `schedules.remove` read `schedules.upsert on "mails": a schedule id is …`.
+**Why:** The id is part of the Redis key and of the job id `schedule:<id>:<due>`, where braces and colons would split it.
+**Fix:** Use a plain id:
+
+```ts
+schedules: { 'nightly-report': { cron: '0 3 * * *', data: {} } },
+```
+
+### `defineQueue: "mails" has 1001 schedules; at most 1000, which is what one sync takes`
+
+**When:** A definition with more than 1 000 static schedules.
+**Why:** The worker writes the whole set in one script call.
+**Fix:** Keep the static set under 1 000 and add the rest at run time with `schedules.upsert` (the definition set as a whole stays under 2 000):
+
+```ts
+await mails.schedules.upsert(`tenant-${id}`, { every: '1h', data: { tenant: id } });
+```
+
+### `defineQueue: "mails" schedule "nightly": data is refused by the schema (QueueError `INVALID`)`
+
+**When:** A schedule whose `data` does not pass the queue's `schema` in `defineQueue`, or in `schedules.upsert` (`schedules.upsert on "mails": schedule "nightly" …`). It is a `QueueError` with code `INVALID`, not a `TypeError`; the message names the zod issue codes, never the data.
+**Why:** Each occurrence is a job, so its payload has to pass the schema, and survive the JSON round trip, now rather than when it fires.
+**Fix:** Give data that the schema accepts as its output:
+
+```ts
+nightly: { cron: '0 3 * * *', data: schema.parse({ kind: 'report' }) },
+```
+
+### `schedules.upsert on "mails": "nightly" belongs to the definition; change it in defineQueue`
+
+**When:** `schedules.upsert` or `schedules.remove` (`schedules.remove on "mails": …`) on an id that `defineQueue` declares.
+**Why:** Each worker start re-syncs the definition, which would undo the change.
+**Fix:** Edit it in `defineQueue`, or use another id for a runtime schedule:
+
+```ts
+await mails.schedules.upsert('nightly-extra', { cron: '0 4 * * *', data });
+```
+
+### `add on "mails": id cannot start with "schedule:", which names scheduled occurrences`
+
+**When:** `queue.add(data, { id })` with an id starting `schedule:`.
+**Why:** Occurrences of a schedule are added as `schedule:<id>:<due ms>`, and the prefix is theirs alone.
+**Fix:** Use another prefix:
+
+```ts
+await mails.add(data, { id: `receipt:${orderId}` });
+```
+
+### My schedule does not fire
+
+**When:** `schedules.list()` shows the schedule, but no job comes.
+**Why:** Occurrences are added by a worker, not by Redis. Three causes. (1) No `queue.work` is running, so nothing fires, and a missed occurrence is added once when a worker returns. (2) The queue is paused: the worker still fires, but only at its 5 s cadence, so a schedule can be late by that much. (3) The spec no longer parses (a stored cron or zone the running version refuses): the worker defers it an hour and emits an `error` event `schedule "nightly" of "mails" no longer parses; deferred for an hour`, never quoting the spec.
+**Fix:** Read `next` in `schedules.list()` (soonest first). A `next` in the past means no worker is firing; one an hour ahead of where it should be means the deferral. Then check the worker and listen for `error`:
+
+```ts
+for (const s of await mails.schedules.list()) console.log(s.id, s.next, s.origin);
+const { paused } = await mails.counts();
+if (paused) await mails.resume();
+worker.on('error', (error) => console.error(error));
+```
+
+### `ERR the definition set holds more than 2000 ids`
+
+**When:** A worker starts (the sync of the definition) and the `error` event carries this reply, or `ERR at most 1000 schedules per call`.
+**Why:** SYNC keeps the ids the definition owns in one set and refuses to sweep more than 2 000; more than 1 000 schedules in one call is refused whole. Nothing is written.
+**Fix:** Shrink the definition to 1 000 schedules or fewer, then restart the worker; give the rest to `schedules.upsert`:
+
+```ts
+worker.on('error', (error) => console.error(error));
 ```
 
 ## Wiring: `defineRedis` and `openRedis`
