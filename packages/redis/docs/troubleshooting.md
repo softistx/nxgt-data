@@ -48,11 +48,23 @@ application can handle.
   - [`defineQueue: "mails" has a lease of 10ms; it is renewed every third of itself, so it must be at least 30ms`](#definequeue-mails-has-a-lease-of-10ms-it-is-renewed-every-third-of-itself-so-it-must-be-at-least-30ms)
   - [`defineQueue: "mails" has a keepCompleted count of -1; it is a whole number of jobs, from 0`](#definequeue-mails-has-a-keepcompleted-count-of--1-it-is-a-whole-number-of-jobs-from-0)
   - [`defineQueue: "mails" lease is "10 minutes"; a duration is a whole number of milliseconds or a string such as '10m'`](#definequeue-mails-lease-is-10-minutes-a-duration-is-a-whole-number-of-milliseconds-or-a-string-such-as-10m)
+  - [`defineQueue: "mails" rateLimit has a limit of 0; it is a whole number of requests, and must be at least 1`](#definequeue-mails-ratelimit-has-a-limit-of-0-it-is-a-whole-number-of-requests-and-must-be-at-least-1)
+  - [`defineQueue: "mails" rateLimit has a per of 0; it is a whole number of milliseconds, and must be at least 1`](#definequeue-mails-ratelimit-has-a-per-of-0-it-is-a-whole-number-of-milliseconds-and-must-be-at-least-1)
+  - [`defineQueue: "mails" rateLimit has a burst of 0; it is a whole number of requests, and must be at least 1`](#definequeue-mails-ratelimit-has-a-burst-of-0-it-is-a-whole-number-of-requests-and-must-be-at-least-1)
+  - [`defineQueue: "mails" rateLimit has a burst of 100 and a per of 9007199254741ms; burst × per must be at most 9007199254740 for the script to count exactly`](#definequeue-mails-ratelimit-has-a-burst-of-100-and-a-per-of-9007199254741ms-burst--per-must-be-at-most-9007199254740-for-the-script-to-count-exactly)
+  - [`defineQueue: "mails" rateLimit would take longer than ten years to refill from empty (burst × per ÷ limit); check that per is in milliseconds`](#definequeue-mails-ratelimit-would-take-longer-than-ten-years-to-refill-from-empty-burst--per--limit-check-that-per-is-in-milliseconds)
+  - [`defineQueue: "mails" has a rateLimit that is not an object; it is { limit, per, burst? }`](#definequeue-mails-has-a-ratelimit-that-is-not-an-object-it-is--limit-per-burst-)
   - [`add on "mails": id is a string of 1 to 256 characters without braces, which are a hash tag`](#add-on-mails-id-is-a-string-of-1-to-256-characters-without-braces-which-are-a-hash-tag)
   - [`add on "mails": priority is a whole number from 0 to 1000`](#add-on-mails-priority-is-a-whole-number-from-0-to-1000)
   - [`add on "mails": delay and at say the same thing; give one`](#add-on-mails-delay-and-at-say-the-same-thing-give-one)
   - [`add on "mails": delay is a whole number of milliseconds or a string such as '10m'`](#add-on-mails-delay-is-a-whole-number-of-milliseconds-or-a-string-such-as-10m)
   - [`add on "mails": at is a valid Date`](#add-on-mails-at-is-a-valid-date)
+  - [`add on "mails": debounce and throttle cannot be combined; give one`](#add-on-mails-debounce-and-throttle-cannot-be-combined-give-one)
+  - [`add on "mails": debounce and id cannot be combined; the key names the job`](#add-on-mails-debounce-and-id-cannot-be-combined-the-key-names-the-job)
+  - [`add on "mails": debounce and delay cannot be combined; wait sets the run time`](#add-on-mails-debounce-and-delay-cannot-be-combined-wait-sets-the-run-time)
+  - [`add on "mails": debounce is an object { key, wait }`](#add-on-mails-debounce-is-an-object--key-wait-)
+  - [`add on "mails": debounce.key is a string of 1 to 256 characters without braces, which are a hash tag`](#add-on-mails-debouncekey-is-a-string-of-1-to-256-characters-without-braces-which-are-a-hash-tag)
+  - [`add on "mails": debounce.wait is at least 1 millisecond, as a whole number or a string such as '10m'`](#add-on-mails-debouncewait-is-at-least-1-millisecond-as-a-whole-number-or-a-string-such-as-10m)
   - [`work on "mails": concurrency is a whole number from 1 to 1000`](#work-on-mails-concurrency-is-a-whole-number-from-1-to-1000)
   - [`list on "mails": offset is a whole number from 0`](#list-on-mails-offset-is-a-whole-number-from-0)
   - [`list on "mails": limit is a whole number from 1 to 1000`](#list-on-mails-limit-is-a-whole-number-from-1-to-1000)
@@ -87,6 +99,8 @@ application can handle.
   - [A handler keeps running after its job was canceled, timed out or lost](#a-handler-keeps-running-after-its-job-was-canceled-timed-out-or-lost)
   - [`finished` takes up to 5 seconds longer than the job](#finished-takes-up-to-5-seconds-longer-than-the-job)
   - [`queue script reply not recognised: <what>` and `add on "mails": the script answered nothing`](#queue-script-reply-not-recognised-what-and-add-on-mails-the-script-answered-nothing)
+  - [`WRONGTYPE Operation against a key holding the wrong kind of value` from a queue](#wrongtype-operation-against-a-key-holding-the-wrong-kind-of-value-from-a-queue)
+  - [My worker does nothing](#my-worker-does-nothing)
   - [A job ran twice](#a-job-ran-twice)
   - [A job added with an `id` never runs](#a-job-added-with-an-id-never-runs)
 - **Wiring** (`defineRedis` and `openRedis`)
@@ -672,6 +686,70 @@ defineQueue({ name: 'mails', schema, keepCompleted: { count: 100 } });
 defineQueue({ name: 'mails', schema, lease: '10m' });
 ```
 
+### `defineQueue: "mails" rateLimit has a limit of 0; it is a whole number of requests, and must be at least 1`
+
+**When:** `defineQueue` with a `rateLimit` whose `limit`, `per` or `burst` is zero, negative, fractional or not a number. The same sentence comes with `a per of …` (milliseconds) or `a burst of …` (requests).
+**Why:** the queue's `rateLimit` follows the numeric rules of `defineRateLimit`, so each value must be a whole number of at least 1. The message names the value that failed.
+**Fix:**
+
+```ts
+const mails = defineQueue({
+	name: 'mails',
+	schema,
+	rateLimit: { limit: 10, per: '1s', burst: 20 }, // burst defaults to limit
+});
+```
+
+### `defineQueue: "mails" rateLimit has a per of 0; it is a whole number of milliseconds, and must be at least 1`
+
+**When:** `defineQueue` with a `rateLimit.per` of `0` (or `'0s'`). A `per` such as `-1`, `1.5` or `'10min'` is refused earlier, as `defineQueue: "mails" rateLimit per is …; a duration is a whole number of milliseconds or a string such as '10m'`.
+**Why:** `per` is the window the `limit` is spent over; it must be at least one millisecond.
+**Fix:**
+
+```ts
+rateLimit: { limit: 10, per: '1s' }
+```
+
+### `defineQueue: "mails" rateLimit has a burst of 0; it is a whole number of requests, and must be at least 1`
+
+**When:** `defineQueue` with a `rateLimit.burst` of `0`, negative or fractional.
+**Why:** `burst` is the bucket's size, how many claims can go at once; leave it out and it equals `limit`.
+**Fix:**
+
+```ts
+rateLimit: { limit: 10, per: '1s', burst: 10 }
+```
+
+### `defineQueue: "mails" rateLimit has a burst of 100 and a per of 9007199254741ms; burst × per must be at most 9007199254740 for the script to count exactly`
+
+**When:** `defineQueue` with a `burst` (or `limit`) times `per`, in milliseconds, above `Number.MAX_SAFE_INTEGER / 1000`.
+**Why:** the Redis script counts in integers and stays exact only under that product. A `per` of years is the usual cause.
+**Fix:**
+
+```ts
+rateLimit: { limit: 100, per: '1h' } // not '100y'
+```
+
+### `defineQueue: "mails" rateLimit would take longer than ten years to refill from empty (burst × per ÷ limit); check that per is in milliseconds`
+
+**When:** `defineQueue` with a `rateLimit` whose bucket takes more than ten years to refill.
+**Why:** it is almost always a `per` written in seconds as a bare number: `per: 60` is 60 milliseconds, while `per: 60_000_000_000` is far too long.
+**Fix:**
+
+```ts
+rateLimit: { limit: 5, per: '1m' } // a string says the unit
+```
+
+### `defineQueue: "mails" has a rateLimit that is not an object; it is { limit, per, burst? }`
+
+**When:** `defineQueue` with a `rateLimit` of a number, a string or `null`.
+**Why:** a rate limit is three values, not one.
+**Fix:**
+
+```ts
+rateLimit: { limit: 10, per: '1s' }
+```
+
 ### `add on "mails": id is a string of 1 to 256 characters without braces, which are a hash tag`
 
 **When:** `add` or `addMany` (the message starts `addMany on` there) with an `id` that is empty, longer than 256, not a string, or holds a brace.
@@ -725,6 +803,67 @@ await queue.add(payload, { at: new Date(isoString) });
 ```
 
 If `new Date(isoString)` is `Invalid Date`, gate the string first.
+
+### `add on "mails": debounce and throttle cannot be combined; give one`
+
+**When:** `add` or `addMany` with both `debounce` and `throttle`.
+**Why:** each names the job's key in its own way; a job is one or the other.
+**Fix:**
+
+```ts
+await queue.add(payload, { throttle: { key: 'digest:42', window: '1m' } });
+```
+
+### `add on "mails": debounce and id cannot be combined; the key names the job`
+
+**When:** `add` or `addMany` with `debounce` (or `throttle`) and an `id`. The message starts `throttle and id` for a throttle.
+**Why:** the `key` of the debounce or throttle is the job's name; an `id` would name it twice.
+**Fix:**
+
+```ts
+await queue.add(payload, { debounce: { key: `receipt:${orderId}`, wait: '5s' } });
+```
+
+### `add on "mails": debounce and delay cannot be combined; wait sets the run time`
+
+**When:** `add` or `addMany` with `debounce` and `delay` or `at` (the message says `debounce and at` for the second). A throttle may carry a `delay` or `at`.
+**Why:** a debounce runs the job once `wait` has passed since the last add; a `delay` would set the run time a second time.
+**Fix:**
+
+```ts
+await queue.add(payload, { debounce: { key: 'digest:42', wait: '5s' } });
+```
+
+### `add on "mails": debounce is an object { key, wait }`
+
+**When:** `add` or `addMany` with a `debounce` that is not an object, such as `true` or `'5s'`. A throttle says `throttle is an object { key, window }`.
+**Why:** it needs a key to name the job and a span.
+**Fix:**
+
+```ts
+await queue.add(payload, { debounce: { key: 'digest:42', wait: '5s' } });
+await queue.add(payload, { throttle: { key: 'digest:42', window: '1m' } });
+```
+
+### `add on "mails": debounce.key is a string of 1 to 256 characters without braces, which are a hash tag`
+
+**When:** `add` or `addMany` with a `debounce.key` (or `throttle.key`) that is empty, longer than 256 characters, has braces, or is not a string.
+**Why:** the key becomes part of a Redis key, and braces would change its hash tag.
+**Fix:**
+
+```ts
+await queue.add(payload, { throttle: { key: `digest:${userId}`, window: '1m' } });
+```
+
+### `add on "mails": debounce.wait is at least 1 millisecond, as a whole number or a string such as '10m'`
+
+**When:** `add` or `addMany` with a `debounce.wait` (or `throttle.window`, named `throttle.window` in the message) that is missing, `0`, negative, fractional or a string without a known unit.
+**Why:** the span is a duration of at least one millisecond. The message never prints the value.
+**Fix:**
+
+```ts
+await queue.add(payload, { debounce: { key: 'digest:42', wait: '5s' } });
+```
 
 ### `work on "mails": concurrency is a whole number from 1 to 1000`
 
@@ -1105,6 +1244,27 @@ queue.work(async ({ signal }) => {
 **When:** a call on a queue throws a plain `Error`, not a `QueueError`. A consumer is unlikely to meet either.
 **Why:** the first means a Redis script answered in a shape this package does not read (the script and its parser drifted apart, or the queue's keys were edited by something else). The second means `add` got no handle back from its script. Neither message holds data.
 **Fix:** nothing in your code changes it. Check that every process runs the same version of the package, then report it, with the message, as an issue on the package's repository.
+
+### `WRONGTYPE Operation against a key holding the wrong kind of value` from a queue
+
+**When:** a worker's claim, or a `COMPLETE` or `FAIL`, rejects with `WRONGTYPE` on a queue that has a `rateLimit`. A job may already be settled when the call fails, so it can be counted done and still reject.
+**Why:** the queue keeps its limiter in `queue:{name}:rate`, which must be a hash. Something else wrote a string, list or set to that key.
+**Fix:** never write to a key under `queue:{name}:`; delete the stray key, and the queue recreates its own.
+
+```ts
+await client.del('queue:{mails}:rate'); // the name you gave defineQueue, in braces
+```
+
+### My worker does nothing
+
+**When:** `queue.work` is running, jobs are `waiting`, and no handler is called.
+**Why:** either the queue is paused, or its `rateLimit` has no token left, so claims return nothing until the bucket refills.
+**Fix:** look at `counts().paused`; `resume()` lifts a pause. Otherwise wait for the refill, or raise `rateLimit.limit` and `burst`.
+
+```ts
+const { paused, waiting } = await queue.counts();
+if (paused) await queue.resume();
+```
 
 ### A job ran twice
 
