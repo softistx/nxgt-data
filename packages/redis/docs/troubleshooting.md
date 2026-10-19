@@ -54,6 +54,13 @@ application can handle.
   - [`defineQueue: "mails" rateLimit has a burst of 100 and a per of 9007199254741ms; burst × per must be at most 9007199254740 for the script to count exactly`](#definequeue-mails-ratelimit-has-a-burst-of-100-and-a-per-of-9007199254741ms-burst--per-must-be-at-most-9007199254740-for-the-script-to-count-exactly)
   - [`defineQueue: "mails" rateLimit would take longer than ten years to refill from empty (burst × per ÷ limit); check that per is in milliseconds`](#definequeue-mails-ratelimit-would-take-longer-than-ten-years-to-refill-from-empty-burst--per--limit-check-that-per-is-in-milliseconds)
   - [`defineQueue: "mails" has a rateLimit that is not an object; it is { limit, per, burst? }`](#definequeue-mails-has-a-ratelimit-that-is-not-an-object-it-is--limit-per-burst-)
+  - [`defineQueue: "mails" has groups that is not an object; it is { concurrency? }`](#definequeue-mails-has-groups-that-is-not-an-object-it-is--concurrency-)
+  - [`defineQueue: "mails" has groups concurrency; it is a whole number of jobs per group, at least 1, or left out for no cap`](#definequeue-mails-has-groups-concurrency-it-is-a-whole-number-of-jobs-per-group-at-least-1-or-left-out-for-no-cap)
+  - [`add on "mails": group needs groups in defineQueue`](#add-on-mails-group-needs-groups-in-definequeue)
+  - [`add on "mails": group is a string of 1 to 256 characters without braces or colons`](#add-on-mails-group-is-a-string-of-1-to-256-characters-without-braces-or-colons)
+  - [`add on "mails": the queue was started with no groups and this process has groups { concurrency: 2 }; every process must share groups (drain the queue and delete queue:{mails}:groups:mode to change it)`](#add-on-mails-the-queue-was-started-with-no-groups-and-this-process-has-groups--concurrency-2--every-process-must-share-groups-drain-the-queue-and-delete-queuemailsgroupsmode-to-change-it)
+  - [`add on "mails": the queue was started with groups { concurrency: 2 } and this process has groups { concurrency: 3 }; every process must share groups (drain the queue and delete queue:{mails}:groups:mode to change it)`](#add-on-mails-the-queue-was-started-with-groups--concurrency-2--and-this-process-has-groups--concurrency-3--every-process-must-share-groups-drain-the-queue-and-delete-queuemailsgroupsmode-to-change-it)
+  - [Every ungrouped queue gains a `queue:{mails}:groups:mode` key](#every-ungrouped-queue-gains-a-queuemailsgroupsmode-key)
   - [`add on "mails": id is a string of 1 to 256 characters without braces, which are a hash tag`](#add-on-mails-id-is-a-string-of-1-to-256-characters-without-braces-which-are-a-hash-tag)
   - [`add on "mails": priority is a whole number from 0 to 1000`](#add-on-mails-priority-is-a-whole-number-from-0-to-1000)
   - [`add on "mails": delay and at say the same thing; give one`](#add-on-mails-delay-and-at-say-the-same-thing-give-one)
@@ -608,7 +615,7 @@ if (delivered === 0) await queue.add(payload); // a stream or a queue, where it 
 ## Queues
 
 A queue throws a `QueueError` and a bare `TypeError`. `QueueError` has a `code`
-of `INVALID`, `NOT_FOUND`, `ACTIVE`, `CANCELED`, `FAILED`, `WAIT_TIMEOUT`, `TIMEOUT`, `LEASE_LOST` or `CLOSED`, the `queue` it happened on and the `job`
+of `INVALID`, `NOT_FOUND`, `ACTIVE`, `CANCELED`, `FAILED`, `WAIT_TIMEOUT`, `TIMEOUT`, `LEASE_LOST`, `CLOSED` or `GROUPS_MISMATCH`, the `queue` it happened on and the `job`
 id when the call was about one — never the payload. Everything the code got
 wrong (a definition, an option, a page) is a `TypeError`, thrown before
 anything is written. A **handler's** error — a `JobError`, or anything it
@@ -768,6 +775,82 @@ rateLimit: { limit: 5, per: '1m' } // a string says the unit
 ```ts
 rateLimit: { limit: 10, per: '1s' }
 ```
+
+### `defineQueue: "mails" has groups that is not an object; it is { concurrency? }`
+
+**When:** `defineQueue` with `groups` set to `true`, a number or a string.
+**Why:** `groups` turns on per-group ordering and is an object, even an empty one.
+**Fix:**
+
+```ts
+groups: {} // groups with no cap
+```
+
+### `defineQueue: "mails" has groups concurrency; it is a whole number of jobs per group, at least 1, or left out for no cap`
+
+**When:** `defineQueue` with `groups: { concurrency }` of 0, a negative, a fraction or a non-number.
+**Why:** `concurrency` is how many jobs of one group run at once; 0 is not "no cap", which is the absence of the option.
+**Fix:**
+
+```ts
+groups: { concurrency: 1 } // one job at a time per group
+// or
+groups: {} // no cap
+```
+
+### `add on "mails": group needs groups in defineQueue`
+
+**When:** `add` or `addMany` (the message starts `addMany on` there) with a `group`, on a queue defined without `groups`.
+**Why:** an ungrouped queue keeps no per-group state, so a group would be silently ignored; the call is refused before anything is written.
+**Fix:**
+
+```ts
+const mails = defineQueue({ name: 'mails', schema, groups: { concurrency: 1 } });
+await mails.add(payload, { group: 'tenant-1' });
+```
+
+### `add on "mails": group is a string of 1 to 256 characters without braces or colons`
+
+**When:** `add` or `addMany` with a `group` that is empty, longer than 256 characters, not a string, or holds a brace or a colon. The message never prints the value.
+**Why:** the group is part of the keys that track it, which are joined with colons and live under the queue's `{mails}` hash tag.
+**Fix:** build the group from an id, not from free text.
+
+```ts
+await mails.add(payload, { group: `tenant-${tenantId}` }); // 'tenant-1', not 'tenant:1'
+```
+
+### `add on "mails": the queue was started with no groups and this process has groups { concurrency: 2 }; every process must share groups (drain the queue and delete queue:{mails}:groups:mode to change it)`
+
+**When:** a `QueueError` of code `GROUPS_MISMATCH`, from a call on a queue that already holds jobs: during a rolling deploy where old and new processes define `groups` differently, or when one process (a script, a test) defines the queue with another config. The call is `add` here, and `addMany`, `retry`, `remove`, `cancel`, `claim`, `complete`, `fail` or `fire` on the other paths.
+**Why:** the first call writes the queue's mode to the key `queue:{mails}:groups:mode` (`0` ungrouped, `1:<concurrency>` grouped, `1:0` for `groups: {}`), and every later call checks its own mode against it before writing anything. The wordings are the two modes in `the queue was started with X and this process has Y`, each of `no groups`, `groups {}` or `groups { concurrency: N }`.
+**Fix:** share the same `groups` in every process, through one exported definition.
+
+```ts
+// queues.ts, imported by the API and the worker alike
+export const mails = defineQueue({ name: 'mails', schema, groups: { concurrency: 2 } });
+```
+
+To change the mode on purpose, stop every process, drain the queue, then delete the marker; the next call writes the new one.
+
+```sh
+redis-cli DEL 'queue:{mails}:groups:mode'
+```
+
+### `add on "mails": the queue was started with groups { concurrency: 2 } and this process has groups { concurrency: 3 }; every process must share groups (drain the queue and delete queue:{mails}:groups:mode to change it)`
+
+**When:** the same `GROUPS_MISMATCH` as above, when both sides are grouped but the `concurrency` differs; `groups {}` is a third value, not the same as any number.
+**Why:** the cap is part of the marker, so two processes with `concurrency: 2` and `3` would disagree on how many jobs of a group may run, and one could run a job twice or leak a slot.
+**Fix:** one `concurrency` in every process; to change it, drain the queue and delete the marker as above.
+
+```ts
+groups: { concurrency: 2 } // the same literal everywhere
+```
+
+### Every ungrouped queue gains a `queue:{mails}:groups:mode` key
+
+**When:** after upgrading to a version with groups, on a queue that never used them: its first `add`, `claim` or other write sets `queue:{mails}:groups:mode` to `0`. No error.
+**Why:** the marker is written for ungrouped queues too, so that a process that later adds `groups` is refused instead of stranding jobs.
+**Fix:** nothing to do. Do not delete the key while the queue runs. To turn `groups` on later, drain the queue and delete the marker first, as in the entry above, then deploy `groups` to every process at once.
 
 ### `add on "mails": id is a string of 1 to 256 characters without braces, which are a hash tag`
 
