@@ -7,8 +7,12 @@ import { instantsOf, wallOf } from './zone';
  */
 const MAX_DAYS = CYCLE_DAYS + 366;
 
-/** Wall times this far before `t`'s wall time cannot have a first instant after `t`. */
-const SKIP_BEFORE_MS = 3 * 3_600_000;
+/**
+ * Wall times before `t`'s own wall time are skipped without a zone lookup: a
+ * speed-up only, since their first instant is never after `t`. Correctness
+ * never depended on it.
+ */
+const SKIP_BEFORE_MS = 0;
 
 /**
  * The first instant after `t` whose wall time in `zone` matches `cron`.

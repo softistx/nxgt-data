@@ -52,12 +52,10 @@ const FIELDS: readonly Field[] = [
 	{ name: 'day of week', min: 0, max: 7, names: WEEKDAYS, nameBase: 0 },
 ];
 
-/** The most days each month can have, February counting its leap day. */
-
 /**
  * Parses a five-field cron: minute, hour, day of month, month (`1`–`12` or
  * `jan`–`dec`) and day of week (`0`–`7` or `sun`–`sat`, 0 and 7 both Sunday).
- * Each field takes `*`, `a`, `a-b`, `*` with a step (`star/n`), `a-b/n`, `a/n` (`a` to the maximum)
+ * Each field takes `*`, `a`, `a-b`, `*` with a step (`star/n`), `a-b/n`, `a/n` (`a` to the maximum, which for the day of week is 6, Saturday)
  * and comma lists of those. No macros, no seconds, no `L`, `W` or `#`.
  *
  * @throws TypeError naming the field and the reason, for a malformed cron or
@@ -78,7 +76,9 @@ export function parseCron(text: string): Cron {
 		Set<number>,
 		Set<number>,
 	];
-	weekdays.delete(7) && weekdays.add(0);
+	if (weekdays.delete(7)) {
+		weekdays.add(0);
+	}
 	const cron: Cron = {
 		minutes,
 		hours,
@@ -154,7 +154,7 @@ function bounds(
 	}
 	const from = value(a, field);
 	if (b === undefined) {
-		return [from, stepped ? field.max : from];
+		return [from, stepped ? (field.max === 7 ? 6 : field.max) : from];
 	}
 	const to = value(b, field);
 	if (from > to) {

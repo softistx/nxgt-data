@@ -32,6 +32,9 @@ test.each([
 	['0 0 * 2-4 *', 'months', [2, 3, 4]],
 	['0 0 * */6 *', 'months', [1, 7]],
 	['0 0 * * 1-5', 'weekdays', [1, 2, 3, 4, 5]],
+	['0 0 * * 1/2', 'weekdays', [1, 3, 5]],
+	['0 0 * * 5/1', 'weekdays', [5, 6]],
+	['0 0 * * 5-7/1', 'weekdays', [0, 5, 6]],
 ] as const)('%s reads %s as %p', (text, field, values) => {
 	expect(sorted(parseCron(text)[field])).toEqual([...values]);
 });
