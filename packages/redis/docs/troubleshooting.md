@@ -1529,12 +1529,12 @@ worker.on('error', (error) => console.error(error));
 
 ### `ERR the definition set holds more than 2000 ids`
 
-**When:** A worker starts (the sync of the definition) and the `error` event carries this reply, or `ERR at most 1000 schedules per call`.
-**Why:** SYNC keeps the ids the definition owns in one set and refuses to sweep more than 2 000; more than 1 000 schedules in one call is refused whole. Nothing is written.
-**Fix:** Shrink the definition to 1 000 schedules or fewer, then restart the worker; give the rest to `schedules.upsert`:
+**When:** A worker starts (the sync of the definition) and the `error` event carries this reply, again on each retry, or `ERR at most 1000 schedules per call`.
+**Why:** SYNC keeps the ids the definition owns in the set `schedules:definition` and refuses to sweep more than 2 000. A definition can never exceed 1 000 schedules, so the set was polluted by writes that are not SYNC's. Nothing is written. Jobs keep running meanwhile; only the static schedules are not updated until a SYNC succeeds, which the worker retries every 1 to 30 s.
+**Fix:** Delete the set; the next SYNC rebuilds it:
 
-```ts
-worker.on('error', (error) => console.error(error));
+```sh
+redis-cli DEL 'queue:{mails}:schedules:definition'
 ```
 
 ## Wiring: `defineRedis` and `openRedis`

@@ -318,7 +318,9 @@ opens **one** shared subscriber connection, lazily, for all its queues.
   fire while the queue is paused, at the paused 5 s cadence, and their jobs
   wait in `ready` for RESUME. Nothing fires without a worker. SYNC runs once
   per client and queue in a process, before the first claim of the first
-  worker of that queue, and its failure is an `error` event and a retry.
+  worker of that queue. Its failure is an `error` event and a retry, after
+  1 s doubling to 30 s; jobs keep running, and the static schedules are
+  updated once it succeeds.
 - **`close()`** stops claiming, waits for the jobs in flight up to `grace`,
   then fires their `signal` and stops renewing — their leases lapse and they
   are reclaimed elsewhere. It closes the duplicated connection.

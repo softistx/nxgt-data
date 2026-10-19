@@ -907,6 +907,10 @@ await queue.schedules.upsert('poll', { every: '90s', data: { kind: 'poll' } });
 Because of that id, a job id given to `add` cannot start with `schedule:`; it
 is refused with a `TypeError`.
 
+- **Next occurrences are computed on the worker's clock.** A host that lags the
+  Redis server by more than `every` fires extra occurrences until it catches
+  up, so keep hosts NTP-synced.
+
 Ownership of a schedule is kept in a set that Redis could evict under a
 `maxmemory` policy that removes keys; give a queue's Redis `noeviction`.
 
@@ -1201,7 +1205,7 @@ waits for a retry waits milliseconds rather than seconds.
 | `job.step` | 2 when it runs, 1 when its value is already stored |
 | `counts` | 1 |
 | a worker's first claim | 1 more, for SYNC of the static schedules, once per queue per process |
-| a due schedule | 1 per occurrence fired; the claim carries up to 20 due schedules |
+| a due schedule | 1 job per occurrence; up to one FIRE call per settle that saw it due; the claim carries up to 20 due schedules |
 | `schedules.upsert`, `remove`, `list` | 1 |
 | `list` | 1 for the ids, and the jobs' reads pipelined into 1 more |
 
