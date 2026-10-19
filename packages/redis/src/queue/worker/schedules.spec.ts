@@ -156,6 +156,11 @@ describe('round trips', () => {
 		const { worker } = await work(() => undefined, mails, c);
 		await eventually(async () => await state(`schedule:s:${at}`), 'completed');
 		await worker.idle();
+		const claimsNow = () =>
+			spy.mock.calls.filter((call) => call[0] === CLAIM.sha).length;
+		const settled = claimsNow();
+		await Bun.sleep(300);
+		expect(claimsNow()).toBe(settled);
 		const by = (script: { sha: string }) =>
 			spy.mock.calls.filter((call) => call[0] === script.sha).length;
 		expect(by(FIRE)).toBe(1);
@@ -183,6 +188,11 @@ describe('round trips', () => {
 			'completed',
 		);
 		await worker.idle();
+		const claimsNow = () =>
+			spy.mock.calls.filter((call) => call[0] === CLAIM.sha).length;
+		const settled = claimsNow();
+		await Bun.sleep(300);
+		expect(claimsNow()).toBe(settled);
 		expect(errors.length).toBe(20);
 		for (let i = 0; i < 20; i += 1) {
 			const score = Number(await calls.score(`bad${i}`));
@@ -192,6 +202,25 @@ describe('round trips', () => {
 		expect(await jobKeys()).toEqual([keys.job(`schedule:good:${now - 500}`)]);
 		const claims = spy.mock.calls.filter((call) => call[0] === CLAIM.sha);
 		expect(claims.length).toBeLessThanOrEqual(5);
+	});
+});
+
+describe('a slot that fires', () => {
+	test("idle does not resolve while the slot's own occurrence waits in ready", async () => {
+		const at = Date.now() + 300;
+		await calls.upsert('s', at, 'every', '60000');
+		const seen: string[] = [];
+		await work(async (job) => {
+			seen.push(job.id);
+			if (job.id === 'a') await Bun.sleep(500);
+		}).then(async ({ worker, client: c }) => {
+			await bindQueue(c, mails).add({ to: 'x' }, { id: 'a' });
+			await eventually(() => seen, ['a']);
+			await worker.idle();
+			// The settle of `a` saw the schedule due and fired it: idle waited
+			// for that occurrence to run.
+			expect(seen).toEqual(['a', `schedule:s:${at}`]);
+		});
 	});
 });
 
@@ -250,5 +279,39 @@ describe('SYNC at start', () => {
 		const sync = spy.mock.calls.findIndex((call) => call[0] === SYNC.sha);
 		expect(sync).toBeGreaterThanOrEqual(0);
 		expect(sync).toBeLessThan(first);
+	});
+});
+
+describe('a SYNC that fails', () => {
+	test('stalls no job, is retried, and succeeds later', async () => {
+		const withStatic = defineQueue({
+			name: 'mails',
+			schema,
+			schedules: { weekly: { cron: '0 7 * * 1', data: { to: 'a' } } },
+		});
+		const ids = Array.from({ length: 2001 }, (_, n) => `stale${n}`);
+		await send('SADD', keys.schedulesDefinition, ...ids);
+		const c = await fresh();
+		const seen: string[] = [];
+		const { worker } = await work(
+			(job) => {
+				seen.push(job.id);
+			},
+			withStatic,
+			c,
+		);
+		const errors: unknown[] = [];
+		worker.on('error', (e) => {
+			errors.push(e);
+		});
+		await bindQueue(c, withStatic).add({ to: 'x' }, { id: 'j' });
+		await eventually(() => seen, ['j']);
+		expect(await calls.hash('weekly')).toEqual({} as Fields);
+		await eventually(() => errors.length >= 1, true);
+		await send('DEL', keys.schedulesDefinition);
+		await eventually(
+			async () => (await calls.hash('weekly')).origin,
+			'definition',
+		);
 	});
 });

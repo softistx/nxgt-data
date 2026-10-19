@@ -18,7 +18,7 @@ const MAX_PARSED = 500;
 
 /** What one round of firing did. */
 export interface FireRound {
-	/** FIRE and DEFER calls sent, whatever they answered. */
+	/** FIRE and DEFER calls that were answered, whatever the answer. */
 	sent: number;
 	/** Occurrences added as jobs. */
 	added: number;
@@ -102,7 +102,6 @@ export async function fireDue(
 					),
 				);
 			}
-			round.sent += 1;
 			if (next === undefined) {
 				await runScript(
 					client,
@@ -110,6 +109,9 @@ export async function fireDue(
 					[keys.schedules],
 					[keys.schedule, schedule.id, schedule.due, now + DEFER_MS],
 				);
+				// Counted once answered: a call that keeps failing must not let a
+				// full page's 0 through, or the loop spins on it.
+				round.sent += 1;
 				continue;
 			}
 			const added = await runScript(client, FIRE, scriptKeys(keys), [
@@ -121,6 +123,7 @@ export async function fireDue(
 				definition.attempts,
 				definition.timeout ?? -1,
 			]);
+			round.sent += 1;
 			if (added === 1) round.added += 1;
 			round.soonest = Math.min(round.soonest, next);
 		} catch (error) {

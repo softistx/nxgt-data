@@ -6,7 +6,7 @@ import { announce, emit } from './events';
 import { fireDue, MAX_WAIT, waitMs } from './fire';
 import { markDrained, settleIdle } from './idle';
 import { runSlot } from './run-job';
-import { syncSchedules } from './sync';
+import { syncRetryIn, syncSchedules } from './sync';
 
 /** The wait after a Redis failure, doubling up to the cap, reset by a success. */
 const FIRST_RETRY = 1_000;
@@ -68,7 +68,7 @@ export async function loop<S extends z.ZodType>(
 				context.slotFreed = undefined;
 				continue;
 			}
-			// Before the first claim; every later call finds it done.
+			// Before the first claim; never rejects, so a failed SYNC stalls no job.
 			await syncSchedules(context);
 			if (!context.open) break;
 			const reply = await claim(
@@ -86,7 +86,10 @@ export async function loop<S extends z.ZodType>(
 			const round = await fireDue(context, reply.due);
 			markDrained(context, reply.jobs.length === 0 && round.added === 0);
 			if (context.open && context.slots.size < context.concurrency) {
-				await waitForWork(context, waitMs(reply.next, round, Date.now()));
+				await waitForWork(
+					context,
+					Math.min(waitMs(reply.next, round, Date.now()), syncRetryIn(context)),
+				);
 			}
 		} catch (error) {
 			// Closing the connection ends a pending wait: expected then, and only then.

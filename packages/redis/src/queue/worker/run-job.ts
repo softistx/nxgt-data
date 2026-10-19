@@ -119,10 +119,10 @@ export async function runSlot<S extends z.ZodType>(
 				(await runJob(context, job)) ?? (await claimAfterAbort(context));
 			announce(context, reply);
 			// A busy worker never reaches the loop's claim: its settles fire too.
-			await fireDue(context, reply.due);
+			const round = await fireDue(context, reply.due);
 			// Past the close's bound a claimed job is left to lapse.
 			job = context.open ? reply.jobs[0] : undefined;
-			if (!job) markDrained(context, true);
+			if (!job) markDrained(context, round.added === 0);
 		} catch (error) {
 			// The job's lease lapses and another worker takes it back.
 			emit(context, 'error', error);
