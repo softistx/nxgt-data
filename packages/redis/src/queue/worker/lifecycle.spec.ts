@@ -218,9 +218,12 @@ describe('events', () => {
 				attempt: 0,
 				error: {
 					name: 'QueueError',
-					message: 'INVALID: the stored job is not one this queue wrote',
+					message: 'INVALID: a stored job this package could not have written',
 				},
 			});
+			// The event says what the hash holds, word for word.
+			const stored = await client().hget(keys.job('a'), 'error');
+			expect(failed[0]?.error).toEqual(JSON.parse(stored ?? 'null'));
 		});
 	});
 });

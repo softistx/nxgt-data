@@ -19,6 +19,13 @@ import { CLAIM_STEPS_FN } from './steps';
  */
 
 /**
+ * The message of the error a job refused at claim is stored with (as a
+ * `QueueError`), and the one its worker's `failed` event carries.
+ */
+export const INVALID_MESSAGE =
+	'INVALID: a stored job this package could not have written';
+
+/**
  * Publishes a job's final outcome on the queue's `events` channel (the key
  * after the seven of `CLAIM_FN`). The message is the JSON of `{type, id}` with the
  * stored JSON texts (`result`, `error`) spliced in as they are, not decoded
@@ -114,7 +121,7 @@ end
 local function ready_score(priority)
 	return int(tonumber(priority) * 1099511627776 + redis.call('INCR', KEYS[6]))
 end
-local INVALID_ERROR = '{"name":"QueueError","message":"INVALID: a stored job this package could not have written"}'
+local INVALID_ERROR = '${JSON.stringify({ name: 'QueueError', message: INVALID_MESSAGE })}'
 local LAPSED_ERROR = '{"name":"LeaseLapsed","message":"lease lapsed"}'
 -- An id whose hash is gone is only dropped; a hash this package could not
 -- have written goes to failed, once, and is reported.

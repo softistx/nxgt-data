@@ -1,3 +1,4 @@
+import { INVALID_MESSAGE } from '../scripts/claim/body';
 import type { ClaimReply } from '../scripts/claim/replies';
 import type { WorkerContext } from './context';
 import type { WorkerEvents } from './types';
@@ -64,7 +65,7 @@ export function announce(context: Listening, reply: ClaimReply): void {
 			attempt: 0,
 			error: {
 				name: 'QueueError',
-				message: 'INVALID: the stored job is not one this queue wrote',
+				message: INVALID_MESSAGE,
 			},
 		});
 	}
