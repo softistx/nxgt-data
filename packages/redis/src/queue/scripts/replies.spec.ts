@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { parseStepBegin, parseStepCommit } from './replies';
+import { parseAddReply, parseStepBegin, parseStepCommit } from './replies';
 
 const refusal = 'queue script reply not recognised';
 
@@ -18,6 +18,30 @@ describe('step replies', () => {
 		expect(parseStepCommit(0)).toBe(false);
 		for (const bad of [2, -1, '1', null, true, [1]]) {
 			expect(() => parseStepCommit(bad)).toThrow(refusal);
+		}
+	});
+});
+
+describe('parseAddReply', () => {
+	test('reads added, existing and held-by shapes, never values', () => {
+		expect(parseAddReply([0, 1, 'j7'], 3)).toEqual([
+			{ deduplicated: false, held: undefined },
+			{ deduplicated: true, held: undefined },
+			{ deduplicated: true, held: 'j7' },
+		]);
+		for (const bad of [
+			null,
+			0,
+			[0],
+			[0, 0, 0],
+			[2, 0],
+			[-1, 0],
+			['', 0],
+			[null, 0],
+			[[], 0],
+			[true, 0],
+		]) {
+			expect(() => parseAddReply(bad, 2)).toThrow(refusal);
 		}
 	});
 });

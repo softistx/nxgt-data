@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import type { Duration } from './duration';
-import type { QueueRate, QueueRateLimit } from './flow-types';
+import type { AddKeyed, QueueRate, QueueRateLimit } from './flow-types';
 import type { JobHandle } from './handle-types';
 import type { ResultOf } from './result-types';
 import type { Handler, Worker, WorkOptions } from './worker/types';
@@ -75,15 +75,18 @@ export type QueueDefinition<
 	readonly rateLimit: QueueRate | undefined;
 };
 
-/** What `add` takes beside the payload. `delay` and `at` are two ways to say the same thing. */
+/**
+ * What `add` takes beside the payload. `delay` and `at` are two ways to say
+ * the same thing. `debounce` and `throttle` name the job by a key, so they
+ * take no `id`, and exclude each other; `debounce` also sets the run time, so
+ * it takes no `delay` or `at`.
+ */
 export type AddOptions = {
-	/** The job's id, 1 to 256 characters without braces. Adding an id twice keeps the first. */
-	id?: string;
 	/** Whole number, 0 to 1000; a lower one runs first. Default 0. */
 	priority?: number;
 	/** Overrides the queue's `timeout` for this job. */
 	timeout?: Duration;
-} & ({ delay?: Duration; at?: never } | { at?: Date; delay?: never });
+} & AddKeyed;
 
 /** What `retry` takes beside the id. */
 export type RetryOptions = {

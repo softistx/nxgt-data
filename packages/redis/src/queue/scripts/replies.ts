@@ -136,3 +136,31 @@ export function parseStepCommit(raw: unknown): boolean {
 	if (raw === 0) return false;
 	return refuse(`step commit reply ${typeof raw}`);
 }
+
+/** One job's part of `ADD`'s reply, as the handle reads it. */
+export type AddReply = {
+	/** `true` when nothing was added: the id existed, or a dedupe key held a job. */
+	deduplicated: boolean;
+	/** The id of the job a dedupe key named; `undefined` otherwise (the id is the given one). */
+	held: string | undefined;
+};
+
+/**
+ * `ADD`'s reply for `jobs` jobs: per job `0` (added), `1` (the given id
+ * existed) or the id string of the job a debounce or throttle key holds.
+ * Shapes only; an id is any non-empty string.
+ */
+export function parseAddReply(raw: unknown, jobs: number): AddReply[] {
+	const parts = array(raw, 'reply');
+	if (parts.length !== jobs) {
+		refuse(`add reply of ${parts.length} parts for ${jobs} jobs`);
+	}
+	return parts.map((part): AddReply => {
+		if (part === 0) return { deduplicated: false, held: undefined };
+		if (part === 1) return { deduplicated: true, held: undefined };
+		if (typeof part === 'string' && part !== '') {
+			return { deduplicated: true, held: part };
+		}
+		return refuse(`add reply part is ${typeof part}`);
+	});
+}

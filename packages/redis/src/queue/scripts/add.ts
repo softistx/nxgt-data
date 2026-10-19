@@ -7,7 +7,8 @@ import { WAKE_FN } from './wake';
  * `attempt` (0), `attempts`, `state` (`waiting` or `delayed`), `added` and
  * `runAt` (ms, the server's clock), plus `timeout` (ms) when the job has
  * one. Later scripts add fields; none of them
- * is this script's to read. The job id is in `delayed` (a future `runAt`) or
+ * is this script's to read, except that a debounce reads `state` and
+ * `priority` of the job its key names, to know whether it still waits. The job id is in `delayed` (a future `runAt`) or
  * in `ready`, scored `priority * 2^40 + INCR(seq)`.
  *
  * This script never parses `data`: the client has checked it, and a script
@@ -28,24 +29,64 @@ import { WAKE_FN } from './wake';
  * exponent notation, which ZADD would still read but a reader of the key
  * would not expect.
  *
+ * A job may carry a dedupe key, `<dedupe prefix><key>` holding a job id:
+ *
+ * - `throttle` (`mode` `t`): when the key exists the job is not added and the
+ *   reply is the id it holds, even if that job is long gone; otherwise the
+ *   job is added and the key set to its id with `PX ttlMs` (the window).
+ * - `debounce` (`mode` `d`, `delayMs` the wait): when the key names a job
+ *   whose hash says `waiting` (and it is in `ready`) or `delayed` (and it is
+ *   in `delayed`), that job's `data` is replaced and it moves to `delayed` at
+ *   now + wait, keeping its priority, attempts and timeout; the key's PX is
+ *   refreshed and the reply is its id. The job's state decides, never the
+ *   TTL, which is only a memory bound. Any other state, a missing hash, or a
+ *   hash of a shape this script could not have written (it is left alone)
+ *   adds a new job and points the key at it. A run under way is never touched.
+ *
  * KEYS: delayed, ready, seq, wake.
- * ARGV: job-key prefix, then per job `id, data, priority, attempts, delayMs,
- * atMs, timeoutMs` — `atMs` is -1 when the job has no `at`, and a past one is
- * due now; `timeoutMs` is -1 when the job has no limit, and the field is
- * then left out.
- * Returns per job 0 (added) or 1 (the id existed).
+ * ARGV: job-key prefix, dedupe-key prefix, then per job `id, data, priority,
+ * attempts, delayMs, atMs, timeoutMs, mode, dedupeKey, ttlMs` — `atMs` is -1
+ * when the job has no `at`, and a past one is due now; `timeoutMs` is -1 when
+ * the job has no limit, and the field is then left out; `mode` is `''`, `d`
+ * or `t`.
+ * Returns per job 0 (added), 1 (the id existed) or the id of the job the
+ * dedupe key holds.
  */
 export const ADD = defineScript(`
 ${WAKE_FN}
-local prefix = ARGV[1]
+local prefix, dprefix = ARGV[1], ARGV[2]
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+-- The job a debounce key names, when it is still waiting; nil otherwise.
+local function waiting_job(held)
+	local f = redis.call('HMGET', prefix .. held, 'state', 'priority')
+	if tonumber(f[2]) == nil then return nil end
+	if f[1] == 'waiting' and redis.call('ZSCORE', KEYS[2], held) then return held end
+	if f[1] == 'delayed' and redis.call('ZSCORE', KEYS[1], held) then return held end
+	return nil
+end
 local out = {}
-for i = 2, #ARGV, 7 do
+for i = 3, #ARGV, 10 do
 	local id, data, priority, attempts = ARGV[i], ARGV[i + 1], ARGV[i + 2], ARGV[i + 3]
 	local delay, at, timeout = tonumber(ARGV[i + 4]), tonumber(ARGV[i + 5]), tonumber(ARGV[i + 6])
+	local mode, dkey, ttl = ARGV[i + 7], ARGV[i + 8], ARGV[i + 9]
 	local key = prefix .. id
-	if redis.call('EXISTS', key) == 1 then
+	local held = false
+	if mode ~= '' then held = redis.call('GET', dprefix .. dkey) end
+	local hit = nil
+	if held and mode == 't' then hit = held end
+	if held and mode == 'd' then hit = waiting_job(held) end
+	if hit and mode == 'd' then
+		local runAt = now + delay
+		redis.call('HSET', prefix .. hit, 'data', data, 'state', 'delayed', 'runAt', runAt)
+		redis.call('ZREM', KEYS[2], hit)
+		if is_head(KEYS[1], runAt) then wake(KEYS[4]) end
+		redis.call('ZADD', KEYS[1], string.format('%d', runAt), hit)
+		redis.call('SET', dprefix .. dkey, hit, 'PX', ttl)
+		out[#out + 1] = hit
+	elseif hit then
+		out[#out + 1] = hit
+	elseif redis.call('EXISTS', key) == 1 then
 		out[#out + 1] = 1
 	else
 		local runAt = now + delay
@@ -64,6 +105,7 @@ for i = 2, #ARGV, 7 do
 			if is_head(KEYS[1], runAt) then wake(KEYS[4]) end
 			redis.call('ZADD', KEYS[1], string.format('%d', runAt), id)
 		end
+		if mode ~= '' then redis.call('SET', dprefix .. dkey, id, 'PX', ttl) end
 		out[#out + 1] = 0
 	end
 end

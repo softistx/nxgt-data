@@ -1,6 +1,12 @@
 import type { z } from 'zod';
 import { QueueError } from '../errors/queue-error';
 import { check } from './check';
+import {
+	isName,
+	NAME_RULE,
+	type ResolvedDedupe,
+	resolveDedupe,
+} from './dedupe';
 import { durationMs } from './duration';
 import { fromJson, toJson } from './round-trip';
 import { clampTimeout } from './timers';
@@ -56,9 +62,9 @@ export type ResolvedAdd = {
 	atMs: number;
 	/** The job's own `timeout`, in ms, capped at the longest timer; `undefined` stores none (the worker applies the queue's at run time). */
 	timeoutMs: number | undefined;
+	/** The `debounce` or `throttle` as the script reads it; a debounce's `delayMs` is its wait. */
+	dedupe: ResolvedDedupe;
 };
-
-const MAX_ID = 256;
 
 /**
  * Checks `add`'s options and resolves them. A malformed one is a bare
@@ -82,17 +88,8 @@ export function resolveAdd(
 	const refuse = (what: string): never => {
 		throw new TypeError(`${call} on "${queue}": ${what}`);
 	};
-	if (
-		id !== undefined &&
-		(typeof id !== 'string' ||
-			id.length === 0 ||
-			id.length > MAX_ID ||
-			id.includes('{') ||
-			id.includes('}'))
-	) {
-		refuse(
-			`id is a string of 1 to ${MAX_ID} characters without braces, which are a hash tag`,
-		);
+	if (id !== undefined && !isName(id)) {
+		refuse(`id is ${NAME_RULE}`);
 	}
 	if (
 		priority !== undefined &&
@@ -132,10 +129,12 @@ export function resolveAdd(
 			);
 		}
 	}
+	const dedupe = resolveDedupe(options, call, queue);
 	return {
 		id: (id as string | undefined) ?? Bun.randomUUIDv7(),
 		priority: (priority as number | undefined) ?? 0,
-		delayMs,
+		dedupe,
+		delayMs: dedupe.mode === 'd' ? dedupe.waitMs : delayMs,
 		atMs: at instanceof Date ? Math.max(0, at.getTime()) : -1,
 		// Stored as a timer can wait it, so the hash never holds more digits
 		// than the claim trusts; the worker would cap it the same way.

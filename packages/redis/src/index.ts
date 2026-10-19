@@ -33,7 +33,12 @@ export { withLock } from './lock/with-lock';
 export { bindQueue } from './queue/bind-queue';
 export { defineQueue } from './queue/define-queue';
 export type { Duration } from './queue/duration';
-export type { QueueRate, QueueRateLimit } from './queue/flow-types';
+export type {
+	DebounceOptions,
+	QueueRate,
+	QueueRateLimit,
+	ThrottleOptions,
+} from './queue/flow-types';
 export type { JobHandle } from './queue/handle-types';
 export type { ResultInputOf, ResultOf } from './queue/result-types';
 export type {

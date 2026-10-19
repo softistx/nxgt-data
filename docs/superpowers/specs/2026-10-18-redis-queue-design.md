@@ -74,6 +74,10 @@ const job = await redis.queues.mails.add(
 	{ delay: '10m', priority: 1, group: tenantId, id: `welcome/${userId}` },
 );
 job.id; job.deduplicated;
+// one job per key, run `wait` after the last add; a reindex after edits
+await redis.queues.mails.add(data, { debounce: { key: `reindex/${docId}`, wait: '30s' } });
+// the first add under a key wins for `window`; at most one digest an hour
+await redis.queues.mails.add(data, { throttle: { key: `digest/${userId}`, window: '1h' } });
 const { messageId } = await job.finished({ timeout: '30s' });
 await job.cancel();
 
@@ -172,7 +176,7 @@ deployment's prefix in front of it when wired, as the guards' names are.
 | `wake` | list | at most one token a blocked worker `BLPOP`s |
 | `paused` | string | present while paused |
 | `rate` | string | the GCRA state of `rateLimit` |
-| `dedupe:<key>` | string | the job id holding a debounce/throttle key, with its TTL |
+| `dedupe:<key>` | string | the job id holding a debounce/throttle key. A throttle's PX is its `window`; a debounce's is `wait + 24 h`, a memory bound only (the job's state decides, never the TTL), and each hit refreshes it |
 | `schedules` | zset | schedule id → ms of its next occurrence |
 | `schedule:<id>` | hash | `cron` or `every`, `timezone`, `data` (JSON), `origin` (`definition` / `runtime`) |
 | `groups:ready` | list | groups with ready jobs and a free slot, in round-robin order (slice 7) |
@@ -200,11 +204,19 @@ Each one trusts only the state it could have written, as the guards do: a
 hash whose shape it does not recognise is refused, never "repaired".
 
 - **ADD** (also the body of `addMany`, up to 500 jobs per call): for each job,
-  if `job:<id>` exists → report it, add nothing. Debounce: if `dedupe:<key>`
-  names a job still in `delayed`/`ready`, replace its `data` and move its run
-  time to now + `ttl`; if it names an active job, add a new one (activity
-  during a run is never lost). Throttle: if `dedupe:<key>` exists, report the
-  job it names and add nothing; else set it with `PX ttl`. Then write the
+  if `job:<id>` exists → report it, add nothing. Debounce (`wait`): if
+  `dedupe:<key>` names a job whose hash says `waiting` (and it is in `ready`)
+  or `delayed` (and it is in `delayed`), replace its `data`, take it out of
+  `ready`, put it in `delayed` at now + `wait` (keeping its priority,
+  attempts and timeout), refresh the key's PX and answer with its id; a new
+  head of `delayed` leaves a `wake` token. The state decides, never the TTL.
+  If it names an active, finished or missing job, or a hash of a shape ADD
+  could not have written (left untouched), add a new job and point the key at
+  it: activity during a run is never lost. Throttle (`window`): if
+  `dedupe:<key>` exists, answer with the id it names and add nothing, even if
+  that job is gone; else add the job and set the key with `PX window`. The
+  reply is per job `0` (added), `1` (the `id` existed) or the id string the
+  key holds. Then write the
   hash, `ZADD delayed` (a future run time) or `ZADD ready`, and push one
   `wake` token if the list is empty (it holds at most one: "ready has work",
   or a delayed job became the head of `delayed`; each woken worker passes the

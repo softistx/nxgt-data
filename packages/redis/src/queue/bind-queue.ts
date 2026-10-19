@@ -19,6 +19,7 @@ import { queueKeys } from './keys';
 import { type QueueLife, refuseClosed, trackWorker } from './life';
 import { ADD } from './scripts/add';
 import { cancel } from './scripts/cancel';
+import { parseAddReply } from './scripts/replies';
 import type { AddOptions, BoundQueue, QueueDefinition } from './types';
 import { resolveWork, startWorker } from './worker/worker';
 
@@ -45,7 +46,7 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 		// Between chunks too: a batch stops cleanly with CLOSED.
 		refuseClosed(life, call, definition.name);
 		const chunk = jobs.slice(from, from + ADD_CHUNK);
-		const argv: (string | number)[] = [keys.prefix];
+		const argv: (string | number)[] = [keys.prefix, keys.dedupe];
 		for (const { options, data } of chunk) {
 			argv.push(
 				options.id,
@@ -55,22 +56,29 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 				options.delayMs,
 				options.atMs,
 				options.timeoutMs ?? -1,
+				options.dedupe.mode,
+				options.dedupe.key,
+				options.dedupe.ttlMs,
 			);
 		}
-		const reply = (await runScript(
-			client,
-			ADD,
-			[keys.delayed, keys.ready, keys.seq, keys.wake],
-			argv,
-		)) as number[];
+		const reply = parseAddReply(
+			await runScript(
+				client,
+				ADD,
+				[keys.delayed, keys.ready, keys.seq, keys.wake],
+				argv,
+			),
+			chunk.length,
+		);
 		chunk.forEach(({ options }, i) => {
+			const answer = reply[i];
 			handles.push(
 				jobHandle(
 					client,
 					definition,
 					keys,
-					options.id,
-					reply[i] === 1,
+					answer?.held ?? options.id,
+					answer?.deduplicated ?? false,
 					undefined,
 					life,
 				),
