@@ -1,6 +1,6 @@
 import { checkRateValues } from '../../rate-limit/define-rate-limit';
+import { toMs } from '../duration';
 import type { QueueRate, QueueRateLimit } from '../types/flow';
-import { toMs } from './duration';
 
 /**
  * Checks a queue's `rateLimit` with the numeric rules of `defineRateLimit`,

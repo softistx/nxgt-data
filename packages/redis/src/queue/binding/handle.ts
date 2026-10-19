@@ -1,7 +1,7 @@
 import type { RedisClient } from 'bun';
 import type { z } from 'zod';
 import { QueueError } from '../../errors/queue-error';
-import { durationMs } from '../definition/duration';
+import { durationMs } from '../duration';
 import { decodeResult } from '../encode';
 import { listenRaced } from '../events/listen-raced';
 import { flush } from '../events/subscriber';

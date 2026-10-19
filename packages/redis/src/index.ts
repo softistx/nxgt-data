@@ -32,7 +32,7 @@ export type { LockOptions } from './lock/with-lock';
 export { withLock } from './lock/with-lock';
 export { bindQueue } from './queue/binding/bind-queue';
 export { defineQueue } from './queue/definition/define-queue';
-export type { Duration } from './queue/definition/duration';
+export type { Duration } from './queue/duration';
 export type {
 	QueueSchedules,
 	Schedule,

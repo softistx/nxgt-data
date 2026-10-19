@@ -1,6 +1,6 @@
 import type { RedisClient } from 'bun';
 import type { z } from 'zod';
-import type { Duration } from '../definition/duration';
+import type { Duration } from '../duration';
 import type { queueKeys } from '../keys';
 import type { QueueDefinition } from '../types/queue';
 import { abortLost, hearCancels } from './abort';

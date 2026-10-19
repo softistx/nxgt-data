@@ -1,5 +1,5 @@
+import { isName, MAX_NAME } from '../name';
 import type { QueueGroups, QueueGroupsInput } from '../types/flow';
-import { isName, MAX_NAME } from './name';
 
 /**
  * Checks a queue's `groups` and resolves it: frozen, `concurrency` 0 for no

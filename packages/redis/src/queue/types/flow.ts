@@ -1,4 +1,4 @@
-import type { Duration } from '../definition/duration';
+import type { Duration } from '../duration';
 
 /**
  * What a queue's `rateLimit` takes: a limit shared by every worker of every

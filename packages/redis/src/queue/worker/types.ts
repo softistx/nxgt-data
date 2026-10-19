@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { Duration } from '../definition/duration';
+import type { Duration } from '../duration';
 import type { ResultInputOf } from '../types/result';
 
 /** What `step` takes beside the function. */

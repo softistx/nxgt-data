@@ -1,5 +1,5 @@
-import { durationMs } from './duration';
-import { isName, NAME_RULE } from './name';
+import { durationMs } from '../duration';
+import { isName, NAME_RULE } from '../name';
 
 /**
  * How long a debounce key outlives its wait, in ms. A memory bound: while

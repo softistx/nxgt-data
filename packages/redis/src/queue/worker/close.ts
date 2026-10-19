@@ -1,5 +1,5 @@
-import type { Duration } from '../definition/duration';
-import { durationMs } from '../definition/duration';
+import type { Duration } from '../duration';
+import { durationMs } from '../duration';
 import { clampTimeout, RELEASE_MS } from '../timers';
 import { abortAll } from './abort';
 import type { WorkerContext } from './context';
