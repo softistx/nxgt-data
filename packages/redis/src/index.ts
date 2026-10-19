@@ -42,6 +42,11 @@ export type {
 export type { JobHandle } from './queue/handle-types';
 export type { ResultInputOf, ResultOf } from './queue/result-types';
 export type {
+	QueueSchedules,
+	Schedule,
+	ScheduleView,
+} from './queue/schedule/types';
+export type {
 	AddOptions,
 	BoundQueue,
 	JobState,

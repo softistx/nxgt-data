@@ -6,7 +6,10 @@ import {
 	defineQueue,
 	defineRedis,
 	openRedis,
+	type QueueSchedules,
 	type RetryOptions,
+	type Schedule,
+	type ScheduleView,
 } from '@nxgt/redis';
 import type { RedisClient } from 'bun';
 import { z } from 'zod';
@@ -103,4 +106,26 @@ export function closeWiredQueues() {
 /** A fresh retry: `RetryOptions` is nameable through the package. */
 export function retried(options?: RetryOptions) {
 	return mailQueue.retry('a', options);
+}
+
+/** Schedules: the declared and the runtime ones, and their types, come through the entry. */
+export const digests = defineQueue({
+	name: 'digests',
+	schema: z.object({ to: z.string() }),
+	schedules: {
+		daily: { cron: '0 7 * * *', timezone: 'Europe/Paris', data: { to: '*' } },
+	},
+});
+
+export const digestQueue = bindQueue(redis, digests);
+
+export function scheduled(schedule: Schedule<typeof digests.schema>) {
+	const handle: QueueSchedules<typeof digests.schema> = digestQueue.schedules;
+	return handle.upsert('weekly', schedule);
+}
+
+export function scheduleViews(): Promise<
+	ScheduleView<typeof digests.schema>[]
+> {
+	return digestQueue.schedules.list({ limit: 10 });
 }

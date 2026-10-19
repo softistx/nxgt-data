@@ -340,3 +340,48 @@ void queue.retry('a', { fresh: false });
 void queue.retry('a', { fresh: 'yes' });
 // @ts-expect-error `fresh` is a boolean, not a number
 void queue.retry('a', { fresh: 1 });
+
+// Schedules: `data` is the schema's input, and a schedule is a cron or an
+// interval, never both.
+const scheduled = defineQueue({
+	name: 'scheduled',
+	schema: z.object({ to: z.string(), template: z.string().default('digest') }),
+	schedules: {
+		daily: { cron: '0 7 * * *', timezone: 'Europe/Paris', data: { to: '*' } },
+		often: { every: '10m', data: { to: '*', template: 'ping' } },
+		// @ts-expect-error `data` is checked against the schema
+		wrong: { every: '1m', data: { to: 1 } },
+		// @ts-expect-error a cron and an interval exclude each other
+		both: { cron: '* * * * *', every: '1m', data: { to: '*' } },
+		// @ts-expect-error a timezone goes with a cron
+		zoned: { every: '1m', timezone: 'UTC', data: { to: '*' } },
+		// @ts-expect-error a duration typo
+		typo: { every: '10 minutes', data: { to: '*' } },
+		// @ts-expect-error `data` is required
+		bare: { every: '1m' },
+	},
+});
+const scheduledQueue = bindQueue(client, scheduled);
+const sq = scheduledQueue.schedules;
+const d = { to: 'x' };
+void sq.upsert('a', { cron: '* * * * *', data: d });
+void sq.upsert('a', { every: 1000, data: d });
+// @ts-expect-error `data` is checked against the schema
+void sq.upsert('a', { every: '1m', data: { to: 1 } });
+// @ts-expect-error a cron and an interval exclude each other
+void sq.upsert('a', { cron: '* * * * *', every: '1m', data: d });
+// @ts-expect-error a timezone goes with a cron
+void sq.upsert('a', { every: '1m', timezone: 'UTC', data: d });
+// @ts-expect-error a duration typo
+void sq.upsert('a', { every: '10 minutes', data: d });
+// @ts-expect-error the id is a string
+void sq.remove(1);
+void sq.list({ offset: 0, limit: 10 }).then((views) => {
+	const next: Date = views[0]?.next ?? new Date();
+	const template: string | undefined = views[0]?.data?.template;
+	const every: number | undefined = views[0]?.every;
+	const origin: 'definition' | 'runtime' = views[0]?.origin ?? 'runtime';
+	void [next, template, every, origin];
+});
+// @ts-expect-error an unknown key is not an option
+void sq.list({ page: 1 });

@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import { type Duration, toMs } from './duration';
 import { resolveRateLimit } from './rate';
+import { checkResolved, resolveSchedules } from './schedule/define';
 import type { QueueDefinition, QueueInput } from './types';
 
 const DEFAULTS = {
@@ -40,7 +41,7 @@ export function checkQueue<
 	S extends z.ZodType,
 	R extends z.ZodType | undefined = undefined,
 >(input: QueueInput<S, R> | QueueDefinition<S, R>, call: string): void {
-	resolve(input, call);
+	resolve(input, call, true);
 }
 
 /**
@@ -64,12 +65,13 @@ export function defineQueue<
 	S extends z.ZodType,
 	R extends z.ZodType | undefined = undefined,
 >(input: QueueInput<S, R>): QueueDefinition<S, R> {
-	return resolve(input, 'defineQueue');
+	return resolve(input, 'defineQueue', false);
 }
 
 function resolve<S extends z.ZodType, R extends z.ZodType | undefined>(
 	input: QueueInput<S, R> | QueueDefinition<S, R>,
 	call: string,
+	resolved: boolean,
 ): QueueDefinition<S, R> {
 	const { name } = input;
 	if (typeof name !== 'string' || name.length === 0) {
@@ -141,6 +143,9 @@ function resolve<S extends z.ZodType, R extends z.ZodType | undefined>(
 		keepFailed,
 		timeout,
 		rateLimit: resolveRateLimit(input.rateLimit, call, name),
+		schedules: resolved
+			? checkResolved(input.schedules, call, name)
+			: resolveSchedules(input.schedules, input.schema, call, name),
 	});
 }
 

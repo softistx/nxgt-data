@@ -3,6 +3,11 @@ import type { Duration } from './duration';
 import type { AddKeyed, QueueRate, QueueRateLimit } from './flow-types';
 import type { JobHandle } from './handle-types';
 import type { ResultOf } from './result-types';
+import type {
+	QueueSchedules,
+	Schedule,
+	ScheduleDefinition,
+} from './schedule/types';
 import type { Handler, Worker, WorkOptions } from './worker/types';
 
 /** What `defineQueue` takes. Every span of time is a {@link Duration}. */
@@ -54,6 +59,8 @@ export type QueueInput<
 	timeout?: Duration;
 	/** At most `limit` jobs start per `per` across every worker; see {@link QueueRateLimit}. */
 	rateLimit?: QueueRateLimit;
+	/** Recurring jobs by id, each added as `schedule:<id>:<due ms>`; see {@link Schedule}. At most 1000. */
+	schedules?: Record<string, Schedule<S>>;
 };
 
 /** What `defineQueue` returns: frozen, every option resolved, spans in milliseconds. */
@@ -73,6 +80,8 @@ export type QueueDefinition<
 	readonly keepFailed: number;
 	readonly timeout: number | undefined;
 	readonly rateLimit: QueueRate | undefined;
+	/** The static schedules, resolved and frozen, in the order given. */
+	readonly schedules: readonly ScheduleDefinition[];
 };
 
 /**
@@ -227,4 +236,6 @@ export type BoundQueue<
 	 * when there was nothing to cancel (finished, removed or unknown).
 	 */
 	cancel(id: string): Promise<boolean>;
+	/** Recurring jobs: add, replace, remove and list them at run time. */
+	readonly schedules: QueueSchedules<S>;
 };

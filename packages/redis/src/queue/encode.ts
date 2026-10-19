@@ -87,6 +87,11 @@ export function resolveAdd(
 	if (id !== undefined && !isName(id)) {
 		refuse(`id is ${NAME_RULE}`);
 	}
+	if (typeof id === 'string' && id.startsWith('schedule:')) {
+		refuse(
+			'id cannot start with "schedule:", which names scheduled occurrences',
+		);
+	}
 	if (
 		priority !== undefined &&
 		(typeof priority !== 'number' ||
