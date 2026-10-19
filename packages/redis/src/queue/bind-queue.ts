@@ -65,7 +65,7 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 				options.dedupe.mode,
 				options.dedupe.key,
 				options.dedupe.ttlMs,
-				'',
+				options.group,
 			);
 		}
 		const reply = parseAddReply(
@@ -158,7 +158,12 @@ export function bindQueueWith<
 		// bad item refuses the whole call with nothing written.
 		const jobs = items.map((item) => {
 			const call = 'addMany';
-			const options = resolveAdd(item.options, call, definition.name);
+			const options = resolveAdd(
+				item.options,
+				call,
+				definition.name,
+				definition.groups !== undefined,
+			);
 			const data = encodeData(definition, item.data, call);
 			return { options, data };
 		});
@@ -170,7 +175,12 @@ export function bindQueueWith<
 		prefix,
 		async add(data, options) {
 			refuseClosed(life, 'add', definition.name);
-			const resolved = resolveAdd(options, 'add', definition.name);
+			const resolved = resolveAdd(
+				options,
+				'add',
+				definition.name,
+				definition.groups !== undefined,
+			);
 			const json = encodeData(definition, data, 'add');
 			const [handle] = await addChunks(
 				client,

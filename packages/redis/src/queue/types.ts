@@ -3,8 +3,10 @@ import type { Duration } from './duration';
 import type {
 	AddKeyed,
 	QueueGroups,
+	QueueGroupsInput,
 	QueueRate,
 	QueueRateLimit,
+	RetryOptions,
 } from './flow-types';
 import type { JobHandle } from './handle-types';
 import type { ResultOf } from './result-types';
@@ -66,6 +68,8 @@ export type QueueInput<
 	rateLimit?: QueueRateLimit;
 	/** Recurring jobs by id, each added as `schedule:<id>:<due ms>`; see {@link Schedule}. At most 1000. */
 	schedules?: Record<string, Schedule<S>>;
+	/** Fair turns between groups, with an optional cap per group; see {@link QueueGroupsInput}. */
+	groups?: QueueGroupsInput;
 };
 
 /** What `defineQueue` returns: frozen, every option resolved, spans in milliseconds. */
@@ -102,16 +106,9 @@ export type AddOptions = {
 	priority?: number;
 	/** Overrides the queue's `timeout` for this job. */
 	timeout?: Duration;
+	/** The job's group, for a queue defined with `groups`; absent is the default group. */
+	group?: string;
 } & AddKeyed;
-
-/** What `retry` takes beside the id. */
-export type RetryOptions = {
-	/**
-	 * `true` clears the job's stored step values so every `job.step` runs
-	 * again; `false` or absent keeps them. Default `false`.
-	 */
-	fresh?: boolean;
-};
 
 /** Where a job is. */
 export type JobState =
@@ -143,6 +140,8 @@ export type JobView<
 	progress: number;
 	/** What the handler returned, once the job has completed. */
 	result?: ResultOf<R>;
+	/** The job's group; absent for the default group. */
+	group?: string;
 };
 
 /** How many jobs are in each state. */

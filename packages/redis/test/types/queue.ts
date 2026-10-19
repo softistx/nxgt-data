@@ -385,3 +385,17 @@ void sq.list({ offset: 0, limit: 10 }).then((views) => {
 });
 // @ts-expect-error an unknown key is not an option
 void sq.list({ page: 1 });
+
+// A group is a string, and a queue's groups take a whole number as `concurrency`.
+// @ts-expect-error a group is a string
+queue.add({ to: 'a@b.c' }, { group: 1 });
+queue.add({ to: 'a@b.c' }, { group: 'tenant-a', priority: 1 });
+defineQueue({ name: 'g', schema: z.string(), groups: {} });
+defineQueue({ name: 'g', schema: z.string(), groups: { concurrency: 2 } });
+// @ts-expect-error concurrency is a number
+defineQueue({ name: 'g', schema: z.string(), groups: { concurrency: '2' } });
+// @ts-expect-error groups takes concurrency only
+defineQueue({ name: 'g', schema: z.string(), groups: { weight: 2 } });
+const viewGroup: string | undefined = (null as unknown as JobView<z.ZodString>)
+	.group;
+void viewGroup;

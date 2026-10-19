@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import { type Duration, toMs } from './duration';
+import { resolveGroups } from './group';
 import { resolveRateLimit } from './rate';
 import { checkResolved, resolveSchedules } from './schedule/define';
 import type { QueueDefinition, QueueInput } from './types';
@@ -143,6 +144,7 @@ function resolve<S extends z.ZodType, R extends z.ZodType | undefined>(
 		keepFailed,
 		timeout,
 		rateLimit: resolveRateLimit(input.rateLimit, call, name),
+		groups: resolveGroups(input.groups, call, name),
 		schedules: resolved
 			? checkResolved(input.schedules, call, name)
 			: resolveSchedules(input.schedules, input.schema, call, name),

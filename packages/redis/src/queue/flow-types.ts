@@ -92,3 +92,21 @@ export type AddKeyed =
 export type QueueGroups = {
 	readonly concurrency: number;
 };
+
+/**
+ * What `defineQueue` takes as `groups`: `concurrency` is the most jobs of one
+ * group that run at once, across every worker, a whole number from 1. Left
+ * out, groups take fair turns and have no cap.
+ */
+export type QueueGroupsInput = {
+	concurrency?: number;
+};
+
+/** What `retry` takes beside the id. */
+export type RetryOptions = {
+	/**
+	 * `true` clears the job's stored step values so every `job.step` runs
+	 * again; `false` or absent keeps them. Default `false`.
+	 */
+	fresh?: boolean;
+};

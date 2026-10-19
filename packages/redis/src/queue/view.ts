@@ -82,6 +82,7 @@ export function toView<
 		const read = decodeResult(definition, result);
 		if (read.ok) view.result = read.value as ResultOf<R>;
 	}
+	if (hash['group']) view.group = hash['group'];
 	const finished = date(end);
 	if (finished) view.finished = finished;
 	return view;

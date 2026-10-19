@@ -108,7 +108,7 @@ return out
  * Claims the next job as `COMPLETE` does.
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake, events,
- * paused, rate, schedules, groupsReady, groupsQueued.
+ * paused, rate, schedules, groupsReady, groupsQueued, groupsMode.
  * ARGV: job-key prefix, id, token, error (JSON `{name, message}`), retryIn
  * (ms, -1 for no retry), keepFailed age (ms), lease (ms), claim token (`''`
  * for no claim), then the rate's `per`, `limit` and `burst` (`0 0 0` for
