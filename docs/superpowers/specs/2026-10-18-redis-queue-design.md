@@ -167,7 +167,7 @@ deployment's prefix in front of it when wired, as the guards' names are.
 
 | Part | Type | Holds |
 | --- | --- | --- |
-| `job:<id>` | hash | `data` (JSON), `step:<name>` (JSON, slice 3), `priority`, `group`, `attempt`, `attempts`, `state`, `token`, `progress`, `error`, `result` (JSON), `added`, `runAt`, `finished`, `dedupe` |
+| `job:<id>` | hash | `data` (JSON), `step:<name>` (JSON, slice 3), `priority`, `group`, `attempt`, `attempts`, `state`, `token`, `progress`, `error`, `result` (JSON), `added`, `runAt`, `finished`, `dedupe`, `retried` (`1` once RETRY has put the job back; only ADD's debounce reads it) |
 | `delayed` | zset | id → ms at which it becomes ready |
 | `ready` | zset | id → `priority × 2^40 + seq` (FIFO within a priority) |
 | `active` | zset | id → ms at which its lease lapses |
@@ -221,8 +221,9 @@ hash whose shape it does not recognise is refused, never "repaired".
   `wake` token if the list is empty (it holds at most one: "ready has work",
   or a delayed job became the head of `delayed`; each woken worker passes the
   baton, see CLAIM), but none while `paused` exists: RESUME leaves one. A
-  debounce joins only a job that has not run (`attempt` 0): a job in retry
-  backoff is under way, like an active one, so a new job is added.
+  debounce joins only a job that has not run (`attempt` 0 and no `retried`):
+  a job in retry backoff, or put back by RETRY, is under way, like an active
+  one, so a new job is added.
 - **CLAIM**(n, lease, token): reclaim up to 100
   lapsed leases from `active` — each counts as an attempt (a job that kills
   its process does not loop forever): back to `ready`, or to `failed` with

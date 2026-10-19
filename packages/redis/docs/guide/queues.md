@@ -702,7 +702,7 @@ await queue.add({ userId }, { throttle: { key: userId, window: '1h' } });
 ```
 
 A debounce decides on the **job's state**, not on the key alone. While the job
-is `waiting` or `delayed` and has not yet run (a job in retry backoff counts as
+is `waiting` or `delayed` and has not yet run (a job in retry backoff, or put back by `retry`, counts as
 under way), a new add replaces its data and pushes its run time back; it keeps
 its priority, attempts and timeout. A job that is already running, or has run
 once, is never changed: the next add makes a new job, so an edit made during a
@@ -1036,7 +1036,7 @@ waits for a retry waits milliseconds rather than seconds.
 | --- | --- |
 | `add` | 1 |
 | `addMany` | 1 per 500 jobs |
-| a busy worker | about 1 per job: it settles a job and claims the next in the same script (up to about 3 under a queue `rateLimit`, whose refusal sends it back to wait) |
+| a busy worker | about 1 per job: it settles a job and claims the next in the same script (it can exceed that under a queue `rateLimit`, whose refusal sends it back to wait; not measured, and bounded by one claim per `retryAfter`, never a spin) |
 | an idle worker | none while it waits; it blocks on a connection of its own |
 | `job.step` | 2 when it runs, 1 when its value is already stored |
 | `counts` | 1 |

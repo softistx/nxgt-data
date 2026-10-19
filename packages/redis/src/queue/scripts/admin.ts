@@ -65,6 +65,11 @@ return 1
  * named `step:*`, in the same script and only once the retry is certain, so
  * the handler's steps all run again. `data`, `priority` and the rest stay.
  *
+ * It also writes `retried` (`1`), which stays on the hash: `ADD`'s debounce
+ * refuses to join a job that has it, since `attempt` is back to 0 though the
+ * job has run. No other script reads it, and `sound()` ignores fields it does
+ * not name.
+ *
  * Only a job that is in `failed`, whose `state` says so and whose hash is
  * one this package could have written is retried; anything else changes
  * nothing.
@@ -85,7 +90,7 @@ if redis.call('HGET', key, 'state') ~= 'failed' then return 0 end
 local f = redis.call('HMGET', key, 'data', 'attempt', 'attempts', 'priority')
 if not sound(f) then return 0 end
 redis.call('ZREM', KEYS[5], id)
-redis.call('HSET', key, 'state', 'waiting', 'attempt', 0, 'runAt', int(now))
+redis.call('HSET', key, 'state', 'waiting', 'attempt', 0, 'retried', 1, 'runAt', int(now))
 redis.call('HDEL', key, 'error', 'finished', 'token')
 redis.call('ZADD', KEYS[2], ready_score(f[4]), id)
 if ARGV[3] == '1' then

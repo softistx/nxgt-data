@@ -174,6 +174,43 @@ describe('debounce in ADD', () => {
 		expect(await send('GET', dedupe('k'))).toBe(handle.id);
 	});
 
+	for (const fresh of [false, true]) {
+		test(`debounce does not join a job put back by retry({ fresh: ${fresh} })`, async () => {
+			const id = await seeded('k');
+			const [job] = (await claim(client(), keys, 1, 30_000, undefined)).jobs;
+			await client().hset(keys.job(id), { 'step:send': '"done"' });
+			await fail(
+				client(),
+				keys,
+				mailQueue,
+				id,
+				job?.token ?? '',
+				{ name: 'Error', message: 'boom' },
+				null,
+				false,
+			);
+			await mails().retry(id, { fresh });
+			const hash = await client().hgetall(keys.job(id));
+			expect([hash['state'], hash['attempt'], hash['retried']]).toEqual([
+				'waiting',
+				'0',
+				'1',
+			]);
+			expect(hash['step:send'] === undefined).toBe(fresh);
+
+			const handle = await mails().add(
+				{ to: 'new' },
+				{ debounce: { key: 'k', wait: '1h' } },
+			);
+
+			expect(handle.id).not.toBe(id);
+			expect(handle.deduplicated).toBe(false);
+			expect(await client().hgetall(keys.job(id))).toEqual(hash);
+			expect(await send('ZSCORE', keys.ready, id)).not.toBeNull();
+			expect(await send('GET', dedupe('k'))).toBe(handle.id);
+		});
+	}
+
 	test('a key that names a hash this script could not have written adds a new job and leaves it alone', async () => {
 		// Each hash says waiting or delayed but lacks what ADD always wrote
 		// (a priority) or is missing from the zset its state puts it in.
