@@ -10,10 +10,10 @@ import {
 } from '../../../test/fixtures';
 import { rejection } from '../../../test/rejection';
 import { QueueError } from '../../errors/queue-error';
-import { bindQueue } from '../bind-queue';
-import { queueKeys } from '../keys';
-import { claim } from '../scripts/claim';
-import type { ClaimedJob } from '../scripts/replies';
+import { bindQueue } from '../binding/bind-queue';
+import { queueKeys } from '../binding/keys';
+import { claim } from '../scripts/claim/claim';
+import type { ClaimedJob } from '../scripts/claim/replies';
 import { abortRun, beginRun, endRun } from './abort';
 import type { WorkerContext } from './context';
 import { stepsOf } from './steps';

@@ -1,10 +1,10 @@
 import { runScript } from '../../scripts/run-script';
 import { type Cron, parseCron } from '../schedule/cron';
 import { nextAfter, nextEvery } from '../schedule/next';
-import { groupArgs, scriptKeys } from '../scripts/claim';
-import { guardMode } from '../scripts/groups-mode';
-import type { DueSchedule } from '../scripts/replies';
-import { DEFER, FIRE } from '../scripts/schedule';
+import { groupArgs, scriptKeys } from '../scripts/claim/claim';
+import type { DueSchedule } from '../scripts/claim/replies';
+import { guardMode } from '../scripts/groups/groups-mode';
+import { DEFER, FIRE } from '../scripts/schedule/schedule';
 import type { WorkerContext } from './context';
 import { emit } from './events';
 

@@ -1,11 +1,11 @@
 import type { z } from 'zod';
 import { JobError } from '../../errors/job-error';
 import { QueueError } from '../../errors/queue-error';
-import { backoffDelay } from '../backoff';
-import { encodeResult } from '../encode';
-import type { ClaimedJob, ClaimReply } from '../scripts/replies';
+import { encodeResult } from '../binding/encode';
+import { backoffDelay } from '../definition/backoff';
+import type { ClaimedJob, ClaimReply } from '../scripts/claim/replies';
 import { complete, fail } from '../scripts/settle';
-import type { QueueDefinition } from '../types';
+import type { QueueDefinition } from '../types/types';
 import type { WorkerContext } from './context';
 import { emit } from './events';
 import { isStepRefusal } from './step-refusal';

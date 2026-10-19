@@ -1,7 +1,7 @@
 import type { z } from 'zod';
-import { decodeData } from '../encode';
-import { claim } from '../scripts/claim';
-import type { ClaimedJob, ClaimReply } from '../scripts/replies';
+import { decodeData } from '../binding/encode';
+import { claim } from '../scripts/claim/claim';
+import type { ClaimedJob, ClaimReply } from '../scripts/claim/replies';
 import {
 	armTimeout,
 	beginRun,

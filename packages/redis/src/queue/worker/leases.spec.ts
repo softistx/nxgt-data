@@ -6,9 +6,9 @@ import {
 	scriptCalls,
 	useRedis,
 } from '../../../test/fixtures';
-import { bindQueue } from '../bind-queue';
-import { queueKeys } from '../keys';
-import { claim } from '../scripts/claim';
+import { bindQueue } from '../binding/bind-queue';
+import { queueKeys } from '../binding/keys';
+import { claim } from '../scripts/claim/claim';
 import { keepLeases } from './leases';
 
 const servers = useRedis();

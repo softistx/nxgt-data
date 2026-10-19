@@ -6,7 +6,7 @@ import {
 	subscribe,
 } from '../channel/pubsub';
 import { bindIdempotency } from '../idempotency/bind-idempotency';
-import { bindQueueWith } from '../queue/bind-queue';
+import { bindQueueWith } from '../queue/binding/bind-queue';
 import { bindRateLimit } from '../rate-limit/bind-rate-limit';
 import {
 	type InstanceContext,

@@ -8,9 +8,9 @@ import {
 	useRedis,
 } from '../../../test/fixtures';
 import { scheduleCalls } from '../../../test/schedule-calls';
-import { bindQueue } from '../bind-queue';
-import { queueKeys } from '../keys';
-import { claim } from '../scripts/claim';
+import { bindQueue } from '../binding/bind-queue';
+import { queueKeys } from '../binding/keys';
+import { claim } from '../scripts/claim/claim';
 import type { Worker } from './types';
 
 const servers = useRedis();

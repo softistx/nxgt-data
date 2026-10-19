@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
 import { mailQueue, useChannelLog, useRedis } from '../../../test/fixtures';
-import { bindQueue } from '../bind-queue';
-import { defineQueue } from '../define-queue';
-import { queueKeys } from '../keys';
+import { bindQueue } from '../binding/bind-queue';
+import { queueKeys } from '../binding/keys';
+import { defineQueue } from '../definition/define-queue';
 import { cancel } from './cancel';
-import { claim } from './claim';
+import { claim } from './claim/claim';
 import { renew } from './renew';
 import { complete, fail } from './settle';
 

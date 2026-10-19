@@ -1,8 +1,8 @@
 import { QueueError } from '../../errors/queue-error';
+import { clampTimeout } from '../binding/timers';
 import { parseEvent } from '../events/message';
 import { listen } from '../events/subscriber';
-import type { ClaimedJob } from '../scripts/replies';
-import { clampTimeout } from '../timers';
+import type { ClaimedJob } from '../scripts/claim/replies';
 import type { WorkerContext } from './context';
 
 /** One running job's way to be aborted, held for as long as the run is. */

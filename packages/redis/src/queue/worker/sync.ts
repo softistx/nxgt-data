@@ -1,7 +1,7 @@
 import type { RedisClient } from 'bun';
 import { runScript } from '../../scripts/run-script';
 import { firstNext } from '../schedule/define';
-import { SYNC } from '../scripts/schedule';
+import { SYNC } from '../scripts/schedule/schedule';
 import type { WorkerContext } from './context';
 import { emit } from './events';
 

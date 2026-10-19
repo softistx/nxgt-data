@@ -1,6 +1,6 @@
 import { defineScript } from '../../scripts/run-script';
-import { GROUP_FN, groupModeCheck } from './groups';
-import { WAKE_FN } from './wake';
+import { WAKE_FN } from './claim/wake';
+import { GROUP_FN, groupModeCheck } from './groups/groups';
 
 /*
  * One hash per job, `queue:{<name>}:job:<id>`, written here with exactly

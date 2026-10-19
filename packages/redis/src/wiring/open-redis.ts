@@ -1,5 +1,5 @@
 import { connectRedis, type RedisConnection } from '../connection/connect';
-import { openLife } from '../queue/life';
+import { openLife } from '../queue/binding/life';
 import { checkInstance } from './config/checks';
 import {
 	isCache,

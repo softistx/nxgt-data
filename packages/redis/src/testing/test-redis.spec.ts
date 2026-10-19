@@ -6,7 +6,7 @@ import {
 	startTestRedis,
 	TEST_REDIS_VERSION,
 	type TestRedis,
-} from '.';
+} from './';
 
 // `@nxgt/redis/testing`, as a consumer's suite uses it. The binary is the one
 // `scripts/redis.ts` built before the specs: through `$REDIS_BIN`, or through

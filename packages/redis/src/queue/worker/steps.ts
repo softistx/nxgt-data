@@ -1,8 +1,8 @@
 import type { z } from 'zod';
 import { QueueError } from '../../errors/queue-error';
-import type { ClaimedJob } from '../scripts/replies';
+import { checkStepName, decodeStep, encodeStep } from '../binding/step-codec';
+import type { ClaimedJob } from '../scripts/claim/replies';
 import { stepBegin, stepCommit } from '../scripts/step';
-import { checkStepName, decodeStep, encodeStep } from '../step-codec';
 import { abortRun } from './abort';
 import type { WorkerContext } from './context';
 import { markStepRefusal } from './step-refusal';

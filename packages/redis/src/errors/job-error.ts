@@ -1,4 +1,4 @@
-import { type Duration, toMs } from '../queue/duration';
+import { type Duration, toMs } from '../queue/definition/duration';
 
 /**
  * What a handler throws to say how the failed attempt is retried. Any other

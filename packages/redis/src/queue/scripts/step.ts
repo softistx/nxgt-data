@@ -1,8 +1,12 @@
 import type { RedisClient } from 'bun';
 import { defineScript, runScript } from '../../scripts/run-script';
-import type { queueKeys } from '../keys';
-import { NOW_LUA } from './claim-body';
-import { parseStepBegin, parseStepCommit, type StepBegin } from './replies';
+import type { queueKeys } from '../binding/keys';
+import { NOW_LUA } from './claim/claim-body';
+import {
+	parseStepBegin,
+	parseStepCommit,
+	type StepBegin,
+} from './claim/replies';
 
 /*
  * The fence of a durable step: a handler's step may be read or written only

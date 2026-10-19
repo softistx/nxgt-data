@@ -30,9 +30,14 @@ export type {
 } from './idempotency/types';
 export type { LockOptions } from './lock/with-lock';
 export { withLock } from './lock/with-lock';
-export { bindQueue } from './queue/bind-queue';
-export { defineQueue } from './queue/define-queue';
-export type { Duration } from './queue/duration';
+export { bindQueue } from './queue/binding/bind-queue';
+export { defineQueue } from './queue/definition/define-queue';
+export type { Duration } from './queue/definition/duration';
+export type {
+	QueueSchedules,
+	Schedule,
+	ScheduleView,
+} from './queue/schedule/types';
 export type {
 	DebounceOptions,
 	QueueGroups,
@@ -41,14 +46,9 @@ export type {
 	QueueRateLimit,
 	RetryOptions,
 	ThrottleOptions,
-} from './queue/flow-types';
-export type { JobHandle } from './queue/handle-types';
-export type { ResultInputOf, ResultOf } from './queue/result-types';
-export type {
-	QueueSchedules,
-	Schedule,
-	ScheduleView,
-} from './queue/schedule/types';
+} from './queue/types/flow-types';
+export type { JobHandle } from './queue/types/handle-types';
+export type { ResultInputOf, ResultOf } from './queue/types/result-types';
 export type {
 	AddOptions,
 	BoundQueue,
@@ -57,7 +57,7 @@ export type {
 	QueueCounts,
 	QueueDefinition,
 	QueueInput,
-} from './queue/types';
+} from './queue/types/types';
 export type {
 	Handler,
 	JobContext,

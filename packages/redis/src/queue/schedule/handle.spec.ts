@@ -7,8 +7,8 @@ import * as queues from '../../../test/wiring/queues';
 import type { QueueError } from '../../errors/queue-error';
 import { defineRedis } from '../../wiring/config/define-redis';
 import { openRedis } from '../../wiring/open-redis';
-import { bindQueue } from '../bind-queue';
-import { defineQueue } from '../define-queue';
+import { bindQueue } from '../binding/bind-queue';
+import { defineQueue } from '../definition/define-queue';
 
 const servers = useRedis();
 const client = () => servers.redis.client;

@@ -1,8 +1,8 @@
 import type { z } from 'zod';
 import { QueueError } from '../../errors/queue-error';
-import { durationMs } from '../duration';
-import { MAX_NAME } from '../name';
-import { toJson } from '../round-trip';
+import { toJson } from '../binding/round-trip';
+import { durationMs } from '../definition/duration';
+import { MAX_NAME } from '../definition/name';
 import { parseCron } from './cron';
 import { nextAfter } from './next';
 import type { ScheduleDefinition } from './types';

@@ -1,7 +1,7 @@
 import type { RedisClient } from 'bun';
 import { defineScript, runScript } from '../../scripts/run-script';
-import type { queueKeys } from '../keys';
-import { parseLost } from './replies';
+import type { queueKeys } from '../binding/keys';
+import { parseLost } from './claim/replies';
 
 /**
  * Pushes the lease of every entry that still holds its token to

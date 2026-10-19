@@ -9,10 +9,10 @@ import {
 	useRedis,
 } from '../../../test/fixtures';
 import { JobError } from '../../errors/job-error';
-import { bindQueue } from '../bind-queue';
-import { defineQueue } from '../define-queue';
-import { queueKeys } from '../keys';
-import { claim } from '../scripts/claim';
+import { bindQueue } from '../binding/bind-queue';
+import { queueKeys } from '../binding/keys';
+import { defineQueue } from '../definition/define-queue';
+import { claim } from '../scripts/claim/claim';
 import type { Worker } from './types';
 
 const servers = useRedis();

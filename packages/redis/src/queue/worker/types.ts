@@ -1,6 +1,6 @@
 import type { z } from 'zod';
-import type { Duration } from '../duration';
-import type { ResultInputOf } from '../result-types';
+import type { Duration } from '../definition/duration';
+import type { ResultInputOf } from '../types/result-types';
 
 /** What `step` takes beside the function. */
 export type StepOptions<Z extends z.ZodType> = {

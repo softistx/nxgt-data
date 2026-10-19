@@ -1,7 +1,7 @@
 import type { RedisClient } from 'bun';
 import type { z } from 'zod';
-import type { queueKeys } from '../keys';
-import type { QueueDefinition } from '../types';
+import type { queueKeys } from '../binding/keys';
+import type { QueueDefinition } from '../types/types';
 import type { Run } from './abort';
 import type { Leases } from './leases';
 import type { JobContext, WorkerEvents } from './types';

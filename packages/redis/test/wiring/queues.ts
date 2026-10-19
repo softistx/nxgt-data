@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { defineQueue } from '../../src/queue/define-queue';
+import { defineQueue } from '../../src/queue/definition/define-queue';
 
 /** With a `result`: `finished` resolves to it. */
 export const mails = defineQueue({

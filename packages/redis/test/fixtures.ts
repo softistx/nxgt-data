@@ -5,7 +5,7 @@ import { defineCache } from '../src/cache/define-cache';
 import { defineChannel } from '../src/channel/define-channel';
 import { closeRedis } from '../src/connection/connect';
 import { defineIdempotency } from '../src/idempotency/define-idempotency';
-import { defineQueue } from '../src/queue/define-queue';
+import { defineQueue } from '../src/queue/definition/define-queue';
 import { defineRateLimit } from '../src/rate-limit/define-rate-limit';
 import { GCRA_AT_ARGV, type Rate, toResult } from '../src/rate-limit/gcra';
 import { runScript } from '../src/scripts/run-script';

@@ -1,7 +1,7 @@
 import type { RedisClient } from 'bun';
 import type { Subscription } from '../channel/pubsub';
 import type { RedisConnection } from '../connection/connect';
-import type { QueueLife } from '../queue/life';
+import type { QueueLife } from '../queue/binding/life';
 import type {
 	AnyCache,
 	AnyChannel,

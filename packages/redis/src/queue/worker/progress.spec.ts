@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { mailQueue } from '../../../test/fixtures';
-import { queueKeys } from '../keys';
+import { queueKeys } from '../binding/keys';
 import type { WorkerContext } from './context';
 import { on } from './events';
 import { progressOf } from './progress';

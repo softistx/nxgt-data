@@ -1,6 +1,6 @@
 import type { z } from 'zod';
-import { claim } from '../scripts/claim';
-import type { ClaimedJob } from '../scripts/replies';
+import { claim } from '../scripts/claim/claim';
+import type { ClaimedJob } from '../scripts/claim/replies';
 import type { WorkerContext } from './context';
 import { announce, emit } from './events';
 import { fireDue, MAX_WAIT, waitMs } from './fire';

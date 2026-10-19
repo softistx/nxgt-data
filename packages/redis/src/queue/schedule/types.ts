@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { Duration } from '../duration';
+import type { Duration } from '../definition/duration';
 import type { Cron } from './cron';
 
 /**

@@ -1,5 +1,5 @@
+import type { ClaimedJob } from '../scripts/claim/replies';
 import { progress as store } from '../scripts/progress';
-import type { ClaimedJob } from '../scripts/replies';
 import type { WorkerContext } from './context';
 import { emit } from './events';
 
