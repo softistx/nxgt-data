@@ -23,6 +23,109 @@ function ownedByDefinition(call: string, queue: string, id: string): TypeError {
 	);
 }
 
+type Definition<
+	S extends z.ZodType,
+	R extends z.ZodType | undefined,
+> = QueueDefinition<S, R>;
+
+/** `schedules.upsert`: stores or replaces a runtime schedule. */
+async function upsert<S extends z.ZodType, R extends z.ZodType | undefined>(
+	client: RedisClient,
+	keys: Keys,
+	definition: Definition<S, R>,
+	id: string,
+	schedule: Parameters<QueueSchedules<S>['upsert']>[1],
+): Promise<void> {
+	const { name } = definition;
+	const call = 'schedules.upsert';
+	const resolved = resolveSchedule(
+		id,
+		schedule,
+		definition.schema,
+		`${call} on "${name}":`,
+		name,
+	);
+	const next = firstNext(resolved, Date.now());
+	const reply = await runScript(
+		client,
+		UPSERT,
+		[keys.schedules],
+		[
+			keys.schedule,
+			resolved.id,
+			resolved.kind,
+			resolved.spec,
+			resolved.timezone,
+			resolved.data,
+			next,
+		],
+	);
+	if (reply === DEFINITION) throw ownedByDefinition(call, name, id);
+	if (reply !== 1) {
+		throw new Error('queue script reply not recognised: schedules.upsert');
+	}
+}
+
+/** `schedules.remove`: removes a runtime schedule. */
+async function remove<S extends z.ZodType, R extends z.ZodType | undefined>(
+	client: RedisClient,
+	keys: Keys,
+	definition: Definition<S, R>,
+	id: string,
+): Promise<void> {
+	const { name } = definition;
+	const call = 'schedules.remove';
+	if (!isScheduleId(id)) {
+		throw new TypeError(`${call} on "${name}": a schedule id is ${ID_RULE}`);
+	}
+	const reply = await runScript(
+		client,
+		UNSCHEDULE,
+		[keys.schedules],
+		[keys.schedule, id],
+	);
+	if (reply === DEFINITION) throw ownedByDefinition(call, name, id);
+	if (reply === 0) {
+		throw new QueueError(
+			'NOT_FOUND',
+			name,
+			`${call} on "${name}": no schedule "${id}"`,
+		);
+	}
+	if (reply !== 1) {
+		throw new Error('queue script reply not recognised: schedules.remove');
+	}
+}
+
+/** `schedules.list`: one page of the stored schedules, soonest first. */
+async function list<S extends z.ZodType, R extends z.ZodType | undefined>(
+	client: RedisClient,
+	keys: Keys,
+	definition: Definition<S, R>,
+	page: { offset?: number; limit?: number } | undefined,
+): Promise<ScheduleView<S>[]> {
+	const { name } = definition;
+	const offset = page?.offset ?? 0;
+	const limit = page?.limit ?? DEFAULT_LIMIT;
+	if (!Number.isInteger(offset) || offset < 0) {
+		throw new TypeError(
+			`schedules.list on "${name}": offset is a whole number from 0`,
+		);
+	}
+	if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
+		throw new TypeError(
+			`schedules.list on "${name}": limit is a whole number from 1 to ${MAX_LIMIT}`,
+		);
+	}
+	const reply = await runScript(
+		client,
+		SCHEDULES,
+		[keys.schedules],
+		[keys.schedule, offset, limit],
+	);
+	return toViews(definition, reply);
+}
+
 /**
  * The `schedules` of a bound queue. Like the other admin calls, none of them
  * refuses once the Redis is closed.
@@ -35,83 +138,10 @@ export function scheduleHandle<
 	keys: Keys,
 	definition: QueueDefinition<S, R>,
 ): QueueSchedules<S> {
-	const { name } = definition;
 	return {
-		async upsert(id, schedule) {
-			const call = 'schedules.upsert';
-			const resolved = resolveSchedule(
-				id,
-				schedule,
-				definition.schema,
-				`${call} on "${name}":`,
-				name,
-			);
-			const next = firstNext(resolved, Date.now());
-			const reply = await runScript(
-				client,
-				UPSERT,
-				[keys.schedules],
-				[
-					keys.schedule,
-					resolved.id,
-					resolved.kind,
-					resolved.spec,
-					resolved.timezone,
-					resolved.data,
-					next,
-				],
-			);
-			if (reply === DEFINITION) throw ownedByDefinition(call, name, id);
-			if (reply !== 1) {
-				throw new Error('queue script reply not recognised: schedules.upsert');
-			}
-		},
-		async remove(id) {
-			const call = 'schedules.remove';
-			if (!isScheduleId(id)) {
-				throw new TypeError(
-					`${call} on "${name}": a schedule id is ${ID_RULE}`,
-				);
-			}
-			const reply = await runScript(
-				client,
-				UNSCHEDULE,
-				[keys.schedules],
-				[keys.schedule, id],
-			);
-			if (reply === DEFINITION) throw ownedByDefinition(call, name, id);
-			if (reply === 0) {
-				throw new QueueError(
-					'NOT_FOUND',
-					name,
-					`${call} on "${name}": no schedule "${id}"`,
-				);
-			}
-			if (reply !== 1) {
-				throw new Error('queue script reply not recognised: schedules.remove');
-			}
-		},
-		async list(page) {
-			const offset = page?.offset ?? 0;
-			const limit = page?.limit ?? DEFAULT_LIMIT;
-			if (!Number.isInteger(offset) || offset < 0) {
-				throw new TypeError(
-					`schedules.list on "${name}": offset is a whole number from 0`,
-				);
-			}
-			if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
-				throw new TypeError(
-					`schedules.list on "${name}": limit is a whole number from 1 to ${MAX_LIMIT}`,
-				);
-			}
-			const reply = await runScript(
-				client,
-				SCHEDULES,
-				[keys.schedules],
-				[keys.schedule, offset, limit],
-			);
-			return toViews(definition, reply);
-		},
+		upsert: (id, schedule) => upsert(client, keys, definition, id, schedule),
+		remove: (id) => remove(client, keys, definition, id),
+		list: (page) => list(client, keys, definition, page),
 	};
 }
 
