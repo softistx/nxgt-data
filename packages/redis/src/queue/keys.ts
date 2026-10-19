@@ -27,6 +27,10 @@ export function queueKeys(name: string) {
 		paused: `${base}paused`,
 		/** The queue's rate-limit state, shared by every process. */
 		rate: `${base}rate`,
+		/** The zset of schedules, id to the ms of the next occurrence. */
+		schedules: `${base}schedules`,
+		/** What a script appends a schedule id to, to reach its hash. */
+		schedule: `${base}schedule:`,
 		/** What a script appends a debounce or throttle key to. */
 		dedupe: `${base}dedupe:`,
 	};

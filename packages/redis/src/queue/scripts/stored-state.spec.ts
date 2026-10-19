@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { mailQueue, useChannelLog, useRedis } from '../../../test/fixtures';
+import { runScript } from '../../scripts/run-script';
 import { bindQueue } from '../bind-queue';
 import { queueKeys } from '../keys';
-import { claim } from './claim';
+import { claim, scriptKeys } from './claim';
+import { FIRE } from './schedule';
 
 const servers = useRedis();
 const channelLog = useChannelLog();
@@ -187,5 +189,37 @@ describe('stored state', () => {
 		const reply = await claim(client(), keys, 1, 30_000, undefined);
 		expect(reply.failedInvalid).toEqual(['odd']);
 		expect(await hget('odd', 'state')).toBe('failed');
+	});
+
+	test('a schedule hash of a shape the scripts could not write is skipped by claim and refused by FIRE, untouched', async () => {
+		const key = `${keys.schedule}odd`;
+		await send(
+			'HSET',
+			key,
+			'kind',
+			'weekly',
+			'spec',
+			'1',
+			'data',
+			'{}',
+			'origin',
+			'runtime',
+		);
+		await send('ZADD', keys.schedules, '1000', 'odd');
+		const reply = await claim(client(), keys, 1, 30_000, undefined);
+		expect(reply.due).toEqual([]);
+		const fired = await runScript(client(), FIRE, scriptKeys(keys), [
+			keys.prefix,
+			keys.schedule,
+			'odd',
+			1000,
+			2000,
+			3,
+			-1,
+		]);
+		expect(fired).toBe(0);
+		expect(await send('HGET', key, 'kind')).toBe('weekly');
+		expect(await send('ZSCORE', keys.schedules, 'odd')).toBe(1000);
+		expect(await send('ZCARD', keys.ready)).toBe(0);
 	});
 });

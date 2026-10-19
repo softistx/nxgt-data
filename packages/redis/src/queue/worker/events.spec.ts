@@ -72,6 +72,7 @@ describe('emit', () => {
 			stalled: ['a', 'b'],
 			failedInvalid: ['c'],
 			next: -1,
+			due: [],
 		});
 		expect(seen).toEqual(['stalled a', 'stalled b', 'failed c']);
 	});

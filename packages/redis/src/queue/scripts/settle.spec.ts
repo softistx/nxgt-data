@@ -80,6 +80,7 @@ describe('complete', () => {
 			stalled: [],
 			failedInvalid: [],
 			next: -1,
+			due: [],
 		});
 		expect(await hget('a', 'state')).toBe('completed');
 		expect(await hget('a', 'token')).toBeNull();

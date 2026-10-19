@@ -94,6 +94,7 @@ const NOTHING: ClaimReply = {
 	stalled: [],
 	failedInvalid: [],
 	next: -1,
+	due: [],
 };
 
 /** An aborted run settled nothing, so its slot claims its next job itself, unless the worker is closing. */

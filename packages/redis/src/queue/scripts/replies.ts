@@ -12,6 +12,18 @@ export type ClaimedJob = {
 	timeout: number | undefined;
 };
 
+/** A schedule a claim found due: the client computes its next occurrence and fires it. */
+export type DueSchedule = {
+	id: string;
+	kind: 'cron' | 'every';
+	/** The cron text, or the interval in ms as text. */
+	spec: string;
+	/** The zone of a cron; `''` for an `every`. */
+	timezone: string;
+	/** The occurrence's ms, the schedule's score. */
+	due: number;
+};
+
 /** What the claim part of any script answers. */
 export type ClaimReply = {
 	jobs: ClaimedJob[];
@@ -21,6 +33,8 @@ export type ClaimReply = {
 	failedInvalid: string[];
 	/** Ms until the first delayed job is due, or `-1` when none is waiting. */
 	next: number;
+	/** Up to 20 schedules whose time has come, earliest first. */
+	due: DueSchedule[];
 };
 
 /*
@@ -60,7 +74,7 @@ function texts(value: unknown, what: string): string[] {
 }
 
 /**
- * Reads the claim part of a reply: `{jobs, stalled, invalid, next}` found in
+ * Reads the claim part of a reply: `{jobs, stalled, invalid, next, due}` found in
  * `raw` from `from` on. Each job is `{id, data, attempt, attempts, token}`.
  */
 export function parseClaim(raw: unknown[], from: number): ClaimReply {
@@ -76,11 +90,24 @@ export function parseClaim(raw: unknown[], from: number): ClaimReply {
 			timeout: timeoutOf(whole(job[5], 'job timeout')),
 		};
 	});
+	const due = array(raw[from + 4], 'due').map((entry): DueSchedule => {
+		const row = array(entry, 'due schedule');
+		const kind = text(row[1], 'schedule kind');
+		if (kind !== 'cron' && kind !== 'every') refuse('schedule kind is unknown');
+		return {
+			id: text(row[0], 'schedule id'),
+			kind,
+			spec: text(row[2], 'schedule spec'),
+			timezone: text(row[3], 'schedule timezone'),
+			due: whole(row[4], 'schedule due'),
+		};
+	});
 	return {
 		jobs,
 		stalled: texts(raw[from + 1], 'stalled'),
 		failedInvalid: texts(raw[from + 2], 'invalid'),
 		next: whole(raw[from + 3], 'next'),
+		due,
 	};
 }
 

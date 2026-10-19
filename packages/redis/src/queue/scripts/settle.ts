@@ -56,8 +56,8 @@ end
  * ARGV: job-key prefix, id, token, keepAge (ms, -1 to keep nothing),
  * keepCount, lease (ms), claim token (`''` for no claim), result (JSON,
  * `''` for none), then the rate's `per`, `limit` and `burst` (`0 0 0` for
- * none).
- * Returns `{settled, jobs, stalled, invalid, next}`.
+ * none), and the schedule-key prefix.
+ * Returns `{settled, jobs, stalled, invalid, next, due}`.
  */
 export const COMPLETE = defineScript(`
 local prefix = ARGV[1]
@@ -86,10 +86,10 @@ if redis.call('HGET', key, 'token') == token then
 	publish(KEYS[8], 'completed', id, 'result', ARGV[8])
 end
 -- The claim depends on the worker's free slot, not on the settle taking.
-local out = {settled, {}, {}, {}, -1}
+local out = {settled, {}, {}, {}, -1, {}}
 if ARGV[7] ~= '' then
-	local claimed = claim(1, tonumber(ARGV[6]), {ARGV[7]}, now, rate_of(9, now_us))
-	out = {settled, claimed[1], claimed[2], claimed[3], claimed[4]}
+	local claimed = claim(1, tonumber(ARGV[6]), {ARGV[7]}, now, rate_of(9, now_us), ARGV[12])
+	out = {settled, claimed[1], claimed[2], claimed[3], claimed[4], claimed[5]}
 end
 return out
 `);
@@ -107,8 +107,8 @@ return out
  * ARGV: job-key prefix, id, token, error (JSON `{name, message}`), retryIn
  * (ms, -1 for no retry), keepFailed age (ms), lease (ms), claim token (`''`
  * for no claim), then the rate's `per`, `limit` and `burst` (`0 0 0` for
- * none).
- * Returns `{settled, final, jobs, stalled, invalid, next}`.
+ * none), and the schedule-key prefix.
+ * Returns `{settled, final, jobs, stalled, invalid, next, due}`.
  */
 export const FAIL = defineScript(`
 local prefix = ARGV[1]
@@ -138,10 +138,10 @@ if redis.call('HGET', key, 'token') == token then
 		publish(KEYS[8], 'failed', id, 'error', ARGV[4])
 	end
 end
-local out = {settled, final, {}, {}, {}, -1}
+local out = {settled, final, {}, {}, {}, -1, {}}
 if ARGV[8] ~= '' then
-	local claimed = claim(1, tonumber(ARGV[7]), {ARGV[8]}, now, rate_of(9, now_us))
-	out = {settled, final, claimed[1], claimed[2], claimed[3], claimed[4]}
+	local claimed = claim(1, tonumber(ARGV[7]), {ARGV[8]}, now, rate_of(9, now_us), ARGV[12])
+	out = {settled, final, claimed[1], claimed[2], claimed[3], claimed[4], claimed[5]}
 end
 -- After the claim, whose DEL of an empty \`ready\` would erase it: a retry that
 -- became the head of delayed, and is still there, shortens a blocked wait.
@@ -183,6 +183,7 @@ export async function complete(
 			claimNext ? newToken() : '',
 			result ?? '',
 			...rateArgs(definition.rateLimit),
+			keys.schedule,
 		]),
 	);
 }
@@ -213,6 +214,7 @@ export async function fail(
 			definition.lease,
 			claimNext ? newToken() : '',
 			...rateArgs(definition.rateLimit),
+			keys.schedule,
 		]),
 	);
 }
