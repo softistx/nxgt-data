@@ -69,22 +69,28 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 			);
 		}
 		const reply = parseAddReply(
-			await guardMode(client, keys, definition.groups, call, () =>
-				runScript(
-					client,
-					ADD,
-					[
-						keys.delayed,
-						keys.ready,
-						keys.seq,
-						keys.wake,
-						keys.paused,
-						keys.groupsReady,
-						keys.groupsQueued,
-						keys.groupsMode,
-					],
-					argv,
-				),
+			await guardMode(
+				client,
+				keys,
+				definition.groups,
+				call,
+				definition.name,
+				() =>
+					runScript(
+						client,
+						ADD,
+						[
+							keys.delayed,
+							keys.ready,
+							keys.seq,
+							keys.wake,
+							keys.paused,
+							keys.groupsReady,
+							keys.groupsQueued,
+							keys.groupsMode,
+						],
+						argv,
+					),
 			),
 			chunk.length,
 		);
@@ -202,7 +208,7 @@ export function bindQueueWith<
 		list: (state, page) => listJobs(client, keys, definition, state, page),
 		counts: () => countJobs(client, keys),
 		pause: () => pauseQueue(client, keys),
-		resume: () => resumeQueue(client, keys),
+		resume: () => resumeQueue(client, keys, grouped),
 		async retry(id, options) {
 			return await retryJob(
 				client,
@@ -213,7 +219,8 @@ export function bindQueueWith<
 			);
 		},
 		remove: (id) => removeJob(client, keys, definition, id),
-		cancel: (id) => cancel(client, keys, id, definition.groups),
+		cancel: (id) =>
+			cancel(client, keys, id, definition.groups, definition.name),
 		schedules: scheduleHandle(client, keys, definition),
 		work(handler, options) {
 			refuseClosed(life, 'work', definition.name);

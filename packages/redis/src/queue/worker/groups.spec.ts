@@ -95,31 +95,55 @@ describe('a grouped queue with workers', () => {
 
 	test('a freed slot wakes a waiting worker at once', async () => {
 		const q = bindQueue(client(), capped);
-		const first = gate();
-		const second = gate();
-		const started: number[] = [];
+		const hold = gate();
+		const started: string[] = [];
 		await q.addMany(
 			Array.from({ length: 3 }, (_, n) => ({
 				data: { n },
 				options: { group: 'A' },
 			})),
 		);
-		const gates = [first, second];
 		for (let i = 0; i < 3; i++) {
 			opened.push(
 				q.work(async (job) => {
-					started.push(job.data.n);
-					await gates[job.data.n]?.opened;
+					started.push(job.id);
+					await hold.opened;
 				}),
 			);
 		}
 		await eventually(async () => (await q.counts()).active, 2);
 		await blocked(client(), 1);
+		const [first] = started;
+		if (!first) throw new Error('nothing started');
 		const at = Date.now();
-		first.open();
+		expect(await q.cancel(first)).toBe(true);
 		await eventually(() => started.length, 3);
 		expect(Date.now() - at).toBeLessThan(500);
-		second.open();
-		await eventually(async () => (await q.counts()).completed, 3);
+		hold.open();
+		await eventually(async () => (await q.counts()).completed, 2);
+	});
+
+	test('idle() does not wait while the ready jobs sit in a full group', async () => {
+		const one = defineQueue({
+			name: 'one',
+			schema,
+			groups: { concurrency: 1 },
+		});
+		const q = bindQueue(client(), one);
+		const hold = gate();
+		await q.addMany([
+			{ data: { n: 1 }, options: { group: 'A' } },
+			{ data: { n: 2 }, options: { group: 'A' } },
+		]);
+		opened.push(q.work(() => hold.opened));
+		await eventually(async () => (await q.counts()).active, 1);
+		const second = q.work(() => undefined);
+		opened.push(second);
+		await blocked(client(), 1);
+		const at = Date.now();
+		await second.idle();
+		expect(Date.now() - at).toBeLessThan(500);
+		hold.open();
+		await eventually(async () => (await q.counts()).completed, 2);
 	});
 });

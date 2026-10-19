@@ -104,7 +104,7 @@ describe('groups through retry', () => {
 });
 
 describe('groups through the debounce', () => {
-	const addDebounced = (id: string, group: string) =>
+	const addDebounced = (id: string, group: string, key = 'k') =>
 		runScript(
 			client(),
 			ADD,
@@ -130,7 +130,7 @@ describe('groups through the debounce', () => {
 				-1,
 				-1,
 				'd',
-				'k',
+				key,
 				60_000,
 				group,
 			],
@@ -144,6 +144,78 @@ describe('groups through the debounce', () => {
 		expect(await zcard(keys.ready)).toBe(0);
 		expect(await zcard(`${keys.group}A:ready`)).toBe(0);
 		await expectGroupState(client(), keys, 0);
+	});
+});
+
+describe('a debounce hit that names another group', () => {
+	test('keeps the first job and its group, and joins nobody else', async () => {
+		const add = (id: string, group: string) =>
+			runScript(
+				client(),
+				ADD,
+				[
+					keys.delayed,
+					keys.ready,
+					keys.seq,
+					keys.wake,
+					keys.paused,
+					keys.groupsReady,
+					keys.groupsQueued,
+					keys.groupsMode,
+				],
+				[
+					keys.prefix,
+					keys.dedupe,
+					...groupArgs(keys, { concurrency: 0 }),
+					id,
+					'{"to":"x"}',
+					0,
+					3,
+					0,
+					-1,
+					-1,
+					'd',
+					'same',
+					60_000,
+					group,
+				],
+			);
+		await add('a1', 'A');
+		expect(await add('a2', 'B')).toEqual(['a1']);
+		expect(await client().send('HGET', [`${keys.prefix}a1`, 'group'])).toBe(
+			'A',
+		);
+		expect(await client().send('EXISTS', [`${keys.prefix}a2`])).toBe(0);
+		await take(0, 0);
+		expect(await members(`${keys.group}A:ready`)).toEqual(['a1']);
+		expect(await members(`${keys.group}B:ready`)).toEqual([]);
+		expect(await members(keys.ready)).toEqual(['a1']);
+		await expectGroupState(client(), keys, 0);
+	});
+});
+
+describe('RESUME on a grouped queue', () => {
+	test('leaves no wake token when every ready job sits in a full group', async () => {
+		const q = bindQueue(client(), grouped(1));
+		await addGrouped(client(), keys, 1, [
+			{ id: 'a1', group: 'A' },
+			{ id: 'a2', group: 'A' },
+		]);
+		await take(1, 1);
+		await q.pause();
+		await client().send('DEL', [keys.wake]);
+		await q.resume();
+		expect(await llen(keys.wake)).toBe(0);
+		await expectGroupState(client(), keys, 1);
+	});
+
+	test('leaves one when a group can run', async () => {
+		const q = bindQueue(client(), grouped(1));
+		await addGrouped(client(), keys, 1, [{ id: 'a1', group: 'A' }]);
+		await q.pause();
+		await client().send('DEL', [keys.wake]);
+		await q.resume();
+		expect(await llen(keys.wake)).toBe(1);
 	});
 });
 

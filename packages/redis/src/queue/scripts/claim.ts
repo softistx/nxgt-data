@@ -90,6 +90,7 @@ export async function claim(
 	lease: number,
 	rate: QueueRate | undefined,
 	groups?: QueueGroups,
+	name = '',
 ): Promise<ClaimReply> {
 	const tokens = Array.from({ length: n }, newToken);
 	const argv = [
@@ -102,7 +103,7 @@ export async function claim(
 		...tokens,
 	];
 	return parseClaimReply(
-		await guardMode(client, keys, groups, 'claim', () =>
+		await guardMode(client, keys, groups, 'claim', name, () =>
 			runScript(client, CLAIM, scriptKeys(keys), argv),
 		),
 	);

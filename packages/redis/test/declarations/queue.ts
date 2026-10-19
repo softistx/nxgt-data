@@ -6,6 +6,7 @@ import {
 	defineQueue,
 	defineRedis,
 	openRedis,
+	type QueueGroups,
 	type QueueSchedules,
 	type RetryOptions,
 	type Schedule,
@@ -136,6 +137,8 @@ export const tenants = defineQueue({
 	schema: z.object({ to: z.string() }),
 	groups: { concurrency: 2 },
 });
+
+export const resolvedGroups: QueueGroups | undefined = tenants.groups;
 
 export async function grouped(): Promise<string | undefined> {
 	const queue = bindQueue(redis, tenants);

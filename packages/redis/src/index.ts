@@ -35,6 +35,7 @@ export { defineQueue } from './queue/define-queue';
 export type { Duration } from './queue/duration';
 export type {
 	DebounceOptions,
+	QueueGroups,
 	QueueGroupsInput,
 	QueueRate,
 	QueueRateLimit,

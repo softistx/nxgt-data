@@ -150,12 +150,13 @@ export async function pauseQueue(
 export async function resumeQueue(
 	client: RedisClient,
 	keys: Keys,
+	grouped = false,
 ): Promise<void> {
 	await runScript(
 		client,
 		RESUME,
-		[keys.paused, keys.ready, keys.wake, keys.delayed],
-		[],
+		[keys.paused, keys.ready, keys.wake, keys.delayed, keys.groupsReady],
+		[grouped ? '1' : '0'],
 	);
 }
 

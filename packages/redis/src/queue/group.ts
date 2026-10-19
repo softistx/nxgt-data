@@ -4,7 +4,8 @@ import { isName, MAX_NAME } from './name';
 /**
  * Checks a queue's `groups` and resolves it: frozen, `concurrency` 0 for no
  * cap. `undefined` stays `undefined`, an ungrouped queue. A definition written
- * by hand may hold the resolved 0, which `defineQueue` never accepts as input.
+ * by hand (`resolved`, as `checkResolved` takes schedules) may hold the
+ * resolved 0, which `defineQueue` never accepts as input.
  *
  * @throws TypeError for a value that could never work, named after `call` and
  * the queue.
@@ -13,6 +14,7 @@ export function resolveGroups(
 	value: QueueGroupsInput | QueueGroups | undefined,
 	call: string,
 	name: string,
+	resolved: boolean,
 ): QueueGroups | undefined {
 	if (value === undefined) return undefined;
 	if (typeof value !== 'object' || value === null) {
@@ -22,8 +24,7 @@ export function resolveGroups(
 	}
 	const { concurrency } = value;
 	if (concurrency === undefined) return Object.freeze({ concurrency: 0 });
-	const resolved = call !== 'defineQueue' && concurrency === 0;
-	if (!Number.isSafeInteger(concurrency) || (concurrency < 1 && !resolved)) {
+	if (!Number.isSafeInteger(concurrency) || concurrency < (resolved ? 0 : 1)) {
 		throw new TypeError(
 			`${call}: "${name}" has groups concurrency; it is a whole number of jobs per group, at least 1, or left out for no cap`,
 		);

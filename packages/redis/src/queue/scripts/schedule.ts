@@ -91,8 +91,9 @@ return 0
  * while `paused` exists: the job waits in `ready` for `RESUME`.
  *
  * On a grouped queue the occurrence goes to the default group `''` and the
- * marker check of `groupModeCheck` runs first, before any write (the next
- * check, on `due` and `next`, comes after it).
+ * marker check of `groupModeCheck` runs first: it may SET the marker (the
+ * one write that precedes a refusal), and the check on `due` and `next`
+ * comes after it.
  *
  * KEYS: those of `scriptKeys`.
  * ARGV: job-key prefix, schedule-key prefix, id, due (ms), next (ms),

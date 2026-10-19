@@ -156,7 +156,7 @@ function flowOf<S extends z.ZodType, R extends z.ZodType | undefined>(
 ) {
 	return {
 		rateLimit: resolveRateLimit(input.rateLimit, call, name),
-		groups: resolveGroups(input.groups, call, name),
+		groups: resolveGroups(input.groups, call, name, resolved),
 		schedules: resolved
 			? checkResolved(input.schedules, call, name)
 			: resolveSchedules(input.schedules, input.schema, call, name),

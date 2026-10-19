@@ -23,13 +23,19 @@ export async function retryJob(
 	id: string,
 	fresh: boolean,
 ): Promise<void> {
-	const reply = await guardMode(client, keys, definition.groups, 'retry', () =>
-		runScript(client, RETRY, scriptKeys(keys), [
-			keys.prefix,
-			id,
-			fresh ? '1' : '0',
-			...groupArgs(keys, definition.groups),
-		]),
+	const reply = await guardMode(
+		client,
+		keys,
+		definition.groups,
+		'retry',
+		definition.name,
+		() =>
+			runScript(client, RETRY, scriptKeys(keys), [
+				keys.prefix,
+				id,
+				fresh ? '1' : '0',
+				...groupArgs(keys, definition.groups),
+			]),
 	);
 	if (reply !== 1) {
 		throw new QueueError(
@@ -52,12 +58,18 @@ export async function removeJob(
 	definition: Named,
 	id: string,
 ): Promise<void> {
-	const reply = await guardMode(client, keys, definition.groups, 'remove', () =>
-		runScript(client, REMOVE, scriptKeys(keys), [
-			keys.prefix,
-			id,
-			...groupArgs(keys, definition.groups),
-		]),
+	const reply = await guardMode(
+		client,
+		keys,
+		definition.groups,
+		'remove',
+		definition.name,
+		() =>
+			runScript(client, REMOVE, scriptKeys(keys), [
+				keys.prefix,
+				id,
+				...groupArgs(keys, definition.groups),
+			]),
 	);
 	if (reply === 2) {
 		throw new QueueError(

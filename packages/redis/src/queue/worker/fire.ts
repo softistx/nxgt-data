@@ -120,6 +120,7 @@ export async function fireDue(
 				keys,
 				definition.groups,
 				'fire',
+				definition.name,
 				() =>
 					runScript(client, FIRE, scriptKeys(keys), [
 						keys.prefix,

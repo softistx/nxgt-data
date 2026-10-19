@@ -9,11 +9,17 @@ export function modeOf(groups: QueueGroups | undefined): string {
 	return groups ? `1:${groups.concurrency}` : '0';
 }
 
-/** A mode in words, for the error: `no groups`, `groups { concurrency: 2 }` or `groups {}`. */
-function describeMode(mode: string): string {
-	if (mode === '0') return 'no groups';
-	const cap = mode.slice(2);
-	return cap === '0' ? 'groups {}' : `groups { concurrency: ${cap} }`;
+/**
+ * A stored mode in words, for the error: `no groups`, `groups { concurrency: 2 }`
+ * or `groups {}`. A deleted marker (`null`) and a value this package never
+ * wrote are named as such, never parsed.
+ */
+function describeMode(mode: string | null): string {
+	if (mode === null) return 'no marker (deleted meanwhile)';
+	const match = /^(?:(0)|1:(\d+))$/.exec(mode);
+	if (!match) return 'an unknown mode';
+	if (match[1] !== undefined) return 'no groups';
+	return match[2] === '0' ? 'groups {}' : `groups { concurrency: ${match[2]} }`;
 }
 
 /**
@@ -27,6 +33,7 @@ export async function guardMode<T>(
 	keys: ReturnType<typeof queueKeys>,
 	groups: QueueGroups | undefined,
 	call: string,
+	name: string,
 	run: () => Promise<T>,
 ): Promise<T> {
 	try {
@@ -35,9 +42,7 @@ export async function guardMode<T>(
 		if (!(error instanceof Error) || !error.message.includes(MISMATCH)) {
 			throw error;
 		}
-		const name =
-			/^queue:\{(.*)\}:groups:mode$/.exec(keys.groupsMode)?.[1] ?? '';
-		const stored = (await client.get(keys.groupsMode)) ?? '?';
+		const stored = await client.get(keys.groupsMode);
 		throw new QueueError(
 			'GROUPS_MISMATCH',
 			name,

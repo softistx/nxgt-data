@@ -8,9 +8,11 @@ import {
 import { addGrouped, grouped, scan } from '../../../test/group-state';
 import { rejection } from '../../../test/rejection';
 import { QueueError } from '../../errors/queue-error';
-import { bindQueue } from '../bind-queue';
+import { bindQueue, bindQueueWith } from '../bind-queue';
 import { queueKeys } from '../keys';
 import { claim } from './claim';
+import { MISMATCH } from './groups';
+import { guardMode } from './groups-mode';
 import { complete, fail } from './settle';
 
 const servers = useRedis();
@@ -55,7 +57,7 @@ describe('the groups mode marker', () => {
 		await bindQueue(client(), mailQueue).add({ to: 'a' }, { id: 'a' });
 		const before = await snapshot();
 		const error = await rejection(
-			claim(client(), keys, 1, 30_000, undefined, { concurrency: 1 }),
+			claim(client(), keys, 1, 30_000, undefined, { concurrency: 1 }, 'mails'),
 		);
 		expect(error).toBeInstanceOf(QueueError);
 		expect((error as QueueError).code).toBe('GROUPS_MISMATCH');
@@ -124,5 +126,40 @@ describe('the groups mode marker', () => {
 		} finally {
 			await worker.close();
 		}
+	});
+
+	test('a wired queue names the definition, not the prefixed storage name', async () => {
+		const wiring = { prefix: 'app' };
+		await bindQueueWith(client(), grouped(1), wiring).add({ to: 'a' });
+		const error = await rejection(
+			bindQueueWith(client(), grouped(2), wiring).add({ to: 'b' }),
+		);
+		expect((error as QueueError).code).toBe('GROUPS_MISMATCH');
+		expect((error as QueueError).queue).toBe('mails');
+		expect((error as QueueError).message).toStartWith('add on "mails": ');
+		expect((error as QueueError).message).toContain(
+			'queue:{app:mails}:groups:mode',
+		);
+	});
+
+	test('a marker this package never wrote is an unknown mode', async () => {
+		await client().set(keys.groupsMode, 'bogus');
+		const error = await rejection(
+			claim(client(), keys, 1, 30_000, undefined, undefined, 'mails'),
+		);
+		expect((error as QueueError).message).toContain(
+			'was started with an unknown mode and',
+		);
+	});
+
+	test('a marker deleted meanwhile is named so', async () => {
+		const error = await rejection(
+			guardMode(client(), keys, undefined, 'claim', 'mails', async () => {
+				throw new Error(MISMATCH);
+			}),
+		);
+		expect((error as QueueError).message).toContain(
+			'was started with no marker (deleted meanwhile) and',
+		);
 	});
 });

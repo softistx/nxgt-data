@@ -41,16 +41,22 @@ return 1
 
 /**
  * Resumes a queue: deletes `paused`, and leaves one `wake` token when
- * `ready` holds jobs or `delayed` is not empty, so a blocked worker starts
+ * `ready` holds jobs (on a grouped queue: `groups:ready` is not empty, the
+ * claim's own measure, so jobs that all sit in full groups leave none) or
+ * `delayed` is not empty, so a blocked worker starts
  * at once (passing the baton, or sizing its wait to the delayed job that
  * fell due during the pause). Idempotent.
  *
- * KEYS: paused, ready, wake, delayed.
+ * KEYS: paused, ready, wake, delayed, groupsReady.
+ * ARGV: `grouped` (`'1'` or `'0'`).
  */
 export const RESUME = defineScript(`
 ${WAKE_FN}
 redis.call('DEL', KEYS[1])
-if redis.call('ZCARD', KEYS[2]) > 0 or redis.call('ZCARD', KEYS[4]) > 0 then wake(KEYS[3]) end
+local claimable
+if ARGV[1] == '1' then claimable = redis.call('LLEN', KEYS[5]) > 0
+else claimable = redis.call('ZCARD', KEYS[2]) > 0 end
+if claimable or redis.call('ZCARD', KEYS[4]) > 0 then wake(KEYS[3]) end
 return 1
 `);
 

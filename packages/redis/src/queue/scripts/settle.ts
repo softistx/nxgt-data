@@ -159,7 +159,7 @@ return out
 /** What a settle needs of the definition. */
 type Retention = Pick<
 	QueueDefinition<never>,
-	'lease' | 'keepCompleted' | 'keepFailed' | 'rateLimit' | 'groups'
+	'name' | 'lease' | 'keepCompleted' | 'keepFailed' | 'rateLimit' | 'groups'
 >;
 
 /**
@@ -193,8 +193,13 @@ export async function complete(
 		...groupArgs(keys, definition.groups),
 	];
 	return parseComplete(
-		await guardMode(client, keys, definition.groups, 'complete', () =>
-			runScript(client, COMPLETE, scriptKeys(keys), argv),
+		await guardMode(
+			client,
+			keys,
+			definition.groups,
+			'complete',
+			definition.name,
+			() => runScript(client, COMPLETE, scriptKeys(keys), argv),
 		),
 	);
 }
@@ -228,8 +233,13 @@ export async function fail(
 		...groupArgs(keys, definition.groups),
 	];
 	return parseFail(
-		await guardMode(client, keys, definition.groups, 'fail', () =>
-			runScript(client, FAIL, scriptKeys(keys), argv),
+		await guardMode(
+			client,
+			keys,
+			definition.groups,
+			'fail',
+			definition.name,
+			() => runScript(client, FAIL, scriptKeys(keys), argv),
 		),
 	);
 }
