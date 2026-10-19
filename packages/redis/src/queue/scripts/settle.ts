@@ -2,8 +2,9 @@ import type { RedisClient } from 'bun';
 import { defineScript, runScript } from '../../scripts/run-script';
 import type { queueKeys } from '../keys';
 import type { QueueDefinition } from '../types';
-import { newToken, rateArgs, scriptKeys } from './claim';
+import { groupArgs, newToken, rateArgs, scriptKeys } from './claim';
 import { CLAIM_FN, NOW_LUA } from './claim-body';
+import { groupLocals } from './groups';
 import { type ClaimReply, parseComplete, parseFail } from './replies';
 
 /*
@@ -52,23 +53,25 @@ end
  * {@link CLAIM_FN} for one job, so a busy worker spends one script per job.
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake, events,
- * paused, rate.
+ * paused, rate, schedules, groupsReady, groupsQueued.
  * ARGV: job-key prefix, id, token, keepAge (ms, -1 to keep nothing),
  * keepCount, lease (ms), claim token (`''` for no claim), result (JSON,
  * `''` for none), then the rate's `per`, `limit` and `burst` (`0 0 0` for
- * none) and the schedule-key prefix. Returns `{settled, jobs, stalled, invalid, next, due}`.
+ * none), the schedule-key prefix and the three group arguments (see
+ * `groupArgs`). Returns `{settled, jobs, stalled, invalid, next, due}`.
  */
 export const COMPLETE = defineScript(`
-local prefix = ARGV[1]
+local prefix = ARGV[1]${groupLocals(13)}
 ${CLAIM_FN}
 ${TRIM_FN}
 ${NOW_LUA}
 local id, token = ARGV[2], ARGV[3]
 local key = prefix .. id
-local settled = 0
+local settled, freed = 0, false
 if redis.call('HGET', key, 'token') == token then
 	settled = 1
-	redis.call('ZREM', KEYS[3], id)
+	local g = group_of(key)
+	if redis.call('ZREM', KEYS[3], id) == 1 then freed = slot_freed(g) end
 	local keepAge = tonumber(ARGV[4])
 	if keepAge < 0 then
 		-- keepCompleted: false. Older entries of a definition that kept some
@@ -89,6 +92,8 @@ local out = {settled, {}, {}, {}, -1, {}}
 if ARGV[7] ~= '' then
 	local claimed = claim(1, tonumber(ARGV[6]), {ARGV[7]}, now, rate_of(9, now_us), ARGV[12])
 	out = {settled, claimed[1], claimed[2], claimed[3], claimed[4], claimed[5]}
+elseif freed and redis.call('EXISTS', KEYS[9]) == 0 then
+	wake(KEYS[7])
 end
 return out
 `);
@@ -102,26 +107,27 @@ return out
  * Claims the next job as `COMPLETE` does.
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake, events,
- * paused, rate.
+ * paused, rate, schedules, groupsReady, groupsQueued.
  * ARGV: job-key prefix, id, token, error (JSON `{name, message}`), retryIn
  * (ms, -1 for no retry), keepFailed age (ms), lease (ms), claim token (`''`
  * for no claim), then the rate's `per`, `limit` and `burst` (`0 0 0` for
- * none) and the schedule-key prefix. Returns `{settled, final, jobs, stalled, invalid, next, due}`.
+ * none), the schedule-key prefix and the three group arguments (see
+ * `groupArgs`). Returns `{settled, final, jobs, stalled, invalid, next, due}`.
  */
 export const FAIL = defineScript(`
-local prefix = ARGV[1]
+local prefix = ARGV[1]${groupLocals(13)}
 ${CLAIM_FN}
 ${TRIM_FN}
 ${NOW_LUA}
 local id, token = ARGV[2], ARGV[3]
 local key = prefix .. id
-local settled, final = 0, 0
+local settled, final, freed = 0, 0, false
 local headWake = false
 if redis.call('HGET', key, 'token') == token then
 	settled, final = 1, 1
 	local f = redis.call('HMGET', key, 'data', 'attempt', 'attempts', 'priority')
 	local retryIn = tonumber(ARGV[5])
-	redis.call('ZREM', KEYS[3], id)
+	if redis.call('ZREM', KEYS[3], id) == 1 then freed = slot_freed(group_of(key)) end
 	redis.call('HDEL', key, 'token')
 	if retryIn >= 0 and sound(f) and tonumber(f[2]) < tonumber(f[3]) then
 		final = 0
@@ -140,6 +146,8 @@ local out = {settled, final, {}, {}, {}, -1, {}}
 if ARGV[8] ~= '' then
 	local claimed = claim(1, tonumber(ARGV[7]), {ARGV[8]}, now, rate_of(9, now_us), ARGV[12])
 	out = {settled, final, claimed[1], claimed[2], claimed[3], claimed[4], claimed[5]}
+elseif freed and redis.call('EXISTS', KEYS[9]) == 0 then
+	wake(KEYS[7])
 end
 -- After the claim, whose DEL of an empty \`ready\` would erase it: a retry that
 -- became the head of delayed, and is still there, shortens a blocked wait.
@@ -150,7 +158,7 @@ return out
 /** What a settle needs of the definition. */
 type Retention = Pick<
 	QueueDefinition<never>,
-	'lease' | 'keepCompleted' | 'keepFailed' | 'rateLimit'
+	'lease' | 'keepCompleted' | 'keepFailed' | 'rateLimit' | 'groups'
 >;
 
 /**
@@ -182,6 +190,7 @@ export async function complete(
 			result ?? '',
 			...rateArgs(definition.rateLimit),
 			keys.schedule,
+			...groupArgs(keys, definition.groups),
 		]),
 	);
 }
@@ -213,6 +222,7 @@ export async function fail(
 			claimNext ? newToken() : '',
 			...rateArgs(definition.rateLimit),
 			keys.schedule,
+			...groupArgs(keys, definition.groups),
 		]),
 	);
 }

@@ -33,6 +33,12 @@ export function queueKeys(name: string) {
 		schedulesDefinition: `${base}schedules:definition`,
 		/** What a script appends a schedule id to, to reach its hash. */
 		schedule: `${base}schedule:`,
+		/** The list of groups with claimable jobs, in the order they are served. */
+		groupsReady: `${base}groups:ready`,
+		/** The set of the groups in `groupsReady`, so none is listed twice. */
+		groupsQueued: `${base}groups:queued`,
+		/** What a script appends `<group>:ready` or `<group>:active` to. */
+		group: `${base}group:`,
 		/** What a script appends a debounce or throttle key to. */
 		dedupe: `${base}dedupe:`,
 	};

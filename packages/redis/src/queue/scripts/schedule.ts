@@ -108,6 +108,8 @@ end
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
 local DELAYED, READY, SEQ = KEYS[1], KEYS[2], KEYS[6]
+-- Schedule occurrences have no group yet: nothing of the groups is written.
+local GROUPED, CONCURRENCY, GPREFIX, GREADY, GQUEUED = false, 0, '', KEYS[12], KEYS[13]
 local paused = redis.call('EXISTS', KEYS[9]) == 1
 local function poke()
 	if not paused then wake(KEYS[7]) end
@@ -119,7 +121,7 @@ if not score or tonumber(score) ~= tonumber(due) then return 0 end
 if tonumber(due) > now then return 0 end
 local f = redis.call('HMGET', ARGV[2] .. id, ${SCHEDULE_FIELDS})
 if not schedule_sound(f) then return 0 end
-local added = add_job('schedule:' .. id .. ':' .. due, f[4], '0', ARGV[6], 0, -1, tonumber(ARGV[7]))
+local added = add_job('schedule:' .. id .. ':' .. due, f[4], '0', ARGV[6], 0, -1, tonumber(ARGV[7]), '')
 redis.call('ZADD', KEYS[11], string.format('%d', tonumber(ARGV[5])), id)
 return added and 1 or 0
 `);

@@ -77,6 +77,7 @@ export async function loop<S extends z.ZodType>(
 				free,
 				context.definition.lease,
 				context.definition.rateLimit,
+				context.definition.groups,
 			);
 			retry = FIRST_RETRY;
 			announce(context, reply);

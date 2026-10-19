@@ -1,6 +1,11 @@
 import type { z } from 'zod';
 import type { Duration } from './duration';
-import type { AddKeyed, QueueRate, QueueRateLimit } from './flow-types';
+import type {
+	AddKeyed,
+	QueueGroups,
+	QueueRate,
+	QueueRateLimit,
+} from './flow-types';
 import type { JobHandle } from './handle-types';
 import type { ResultOf } from './result-types';
 import type {
@@ -80,6 +85,8 @@ export type QueueDefinition<
 	readonly keepFailed: number;
 	readonly timeout: number | undefined;
 	readonly rateLimit: QueueRate | undefined;
+	/** The groups' per-group cap (0 for none); absent for an ungrouped queue. */
+	readonly groups?: QueueGroups | undefined;
 	/** The static schedules, resolved and frozen, in the order given. */
 	readonly schedules: readonly ScheduleDefinition[];
 };

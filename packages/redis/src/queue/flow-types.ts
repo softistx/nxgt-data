@@ -87,3 +87,8 @@ export type AddKeyed =
 			at?: never;
 	  }
 	| ({ throttle: ThrottleOptions; debounce?: never; id?: never } & AddTime);
+
+/** A queue's `groups` as `defineQueue` resolves it: `concurrency` is 0 for no cap. */
+export type QueueGroups = {
+	readonly concurrency: number;
+};
