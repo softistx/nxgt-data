@@ -1,13 +1,9 @@
 import type { z } from 'zod';
 import { QueueError } from '../errors/queue-error';
 import { check } from './check';
-import {
-	isName,
-	NAME_RULE,
-	type ResolvedDedupe,
-	resolveDedupe,
-} from './dedupe';
+import { type ResolvedDedupe, resolveDedupe } from './dedupe';
 import { durationMs } from './duration';
+import { isName, NAME_RULE } from './name';
 import { fromJson, toJson } from './round-trip';
 import { clampTimeout } from './timers';
 import type { AddOptions, QueueDefinition } from './types';

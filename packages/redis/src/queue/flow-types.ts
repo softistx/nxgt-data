@@ -32,6 +32,10 @@ export type QueueRate = {
  * back, answering its id (`deduplicated: true`); once it runs, or has run, the
  * next add makes a new job. It keeps its priority, attempts and timeout.
  *
+ * The state decides while the key lives, which is `wait` plus a day; a job
+ * left waiting longer (a paused queue, no worker, a backlog) can be joined by
+ * a second one.
+ *
  * ```ts
  * await queue.add({ docId }, { debounce: { key: docId, wait: '30s' } });
  * ```

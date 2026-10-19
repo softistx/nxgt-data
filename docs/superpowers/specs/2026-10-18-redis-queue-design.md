@@ -176,7 +176,7 @@ deployment's prefix in front of it when wired, as the guards' names are.
 | `wake` | list | at most one token a blocked worker `BLPOP`s |
 | `paused` | string | present while paused |
 | `rate` | string | the GCRA state of `rateLimit` |
-| `dedupe:<key>` | string | the job id holding a debounce/throttle key. A throttle's PX is its `window`; a debounce's is `wait + 24 h`, a memory bound only (the job's state decides, never the TTL), and each hit refreshes it |
+| `dedupe:<key>` | string | the job id holding a debounce/throttle key. A throttle's PX is its `window`; a debounce's is `wait + 24 h`, a memory bound: the state decides while the key lives, so a job left waiting longer than that can be joined by a second one; each hit refreshes it |
 | `schedules` | zset | schedule id → ms of its next occurrence |
 | `schedule:<id>` | hash | `cron` or `every`, `timezone`, `data` (JSON), `origin` (`definition` / `runtime`) |
 | `groups:ready` | list | groups with ready jobs and a free slot, in round-robin order (slice 7) |
@@ -209,7 +209,7 @@ hash whose shape it does not recognise is refused, never "repaired".
   or `delayed` (and it is in `delayed`), replace its `data`, take it out of
   `ready`, put it in `delayed` at now + `wait` (keeping its priority,
   attempts and timeout), refresh the key's PX and answer with its id; a new
-  head of `delayed` leaves a `wake` token. The state decides, never the TTL.
+  head of `delayed` leaves a `wake` token. The state decides while the key lives (`wait` plus a day); a job left waiting longer can be joined by a second one. A stored key that is not a valid id is read as no key.
   If it names an active, finished or missing job, or a hash of a shape ADD
   could not have written (left untouched), add a new job and point the key at
   it: activity during a run is never lost. Throttle (`window`): if

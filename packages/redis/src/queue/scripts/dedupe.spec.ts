@@ -121,7 +121,7 @@ describe('debounce in ADD', () => {
 		expect(await send('GET', dedupe('k'))).toBe(handle.id);
 	});
 
-	test('debounce ignores the TTL when the job named is waiting', async () => {
+	test('a debounce key alone is not trusted: the job it names must be waiting', async () => {
 		// A key far shorter lived than the wait, with no job behind it: new job.
 		await send('SET', dedupe('k'), 'ghost', 'PX', '600000');
 		const fresh = await mails().add(
@@ -182,6 +182,19 @@ describe('debounce in ADD', () => {
 });
 
 describe('throttle in ADD', () => {
+	test('a stored key that is not an id is read as no key', async () => {
+		for (const bad of ['', '{x}', 'a}', 'x'.repeat(257)]) {
+			await send('SET', dedupe('k'), bad, 'PX', '600000');
+			const handle = await mails().add(
+				{ to: 'a' },
+				{ throttle: { key: 'k', window: '1h' } },
+			);
+			expect([bad.length, handle.deduplicated]).toEqual([bad.length, false]);
+			expect(await send('GET', dedupe('k'))).toBe(handle.id);
+			expect(await send('PTTL', dedupe('k'))).toBeLessThanOrEqual(3_600_000);
+		}
+	});
+
 	test('throttle keeps the first and answers its id within the window, even once it finished', async () => {
 		const first = await mails().add(
 			{ to: 'a' },

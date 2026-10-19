@@ -38,8 +38,9 @@ import { WAKE_FN } from './wake';
  *   whose hash says `waiting` (and it is in `ready`) or `delayed` (and it is
  *   in `delayed`), that job's `data` is replaced and it moves to `delayed` at
  *   now + wait, keeping its priority, attempts and timeout; the key's PX is
- *   refreshed and the reply is its id. The job's state decides, never the
- *   TTL, which is only a memory bound. Any other state, a missing hash, or a
+ *   refreshed and the reply is its id. While the key lives the job's state
+ *   decides, not the TTL, which is `wait` plus a day: a memory bound, so a job
+ *   left waiting longer can be joined by a second one. Any other state, a missing hash, or a
  *   hash of a shape this script could not have written (it is left alone)
  *   adds a new job and points the key at it. A run under way is never touched.
  *
@@ -57,6 +58,10 @@ ${WAKE_FN}
 local prefix, dprefix = ARGV[1], ARGV[2]
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+-- Whether a stored key value is an id this script could have written.
+local function is_id(held)
+	return #held >= 1 and #held <= 256 and not string.find(held, '[{}]')
+end
 -- The job a debounce key names, when it is still waiting; nil otherwise.
 local function waiting_job(held)
 	local f = redis.call('HMGET', prefix .. held, 'state', 'priority')
@@ -73,6 +78,7 @@ for i = 3, #ARGV, 10 do
 	local key = prefix .. id
 	local held = false
 	if mode ~= '' then held = redis.call('GET', dprefix .. dkey) end
+	if held and not is_id(held) then held = false end
 	local hit = nil
 	if held and mode == 't' then hit = held end
 	if held and mode == 'd' then hit = waiting_job(held) end

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mailQueue, scriptCalls, useRedis } from '../../test/fixtures';
 import { rejection } from '../../test/rejection';
+import type { QueueError } from '../errors/queue-error';
 import { bindQueue } from './bind-queue';
 import { queueKeys } from './keys';
 import type { AddOptions } from './types';
@@ -134,4 +135,47 @@ describe('the refusals of debounce and throttle', () => {
 			expect(await scriptCalls(client)).toBe(before);
 		});
 	}
+});
+
+describe('flow control against the rest of the queue', () => {
+	test('a deduplicated throttle handle rejects NOT_FOUND once the winner is removed', async () => {
+		const first = await mails().add(
+			{ to: 'a' },
+			{ throttle: { key: 'k', window: '1h' } },
+		);
+		const second = await mails().add(
+			{ to: 'b' },
+			{ throttle: { key: 'k', window: '1h' } },
+		);
+		expect(second.id).toBe(first.id);
+		await mails().remove(first.id);
+		const error = (await rejection(second.finished())) as QueueError;
+		expect(error.code).toBe('NOT_FOUND');
+	});
+
+	test('debounce while paused replaces the data and moves the job, which runs after resume', async () => {
+		await mails().pause();
+		const first = await mails().add(
+			{ to: 'a' },
+			{ debounce: { key: 'k', wait: 150 } },
+		);
+		const second = await mails().add(
+			{ to: 'b' },
+			{ debounce: { key: 'k', wait: 150 } },
+		);
+		expect([second.id, second.deduplicated]).toEqual([first.id, true]);
+		const seen: string[] = [];
+		const worker = mails().work(({ data }) => {
+			seen.push(data.to);
+		});
+		try {
+			await Bun.sleep(400);
+			expect(seen).toEqual([]);
+			await mails().resume();
+			await first.finished();
+			expect(seen).toEqual(['b']);
+		} finally {
+			await worker.close();
+		}
+	});
 });

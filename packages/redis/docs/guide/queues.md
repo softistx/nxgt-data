@@ -707,6 +707,10 @@ back; it keeps its priority, attempts and timeout. A job that is already
 running is never changed: the next add makes a new job, which runs after it, so
 an edit made during a reindex is not lost.
 
+The state decides while the key lives, which is `wait` plus a day. A job left
+waiting longer than that (a paused queue, no worker, a backlog) can be joined
+by a second one.
+
 A throttle answers the first job's id for the whole `window`, **even after that
 job has finished**. `finished()` on that handle then waits for the stored job
 if it is there, and throws `NOT_FOUND` once retention has removed it:

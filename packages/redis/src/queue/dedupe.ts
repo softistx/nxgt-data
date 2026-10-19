@@ -1,29 +1,11 @@
 import { durationMs } from './duration';
-
-/** The longest a job id or a dedupe key may be. */
-export const MAX_NAME = 256;
-
-/** The text of the refusal for a name: an id or a dedupe key. */
-export const NAME_RULE = `a string of 1 to ${MAX_NAME} characters without braces, which are a hash tag`;
+import { isName, NAME_RULE } from './name';
 
 /**
- * Whether `value` is usable as a job id or a dedupe key: a string of 1 to
- * {@link MAX_NAME} characters without braces, which Redis Cluster reads as a
- * hash tag.
- */
-export function isName(value: unknown): value is string {
-	return (
-		typeof value === 'string' &&
-		value.length > 0 &&
-		value.length <= MAX_NAME &&
-		!value.includes('{') &&
-		!value.includes('}')
-	);
-}
-
-/**
- * How long a debounce key outlives its wait, in ms. Only a memory bound:
- * `ADD` decides by the named job's state, never by whether the key is there.
+ * How long a debounce key outlives its wait, in ms. A memory bound: while
+ * the key lives `ADD` decides by the named job's state, not by the TTL, but a
+ * job left waiting longer than `wait` plus this loses its key, and the next
+ * add makes a second job.
  */
 const DEBOUNCE_GRACE_MS = 86_400_000;
 
