@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import { QueueError } from '../../../errors/queue-error';
-import { check } from '../../definition/check';
+import { check } from '../../check';
 import { fromJson, toJson } from '../../round-trip';
 
 const MAX_STEP_NAME = 128;

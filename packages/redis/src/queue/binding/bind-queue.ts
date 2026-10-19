@@ -2,7 +2,7 @@ import type { RedisClient } from 'bun';
 import type { z } from 'zod';
 import { runScript } from '../../scripts/run-script';
 import { checkQueue } from '../definition/define-queue';
-import { encodeData, resolveAdd } from '../encode';
+import { encodeData } from '../encode';
 import {
 	countJobs,
 	getJob,
@@ -24,6 +24,7 @@ import type { AddOptions, BoundQueue, QueueDefinition } from '../types/queue';
 import { resolveWork, startWorker } from '../worker/worker';
 import { jobHandle } from './handle';
 import { type QueueLife, refuseClosed, trackWorker } from './life';
+import { resolveAdd } from './resolve-add';
 
 /** Jobs one `ADD` script call carries: a bound on its run time and its reply. */
 const ADD_CHUNK = 500;

@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import type { QueueError } from '../errors/queue-error';
-import { check } from './definition/check';
+import { check } from './check';
 
 /**
  * The JSON a value is stored as, proved to survive the round trip. With a

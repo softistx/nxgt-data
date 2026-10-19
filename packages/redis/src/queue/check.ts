@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import { codesOf } from '../../errors/issue-codes';
+import { codesOf } from '../errors/issue-codes';
 
 /** A schema's verdict on a value, with the refusal as zod issue codes only. */
 export type Checked =
