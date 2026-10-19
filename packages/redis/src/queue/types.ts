@@ -123,7 +123,7 @@ export type JobView<
 };
 
 /** How many jobs are in each state. */
-export type QueueCounts = Record<JobState, number>;
+export type QueueCounts = Record<JobState, number> & { paused: boolean };
 
 /** A queue bound to a client. */
 export type BoundQueue<
@@ -182,8 +182,20 @@ export type BoundQueue<
 		state: JobState,
 		page?: { offset?: number; limit?: number },
 	): Promise<JobView<S, R>[]>;
-	/** How many jobs are in each state, from one script. */
+	/** How many jobs are in each state, and whether it is paused: one script. */
 	counts(): Promise<QueueCounts>;
+	/**
+	 * Pauses the queue for every worker of every process: no new job is
+	 * claimed. Running jobs finish and settle, and a settle claims nothing
+	 * next. Delayed jobs still become due and lapsed leases are still
+	 * reclaimed, so `counts()` stays honest. Idempotent, and it works after
+	 * the Redis is closed, as `counts()` does.
+	 */
+	pause(): Promise<void>;
+	/**
+	 * Lifts a pause: blocked workers start claiming at once. Idempotent.
+	 */
+	resume(): Promise<void>;
 	/**
 	 * Puts a failed job back to `waiting`: its attempts start again from 0 and
 	 * its last error is cleared. Its steps are kept by default, so the next

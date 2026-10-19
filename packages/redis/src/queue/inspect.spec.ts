@@ -69,6 +69,7 @@ describe('counts', () => {
 			active: 1,
 			completed: 1,
 			failed: 1,
+			paused: false,
 		});
 		expect(after - before).toBe(1);
 	});
@@ -227,6 +228,7 @@ describe('remove', () => {
 			active: 1,
 			completed: 0,
 			failed: 0,
+			paused: false,
 		});
 		expect(await q.get('d')).toBeUndefined();
 		await q.remove('w');

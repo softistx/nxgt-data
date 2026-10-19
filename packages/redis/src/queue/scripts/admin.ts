@@ -1,5 +1,6 @@
 import { defineScript } from '../../scripts/run-script';
 import { CLAIM_FN, NOW_LUA } from './claim-body';
+import { WAKE_FN } from './wake';
 
 /*
  * The scripts of inspection and repair. `RETRY` and `REMOVE` act on one job
@@ -12,8 +13,9 @@ import { CLAIM_FN, NOW_LUA } from './claim-body';
  * How many jobs are in each state, from the five sets' cardinalities: one
  * script, so the numbers are of one instant, not five moments of a busy queue.
  *
- * KEYS: delayed, ready, active, completed, failed.
- * Returns `{waiting, delayed, active, completed, failed}` as five numbers.
+ * KEYS: delayed, ready, active, completed, failed, paused.
+ * Returns `{waiting, delayed, active, completed, failed, paused}` as six
+ * numbers, `paused` being 1 or 0.
  */
 export const COUNTS = defineScript(`
 return {
@@ -22,7 +24,32 @@ return {
 	redis.call('ZCARD', KEYS[3]),
 	redis.call('ZCARD', KEYS[4]),
 	redis.call('ZCARD', KEYS[5]),
+	redis.call('EXISTS', KEYS[6]),
 }
+`);
+
+/**
+ * Pauses a queue: sets `paused`, so claims pop nothing. Idempotent.
+ *
+ * KEYS: paused.
+ */
+export const PAUSE = defineScript(`
+redis.call('SET', KEYS[1], 1)
+return 1
+`);
+
+/**
+ * Resumes a queue: deletes `paused`, and leaves one `wake` token when
+ * `ready` holds jobs, so a blocked worker starts at once and passes the
+ * baton. Idempotent.
+ *
+ * KEYS: paused, ready, wake.
+ */
+export const RESUME = defineScript(`
+${WAKE_FN}
+redis.call('DEL', KEYS[1])
+if redis.call('ZCARD', KEYS[2]) > 0 then wake(KEYS[3]) end
+return 1
 `);
 
 /**

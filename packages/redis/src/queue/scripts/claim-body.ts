@@ -38,7 +38,8 @@ end
  * `local prefix` (the job-key prefix, inside the queue's slot) first.
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake (a script may
- * be given more keys after these, as {@link scriptKeys} appends `events`).
+ * be given more keys after these, as {@link scriptKeys} appends `events`,
+ * `paused` (KEYS[9]) and `rate`).
  * `claim(n, lease, tokens, now)` takes a table of at least `n` tokens, one
  * per slot, and returns `{jobs, stalled, invalid, next}`, each job being
  * `{id, data, attempt, attempts, token, timeout}` (`timeout` in ms, `-1` for
@@ -51,10 +52,15 @@ end
  *    otherwise to `failed` as `LeaseLapsed`;
  * 2. promotes up to 1000 due `delayed` ids to `ready`;
  * 3. pops up to `n` from `ready`, marking each `active` with its token,
- *    `attempt + 1` and a lease ending at `now + lease`;
+ *    `attempt + 1` and a lease ending at `now + lease`. While `paused`
+ *    exists (1 and 2 still run, so `counts` stays honest) it pops nothing;
  * 4. leaves one `wake` token when `ready` still holds jobs (none if one is
- *    there), so a blocked peer takes over; deletes `wake` when it is empty;
- * 5. gives the ms until the first `delayed` score, `-1` when it is empty.
+ *    there), so a blocked peer takes over; deletes `wake` when it is empty,
+ *    and also while paused: a token there would make every worker spin on
+ *    claims that pop nothing;
+ * 5. gives the ms until the first `delayed` score, `-1` when it is empty, and
+ *    5000 while paused (the worker's own cap: it only has to notice a lost
+ *    resume token).
  */
 export const CLAIM_FN = `
 ${WAKE_FN}
@@ -125,7 +131,9 @@ local function claim(n, lease, tokens, now)
 			redis.call('ZADD', KEYS[2], ready_score(f[4]), id)
 		end
 	end
-	local popped = redis.call('ZPOPMIN', KEYS[2], n)
+	local paused = redis.call('EXISTS', KEYS[9]) == 1
+	local popped = {}
+	if not paused then popped = redis.call('ZPOPMIN', KEYS[2], n) end
 	for i = 1, #popped, 2 do
 		local id = popped[i]
 		local key = prefix .. id
@@ -140,11 +148,12 @@ local function claim(n, lease, tokens, now)
 			jobs[#jobs + 1] = {id, f[1], attempt, tonumber(f[3]), token, f[5] and tonumber(f[5]) or -1}
 		end
 	end
-	if redis.call('ZCARD', KEYS[2]) > 0 then
+	if not paused and redis.call('ZCARD', KEYS[2]) > 0 then
 		wake(KEYS[7])
 	else
 		redis.call('DEL', KEYS[7])
 	end
+	if paused then return {jobs, stalled, invalid, 5000} end
 	local nextDue = -1
 	local first = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
 	if first[2] then nextDue = math.max(0, tonumber(first[2]) - now) end

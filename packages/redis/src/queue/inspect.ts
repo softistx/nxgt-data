@@ -3,7 +3,7 @@ import type { z } from 'zod';
 import { QueueError } from '../errors/queue-error';
 import { runScript } from '../scripts/run-script';
 import type { queueKeys } from './keys';
-import { COUNTS, REMOVE, RETRY } from './scripts/admin';
+import { COUNTS, PAUSE, REMOVE, RESUME, RETRY } from './scripts/admin';
 import { scriptKeys } from './scripts/claim';
 import type {
 	JobState,
@@ -116,24 +116,49 @@ export async function countJobs(
 	const reply = await runScript(
 		client,
 		COUNTS,
-		[keys.delayed, keys.ready, keys.active, keys.completed, keys.failed],
+		[
+			keys.delayed,
+			keys.ready,
+			keys.active,
+			keys.completed,
+			keys.failed,
+			keys.paused,
+		],
 		[],
 	);
 	if (
 		!Array.isArray(reply) ||
-		reply.length !== 5 ||
+		reply.length !== 6 ||
 		reply.some((n) => typeof n !== 'number')
 	) {
 		throw new Error('queue script reply not recognised: counts');
 	}
-	const [waiting, delayed, active, completed, failed] = reply as number[];
+	const [waiting, delayed, active, completed, failed, paused] =
+		reply as number[];
 	return {
 		waiting: waiting as number,
 		delayed: delayed as number,
 		active: active as number,
 		completed: completed as number,
 		failed: failed as number,
+		paused: paused === 1,
 	};
+}
+
+/** Pauses the queue, for every worker of every process: one script. */
+export async function pauseQueue(
+	client: RedisClient,
+	keys: Keys,
+): Promise<void> {
+	await runScript(client, PAUSE, [keys.paused], []);
+}
+
+/** Resumes the queue, waking a blocked worker when jobs wait: one script. */
+export async function resumeQueue(
+	client: RedisClient,
+	keys: Keys,
+): Promise<void> {
+	await runScript(client, RESUME, [keys.paused, keys.ready, keys.wake], []);
 }
 
 /**

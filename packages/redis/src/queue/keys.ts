@@ -23,5 +23,11 @@ export function queueKeys(name: string) {
 		wake: `${base}wake`,
 		/** The pub/sub channel the final outcomes of jobs are published on. */
 		events: `${base}events`,
+		/** Exists while the queue is paused: claims pop nothing. */
+		paused: `${base}paused`,
+		/** The queue's rate-limit state, shared by every process. */
+		rate: `${base}rate`,
+		/** What a script appends a debounce or throttle key to. */
+		dedupe: `${base}dedupe:`,
 	};
 }

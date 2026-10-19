@@ -9,8 +9,10 @@ import {
 	countJobs,
 	getJob,
 	listJobs,
+	pauseQueue,
 	removeJob,
 	resolveRetry,
+	resumeQueue,
 	retryJob,
 } from './inspect';
 import { queueKeys } from './keys';
@@ -162,6 +164,8 @@ export function bindQueueWith<
 		get: (id) => getJob(client, keys, definition, id),
 		list: (state, page) => listJobs(client, keys, definition, state, page),
 		counts: () => countJobs(client, keys),
+		pause: () => pauseQueue(client, keys),
+		resume: () => resumeQueue(client, keys),
 		async retry(id, options) {
 			return await retryJob(
 				client,

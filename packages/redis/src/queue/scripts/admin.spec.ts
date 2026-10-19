@@ -90,3 +90,52 @@ describe('RETRY', () => {
 		expect(await client().hgetall(keys.job('a'))).toEqual(before);
 	});
 });
+
+describe('pause and resume', () => {
+	const send = (...args: string[]) =>
+		client().send(args[0] ?? '', args.slice(1));
+
+	test('RESUME deletes paused and leaves one wake token when ready holds jobs', async () => {
+		const mails = bindQueue(client(), mailQueue);
+		await mails.add({ to: 'a' }, { id: 'a' });
+		await send('DEL', keys.wake);
+		await mails.pause();
+		expect(await send('EXISTS', keys.paused)).toBe(1);
+		await mails.resume();
+		expect(await send('EXISTS', keys.paused)).toBe(0);
+		expect(await send('LLEN', keys.wake)).toBe(1);
+	});
+
+	test('RESUME leaves no wake token when ready is empty', async () => {
+		const mails = bindQueue(client(), mailQueue);
+		await mails.pause();
+		await mails.resume();
+		expect(await send('LLEN', keys.wake)).toBe(0);
+	});
+
+	test('pause and resume are idempotent', async () => {
+		const mails = bindQueue(client(), mailQueue);
+		await mails.add({ to: 'a' }, { id: 'a' });
+		await mails.pause();
+		await mails.pause();
+		expect((await mails.counts()).paused).toBe(true);
+		await mails.resume();
+		await mails.resume();
+		expect((await mails.counts()).paused).toBe(false);
+		expect(await send('LLEN', keys.wake)).toBe(1);
+	});
+
+	test('counts reports paused', async () => {
+		const mails = bindQueue(client(), mailQueue);
+		expect((await mails.counts()).paused).toBe(false);
+		await mails.pause();
+		expect(await mails.counts()).toEqual({
+			waiting: 0,
+			delayed: 0,
+			active: 0,
+			completed: 0,
+			failed: 0,
+			paused: true,
+		});
+	});
+});
