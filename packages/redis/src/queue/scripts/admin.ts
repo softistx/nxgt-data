@@ -100,7 +100,7 @@ local id = ARGV[2]
 local key = prefix .. id
 if not redis.call('ZSCORE', KEYS[5], id) then return 0 end
 if redis.call('HGET', key, 'state') ~= 'failed' then return 0 end
-local f = redis.call('HMGET', key, 'data', 'attempt', 'attempts', 'priority')
+local f = redis.call('HMGET', key, 'data', 'attempt', 'attempts', 'priority', 'timeout', 'group')
 if not sound(f) then return 0 end
 redis.call('ZREM', KEYS[5], id)
 redis.call('HSET', key, 'state', 'waiting', 'attempt', 0, 'retried', 1, 'runAt', int(now))

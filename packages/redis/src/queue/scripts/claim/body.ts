@@ -8,10 +8,10 @@ import { CLAIM_STEPS_FN } from './steps';
  * The trust rule of the queue's scripts, as the guards' (see
  * `idempotency/scripts.ts`): a job hash is read only if this package could
  * have written it. The claim needs exactly `data`, `attempt`, `attempts` and
- * `priority`, the last three numeric, and a `timeout` that is either absent
- * or a whole number of ms, at least 1; other fields (`step:<name>`,
- * `progress`, `result`, `group`) are later scripts' and never a reason to
- * refuse. A hash that fails the check is moved to `failed` with an `INVALID`
+ * `priority`, the last three numeric, a `timeout` that is either absent
+ * or a whole number of ms, at least 1, and a `group` that `group_sound`
+ * accepts (it builds keys); other fields (`step:<name>`, `progress`,
+ * `result`) are later scripts' and never a reason to refuse. A hash that fails the check is moved to `failed` with an `INVALID`
  * error and reported, never run and never "repaired"; an id whose hash is
  * gone is just removed from the set, and named in no reply.
  *
@@ -117,6 +117,7 @@ local function sound(f)
 	return f[1] and whole(f[2]) and whole(f[3]) and whole(f[4])
 		and tonumber(f[3]) >= 1 and tonumber(f[4]) <= 1000
 		and (not f[5] or (whole(f[5]) and #f[5] <= 15 and tonumber(f[5]) >= 1))
+		and group_sound(f[6])
 end
 local function ready_score(priority)
 	return int(tonumber(priority) * 1099511627776 + redis.call('INCR', KEYS[6]))
@@ -179,7 +180,7 @@ local function claim(n, lease, tokens, now, rate, sprefix)
 	local admit = admitted(n, paused, rate)
 	local function begin(id, g)
 		local key = prefix .. id
-		local f = redis.call('HMGET', key, 'data', 'attempt', 'attempts', 'priority', 'timeout')
+		local f = redis.call('HMGET', key, 'data', 'attempt', 'attempts', 'priority', 'timeout', 'group')
 		if not sound(f) then
 			refuse(id, now, invalid)
 		else

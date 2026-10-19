@@ -18,7 +18,14 @@
  * `group:<g>:ready` and `group:<g>:active`, inside the queue's slot; a group
  * name has no `:`).
  *
- * - `group_of(key)` is the `group` field of a job hash, `''` when absent;
+ * - `group_sound(g)` says whether a stored `group` field is one this package
+ *   could have written: absent, `''`, or a name without `:` or braces of at
+ *   most 768 bytes (`add` takes up to 256 UTF-16 code units, and each is at
+ *   most 3 bytes of UTF-8; Lua counts bytes). Any other value would build a
+ *   key outside the queue's layout;
+ * - `group_of(key)` is the `group` field of a job hash, `''` when absent or
+ *   unsound, so a hand-written value never names a key (the claim refuses
+ *   such a job through `sound`);
  * - `has_slot(g)` says whether `g` may start one more job;
  * - `ready_add(id, score, g)` and `ready_rem(id, g)` write `ready` and its
  *   mirror; `ready_add` queues a group with a free slot and answers whether
@@ -33,7 +40,14 @@
  */
 export const GROUP_FN = `
 local function gkey(g, part) return GPREFIX .. g .. ':' .. part end
-local function group_of(key) return redis.call('HGET', key, 'group') or '' end
+local function group_sound(g)
+	return not g or g == '' or (#g <= 768 and not string.find(g, '[:{}]'))
+end
+local function group_of(key)
+	local g = redis.call('HGET', key, 'group')
+	if g and group_sound(g) then return g end
+	return ''
+end
 local function has_slot(g)
 	if g == '' or CONCURRENCY == 0 then return true end
 	return (tonumber(redis.call('GET', gkey(g, 'active'))) or 0) < CONCURRENCY
