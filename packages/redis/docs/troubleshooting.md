@@ -66,6 +66,7 @@ application can handle.
   - [`add on "mails": delay and at say the same thing; give one`](#add-on-mails-delay-and-at-say-the-same-thing-give-one)
   - [`add on "mails": delay is a whole number of milliseconds or a string such as '10m'`](#add-on-mails-delay-is-a-whole-number-of-milliseconds-or-a-string-such-as-10m)
   - [`add on "mails": at is a valid Date`](#add-on-mails-at-is-a-valid-date)
+  - [`add on "mails": timeout is at least 1 millisecond, as a whole number or a string such as '10m'`](#add-on-mails-timeout-is-at-least-1-millisecond-as-a-whole-number-or-a-string-such-as-10m)
   - [`add on "mails": debounce and throttle cannot be combined; give one`](#add-on-mails-debounce-and-throttle-cannot-be-combined-give-one)
   - [`add on "mails": debounce and id cannot be combined; the key names the job`](#add-on-mails-debounce-and-id-cannot-be-combined-the-key-names-the-job)
   - [`add on "mails": debounce and delay cannot be combined; wait sets the run time`](#add-on-mails-debounce-and-delay-cannot-be-combined-wait-sets-the-run-time)
@@ -114,18 +115,22 @@ application can handle.
   - [`defineQueue: "mails" schedule "nightly": cron minute: step 0 must be at least 1`](#definequeue-mails-schedule-nightly-cron-minute-step-0-must-be-at-least-1)
   - [`defineQueue: "mails" schedule "nightly": cron hour: range 17-9 is reversed`](#definequeue-mails-schedule-nightly-cron-hour-range-17-9-is-reversed)
   - [`defineQueue: "mails" schedule "nightly": cron month: "foo" is not a value or a name`](#definequeue-mails-schedule-nightly-cron-month-foo-is-not-a-value-or-a-name)
+  - [`defineQueue: "mails" schedule "nightly": cron minute: "1/2/3" has more than one "/"`](#definequeue-mails-schedule-nightly-cron-minute-123-has-more-than-one-)
   - [`defineQueue: "mails" schedule "nightly": cron needs five fields (minute hour day-of-month month day-of-week), got 6`](#definequeue-mails-schedule-nightly-cron-needs-five-fields-minute-hour-day-of-month-month-day-of-week-got-6)
   - [`defineQueue: "mails" schedule "nightly": cron needs five fields (minute hour day-of-month month day-of-week), got 1`](#definequeue-mails-schedule-nightly-cron-needs-five-fields-minute-hour-day-of-month-month-day-of-week-got-1)
   - [`defineQueue: "mails" schedule "nightly": cron day of month and day of week: no day of a 400-year cycle matches, so it would never match`](#definequeue-mails-schedule-nightly-cron-day-of-month-and-day-of-week-no-day-of-a-400-year-cycle-matches-so-it-would-never-match)
   - [`defineQueue: "mails" schedule "nightly": timezone "Mars/Base" is not a time zone name Intl accepts, such as "UTC" or "Europe/Paris"`](#definequeue-mails-schedule-nightly-timezone-marsbase-is-not-a-time-zone-name-intl-accepts-such-as-utc-or-europeparis)
-  - [`defineQueue: "mails" schedule "nightly": has both cron and every; give one`](#definequeue-mails-schedule-nightly-has-both-cron-and-every-give-one)
-  - [`defineQueue: "mails" schedule "nightly": has neither cron nor every; give one`](#definequeue-mails-schedule-nightly-has-neither-cron-nor-every-give-one)
-  - [`defineQueue: "mails" schedule "nightly": has a timezone with every; a timezone goes with a cron`](#definequeue-mails-schedule-nightly-has-a-timezone-with-every-a-timezone-goes-with-a-cron)
-  - [`defineQueue: "mails" schedule "nightly": has an every under 1 second; it is at least 1s`](#definequeue-mails-schedule-nightly-has-an-every-under-1-second-it-is-at-least-1s)
+  - [`defineQueue: "mails" schedule "nightly" has both cron and every; give one`](#definequeue-mails-schedule-nightly-has-both-cron-and-every-give-one)
+  - [`defineQueue: "mails" schedule "nightly" has neither cron nor every; give one`](#definequeue-mails-schedule-nightly-has-neither-cron-nor-every-give-one)
+  - [`defineQueue: "mails" schedule "nightly" has a timezone with every; a timezone goes with a cron`](#definequeue-mails-schedule-nightly-has-a-timezone-with-every-a-timezone-goes-with-a-cron)
+  - [`defineQueue: "mails" schedule "nightly" is not an object with cron or every, and data`](#definequeue-mails-schedule-nightly-is-not-an-object-with-cron-or-every-and-data)
+  - [`defineQueue: "mails" schedule "nightly" has an every under 1 second; it is at least 1s`](#definequeue-mails-schedule-nightly-has-an-every-under-1-second-it-is-at-least-1s)
   - [`defineQueue: "mails" a schedule id is a string of 1 to 256 characters without braces or colons`](#definequeue-mails-a-schedule-id-is-a-string-of-1-to-256-characters-without-braces-or-colons)
   - [`defineQueue: "mails" has 1001 schedules; at most 1000, which is what one sync takes`](#definequeue-mails-has-1001-schedules-at-most-1000-which-is-what-one-sync-takes)
+  - [`bindQueue: "mails" has schedules that are not the ones defineQueue resolves`](#bindqueue-mails-has-schedules-that-are-not-the-ones-definequeue-resolves)
   - [`defineQueue: "mails" schedule "nightly" data does not match the schema (invalid_type)`](#definequeue-mails-schedule-nightly-data-does-not-match-the-schema-invalid_type)
   - [`schedules.upsert on "mails": "nightly" belongs to the definition; change it in defineQueue`](#schedulesupsert-on-mails-nightly-belongs-to-the-definition-change-it-in-definequeue)
+  - [`schedules.remove on "mails": no schedule "nightly"`](#schedulesremove-on-mails-no-schedule-nightly)
   - [`add on "mails": id cannot start with "schedule:", which names scheduled occurrences`](#add-on-mails-id-cannot-start-with-schedule-which-names-scheduled-occurrences)
   - [My schedule does not fire](#my-schedule-does-not-fire)
   - [`ERR the definition set holds more than 2000 ids`](#err-the-definition-set-holds-more-than-2000-ids)
@@ -138,7 +143,7 @@ application can handle.
   - [`defineRedis: instance "default" has clientOptions beside a client. The client was opened with its own; pass a uri, or drop the options.`](#defineredis-instance-default-has-clientoptions-beside-a-client-the-client-was-opened-with-its-own-pass-a-uri-or-drop-the-options)
   - [`defineRedis: instance "default" has an empty prefix. Leave it out, or give it a name.`](#defineredis-instance-default-has-an-empty-prefix-leave-it-out-or-give-it-a-name)
   - [`defineRedis: instance "default" wires no cache, no channel, no rate limit, no idempotency and no queue. Pass the module that exports them, or drop the instance.`](#defineredis-instance-default-wires-no-cache-no-channel-no-rate-limit-no-idempotency-and-no-queue-pass-the-module-that-exports-them-or-drop-the-instance)
-  - [`openRedis: instance "main" wires no cache, no channel, no rate limit, no idempotency and no queue. …`](#openredis-instance-main-wires-no-cache-no-channel-no-rate-limit-no-idempotency-and-no-queue-) — the same, from `openRedis`
+  - [`openRedis: instance "main" wires no cache, no channel, no rate limit, no idempotency and no queue. …`](#defineredis-instance-default-wires-no-cache-no-channel-no-rate-limit-no-idempotency-and-no-queue-pass-the-module-that-exports-them-or-drop-the-instance) — the same, from `openRedis`
   - [`defineRedis: instance "default" wires the cache named "user" twice, under "users" and "people". They would share every key in Redis. Export one of them, or give it a name of its own.`](#defineredis-instance-default-wires-the-cache-named-user-twice-under-users-and-people-they-would-share-every-key-in-redis-export-one-of-them-or-give-it-a-name-of-its-own)
   - [`defineRedis: instance "default" wires the rate limit named "login" twice, …` (and `wires the idempotency named …`, `wires the channel named …`)](#defineredis-instance-default-wires-the-cache-named-user-twice-under-users-and-people-they-would-share-every-key-in-redis-export-one-of-them-or-give-it-a-name-of-its-own)
   - [`defineRedis: instance "default" wires the cache "users" and the rate limit "login" under one name, "user". They would share every key in Redis. Give one of them a name of its own.`](#defineredis-instance-default-wires-the-cache-users-and-the-rate-limit-login-under-one-name-user-they-would-share-every-key-in-redis-give-one-of-them-a-name-of-its-own)
@@ -150,6 +155,7 @@ application can handle.
   - [`add on "mails": the Redis is closed`](#add-on-mails-the-redis-is-closed) — also `addMany` and `finished`
   - [`work on "mails": the Redis is closing`](#work-on-mails-the-redis-is-closing)
   - [`finished on "mails": job "receipt:42" was pending when the Redis closed`](#finished-on-mails-job-receipt42-was-pending-when-the-redis-closed)
+  - [`close: grace is not a duration; a duration is a whole number of milliseconds or a string such as '10m'`](#close-grace-is-not-a-duration-a-duration-is-a-whole-number-of-milliseconds-or-a-string-such-as-10m)
   - [`cache: this Redis holds 2 Redis instances, and this call lives on one. Name it, as { on: 'cache' }.`](#cache-this-redis-holds-2-redis-instances-and-this-call-lives-on-one-name-it-as--on-cache-)
   - [`lock: this Redis has no instance named "events". It wires "cache", "pubsub".`](#lock-this-redis-has-no-instance-named-events-it-wires-cache-pubsub)
   - [A key, a channel or a lock is not where you expect it in `redis-cli`](#a-key-a-channel-or-a-lock-is-not-where-you-expect-it-in-redis-cli)
@@ -704,7 +710,7 @@ defineQueue({ name: 'mails', schema, keepCompleted: { count: 100 } });
 
 ### `defineQueue: "mails" lease is "10 minutes"; a duration is a whole number of milliseconds or a string such as '10m'`
 
-**When:** at `defineQueue`, with a span the queue cannot read. The option named in the message is the one that is wrong: `lease`, `backoff base`, `backoff max`, `keepFailed` or `keepCompleted age`. The same words, as `add on "mails": delay is …`, come from `add` and `addMany`, and `retryIn is …` from `new JobError`. `defineQueue` and `new JobError` print the value (`is "10 minutes"`), because it is the code's own; `add` does not quote it, because a request may have chosen it.
+**When:** at `defineQueue`, with a span the queue cannot read. The option named in the message is the one that is wrong: `lease`, `backoff base`, `backoff max`, `keepFailed`, `keepCompleted age`, `timeout` or `rateLimit per`. The same words, as `add on "mails": delay is …`, come from `add` and `addMany`, and `retryIn is …` from `new JobError`. `defineQueue` and `new JobError` print the value (`is "10 minutes"`), because it is the code's own; `add` does not quote it, because a request may have chosen it.
 **Why:** a duration is a whole number of milliseconds (not negative), or a number and a unit — `ms`, `s`, `m`, `h`, `d`. `'10 minutes'`, `'1w'`, `-5` and `0.5` are refused.
 **Fix:**
 
@@ -906,6 +912,16 @@ await queue.add(payload, { at: new Date(isoString) });
 
 If `new Date(isoString)` is `Invalid Date`, gate the string first.
 
+### `add on "mails": timeout is at least 1 millisecond, as a whole number or a string such as '10m'`
+
+**When:** `add` or `addMany` with a `timeout` that is `0`, negative, fractional, or a string without a known unit (`'10min'`).
+**Why:** a job's own `timeout` replaces the queue's for that job, and a run cannot be limited to less than a millisecond. The message never prints the value you passed.
+**Fix:**
+
+```ts
+await queue.add(payload, { timeout: '30s' });
+```
+
 ### `add on "mails": debounce and throttle cannot be combined; give one`
 
 **When:** `add` or `addMany` with both `debounce` and `throttle`.
@@ -979,7 +995,7 @@ queue.work(handler, { concurrency: 8 });
 
 ### `list on "mails": offset is a whole number from 0`
 
-**When:** `queue.list(state, { offset })`.
+**When:** `queue.list(state, { offset })`. `queue.schedules.list({ offset })` reads `schedules.list on "mails": offset is a whole number from 0`.
 **Why:** a page starts at its offset into the state's order.
 **Fix:**
 
@@ -989,7 +1005,7 @@ await queue.list('failed', { offset: 50, limit: 50 });
 
 ### `list on "mails": limit is a whole number from 1 to 1000`
 
-**When:** `queue.list(state, { limit })`, with a limit outside 1 to 1000.
+**When:** `queue.list(state, { limit })`, with a limit outside 1 to 1000. `queue.schedules.list({ limit })` reads `schedules.list on "mails": limit is a whole number from 1 to 1000`.
 **Why:** a page reads each of its jobs; a bound keeps one call small.
 **Fix:** page through with `offset`.
 
@@ -1448,6 +1464,16 @@ const mails = defineQueue({
 });
 ```
 
+### `defineQueue: "mails" schedule "nightly": cron minute: "1/2/3" has more than one "/"`
+
+**When:** A cron item with two slashes. A range with two dashes reads `cron minute: "1-2-3" is not a value or a range`.
+**Why:** an item is `value`, `a-b`, `*`, with at most one `/step` after it.
+**Fix:**
+
+```ts
+schedules: { nightly: { cron: '*/5 * * * *', data: { to: 'ops@example.com', template: 'report' } } },
+```
+
 ### `defineQueue: "mails" schedule "nightly": cron needs five fields (minute hour day-of-month month day-of-week), got 6`
 
 **When:** A cron with a number of fields other than five, such as a seconds field.
@@ -1500,7 +1526,7 @@ const mails = defineQueue({
 schedules: { nightly: { cron: '0 3 * * *', timezone: 'Europe/Paris', data: { to: 'ops@example.com', template: 'report' } } },
 ```
 
-### `defineQueue: "mails" schedule "nightly": has both cron and every; give one`
+### `defineQueue: "mails" schedule "nightly" has both cron and every; give one`
 
 **When:** A schedule with `cron` and `every` together.
 **Why:** They are two ways to say when.
@@ -1510,7 +1536,7 @@ schedules: { nightly: { cron: '0 3 * * *', timezone: 'Europe/Paris', data: { to:
 nightly: { every: '1h', data: { to: 'ops@example.com', template: 'report' } }
 ```
 
-### `defineQueue: "mails" schedule "nightly": has neither cron nor every; give one`
+### `defineQueue: "mails" schedule "nightly" has neither cron nor every; give one`
 
 **When:** A schedule with no `cron` and no `every`.
 **Why:** Nothing says when it fires.
@@ -1520,7 +1546,7 @@ nightly: { every: '1h', data: { to: 'ops@example.com', template: 'report' } }
 nightly: { cron: '0 3 * * *', data: { to: 'ops@example.com', template: 'report' } }
 ```
 
-### `defineQueue: "mails" schedule "nightly": has a timezone with every; a timezone goes with a cron`
+### `defineQueue: "mails" schedule "nightly" has a timezone with every; a timezone goes with a cron`
 
 **When:** `timezone` next to `every`.
 **Why:** An interval counts elapsed time and has no wall clock.
@@ -1530,9 +1556,19 @@ nightly: { cron: '0 3 * * *', data: { to: 'ops@example.com', template: 'report' 
 nightly: { every: '1h', data: { to: 'ops@example.com', template: 'report' } }
 ```
 
-### `defineQueue: "mails" schedule "nightly": has an every under 1 second; it is at least 1s`
+### `defineQueue: "mails" schedule "nightly" is not an object with cron or every, and data`
 
-**When:** `every` below 1000 ms. A value that is not a number of milliseconds or a string such as `'10m'` reads `has an every that is not a duration; …`.
+**When:** `defineQueue`, or `schedules.upsert` (its message opens `schedules.upsert on "mails": schedule "nightly" …`), with a schedule that is not an object. The same kind of refusal reads `has a cron that is not text` or `has a timezone that is not text`, and `defineQueue: "mails" schedules is an object of schedule id to schedule` when `schedules` itself is an array, `null` or not an object.
+**Why:** a schedule is `{ cron, timezone?, data }` or `{ every, data }`, and `schedules` maps each id to one.
+**Fix:**
+
+```ts
+schedules: { nightly: { cron: '0 3 * * *', timezone: 'Europe/Paris', data: { to: 'ops@example.com', template: 'report' } } },
+```
+
+### `defineQueue: "mails" schedule "nightly" has an every under 1 second; it is at least 1s`
+
+**When:** `every` below 1000 ms. A value that is not a number of milliseconds or a string such as `'10m'` reads `has an every that is not a duration; …`. One above 999999999999999 ms reads `has an every above 999999999999999 ms`.
 **Why:** A schedule fires at most once a second.
 **Fix:** Give `1s` or more:
 
@@ -1561,6 +1597,16 @@ const queue = bindQueue(redis.client, mails);
 await queue.schedules.upsert(`tenant-${id}`, { every: '1h', data: { to, template: 'digest' } });
 ```
 
+### `bindQueue: "mails" has schedules that are not the ones defineQueue resolves`
+
+**When:** `bindQueue` with a definition that was not made by `defineQueue`, or one copied with a changed `schedules`. Every other refusal of `defineQueue` is checked again here and opens `bindQueue: "mails" …` instead.
+**Why:** `bindQueue` trusts only what `defineQueue` resolved, so it checks the definition again.
+**Fix:** bind the definition `defineQueue` returned, and change a schedule in `defineQueue`.
+
+```ts
+const queue = bindQueue(redis.client, mails);
+```
+
 ### `defineQueue: "mails" schedule "nightly" data does not match the schema (invalid_type)`
 
 **When:** A schedule whose `data` does not pass the queue's `schema`, in `defineQueue` or in `schedules.upsert`, which prints `schedules.upsert on "mails": schedule "n2" data does not match the schema (invalid_type)`. It is a `QueueError` with code `INVALID`, not a `TypeError`. Only the zod issue code in the parentheses varies; the message never quotes the data.
@@ -1583,6 +1629,20 @@ await queue.schedules.upsert('nightly-extra', {
 	cron: '0 4 * * *',
 	data: { to: 'ops@example.com', template: 'report' },
 });
+```
+
+### `schedules.remove on "mails": no schedule "nightly"`
+
+**When:** `schedules.remove` on an id the queue does not hold. It is a `QueueError` with code `NOT_FOUND`.
+**Why:** the schedule was never added, or was already removed.
+**Fix:** treat it as removed, or list first.
+
+```ts
+try {
+	await queue.schedules.remove('nightly-extra');
+} catch (error) {
+	if (!(error instanceof QueueError) || error.code !== 'NOT_FOUND') throw error;
+}
 ```
 
 ### `add on "mails": id cannot start with "schedule:", which names scheduled occurrences`
@@ -1885,6 +1945,16 @@ export const redis = await openRedis(config);
 ```
 
 ### Wiring runtime
+
+#### `close: grace is not a duration; a duration is a whole number of milliseconds or a string such as '10m'`
+
+**When:** `redis.close({ grace })` with a value that is not a duration. The returned promise rejects with a `TypeError` and closes nothing; the value is not printed.
+**Why:** `grace` is a duration: a whole number of milliseconds, or a string with a unit.
+**Fix:**
+
+```ts
+await redis.close({ grace: '10s' });
+```
 
 #### `cache: this Redis holds 2 Redis instances, and this call lives on one. Name it, as { on: 'cache' }.`
 
