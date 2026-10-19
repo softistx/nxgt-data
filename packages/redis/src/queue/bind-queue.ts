@@ -107,6 +107,30 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 }
 
 /**
+ * `addMany`: everything is checked and encoded before the first script runs,
+ * so a bad item refuses the whole call with nothing written.
+ */
+async function addManyJobs<
+	S extends z.ZodType,
+	R extends z.ZodType | undefined,
+>(
+	client: RedisClient,
+	definition: QueueDefinition<S, R>,
+	keys: ReturnType<typeof queueKeys>,
+	items: readonly { data: z.input<S>; options?: AddOptions }[],
+	life: QueueLife | undefined,
+): Promise<JobHandle<R>[]> {
+	refuseClosed(life, 'addMany', definition.name);
+	const call = 'addMany';
+	const grouped = definition.groups !== undefined;
+	const jobs = items.map((item) => ({
+		options: resolveAdd(item.options, call, definition.name, grouped),
+		data: encodeData(definition, item.data, call),
+	}));
+	return await addChunks(client, definition, keys, jobs, life, call);
+}
+
+/**
  * What wiring adds to a bound queue. Internal: a queue bound by hand has
  * neither. `life` is the Redis's close protocol: once it ends, `add`, `addMany`,
  * `finished` and `work` refuse with `CLOSED`.
@@ -150,37 +174,14 @@ export function bindQueueWith<
 		prefix === undefined ? definition.name : `${prefix}:${definition.name}`,
 	);
 
-	async function addMany(
-		items: readonly { data: z.input<S>; options?: AddOptions }[],
-	): Promise<JobHandle<R>[]> {
-		refuseClosed(life, 'addMany', definition.name);
-		// Everything is checked and encoded before the first script runs, so a
-		// bad item refuses the whole call with nothing written.
-		const jobs = items.map((item) => {
-			const call = 'addMany';
-			const options = resolveAdd(
-				item.options,
-				call,
-				definition.name,
-				definition.groups !== undefined,
-			);
-			const data = encodeData(definition, item.data, call);
-			return { options, data };
-		});
-		return await addChunks(client, definition, keys, jobs, life, 'addMany');
-	}
+	const grouped = definition.groups !== undefined;
 
 	return {
 		definition,
 		prefix,
 		async add(data, options) {
 			refuseClosed(life, 'add', definition.name);
-			const resolved = resolveAdd(
-				options,
-				'add',
-				definition.name,
-				definition.groups !== undefined,
-			);
+			const resolved = resolveAdd(options, 'add', definition.name, grouped);
 			const json = encodeData(definition, data, 'add');
 			const [handle] = await addChunks(
 				client,
@@ -196,7 +197,7 @@ export function bindQueueWith<
 				);
 			return handle;
 		},
-		addMany,
+		addMany: (items) => addManyJobs(client, definition, keys, items, life),
 		get: (id) => getJob(client, keys, definition, id),
 		list: (state, page) => listJobs(client, keys, definition, state, page),
 		counts: () => countJobs(client, keys),
