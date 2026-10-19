@@ -2,7 +2,7 @@
 /**
  * A local benchmark of `@nxgt/redis`'s queue: `bun run bench:queue`.
  *
- * It never runs in CI nor in `bun run test`: it takes minutes, and the
+ * It never runs in CI nor in `bun run test`: it takes about a minute, and the
  * numbers mean something only on the machine that printed them. It reads the
  * built `dist` (run `bun run build` first), through the public API only.
  *
@@ -20,7 +20,7 @@
  */
 
 import { cpus, release } from 'node:os';
-import { RedisClient } from 'bun';
+import { $, RedisClient } from 'bun';
 import { z } from 'zod';
 import type { BoundQueue } from '../packages/redis/dist/index';
 import { bindQueue, defineQueue } from '../packages/redis/dist/index';
@@ -44,6 +44,7 @@ type Worker = ReturnType<Queue['work']>;
 
 let worker: Worker | undefined;
 let stopRedis: (() => Promise<void>) | undefined;
+let queueClient: RedisClient | undefined;
 
 /** Closes the worker, then stops Redis. Safe to call twice. */
 async function shutdown(): Promise<void> {
@@ -51,7 +52,10 @@ async function shutdown(): Promise<void> {
 	const stop = stopRedis;
 	worker = undefined;
 	stopRedis = undefined;
+	const own = queueClient;
+	queueClient = undefined;
 	await w?.close().catch(() => undefined);
+	own?.close();
 	await stop?.();
 }
 
@@ -123,6 +127,20 @@ async function latency(queue: Queue): Promise<number[]> {
 	return samples;
 }
 
+/**
+ * The package's version, or `unreleased, after <version> (<sha>)` when
+ * `src` differs from the release's tag: the numbers then belong to code
+ * that no published version has.
+ */
+async function packageVersion(): Promise<string> {
+	const tag = `@nxgt/redis@${pkg.version}`;
+	const dir = new URL('../packages/redis/src', import.meta.url).pathname;
+	const same = (await $`git diff --quiet ${tag} -- ${dir}`.nothrow()).exitCode;
+	if (same === 0) return pkg.version;
+	const sha = (await $`git rev-parse --short HEAD`.nothrow().text()).trim();
+	return `unreleased, after ${pkg.version} (${sha || 'no git'})`;
+}
+
 /** The machine and versions that frame the numbers. */
 async function environment(client: RedisClient): Promise<string> {
 	const info = String(await client.send('INFO', ['server']));
@@ -136,7 +154,7 @@ async function environment(client: RedisClient): Promise<string> {
 				`${process.platform} ${release()}`,
 				Bun.version,
 				redisVersion,
-				pkg.version,
+				await packageVersion(),
 			],
 		],
 	);
@@ -146,7 +164,8 @@ async function environment(client: RedisClient): Promise<string> {
 async function main(): Promise<void> {
 	const redis = await startRedis();
 	stopRedis = redis.stop;
-	const queue = bindQueue(new RedisClient(redis.uri), definition);
+	queueClient = new RedisClient(redis.uri);
+	const queue = bindQueue(queueClient, definition);
 
 	const rows: Throughput[] = [];
 	for (const concurrency of CONCURRENCIES) {

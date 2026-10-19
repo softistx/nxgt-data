@@ -39,7 +39,7 @@ afterAll(async () => {
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 /** A `sendMail` that records what it was given, and how many ran at once per tenant. */
-function recorder(hold = 0) {
+function recorder(hold: Promise<void> = Promise.resolve()) {
 	const sent: { to: string; idempotencyKey: string }[] = [];
 	const running = new Map<string, number>();
 	const peak = new Map<string, number>();
@@ -49,23 +49,41 @@ function recorder(hold = 0) {
 			const now = (running.get(tenant) ?? 0) + 1;
 			running.set(tenant, now);
 			peak.set(tenant, Math.max(peak.get(tenant) ?? 0, now));
-			await sleep(hold);
+			await hold;
 			running.set(tenant, (running.get(tenant) ?? 1) - 1);
 			sent.push({ to: mail.to, idempotencyKey: mail.idempotencyKey });
 		},
 		async recordSent() {},
 	};
-	return { sent, peak, deps };
+	return { sent, peak, running, deps };
 }
 
 test('welcome mails of two tenants all run, at most two at once per tenant', async () => {
-	const { sent, peak, deps } = recorder(60);
+	// `sendMail` is held at a gate, so the cap is measured on state rather
+	// than on how sleeps overlapped on a loaded machine.
+	let open = () => {};
+	const gate = new Promise<void>((done) => {
+		open = done;
+	});
+	const { sent, peak, running, deps } = recorder(gate);
 	for (let i = 0; i < 4; i++)
 		await addWelcome(redis, 'acme', `a${i}@acme.test`);
 	for (let i = 0; i < 3; i++)
 		await addWelcome(redis, 'globex', `g${i}@globex.test`);
 
 	const worker = work(redis, deps, { concurrency: 8 });
+	const deadline = Date.now() + 5000;
+	while (running.get('acme') !== 2 || running.get('globex') !== 2) {
+		if (Date.now() > deadline) {
+			throw new Error('each tenant did not reach 2 running within 5 s');
+		}
+		await sleep(10);
+	}
+	await sleep(200);
+	expect(running.get('acme')).toBe(2);
+	expect(running.get('globex')).toBe(2);
+
+	open();
 	await worker.idle();
 
 	expect(sent).toHaveLength(7);

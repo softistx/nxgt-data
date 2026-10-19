@@ -59,9 +59,13 @@ export function work(
 export function serve(redis: AppRedis, deps: Deps): Promise<void> {
 	work(redis, deps, { concurrency: 8 });
 	return new Promise((done, fail) => {
-		const stop = () => void redis.close({ grace: '20s' }).then(done, fail);
-		process.once('SIGTERM', stop);
-		process.once('SIGINT', stop);
+		const stop = () => {
+			process.off('SIGTERM', stop);
+			process.off('SIGINT', stop);
+			void redis.close({ grace: '20s' }).then(done, fail);
+		};
+		process.on('SIGTERM', stop);
+		process.on('SIGINT', stop);
 	});
 }
 

@@ -27,9 +27,10 @@
  * `$REDIS_BIN`, when set, names a `redis-server` to use instead — a system
  * one, or a build for a platform this cannot compile on.
  *
- * `examples/hono-api` pins no version of its own: its `test` script runs
- * this and passes the path it prints to the specs as `$REDIS_BIN`, so its
- * `test/redis.ts` only starts the binary it is given.
+ * `examples/hono-api` and `examples/queue-mails` pin no version of their
+ * own: their `test` scripts run this and pass the path it prints to the
+ * specs as `$REDIS_BIN`, so their `test/redis.ts` only start the binary
+ * they are given.
  *
  * Raise the version in `packages/redis/src/testing/test-redis.ts`
  * (`TEST_REDIS_VERSION`, which `@nxgt/redis/testing` ships and

@@ -33,16 +33,12 @@ afterEach(async () => {
 describe('a grouped queue with workers', () => {
 	test('a group never runs above its concurrency, across workers and clients', async () => {
 		const q = bindQueue(client(), capped);
-		await q.addMany([
-			...Array.from({ length: 10 }, (_, n) => ({
+		await q.addMany(
+			Array.from({ length: 10 }, (_, n) => ({
 				data: { n },
 				options: { group: 'A' },
 			})),
-			...Array.from({ length: 6 }, (_, n) => ({
-				data: { n: 100 + n },
-				options: { group: 'B' },
-			})),
-		]);
+		);
 		// A's jobs are held at a gate, so the cap is measured on state rather
 		// than on how 40 ms sleeps happened to overlap on a loaded machine.
 		const hold = gate();
@@ -61,10 +57,17 @@ describe('a grouped queue with workers', () => {
 				);
 			}
 		}
-		// Every B job finishes while A holds its two slots: B is never queued
-		// behind the full group.
-		await eventually(async () => (await q.counts()).completed, 6);
+		// B's jobs come only once A holds its two slots, so every B job
+		// finishes while A is full: B is never queued behind the full group.
 		await eventually(() => running, 2);
+		await q.addMany(
+			Array.from({ length: 6 }, (_, n) => ({
+				data: { n: 100 + n },
+				options: { group: 'B' },
+			})),
+		);
+		await eventually(async () => (await q.counts()).completed, 6);
+		expect(running).toBe(2);
 		await Bun.sleep(200);
 		expect(running).toBe(2);
 		hold.open();

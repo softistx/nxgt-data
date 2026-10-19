@@ -1,9 +1,8 @@
-import { afterAll, beforeAll, beforeEach } from 'bun:test';
 import { RedisClient } from 'bun';
 import RedisMemoryServer from 'redis-memory-server';
 
 /**
- * A real Redis for the specs, started from the `redis-server` that
+ * A real Redis for this example's specs, started from the `redis-server` that
  * `$REDIS_BIN` names — and nothing else. This file pins no version and
  * builds nothing: the example's `test` script runs `scripts/redis.ts`, which
  * builds the repository's one pinned Redis (`REDIS_VERSION`, in
@@ -15,6 +14,11 @@ import RedisMemoryServer from 'redis-memory-server';
  * inside `$(...)`. On a cold cache redis-memory-server logs its download
  * progress to a stdout that is not a TTY, which a single `$(...)` call would
  * capture into `$REDIS_BIN`.
+ *
+ * Copied from `examples/hono-api/test/redis.ts` and trimmed to the server
+ * itself: an example reaches no other example's tests, and the specs here
+ * empty the database themselves (a worker stores its schedules once per
+ * client), so there is no per-test helper.
  */
 function redisBin(): string {
 	const bin = process.env['REDIS_BIN'];
@@ -51,27 +55,4 @@ export async function startRedis(): Promise<TestServer> {
 			await server.stop();
 		},
 	};
-}
-
-/**
- * One Redis per spec file, emptied before every test: a bucket or an
- * idempotency key one test left would change what the next one sees — a
- * limit already spent, a result replayed instead of written.
- */
-export function useRedis() {
-	const state = {} as { redis: TestServer };
-
-	beforeAll(async () => {
-		state.redis = await startRedis();
-	});
-
-	beforeEach(async () => {
-		await state.redis.client.send('FLUSHDB', []);
-	});
-
-	afterAll(async () => {
-		await state.redis?.stop();
-	});
-
-	return state;
 }
