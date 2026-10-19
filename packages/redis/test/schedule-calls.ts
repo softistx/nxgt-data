@@ -1,6 +1,7 @@
 import type { RedisClient } from 'bun';
+import type { QueueGroups } from '../src/queue/flow-types';
 import { queueKeys } from '../src/queue/keys';
-import { scriptKeys } from '../src/queue/scripts/claim';
+import { groupArgs, scriptKeys } from '../src/queue/scripts/claim';
 import {
 	DEFER,
 	FIRE,
@@ -71,7 +72,13 @@ export function scheduleCalls(client: () => RedisClient) {
 			),
 		unschedule: (id: string) =>
 			runScript(client(), UNSCHEDULE, [keys.schedules], [keys.schedule, id]),
-		fire: (id: string, due: number, next: number, timeout = -1) =>
+		fire: (
+			id: string,
+			due: number,
+			next: number,
+			timeout = -1,
+			groups?: QueueGroups,
+		) =>
 			runScript(client(), FIRE, scriptKeys(keys), [
 				keys.prefix,
 				keys.schedule,
@@ -80,6 +87,7 @@ export function scheduleCalls(client: () => RedisClient) {
 				next,
 				3,
 				timeout,
+				...groupArgs(keys, groups),
 			]),
 		defer: (id: string, due: number, until: number) =>
 			runScript(

@@ -1,4 +1,6 @@
 import { GCRA_FN } from '../../rate-limit/gcra';
+import { CLAIM_STEPS_FN } from './claim-steps';
+import { GROUP_FN } from './groups';
 import { SCHEDULE_FIELDS, SCHEDULE_SOUND_FN } from './schedule';
 import { WAKE_FN } from './wake';
 
@@ -37,12 +39,14 @@ end
 /**
  * The claim step, one Lua function, concatenated into `CLAIM`, `COMPLETE`
  * and `FAIL` so a single body exists. The including script defines
- * `local prefix` (the job-key prefix, inside the queue's slot) first.
+ * `local prefix` (the job-key prefix, inside the queue's slot) first, then
+ * the locals `GROUP_FN` asks for (see `groupLocals`).
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake (a script may
  * be given more keys after these, as {@link scriptKeys} appends `events`,
- * `paused` (KEYS[9]), `rate` (KEYS[10], the queue-wide GCRA state) and
- * `schedules` (KEYS[11])).
+ * `paused` (KEYS[9]), `rate` (KEYS[10], the queue-wide GCRA state),
+ * `schedules` (KEYS[11]), `groupsReady` (KEYS[12]) and `groupsQueued`
+ * (KEYS[13])).
  * `claim(n, lease, tokens, now, rate, sprefix)` takes a table of at least `n`
  * tokens, one per slot, and the schedule-hash key prefix, and returns
  * `{jobs, stalled, invalid, next, due}`, each job being
@@ -57,11 +61,15 @@ end
  * 2. promotes up to 1000 due `delayed` ids to `ready`;
  * 3. pops up to `n` from `ready`, marking each `active` with its token,
  *    `attempt + 1` and a lease ending at `now + lease`. While `paused`
- *    exists (1 and 2 still run, so `counts` stays honest) it pops nothing;
- * 4. leaves one `wake` token when `ready` still holds jobs (none if one is
- *    there), so a blocked peer takes over; deletes `wake` when it is empty,
+ *    exists (1 and 2 still run, so `counts` stays honest) it pops nothing.
+ *    On a grouped queue it pops round-robin instead (`pop_groups`), each
+ *    group's best job, within the per-group concurrency;
+ * 4. leaves one `wake` token when work is claimable (none if one is
+ *    there), so a blocked peer takes over; deletes `wake` when there is none,
  *    and also while paused or rate-limited: a token there would make every
- *    worker spin on claims that pop nothing;
+ *    worker spin on claims that pop nothing. Claimable is `ready` holding
+ *    jobs, or on a grouped queue `groups:ready` holding a group, so ready
+ *    jobs that all sit in full groups leave no token;
  * 5. gives the ms until the first `delayed` score, `-1` when it is empty,
  *    5000 while paused (the worker's own cap: it only has to notice a lost
  *    resume token), and, while the rate refuses the jobs in `ready`, the
@@ -86,6 +94,7 @@ end
  */
 export const CLAIM_FN = `
 ${WAKE_FN}
+${GROUP_FN}
 ${GCRA_FN}
 ${PUBLISH_FN}
 ${SCHEDULE_SOUND_FN}
@@ -111,9 +120,10 @@ local LAPSED_ERROR = '{"name":"LeaseLapsed","message":"lease lapsed"}'
 -- have written goes to failed, once, and is reported.
 local function refuse(id, now, invalid)
 	local key = prefix .. id
+	local g = group_of(key)
 	redis.call('ZREM', KEYS[1], id)
-	redis.call('ZREM', KEYS[2], id)
-	redis.call('ZREM', KEYS[3], id)
+	ready_rem(id, g)
+	if redis.call('ZREM', KEYS[3], id) == 1 then slot_freed(g) end
 	if redis.call('EXISTS', key) == 0 then return end
 	redis.call('HSET', key, 'state', 'failed', 'error', INVALID_ERROR, 'finished', int(now))
 	redis.call('HDEL', key, 'token')
@@ -152,62 +162,15 @@ local function due_schedules(sprefix, now)
 	end
 	return out
 end
--- The ms a worker may wait: 0 for a full page of due schedules (a backlog
--- drains at once), else the sooner of the first delayed job, the first
--- schedule not yet due, and the rate's retry; -1 for nothing.
-local function next_wait(now, backlog, retry)
-	if backlog then return 0 end
-	local wait = -1
-	local first = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
-	if first[2] then wait = math.max(0, tonumber(first[2]) - now) end
-	local head = redis.call('ZRANGEBYSCORE', KEYS[11], '(' .. int(now), '+inf', 'LIMIT', 0, 1, 'WITHSCORES')
-	if head[2] and (wait < 0 or tonumber(head[2]) - now < wait) then
-		wait = tonumber(head[2]) - now
-	end
-	if retry >= 0 and (wait < 0 or retry < wait) then wait = retry end
-	return wait
-end
+${CLAIM_STEPS_FN}
 local function claim(n, lease, tokens, now, rate, sprefix)
-	local jobs, stalled, invalid = {}, {}, {}
+	local jobs, invalid = {}, {}
 	local scheduled = due_schedules(sprefix, now)
-	local lapsed = redis.call('ZRANGEBYSCORE', KEYS[3], '-inf', '(' .. int(now), 'LIMIT', 0, 100)
-	for _, id in ipairs(lapsed) do
-		local key = prefix .. id
-		local f = redis.call('HMGET', key, 'data', 'attempt', 'attempts', 'priority', 'timeout')
-		if not sound(f) then
-			refuse(id, now, invalid)
-		else
-			redis.call('ZREM', KEYS[3], id)
-			redis.call('HDEL', key, 'token')
-			if tonumber(f[2]) < tonumber(f[3]) then
-				redis.call('HSET', key, 'state', 'waiting')
-				redis.call('ZADD', KEYS[2], ready_score(f[4]), id)
-			else
-				redis.call('HSET', key, 'state', 'failed', 'error', LAPSED_ERROR, 'finished', int(now))
-				redis.call('ZADD', KEYS[5], int(now), id)
-				publish(KEYS[8], 'failed', id, 'error', LAPSED_ERROR)
-			end
-			stalled[#stalled + 1] = id
-		end
-	end
-	local due = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', int(now), 'LIMIT', 0, 1000)
-	for _, id in ipairs(due) do
-		local key = prefix .. id
-		local f = redis.call('HMGET', key, 'data', 'attempt', 'attempts', 'priority', 'timeout')
-		if not sound(f) then
-			refuse(id, now, invalid)
-		else
-			redis.call('ZREM', KEYS[1], id)
-			redis.call('HSET', key, 'state', 'waiting')
-			redis.call('ZADD', KEYS[2], ready_score(f[4]), id)
-		end
-	end
+	local stalled = reclaim(now, invalid)
+	promote(now, invalid)
 	local paused = redis.call('EXISTS', KEYS[9]) == 1
-	local popped = {}
 	local admit = admitted(n, paused, rate)
-	if admit > 0 then popped = redis.call('ZPOPMIN', KEYS[2], admit) end
-	for i = 1, #popped, 2 do
-		local id = popped[i]
+	local function begin(id, g)
 		local key = prefix .. id
 		local f = redis.call('HMGET', key, 'data', 'attempt', 'attempts', 'priority', 'timeout')
 		if not sound(f) then
@@ -217,14 +180,22 @@ local function claim(n, lease, tokens, now, rate, sprefix)
 			local attempt = tonumber(f[2]) + 1
 			redis.call('HSET', key, 'state', 'active', 'token', token, 'attempt', attempt)
 			redis.call('ZADD', KEYS[3], int(now + lease), id)
+			slot_taken(g)
 			jobs[#jobs + 1] = {id, f[1], attempt, tonumber(f[3]), token, f[5] and tonumber(f[5]) or -1}
 		end
+	end
+	if admit > 0 and GROUPED then
+		pop_groups(admit, begin)
+	elseif admit > 0 then
+		local popped = redis.call('ZPOPMIN', KEYS[2], admit)
+		for i = 1, #popped, 2 do begin(popped[i], '') end
 	end
 	if rate and #jobs > 0 then
 		gcra(KEYS[10], rate.us, rate.per, rate.limit, rate.burst, #jobs, true)
 	end
 	-- Jobs wait in ready that the rate refuses: no token, so no worker spins.
 	local ready = redis.call('ZCARD', KEYS[2]) > 0
+	if GROUPED then ready = redis.call('LLEN', GREADY) > 0 end
 	local retry = -1
 	if rate and ready and not paused then
 		local one = peek(rate, 1)

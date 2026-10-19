@@ -1,5 +1,6 @@
 import { defineScript } from '../../scripts/run-script';
 import { CLAIM_FN, NOW_LUA } from './claim-body';
+import { GROUP_FN, groupLocals } from './groups';
 import { WAKE_FN } from './wake';
 
 /*
@@ -40,16 +41,22 @@ return 1
 
 /**
  * Resumes a queue: deletes `paused`, and leaves one `wake` token when
- * `ready` holds jobs or `delayed` is not empty, so a blocked worker starts
+ * `ready` holds jobs (on a grouped queue: `groups:ready` is not empty, the
+ * claim's own measure, so jobs that all sit in full groups leave none) or
+ * `delayed` is not empty, so a blocked worker starts
  * at once (passing the baton, or sizing its wait to the delayed job that
  * fell due during the pause). Idempotent.
  *
- * KEYS: paused, ready, wake, delayed.
+ * KEYS: paused, ready, wake, delayed, groupsReady.
+ * ARGV: `grouped` (`'1'` or `'0'`).
  */
 export const RESUME = defineScript(`
 ${WAKE_FN}
 redis.call('DEL', KEYS[1])
-if redis.call('ZCARD', KEYS[2]) > 0 or redis.call('ZCARD', KEYS[4]) > 0 then wake(KEYS[3]) end
+local claimable
+if ARGV[1] == '1' then claimable = redis.call('LLEN', KEYS[5]) > 0
+else claimable = redis.call('ZCARD', KEYS[2]) > 0 end
+if claimable or redis.call('ZCARD', KEYS[4]) > 0 then wake(KEYS[3]) end
 return 1
 `);
 
@@ -74,13 +81,17 @@ return 1
  * one this package could have written is retried; anything else changes
  * nothing.
  *
- * KEYS: delayed, ready, active, completed, failed, seq, wake, events, paused,
- * rate (it reads the first seven, and `paused`).
- * ARGV: job-key prefix, id, fresh (`'1'` or `'0'`).
+ * On a grouped queue the job joins its group's zset and queues the group
+ * through `ready_add`, and the wake token follows only when it is claimable.
+ *
+ * KEYS: those of `scriptKeys` (it reads the first seven, `paused` and the
+ * groups' three).
+ * ARGV: job-key prefix, id, fresh (`'1'` or `'0'`), the three group
+ * arguments (see `groupArgs`); the marker check of `groupModeCheck` runs first.
  * Returns 1 (retried) or 0 (not retryable, nothing changed).
  */
 export const RETRY = defineScript(`
-local prefix = ARGV[1]
+local prefix = ARGV[1]${groupLocals(4)}
 ${CLAIM_FN}
 ${NOW_LUA}
 local id = ARGV[2]
@@ -92,13 +103,13 @@ if not sound(f) then return 0 end
 redis.call('ZREM', KEYS[5], id)
 redis.call('HSET', key, 'state', 'waiting', 'attempt', 0, 'retried', 1, 'runAt', int(now))
 redis.call('HDEL', key, 'error', 'finished', 'token')
-redis.call('ZADD', KEYS[2], ready_score(f[4]), id)
+local claimable = ready_add(id, ready_score(f[4]), group_of(key))
 if ARGV[3] == '1' then
 	for _, name in ipairs(redis.call('HKEYS', key)) do
 		if string.sub(name, 1, 5) == 'step:' then redis.call('HDEL', key, name) end
 	end
 end
-if redis.call('EXISTS', KEYS[9]) == 0 then wake(KEYS[7]) end
+if claimable and redis.call('EXISTS', KEYS[9]) == 0 then wake(KEYS[7]) end
 return 1
 `);
 
@@ -107,19 +118,27 @@ return 1
  * hash. An active job is refused: its worker holds it, and deleting it would
  * only make that worker's settle a no-op while the work still ran.
  *
- * KEYS: delayed, ready, active, completed, failed.
- * ARGV: job-key prefix, id.
+ * A waiting job also leaves its group's zset on a grouped queue (`ready_rem`).
+ *
+ * KEYS: those of `scriptKeys`; it reads the first five and the groups' three.
+ * ARGV: job-key prefix, id, the three group arguments (see `groupArgs`); the
+ * marker check of `groupModeCheck` runs first.
  * Returns 1 (removed), 0 (no such job) or 2 (active, nothing changed). An id
  * left in a set with no hash is dropped from it and answers 0.
  */
 export const REMOVE = defineScript(`
+${groupLocals(3)}
+${GROUP_FN}
 local id = ARGV[2]
 local key = ARGV[1] .. id
 if redis.call('ZSCORE', KEYS[3], id) or redis.call('HGET', key, 'state') == 'active' then
 	return 2
 end
 local existed = redis.call('EXISTS', key)
-for i = 1, 5 do redis.call('ZREM', KEYS[i], id) end
+ready_rem(id, group_of(key))
+for i = 1, 5 do
+	if i ~= 2 then redis.call('ZREM', KEYS[i], id) end
+end
 redis.call('DEL', key)
 return existed
 `);

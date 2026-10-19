@@ -3,7 +3,7 @@ import { rejection } from '../../../test/rejection';
 import type { WorkerContext } from './context';
 import { markDrained, waitIdle } from './idle';
 
-/** A context that looks idle, whose `ZCARD` answers `send`. */
+/** A context that looks idle, whose `ZCARD` (or `LLEN`) answers `send`. */
 function stubbed(send: () => Promise<unknown>) {
 	let calls = 0;
 	const context = {
@@ -18,7 +18,8 @@ function stubbed(send: () => Promise<unknown>) {
 				return send();
 			},
 		},
-		keys: { ready: 'r' },
+		keys: { ready: 'r', groupsReady: 'g' },
+		definition: {},
 	} as unknown as WorkerContext;
 	return { context, calls: () => calls };
 }

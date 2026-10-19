@@ -36,7 +36,14 @@ export type QueueErrorCode =
 	 * `close` was called; a `finished` still waiting rejects with it too. Also
 	 * a run's `signal.reason` when its worker's `grace` passed while it went on.
 	 */
-	| 'CLOSED';
+	| 'CLOSED'
+	/**
+	 * A process's `groups` differs from the one the queue was started with
+	 * (present or not, or another `concurrency`): every call that takes it is
+	 * refused, with nothing written. Drain the queue and delete its
+	 * `groups:mode` key to change it.
+	 */
+	| 'GROUPS_MISMATCH';
 
 /**
  * The error of the queue, apart from `RedisError`. Redis's own failures come

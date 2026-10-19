@@ -103,8 +103,16 @@ async function claimAfterAbort<S extends z.ZodType>(
 	context: WorkerContext<S>,
 ): Promise<ClaimReply> {
 	if (!context.open) return NOTHING;
-	const { lease, rateLimit } = context.definition;
-	return await claim(context.client, context.keys, 1, lease, rateLimit);
+	const { lease, rateLimit, groups } = context.definition;
+	return await claim(
+		context.client,
+		context.keys,
+		1,
+		lease,
+		rateLimit,
+		groups,
+		context.definition.name,
+	);
 }
 
 /** One slot: runs the job it was given and each one its settle claimed. */

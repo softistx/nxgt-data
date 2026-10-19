@@ -1,4 +1,5 @@
 import { defineScript } from '../../scripts/run-script';
+import { GROUP_FN, groupModeCheck } from './groups';
 import { WAKE_FN } from './wake';
 
 /*
@@ -19,18 +20,22 @@ import { WAKE_FN } from './wake';
  * The Lua that writes one plain job, shared by `ADD` and the schedules' `FIRE`
  * so a job is stored in one place. The including script defines, before it:
  * `prefix` (the job-key prefix), `now` (ms), `poke()` (leaves the wake token,
- * or nothing while paused), and `DELAYED`, `READY` and `SEQ` (the keys of
- * `delayed`, `ready` and `seq`).
+ * or nothing while paused), `DELAYED`, `READY` and `SEQ` (the keys of
+ * `delayed`, `ready` and `seq`), and the locals `GROUP_FN` asks for. It
+ * includes `GROUP_FN`, so a job due now goes to `ready` through `ready_add`.
  *
- * `add_job(id, data, priority, attempts, delay, at, timeout)` takes the
+ * `add_job(id, data, priority, attempts, delay, at, timeout, group)` takes the
  * script's ARGV strings for `id`, `data`, `priority` and `attempts`, and
  * numbers for `delay` (ms), `at` (ms, -1 for none; a past one is due now) and
- * `timeout` (ms, -1 for none). It answers `false` when the id already has a
+ * `timeout` (ms, -1 for none), and the job's `group` (`''` for the default
+ * group; stored on the hash only for a named group of a grouped queue). It
+ * answers `false` when the id already has a
  * hash (left alone) and `true` once the job is stored, in `ready` when due
  * and in `delayed` otherwise, with the wake rules {@link ADD} describes.
  */
 export const ADD_JOB_FN = `
-local function add_job(id, data, priority, attempts, delay, at, timeout)
+${GROUP_FN}
+local function add_job(id, data, priority, attempts, delay, at, timeout, group)
 	local key = prefix .. id
 	if redis.call('EXISTS', key) == 1 then return false end
 	local runAt = now + delay
@@ -41,10 +46,10 @@ local function add_job(id, data, priority, attempts, delay, at, timeout)
 		'attempts', attempts, 'state', due and 'waiting' or 'delayed',
 		'added', now, 'runAt', runAt)
 	if timeout >= 0 then redis.call('HSET', key, 'timeout', string.format('%d', timeout)) end
+	if GROUPED and group ~= '' then redis.call('HSET', key, 'group', group) end
 	if due then
 		local score = tonumber(priority) * 1099511627776 + redis.call('INCR', SEQ)
-		redis.call('ZADD', READY, string.format('%d', score), id)
-		poke()
+		if ready_add(id, string.format('%d', score), GROUPED and group or '') then poke() end
 	else
 		if is_head(DELAYED, runAt) then poke() end
 		redis.call('ZADD', DELAYED, string.format('%d', runAt), id)
@@ -86,9 +91,16 @@ end
  * No `wake` token is left while `paused` exists: `RESUME` leaves one when
  * `ready` or `delayed` holds jobs, so one now would be spent on nothing.
  *
- * KEYS: delayed, ready, seq, wake, paused.
- * ARGV: job-key prefix, dedupe-key prefix, then per job `id, data, priority,
- * attempts, delayMs, atMs, timeoutMs, mode, dedupeKey, ttlMs` — `atMs` is -1
+ * A grouped queue (`grouped` `'1'`) also writes each job's group: a due job
+ * goes to its group's zset (see `GROUP_FN`) and a debounce moves it out of
+ * there.
+ *
+ * KEYS: delayed, ready, seq, wake, paused, groupsReady, groupsQueued,
+ * groupsMode (checked first, see `groupModeCheck`).
+ * ARGV: job-key prefix, dedupe-key prefix, `grouped` (`'1'` or `'0'`), the
+ * cap (0 for none), the group key prefix (see `groupArgs`), then per job `id,
+ * data, priority, attempts, delayMs, atMs, timeoutMs, mode, dedupeKey, ttlMs,
+ * group` (`''` for the default group) — `atMs` is -1
  * when the job has no `at`, and a past one is due now; `timeoutMs` is -1 when
  * the job has no limit, and the field is then left out; `mode` is `''`, `d`
  * or `t`.
@@ -98,6 +110,9 @@ end
 export const ADD = defineScript(`
 ${WAKE_FN}
 local prefix, dprefix = ARGV[1], ARGV[2]
+local GROUPED, CONCURRENCY, GPREFIX = ARGV[3] == '1', tonumber(ARGV[4]), ARGV[5]
+local GREADY, GQUEUED = KEYS[6], KEYS[7]
+${groupModeCheck(8, 3)}
 -- A paused queue's workers are told by RESUME, so no token is left meanwhile.
 local paused = redis.call('EXISTS', KEYS[5]) == 1
 local function poke()
@@ -124,10 +139,10 @@ local function waiting_job(held)
 	return nil
 end
 local out = {}
-for i = 3, #ARGV, 10 do
+for i = 6, #ARGV, 11 do
 	local id, data, priority, attempts = ARGV[i], ARGV[i + 1], ARGV[i + 2], ARGV[i + 3]
 	local delay, at, timeout = tonumber(ARGV[i + 4]), tonumber(ARGV[i + 5]), tonumber(ARGV[i + 6])
-	local mode, dkey, ttl = ARGV[i + 7], ARGV[i + 8], ARGV[i + 9]
+	local mode, dkey, ttl, group = ARGV[i + 7], ARGV[i + 8], ARGV[i + 9], ARGV[i + 10]
 	local held = false
 	if mode ~= '' then held = redis.call('GET', dprefix .. dkey) end
 	if held and not is_id(held) then held = false end
@@ -137,7 +152,7 @@ for i = 3, #ARGV, 10 do
 	if hit and mode == 'd' then
 		local runAt = now + delay
 		redis.call('HSET', prefix .. hit, 'data', data, 'state', 'delayed', 'runAt', runAt)
-		redis.call('ZREM', KEYS[2], hit)
+		ready_rem(hit, group_of(prefix .. hit))
 		if is_head(KEYS[1], runAt) then poke() end
 		redis.call('ZADD', KEYS[1], string.format('%d', runAt), hit)
 		redis.call('SET', dprefix .. dkey, hit, 'PX', ttl)
@@ -145,7 +160,7 @@ for i = 3, #ARGV, 10 do
 	elseif hit then
 		out[#out + 1] = hit
 	else
-		if add_job(id, data, priority, attempts, delay, at, timeout) then
+		if add_job(id, data, priority, attempts, delay, at, timeout, group) then
 			if mode ~= '' then redis.call('SET', dprefix .. dkey, id, 'PX', ttl) end
 			out[#out + 1] = 0
 		else

@@ -169,7 +169,7 @@ deployment's prefix in front of it when wired, as the guards' names are.
 | --- | --- | --- |
 | `job:<id>` | hash | `data` (JSON), `step:<name>` (JSON, slice 3), `priority`, `group`, `attempt`, `attempts`, `state`, `token`, `progress`, `error`, `result` (JSON), `added`, `runAt`, `finished`, `dedupe`, `retried` (`1` once RETRY has put the job back; only ADD's debounce reads it) |
 | `delayed` | zset | id → ms at which it becomes ready |
-| `ready` | zset | id → `priority × 2^40 + seq` (FIFO within a priority) |
+| `ready` | zset | id → `priority × 2^40 + seq` (FIFO within a priority). On a grouped queue it stays the global index of every ready job, mirrored per group |
 | `active` | zset | id → ms at which its lease lapses |
 | `completed`, `failed` | zset | id → ms it finished, for retention and `list` |
 | `seq` | string | the `INCR` counter behind FIFO order |
@@ -179,9 +179,11 @@ deployment's prefix in front of it when wired, as the guards' names are.
 | `dedupe:<key>` | string | the job id holding a debounce/throttle key. A throttle's PX is its `window`; a debounce's is `wait + 24 h`, a memory bound: the state decides while the key lives, so a job left waiting longer than that can be joined by a second one; each hit refreshes it |
 | `schedules` | zset | schedule id → ms of its next occurrence |
 | `schedule:<id>` | hash | `cron` or `every`, `timezone`, `data` (JSON), `origin` (`definition` / `runtime`) |
-| `groups:ready` | list | groups with ready jobs and a free slot, in round-robin order (slice 7) |
-| `group:<g>:ready` | zset | that group's ready jobs, scored as `ready` (slice 7) |
-| `group:<g>:active` | string | that group's running count (slice 7) |
+| `groups:ready` | list | groups with ready jobs and a free slot, in round-robin order; each group at most once |
+| `groups:queued` | set | the dedupe set of `groups:ready`: a group is pushed only when it is not in it |
+| `group:<g>:ready` | zset | that group's ready jobs, scored as `ready`; the default group is `g = ''` |
+| `group:<g>:active` | string | that named group's running count; the default group has none |
+| `groups:mode` | string | `0` (no groups) or `1:<concurrency>` (`0` for no cap): the mode the first script to touch the queue set. Every queue writes it, grouped or not |
 
 `priority` is a whole number from 0 (most urgent) to 1000, default 0. The
 score `priority × 2^40 + seq` stays an exact double up to 2^53, so FIFO
@@ -224,7 +226,7 @@ hash whose shape it does not recognise is refused, never "repaired".
   debounce joins only a job that has not run (`attempt` 0 and no `retried`):
   a job in retry backoff, or put back by RETRY, is under way, like an active
   one, so a new job is added.
-- **CLAIM**(n, lease, token): reclaim up to 100
+- **CLAIM**(n, lease, token; on a grouped queue also the groups' mode and cap): reclaim up to 100
   lapsed leases from `active` — each counts as an attempt (a job that kills
   its process does not loop forever): back to `ready`, or to `failed` with
   "lease lapsed" when spent; report them as `stalled`. Promote up to 1000 due
@@ -232,10 +234,11 @@ hash whose shape it does not recognise is refused, never "repaired".
   stays honest. While `paused` exists, pop nothing. Otherwise admit up to n
   under `rateLimit` (the GCRA of `defineRateLimit`, its Lua shared, not
   copied; a peek at cost 1, then the jobs popped are charged once). Pop that
-  many from `ready` (round-robin over groups from slice 7), set `state=active`, the token,
+  many from `ready` (on a grouped queue, round-robin over the groups, see Groups), set `state=active`, the token,
   `attempt+1`, and `ZADD active now+lease`. If `ready` still has jobs, push
   one `wake` token back if the list is empty, so a blocked peer takes over; if
-  `ready` is empty, or the queue is paused, or the rate refuses the jobs in
+  `ready` is empty (on a grouped queue: `groups:ready` is empty, see Groups), or
+  the queue is paused, or the rate refuses the jobs in
   `ready`, `DEL wake` (a token there would make every worker spin on claims
   that pop nothing). That `DEL wake` may erase a delayed-head token
   pushed in the one round trip between a worker's empty claim and its `BLPOP`;
@@ -251,13 +254,14 @@ hash whose shape it does not recognise is refused, never "repaired".
   `state=completed`, store the result if any, move to `completed` (or delete
   when `keepCompleted: false`), trim `completed` by age and count (bounded per
   call), `PUBLISH` the outcome with the result, so `finished()` gets it even
-  when nothing is kept. With a free slot, it then runs CLAIM's body
+  when nothing is kept. An active job's removal from `active` frees its group's
+  slot. With a free slot, it then runs CLAIM's body
   for one job, so a busy worker spends **one round trip per job**.
 - **FAIL**(id, token, error, retryIn, claim-next): if the token still holds and
   attempts remain and the error allows a retry → `delayed` at now + `retryIn`
   (the client computes the backoff with jitter, or takes `JobError`'s);
   else `failed`, trimmed by `keepFailed`, `PUBLISH`. Claims the next job as
-  COMPLETE does.
+  COMPLETE does, and frees the group's slot as it does.
 - **CANCEL**(id): a waiting job is deleted; an active one has its token
   cleared and is deleted, and the outcome is published (its worker's `signal`
   fires; its late COMPLETE/FAIL finds no token and is dropped silently).
@@ -399,13 +403,38 @@ first. A cron that can never match (`0 0 31 2 *`) is refused by
 
 ## Groups (slice 7)
 
-`add(data, { group })` puts the job in its group's `ready`. CLAIM serves the
-groups in round-robin through `groups:ready`, and within a group the most
-urgent first, so no group starves another whatever its priorities. A group at
-its `concurrency` leaves the round-robin until one of its jobs finishes. Jobs
-without a group form the default group, which takes its turn like the others
-and has no concurrency of its own. Before slice 7, `ready` is that default
-group, so slice 7 adds groups without moving existing keys.
+`defineQueue({ groups: {} })` or `groups: { concurrency: n }` (a whole number
+from 1; absent means fairness only, stored as 0) turns grouping on;
+`add(data, { group })` takes a name that follows the id rule, with no `:`.
+Jobs without a group form the default group, which takes its turn like the
+others and has no concurrency of its own. The hash holds `group` only for a
+named group.
+
+- **`ready` stays the global index** of every ready job, so `counts`, `list`
+  and the ungrouped paths do not change. Each ready job is mirrored in its
+  group's zset `group:<g>:ready`, with the same score.
+- **The round-robin list** `groups:ready` holds the groups that have ready
+  jobs and a free slot, each once (the dedupe set `groups:queued`). A claim
+  takes the head group, pops its most urgent job, and pushes the group back to
+  the tail while it still has jobs and a free slot, so no group starves
+  another whatever its priorities. A group at its `concurrency` leaves the list
+  until a job of it leaves `active`.
+- **The invariants**, after every script on a grouped queue: (1) id in `ready`
+  iff in its group's zset; (2) `group:<g>:active` equals the active ids of
+  that named group; (3) a group is in `groups:queued` iff it is in the list,
+  once; (4) a group with ready jobs and a free slot is in `groups:queued`.
+  One Lua module owns every write to them. A stale entry for a group the
+  scripts could not have written is dropped by the claim, within its cap.
+- **The wake rule**: "has claimable work" is `LLEN groups:ready > 0`, not
+  `ZCARD ready > 0`. When every ready job sits in a full group no wake token is
+  left, so workers do not spin; a script that frees a slot (COMPLETE, FAIL,
+  CANCEL of an active job, a reclaim) queues the group and leaves one token.
+- **`groups:mode`** is a marker every script checks first: a process whose
+  definition disagrees on grouping or on `concurrency` is refused with
+  `QueueError` `GROUPS_MISMATCH`, with no write, so two deploys never share a
+  queue under two meanings. Every queue writes it (`0` when ungrouped). To
+  change modes, drain the queue, then `DEL queue:{<name>}:groups:mode`.
+- Round trips are unchanged: `add` 1, a claim 1, a busy worker 1 per job.
 
 ## Errors
 

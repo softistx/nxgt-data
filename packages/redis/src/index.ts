@@ -35,8 +35,11 @@ export { defineQueue } from './queue/define-queue';
 export type { Duration } from './queue/duration';
 export type {
 	DebounceOptions,
+	QueueGroups,
+	QueueGroupsInput,
 	QueueRate,
 	QueueRateLimit,
+	RetryOptions,
 	ThrottleOptions,
 } from './queue/flow-types';
 export type { JobHandle } from './queue/handle-types';
@@ -54,7 +57,6 @@ export type {
 	QueueCounts,
 	QueueDefinition,
 	QueueInput,
-	RetryOptions,
 } from './queue/types';
 export type {
 	Handler,

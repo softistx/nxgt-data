@@ -1,5 +1,6 @@
 import { defineScript } from '../../scripts/run-script';
 import { ADD_JOB_FN } from './add';
+import { groupLocals } from './groups';
 import { WAKE_FN } from './wake';
 
 /*
@@ -89,15 +90,21 @@ return 0
  * adds nothing, but the schedule still moves on. No wake token is left
  * while `paused` exists: the job waits in `ready` for `RESUME`.
  *
+ * On a grouped queue the occurrence goes to the default group `''` and the
+ * marker check of `groupModeCheck` runs first: it may SET the marker (the
+ * one write that precedes a refusal), and the check on `due` and `next`
+ * comes after it.
+ *
  * KEYS: those of `scriptKeys`.
  * ARGV: job-key prefix, schedule-key prefix, id, due (ms), next (ms),
- * attempts, timeout (ms, -1 for none).
+ * attempts, timeout (ms, -1 for none), the three group arguments (see
+ * `groupArgs`).
  * Returns 1 when a job was added and 0 otherwise.
  */
 export const FIRE = defineScript(`
 ${WAKE_FN}
 ${SCHEDULE_SOUND_FN}
-local prefix = ARGV[1]
+local prefix = ARGV[1]${groupLocals(8)}
 local id, due = ARGV[3], ARGV[4]
 -- Before any write: a next that is not a whole ms after due would leave the
 -- schedule due again at once, or a job added and the schedule not moved.
@@ -107,7 +114,7 @@ if not (string.match(due, '^%d+$') and string.match(ARGV[5], '^%d+$')
 end
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
-local DELAYED, READY, SEQ = KEYS[1], KEYS[2], KEYS[6]
+local DELAYED, SEQ = KEYS[1], KEYS[6]
 local paused = redis.call('EXISTS', KEYS[9]) == 1
 local function poke()
 	if not paused then wake(KEYS[7]) end
@@ -119,7 +126,7 @@ if not score or tonumber(score) ~= tonumber(due) then return 0 end
 if tonumber(due) > now then return 0 end
 local f = redis.call('HMGET', ARGV[2] .. id, ${SCHEDULE_FIELDS})
 if not schedule_sound(f) then return 0 end
-local added = add_job('schedule:' .. id .. ':' .. due, f[4], '0', ARGV[6], 0, -1, tonumber(ARGV[7]))
+local added = add_job('schedule:' .. id .. ':' .. due, f[4], '0', ARGV[6], 0, -1, tonumber(ARGV[7]), '')
 redis.call('ZADD', KEYS[11], string.format('%d', tonumber(ARGV[5])), id)
 return added and 1 or 0
 `);
@@ -130,6 +137,10 @@ return added and 1 or 0
  * score to `until`, adding no job. A moved score, a missing or unsound hash
  * does nothing. An `until` that is not a whole number above `due` is an error
  * reply before any write, as for {@link FIRE}'s `next`.
+ *
+ * It takes no groups arguments and checks no groups marker: like `SYNC`,
+ * `UPSERT` and `UNSCHEDULE` it writes only `schedules`, never `ready` or
+ * `active`, so no group state can go wrong through it.
  *
  * KEYS: schedules.
  * ARGV: schedule-key prefix, id, due (ms), until (ms).

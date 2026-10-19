@@ -52,6 +52,7 @@ Redis Cluster slot; for the same reason a name cannot contain braces.
 | `schedules` | `Record<string, Schedule>` | none | recurring jobs by cron or interval; see [Recurring jobs](#recurring-jobs) |
 | `timeout` | `Duration` | none | how long one run may take before it is aborted and counted as a failed attempt; at least 1 ms; see [Timeouts](#timeouts-and-the-abort-signal) |
 | `rateLimit` | `{ limit, per, burst? }` | none | at most `limit` jobs start per `per`, across every worker; see [Flow control](#flow-control) |
+| `groups` | `{ concurrency? }` | none | fair turns between groups of jobs, with an optional cap per group; see [Groups](#groups) |
 
 A `Duration` is a whole number of milliseconds, or a string with a unit —
 `'250ms'`, `'30s'`, `'10m'`, `'2h'`, `'7d'`. A fraction is fine in a string
@@ -106,6 +107,7 @@ refusal is a `QueueError` with `code: 'INVALID'`, and nothing is written.
 | `timeout` | `Duration` | the queue's | overrides the queue's `timeout` for this job; the per-job value wins |
 | `debounce` | `{ key, wait }` | none | collapses adds under one key into one job; see [Debounce and throttle](#debounce-and-throttle) |
 | `throttle` | `{ key, window }` | none | the first add under a key wins for `window`; see [Debounce and throttle](#debounce-and-throttle) |
+| `group` | `string` | the default group | the job's group, on a queue defined with `groups`; 1 to 256 characters, no braces, no `:`; see [Groups](#groups) |
 
 ```ts
 // Run in ten minutes, ahead of the ordinary jobs.
@@ -751,6 +753,145 @@ value:
 `throttle` with `delay` or `at` is allowed: the job is due then, and the window
 runs from the add.
 
+## Groups
+
+A group is a name on a job, usually a tenant or a customer, so that one of
+them cannot hold up the others: a tenant that adds ten thousand jobs waits its
+turn like a tenant that adds one.
+
+```ts
+import { bindQueue, defineQueue } from '@nxgt/redis';
+import { z } from 'zod';
+
+export const reports = defineQueue({
+	name: 'reports',
+	schema: z.object({ reportId: z.string() }),
+	groups: { concurrency: 2 }, // at most two jobs of one tenant run at once
+});
+
+const queue = bindQueue(client, reports); // `client`: a Bun RedisClient
+
+await queue.add({ reportId: 'r1' }, { group: tenantId });
+```
+
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `groups` | `{ concurrency? }` | none | turns grouping on. `groups: {}` gives every group fair turns and no cap; leave it out and `group` on `add` is a `TypeError` |
+| `groups.concurrency` | `number` | none (no cap) | the most jobs of **one** group that run at once, across every worker and process; a whole number, at least 1 |
+
+A malformed `groups` is a `TypeError` from `defineQueue`: not an object, or a
+`concurrency` that is not a whole number of at least 1 (`0` is refused too:
+leave it out for no cap).
+
+`group` is an `add` option, and an `addMany` item takes it in its `options`:
+
+```ts
+await queue.addMany([
+	{ data: { reportId: 'r1' }, options: { group: 'acme' } },
+	{ data: { reportId: 'r2' }, options: { group: 'globex' } },
+	{ data: { reportId: 'r3' } }, // no group: the default group
+]);
+```
+
+A group name is 1 to 256 characters, with no braces and no `:`, which the
+group's keys join. A bad one is a `TypeError` thrown before any round trip, and
+the message does not print the value; so is `group` on a queue defined without
+`groups`. `get(id)` shows the group of a job that has one:
+
+```ts
+const job = await queue.get(handle.id);
+job?.group; // 'acme'; absent for a job in the default group
+```
+
+### Turns and priorities
+
+A worker's claim serves the groups **in turn**: it takes the most urgent job of
+the group at the head of the line, and that group goes to the back of it while
+it still has jobs. `priority` orders the jobs **inside** a group, and never
+between groups.
+
+```ts
+// 'bulk' has 100 jobs at priority 0; 'small' has one at priority 5.
+await queue.addMany(
+	Array.from({ length: 100 }, (_, i) => ({
+		data: { reportId: `bulk-${i}` },
+		options: { group: 'bulk', priority: 0 },
+	})),
+);
+await queue.add({ reportId: 'one' }, { group: 'small', priority: 5 });
+// 'small' runs first or second, not a hundred and first: its job takes its
+// turn whatever the priority of the other group's jobs.
+```
+
+Jobs added without a `group` form the **default group**. It takes its turn like
+the others and has **no cap** of its own, whatever `concurrency` says for the
+named groups.
+
+### `concurrency`
+
+With `concurrency: 2`, a third job of a group waits while two of its jobs run,
+on any worker of any process, and the other groups' jobs go first meanwhile.
+A worker whose ready jobs all sit in full groups blocks rather than polls: it
+wakes when a slot frees or a job is added.
+
+A slot is freed when a job of the group:
+
+- completes;
+- fails, whether the attempt will be retried or has failed for good;
+- is canceled while running;
+- loses its lease and is reclaimed, which puts it back to wait for a slot.
+
+```ts
+// Two exports of a tenant at once, however many workers.
+queue.work(async (job) => runExport(job.data.reportId), { concurrency: 8 });
+```
+
+`work`'s own `concurrency` is per worker; the group's is across all of them.
+
+### With the rest of the queue
+
+| | On a grouped queue |
+| --- | --- |
+| `pause()` | stops claims for every group; `resume()` wakes the workers as before |
+| `rateLimit` | one limit for the whole queue, charged when a job **starts**, whatever its group; a limit per group is on the [roadmap](../roadmap.md) |
+| `debounce`, `throttle` | the job keeps the group it was first added with; a repeat add under the key does not move it |
+| retries | a retried job returns to its own group, after its backoff, and takes its turn again |
+| `schedules` | every occurrence goes to the default group |
+
+### One definition for every process
+
+Every process that uses the queue must define the same `groups`: the same
+on-or-off, and the same `concurrency`. Each queue writes a marker,
+`queue:{<name>}:groups:mode`, and a process whose definition disagrees with it
+is refused, with nothing written:
+
+```ts
+import { QueueError } from '@nxgt/redis';
+
+try {
+	await queue.add({ reportId: 'r1' }, { group: tenantId });
+} catch (error) {
+	if (error instanceof QueueError && error.code === 'GROUPS_MISMATCH') {
+		// this process and the queue disagree on `groups`
+	}
+}
+```
+
+To turn groups on or off, or to change the `concurrency`: stop the producers,
+let the queue drain, then delete the marker, and deploy the new definition
+everywhere.
+
+```bash
+redis-cli DEL 'queue:{reports}:groups:mode'
+```
+
+With a `prefix` (see [Keys and the prefix](#keys-and-the-prefix)) the name in
+the braces is `<prefix>:<name>`.
+
+A grouped queue keeps a second index per ready job, in its group, beside the
+queue's own: a little more memory and a little more work in the same script.
+The round trips do not change.
+
 ## Recurring jobs
 
 A schedule adds a job on a cron or an interval, so a nightly digest or a
@@ -1015,6 +1156,7 @@ type JobView<S, R> = {
 	attempt: number;
 	attempts: number;
 	priority: number;
+	group?: string;                // absent for a job in the default group
 	error?: { name: string; message: string }; // the last failure
 	added: Date;
 	runAt: Date;                   // when the job is next due
@@ -1211,6 +1353,7 @@ waits for a retry waits milliseconds rather than seconds.
 | a due schedule | 1 job per occurrence; up to one FIRE call per settle that saw it due; the claim carries up to 20 due schedules |
 | `schedules.upsert`, `remove`, `list` | 1 |
 | `list` | 1 for the ids, and the jobs' reads pipelined into 1 more |
+| any of the above on a grouped queue | the same: the groups are kept inside the same scripts |
 
 See also [Pub/sub](channels.md), for events nobody has to be sure received, and
 [Locks](locks.md), for work that must not overlap.

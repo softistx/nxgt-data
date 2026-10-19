@@ -3,6 +3,7 @@ import { QueueError } from '../errors/queue-error';
 import { check } from './check';
 import { type ResolvedDedupe, resolveDedupe } from './dedupe';
 import { durationMs } from './duration';
+import { resolveGroup } from './group';
 import { isName, NAME_RULE } from './name';
 import { fromJson, toJson } from './round-trip';
 import { clampTimeout } from './timers';
@@ -60,6 +61,8 @@ export type ResolvedAdd = {
 	timeoutMs: number | undefined;
 	/** The `debounce` or `throttle` as the script reads it; a debounce's `delayMs` is its wait. */
 	dedupe: ResolvedDedupe;
+	/** `''` for the default group. */
+	group: string;
 };
 
 /**
@@ -73,6 +76,7 @@ export function resolveAdd(
 	options: AddOptions | undefined,
 	call: string,
 	queue: string,
+	grouped: boolean,
 ): ResolvedAdd {
 	const { id, priority, delay, at, timeout } = (options ?? {}) as {
 		id?: unknown;
@@ -131,7 +135,9 @@ export function resolveAdd(
 		}
 	}
 	const dedupe = resolveDedupe(options, call, queue);
+	const group = resolveGroup(options?.group, grouped, call, queue);
 	return {
+		group,
 		id: (id as string | undefined) ?? Bun.randomUUIDv7(),
 		priority: (priority as number | undefined) ?? 0,
 		dedupe,

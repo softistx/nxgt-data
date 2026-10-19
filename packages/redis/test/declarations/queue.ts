@@ -6,6 +6,7 @@ import {
 	defineQueue,
 	defineRedis,
 	openRedis,
+	type QueueGroups,
 	type QueueSchedules,
 	type RetryOptions,
 	type Schedule,
@@ -128,4 +129,19 @@ export function scheduleViews(): Promise<
 	ScheduleView<typeof digests.schema>[]
 > {
 	return digestQueue.schedules.list({ limit: 10 });
+}
+
+/** Groups: the option, `add`'s `group`, and the view's `group` come through the entry. */
+export const tenants = defineQueue({
+	name: 'tenants',
+	schema: z.object({ to: z.string() }),
+	groups: { concurrency: 2 },
+});
+
+export const resolvedGroups: QueueGroups | undefined = tenants.groups;
+
+export async function grouped(): Promise<string | undefined> {
+	const queue = bindQueue(redis, tenants);
+	const handle = await queue.add({ to: 'a' }, { group: 'tenant-a' });
+	return (await queue.get(handle.id))?.group;
 }

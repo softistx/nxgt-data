@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import { type Duration, toMs } from './duration';
+import { resolveGroups } from './group';
 import { resolveRateLimit } from './rate';
 import { checkResolved, resolveSchedules } from './schedule/define';
 import type { QueueDefinition, QueueInput } from './types';
@@ -142,11 +143,24 @@ function resolve<S extends z.ZodType, R extends z.ZodType | undefined>(
 		keepCompleted: keepCompleted(input.keepCompleted, call, name),
 		keepFailed,
 		timeout,
+		...flowOf(input, call, name, resolved),
+	});
+}
+
+/** The fields that take the queue's flow: its rate limit, groups and schedules. */
+function flowOf<S extends z.ZodType, R extends z.ZodType | undefined>(
+	input: QueueInput<S, R> | QueueDefinition<S, R>,
+	call: string,
+	name: string,
+	resolved: boolean,
+) {
+	return {
 		rateLimit: resolveRateLimit(input.rateLimit, call, name),
+		groups: resolveGroups(input.groups, call, name, resolved),
 		schedules: resolved
 			? checkResolved(input.schedules, call, name)
 			: resolveSchedules(input.schedules, input.schema, call, name),
-	});
+	};
 }
 
 function checkResult(

@@ -10,16 +10,17 @@ import {
 	getJob,
 	listJobs,
 	pauseQueue,
-	removeJob,
 	resolveRetry,
 	resumeQueue,
-	retryJob,
 } from './inspect';
+import { removeJob, retryJob } from './job-admin';
 import { queueKeys } from './keys';
 import { type QueueLife, refuseClosed, trackWorker } from './life';
 import { scheduleHandle } from './schedule/handle';
 import { ADD } from './scripts/add';
 import { cancel } from './scripts/cancel';
+import { groupArgs } from './scripts/claim';
+import { guardMode } from './scripts/groups-mode';
 import { parseAddReply } from './scripts/replies';
 import type { AddOptions, BoundQueue, QueueDefinition } from './types';
 import { resolveWork, startWorker } from './worker/worker';
@@ -47,7 +48,11 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 		// Between chunks too: a batch stops cleanly with CLOSED.
 		refuseClosed(life, call, definition.name);
 		const chunk = jobs.slice(from, from + ADD_CHUNK);
-		const argv: (string | number)[] = [keys.prefix, keys.dedupe];
+		const argv: (string | number)[] = [
+			keys.prefix,
+			keys.dedupe,
+			...groupArgs(keys, definition.groups),
+		];
 		for (const { options, data } of chunk) {
 			argv.push(
 				options.id,
@@ -60,14 +65,32 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 				options.dedupe.mode,
 				options.dedupe.key,
 				options.dedupe.ttlMs,
+				options.group,
 			);
 		}
 		const reply = parseAddReply(
-			await runScript(
+			await guardMode(
 				client,
-				ADD,
-				[keys.delayed, keys.ready, keys.seq, keys.wake, keys.paused],
-				argv,
+				keys,
+				definition.groups,
+				call,
+				definition.name,
+				() =>
+					runScript(
+						client,
+						ADD,
+						[
+							keys.delayed,
+							keys.ready,
+							keys.seq,
+							keys.wake,
+							keys.paused,
+							keys.groupsReady,
+							keys.groupsQueued,
+							keys.groupsMode,
+						],
+						argv,
+					),
 			),
 			chunk.length,
 		);
@@ -87,6 +110,30 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 		});
 	}
 	return handles;
+}
+
+/**
+ * `addMany`: everything is checked and encoded before the first script runs,
+ * so a bad item refuses the whole call with nothing written.
+ */
+async function addManyJobs<
+	S extends z.ZodType,
+	R extends z.ZodType | undefined,
+>(
+	client: RedisClient,
+	definition: QueueDefinition<S, R>,
+	keys: ReturnType<typeof queueKeys>,
+	items: readonly { data: z.input<S>; options?: AddOptions }[],
+	life: QueueLife | undefined,
+): Promise<JobHandle<R>[]> {
+	refuseClosed(life, 'addMany', definition.name);
+	const call = 'addMany';
+	const grouped = definition.groups !== undefined;
+	const jobs = items.map((item) => ({
+		options: resolveAdd(item.options, call, definition.name, grouped),
+		data: encodeData(definition, item.data, call),
+	}));
+	return await addChunks(client, definition, keys, jobs, life, call);
 }
 
 /**
@@ -133,27 +180,14 @@ export function bindQueueWith<
 		prefix === undefined ? definition.name : `${prefix}:${definition.name}`,
 	);
 
-	async function addMany(
-		items: readonly { data: z.input<S>; options?: AddOptions }[],
-	): Promise<JobHandle<R>[]> {
-		refuseClosed(life, 'addMany', definition.name);
-		// Everything is checked and encoded before the first script runs, so a
-		// bad item refuses the whole call with nothing written.
-		const jobs = items.map((item) => {
-			const call = 'addMany';
-			const options = resolveAdd(item.options, call, definition.name);
-			const data = encodeData(definition, item.data, call);
-			return { options, data };
-		});
-		return await addChunks(client, definition, keys, jobs, life, 'addMany');
-	}
+	const grouped = definition.groups !== undefined;
 
 	return {
 		definition,
 		prefix,
 		async add(data, options) {
 			refuseClosed(life, 'add', definition.name);
-			const resolved = resolveAdd(options, 'add', definition.name);
+			const resolved = resolveAdd(options, 'add', definition.name, grouped);
 			const json = encodeData(definition, data, 'add');
 			const [handle] = await addChunks(
 				client,
@@ -169,12 +203,12 @@ export function bindQueueWith<
 				);
 			return handle;
 		},
-		addMany,
+		addMany: (items) => addManyJobs(client, definition, keys, items, life),
 		get: (id) => getJob(client, keys, definition, id),
 		list: (state, page) => listJobs(client, keys, definition, state, page),
 		counts: () => countJobs(client, keys),
 		pause: () => pauseQueue(client, keys),
-		resume: () => resumeQueue(client, keys),
+		resume: () => resumeQueue(client, keys, grouped),
 		async retry(id, options) {
 			return await retryJob(
 				client,
@@ -185,7 +219,8 @@ export function bindQueueWith<
 			);
 		},
 		remove: (id) => removeJob(client, keys, definition, id),
-		cancel: (id) => cancel(client, keys, id),
+		cancel: (id) =>
+			cancel(client, keys, id, definition.groups, definition.name),
 		schedules: scheduleHandle(client, keys, definition),
 		work(handler, options) {
 			refuseClosed(life, 'work', definition.name);
