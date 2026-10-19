@@ -24,7 +24,7 @@ const boundary = { name: 'x', message: 'boom' };
 
 async function take(id: string, queue = mailQueue) {
 	await bindQueue(client(), queue).add(to(id), { id });
-	const reply = await claim(client(), keys, 1, 30_000);
+	const reply = await claim(client(), keys, 1, 30_000, undefined);
 	const job = reply.jobs.find((j) => j.id === id);
 	if (!job) throw new Error(`${id} was not claimed`);
 	return job;
@@ -170,7 +170,7 @@ describe('complete', () => {
 		const bound = bindQueue(client(), mailQueue);
 		await bound.add(to('a'), { id: 'a' });
 		await bound.add(to('b'), { id: 'b' });
-		const first = (await claim(client(), keys, 1, 30_000)).jobs[0];
+		const first = (await claim(client(), keys, 1, 30_000, undefined)).jobs[0];
 		const before = await scriptCalls(client());
 		const reply = await complete(
 			client(),
@@ -192,7 +192,7 @@ describe('complete', () => {
 		const bound = bindQueue(client(), mailQueue);
 		await bound.add(to('a'), { id: 'a' });
 		await bound.add(to('b'), { id: 'b' });
-		const first = (await claim(client(), keys, 1, 30_000)).jobs[0];
+		const first = (await claim(client(), keys, 1, 30_000, undefined)).jobs[0];
 		const reply = await complete(
 			client(),
 			keys,
@@ -213,7 +213,7 @@ describe('complete', () => {
 		const bound = bindQueue(client(), mailQueue);
 		await bound.add(to('a'), { id: 'a' });
 		await bound.add(to('b'), { id: 'b' });
-		await claim(client(), keys, 1, 30_000);
+		await claim(client(), keys, 1, 30_000, undefined);
 		const reply = await fail(
 			client(),
 			keys,
@@ -267,7 +267,7 @@ describe('fail', () => {
 			expect(await send('ZSCORE', keys.delayed, 'a')).not.toBeNull();
 			expect(await send('ZSCORE', keys.active, 'a')).toBeNull();
 			await Bun.sleep(60);
-			const next = (await claim(client(), keys, 1, 30_000)).jobs[0];
+			const next = (await claim(client(), keys, 1, 30_000, undefined)).jobs[0];
 			expect(next?.attempt).toBe(attempt + 1);
 			job = next ?? job;
 		}
@@ -403,7 +403,7 @@ describe('fail', () => {
 		const bound = bindQueue(client(), mailQueue);
 		await bound.add(to('a'), { id: 'a' });
 		await bound.add(to('b'), { id: 'b' });
-		const first = (await claim(client(), keys, 1, 30_000)).jobs[0];
+		const first = (await claim(client(), keys, 1, 30_000, undefined)).jobs[0];
 		const before = await scriptCalls(client());
 		const reply = await fail(
 			client(),
@@ -540,7 +540,7 @@ describe('published outcomes', () => {
 		);
 		expect(retried.final).toBe(false);
 		expect(await log.published()).toEqual([]);
-		const again = (await claim(client(), keys, 1, 30_000)).jobs[0];
+		const again = (await claim(client(), keys, 1, 30_000, undefined)).jobs[0];
 		if (!again) throw new Error('the retry was not claimed');
 		const stale = await fail(
 			client(),

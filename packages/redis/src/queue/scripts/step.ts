@@ -1,7 +1,7 @@
 import type { RedisClient } from 'bun';
 import { defineScript, runScript } from '../../scripts/run-script';
 import type { queueKeys } from '../keys';
-import { NOW_LUA } from './claim';
+import { NOW_LUA } from './claim-body';
 import { parseStepBegin, parseStepCommit, type StepBegin } from './replies';
 
 /*

@@ -303,7 +303,7 @@ describe('work', () => {
 		try {
 			await mails().add({ to: 'a' }, { id: 'a' });
 			// The dead process: it claims, then never renews nor settles.
-			await claim(client(), keys, 1, mailQueue.lease);
+			await claim(client(), keys, 1, mailQueue.lease, undefined);
 			await Bun.sleep(350);
 			const attempts: number[] = [];
 			work((job) => void attempts.push(job.attempt));

@@ -81,7 +81,7 @@ function handContext(over?: Partial<WorkerContext>) {
 	} as unknown as WorkerContext;
 }
 async function take(context: WorkerContext) {
-	const reply = await claim(client(), keys, 1, mailQueue.lease);
+	const reply = await claim(client(), keys, 1, mailQueue.lease, undefined);
 	return attempt(reply.jobs[0] as ClaimedJob, context);
 }
 function attempt(job: ClaimedJob, context: WorkerContext) {

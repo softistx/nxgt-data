@@ -17,7 +17,7 @@ const boom = { name: 'Boom', message: 'it broke' };
 /** Takes one job and fails it for good (no retry delay), leaving it in `failed`. */
 async function failed(id: string) {
 	await mails().add(to(id), { id });
-	const [job] = (await claim(client(), keys, 1, 30_000)).jobs;
+	const [job] = (await claim(client(), keys, 1, 30_000, undefined)).jobs;
 	if (!job || job.id !== id) throw new Error(`${id} was not claimed`);
 	await fail(client(), keys, mailQueue, id, job.token, boom, null, false);
 }
@@ -37,7 +37,7 @@ describe('counts', () => {
 		// The claims come first: a claim takes the oldest waiting job.
 		await failed('f');
 		await q.add(to('c'), { id: 'c' });
-		const [job] = (await claim(client(), keys, 1, 30_000)).jobs;
+		const [job] = (await claim(client(), keys, 1, 30_000, undefined)).jobs;
 		if (!job) throw new Error('nothing claimed');
 		await complete(
 			client(),
@@ -49,7 +49,7 @@ describe('counts', () => {
 			false,
 		);
 		await q.add(to('a'), { id: 'a' });
-		await claim(client(), keys, 1, 30_000);
+		await claim(client(), keys, 1, 30_000, undefined);
 		await q.add(to('w'), { id: 'w' });
 		await q.add(to('d'), { id: 'd', delay: '1h' });
 		const before = Number(
@@ -69,6 +69,7 @@ describe('counts', () => {
 			active: 1,
 			completed: 1,
 			failed: 1,
+			paused: false,
 		});
 		expect(after - before).toBe(1);
 	});
@@ -124,7 +125,7 @@ describe('list', () => {
 		expect(await ids('waiting', { offset: 1, limit: 1 })).toEqual(['w2']);
 		expect(await ids('delayed')).toEqual(['d2', 'd1']);
 		expect(await ids('active')).toEqual([]);
-		await claim(client(), keys, 1, 30_000);
+		await claim(client(), keys, 1, 30_000, undefined);
 		expect(await ids('active')).toEqual(['w1']);
 
 		// newest first for finished jobs
@@ -202,7 +203,7 @@ describe('remove', () => {
 		const q = mails();
 		await failed('f');
 		await q.add(to('c'), { id: 'c' });
-		const [job] = (await claim(client(), keys, 1, 30_000)).jobs;
+		const [job] = (await claim(client(), keys, 1, 30_000, undefined)).jobs;
 		if (!job) throw new Error('nothing claimed');
 		await complete(
 			client(),
@@ -214,7 +215,7 @@ describe('remove', () => {
 			false,
 		);
 		await q.add(to('a'), { id: 'a' });
-		await claim(client(), keys, 1, 30_000);
+		await claim(client(), keys, 1, 30_000, undefined);
 		await q.add(to('w'), { id: 'w' });
 		await q.add(to('d'), { id: 'd', delay: '1h' });
 		const owner = (await q.list('active'))[0]?.id;
@@ -227,6 +228,7 @@ describe('remove', () => {
 			active: 1,
 			completed: 0,
 			failed: 0,
+			paused: false,
 		});
 		expect(await q.get('d')).toBeUndefined();
 		await q.remove('w');

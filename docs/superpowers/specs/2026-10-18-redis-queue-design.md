@@ -74,6 +74,10 @@ const job = await redis.queues.mails.add(
 	{ delay: '10m', priority: 1, group: tenantId, id: `welcome/${userId}` },
 );
 job.id; job.deduplicated;
+// one job per key, run `wait` after the last add; a reindex after edits
+await redis.queues.mails.add(data, { debounce: { key: `reindex/${docId}`, wait: '30s' } });
+// the first add under a key wins for `window`; at most one digest an hour
+await redis.queues.mails.add(data, { throttle: { key: `digest/${userId}`, window: '1h' } });
 const { messageId } = await job.finished({ timeout: '30s' });
 await job.cancel();
 
@@ -163,7 +167,7 @@ deployment's prefix in front of it when wired, as the guards' names are.
 
 | Part | Type | Holds |
 | --- | --- | --- |
-| `job:<id>` | hash | `data` (JSON), `step:<name>` (JSON, slice 3), `priority`, `group`, `attempt`, `attempts`, `state`, `token`, `progress`, `error`, `result` (JSON), `added`, `runAt`, `finished`, `dedupe` |
+| `job:<id>` | hash | `data` (JSON), `step:<name>` (JSON, slice 3), `priority`, `group`, `attempt`, `attempts`, `state`, `token`, `progress`, `error`, `result` (JSON), `added`, `runAt`, `finished`, `dedupe`, `retried` (`1` once RETRY has put the job back; only ADD's debounce reads it) |
 | `delayed` | zset | id → ms at which it becomes ready |
 | `ready` | zset | id → `priority × 2^40 + seq` (FIFO within a priority) |
 | `active` | zset | id → ms at which its lease lapses |
@@ -172,7 +176,7 @@ deployment's prefix in front of it when wired, as the guards' names are.
 | `wake` | list | at most one token a blocked worker `BLPOP`s |
 | `paused` | string | present while paused |
 | `rate` | string | the GCRA state of `rateLimit` |
-| `dedupe:<key>` | string | the job id holding a debounce/throttle key, with its TTL |
+| `dedupe:<key>` | string | the job id holding a debounce/throttle key. A throttle's PX is its `window`; a debounce's is `wait + 24 h`, a memory bound: the state decides while the key lives, so a job left waiting longer than that can be joined by a second one; each hit refreshes it |
 | `schedules` | zset | schedule id → ms of its next occurrence |
 | `schedule:<id>` | hash | `cron` or `every`, `timezone`, `data` (JSON), `origin` (`definition` / `runtime`) |
 | `groups:ready` | list | groups with ready jobs and a free slot, in round-robin order (slice 7) |
@@ -200,29 +204,46 @@ Each one trusts only the state it could have written, as the guards do: a
 hash whose shape it does not recognise is refused, never "repaired".
 
 - **ADD** (also the body of `addMany`, up to 500 jobs per call): for each job,
-  if `job:<id>` exists → report it, add nothing. Debounce: if `dedupe:<key>`
-  names a job still in `delayed`/`ready`, replace its `data` and move its run
-  time to now + `ttl`; if it names an active job, add a new one (activity
-  during a run is never lost). Throttle: if `dedupe:<key>` exists, report the
-  job it names and add nothing; else set it with `PX ttl`. Then write the
+  if `job:<id>` exists → report it, add nothing. Debounce (`wait`): if
+  `dedupe:<key>` names a job whose hash says `waiting` (and it is in `ready`)
+  or `delayed` (and it is in `delayed`), replace its `data`, take it out of
+  `ready`, put it in `delayed` at now + `wait` (keeping its priority,
+  attempts and timeout), refresh the key's PX and answer with its id; a new
+  head of `delayed` leaves a `wake` token. The state decides while the key lives (`wait` plus a day); a job left waiting longer can be joined by a second one. A stored key that is not a valid id is read as no key.
+  If it names an active, finished or missing job, or a hash of a shape ADD
+  could not have written (left untouched), add a new job and point the key at
+  it: activity during a run is never lost. Throttle (`window`): if
+  `dedupe:<key>` exists, answer with the id it names and add nothing, even if
+  that job is gone; else add the job and set the key with `PX window`. The
+  reply is per job `0` (added), `1` (the `id` existed) or the id string the
+  key holds. Then write the
   hash, `ZADD delayed` (a future run time) or `ZADD ready`, and push one
   `wake` token if the list is empty (it holds at most one: "ready has work",
   or a delayed job became the head of `delayed`; each woken worker passes the
-  baton, see CLAIM).
-- **CLAIM**(n, lease, token): if `paused`, return nothing. Reclaim up to 100
+  baton, see CLAIM), but none while `paused` exists: RESUME leaves one. A
+  debounce joins only a job that has not run (`attempt` 0 and no `retried`):
+  a job in retry backoff, or put back by RETRY, is under way, like an active
+  one, so a new job is added.
+- **CLAIM**(n, lease, token): reclaim up to 100
   lapsed leases from `active` — each counts as an attempt (a job that kills
   its process does not loop forever): back to `ready`, or to `failed` with
   "lease lapsed" when spent; report them as `stalled`. Promote up to 1000 due
-  jobs from `delayed` to `ready`. Admit up to n under `rateLimit` (the GCRA of
-  `defineRateLimit`, its Lua shared, not copied). Pop that many from `ready`
-  (round-robin over groups from slice 7), set `state=active`, the token,
+  jobs from `delayed` to `ready`; both still run while `paused`, so `counts`
+  stays honest. While `paused` exists, pop nothing. Otherwise admit up to n
+  under `rateLimit` (the GCRA of `defineRateLimit`, its Lua shared, not
+  copied; a peek at cost 1, then the jobs popped are charged once). Pop that
+  many from `ready` (round-robin over groups from slice 7), set `state=active`, the token,
   `attempt+1`, and `ZADD active now+lease`. If `ready` still has jobs, push
   one `wake` token back if the list is empty, so a blocked peer takes over; if
-  `ready` is empty, `DEL wake`. That `DEL wake` may erase a delayed-head token
+  `ready` is empty, or the queue is paused, or the rate refuses the jobs in
+  `ready`, `DEL wake` (a token there would make every worker spin on claims
+  that pop nothing). That `DEL wake` may erase a delayed-head token
   pushed in the one round trip between a worker's empty claim and its `BLPOP`;
   that job then waits at most the 5 s cap (accepted). Return the jobs, the
-  stalled ids, and the ms until the next `delayed` job, schedule or rate
-  admission (the next wait).
+  stalled ids, and the ms until the next wait ends: the next `delayed` job or
+  schedule, `-1` when none; 5 s while paused (the worker's own cap, it only
+  has to notice a lost resume token); while the rate refuses, the GCRA's
+  `retryAfter` for one job when that is sooner than the delayed head.
 - **RENEW**(token, ids…): for each id still holding the token, push its lease;
   return the ids that lost it (their `signal` fires). One call per worker per
   `lease / 3`, whatever its concurrency.
@@ -242,7 +263,9 @@ hash whose shape it does not recognise is refused, never "repaired".
   fires; its late COMPLETE/FAIL finds no token and is dropped silently).
 - **RETRY**, **REMOVE**: on a job in `failed` (RETRY resets `attempt`) or, for
   REMOVE, in any state but active (cancel it first).
-- **PAUSE**, **RESUME**: set or delete `paused`; RESUME pushes wake tokens.
+- **PAUSE**, **RESUME**: set or delete `paused`; RESUME leaves one `wake`
+  token when `ready` or `delayed` holds jobs, so a blocked worker starts at
+  once (a delayed job may have fallen due during the pause).
 - **FIRE**(scheduleId, due, next): if the schedule's score is still `due`, add
   the occurrence `schedule:<id>:<due>` and set the score to `next`; else do
   nothing (another process fired it).
@@ -380,6 +403,10 @@ the job id (never the data):
 - **Round trips, pinned by specs** that count commands through a wrapped
   client: `add` 1, `addMany` 1 per 500, CLAIM of n 1, a busy worker 1 per job
   (COMPLETE/FAIL claim the next), RENEW 1 per worker per `lease / 3`.
+  The 1-per-job budget holds without a `rateLimit`. Under one, a settle whose
+  claim the rate refuses is followed by the worker loop's own claims while it
+  waits for an admission, so a job can cost more than one round trip (not
+  measured; bounded by one claim per `retryAfter`, never a spin).
   A regression is a failing spec.
 - **Bounded scripts**: no script scans a whole structure; every loop has a
   cap (reclaim 100, promote 1000, trim per call), so one call cannot hold the

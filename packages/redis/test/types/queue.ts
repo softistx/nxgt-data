@@ -9,6 +9,7 @@ import {
 	bindIdempotency,
 	bindQueue,
 	bindRateLimit,
+	type DebounceOptions,
 	defineQueue,
 	type Handler,
 	type JobContext,
@@ -21,6 +22,7 @@ import {
 	type QueueErrorCode,
 	type ResultInputOf,
 	type ResultOf,
+	type ThrottleOptions,
 	type WorkerEvents,
 	type WorkOptions,
 } from '../../src';
@@ -72,6 +74,49 @@ queue.add({ to: 'a@b.c' }, { delay: 1000, at: new Date() });
 // @ts-expect-error a priority is a number
 queue.add({ to: 'a@b.c' }, { priority: '1' });
 
+// Flow control: a debounce or a throttle names the job by its key.
+queue.add(
+	{ to: 'a@b.c' },
+	{ debounce: { key: 'a', wait: '30s' }, priority: 1 },
+);
+queue.add(
+	{ to: 'a@b.c' },
+	{ throttle: { key: 'a', window: '1h' }, delay: '1m' },
+);
+queue.add(
+	{ to: 'a@b.c' },
+	{ throttle: { key: 'a', window: 1000 }, at: new Date() },
+);
+// @ts-expect-error a debounce takes no id: its key names the job
+queue.add({ to: 'a@b.c' }, { debounce: { key: 'a', wait: 1 }, id: 'x' });
+// @ts-expect-error a debounce sets the run time itself, so no delay
+queue.add({ to: 'a@b.c' }, { debounce: { key: 'a', wait: 1 }, delay: 1 });
+// @ts-expect-error nor an at
+queue.add({ to: 'a@b.c' }, { debounce: { key: 'a', wait: 1 }, at: new Date() });
+// @ts-expect-error a throttle takes no id either
+queue.add({ to: 'a@b.c' }, { throttle: { key: 'a', window: 1 }, id: 'x' });
+queue.add(
+	{ to: 'a@b.c' },
+	{
+		debounce: { key: 'a', wait: 1 },
+		// @ts-expect-error debounce and throttle exclude each other
+		throttle: { key: 'a', window: 1 },
+	},
+);
+// @ts-expect-error a debounce needs its wait
+queue.add({ to: 'a@b.c' }, { debounce: { key: 'a' } });
+// @ts-expect-error a throttle needs its window, not a wait
+queue.add({ to: 'a@b.c' }, { throttle: { key: 'a', wait: 1 } });
+// @ts-expect-error a wait is a duration, and 'w' is not a unit
+queue.add({ to: 'a@b.c' }, { debounce: { key: 'a', wait: '1w' } });
+queue.addMany([
+	{
+		data: { to: 'a@b.c' },
+		// @ts-expect-error addMany checks each item's options as add does
+		options: { debounce: { key: 'a', wait: 1 }, id: 'x' },
+	},
+]);
+
 queue.work((job) => {
 	// @ts-expect-error the payload has no `nope`
 	return job.data.nope;
@@ -86,6 +131,29 @@ defineQueue({
 
 // @ts-expect-error a lease unit that does not exist
 defineQueue({ name: 'x', schema: z.string(), lease: '1w' });
+
+// A rate limit needs both a limit and a per, and per is a duration.
+defineQueue({
+	name: 'x',
+	schema: z.string(),
+	rateLimit: { limit: 1, per: '1m' },
+});
+defineQueue({
+	name: 'x',
+	schema: z.string(),
+	// @ts-expect-error '1 min' is not a unit
+	rateLimit: { limit: 1, per: '1 min' },
+});
+// @ts-expect-error a rate limit needs a limit
+defineQueue({ name: 'x', schema: z.string(), rateLimit: { per: '1m' } });
+// @ts-expect-error nor does it go without the span it is counted over
+defineQueue({ name: 'x', schema: z.string(), rateLimit: { limit: 1 } });
+
+// `paused` is a boolean, not a count.
+const paused: boolean = ({} as QueueCounts)['paused'];
+const pausedIsNotANumber: QueueCounts['paused'] extends boolean ? true : never =
+	true;
+void [paused, pausedIsNotANumber];
 
 // The codes a refusal can carry.
 const code: QueueErrorCode = 'ACTIVE';
@@ -219,6 +287,8 @@ const events: keyof WorkerEvents = 'completed';
 const state: JobState = 'active';
 const counts: QueueCounts = {} as QueueCounts;
 const addOptions: AddOptions = { timeout: '1s' };
+const debounced: DebounceOptions = { key: 'a', wait: '1s' };
+const throttled: ThrottleOptions = { key: 'a', window: '1s' };
 const workOptions: WorkOptions = { concurrency: 2 };
 void [
 	resultOf,
@@ -229,6 +299,8 @@ void [
 	state,
 	counts,
 	addOptions,
+	debounced,
+	throttled,
 	workOptions,
 ];
 

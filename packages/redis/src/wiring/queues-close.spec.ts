@@ -146,6 +146,15 @@ describe('closing a Redis with queues', () => {
 		expect(refused.code).toBe('CLOSED');
 	});
 
+	test('pause, resume and counts pass through after redis.close()', async () => {
+		const redis = track(await openRedis(handed()));
+		await redis.close();
+		await redis.queues.mails.pause();
+		expect((await redis.queues.mails.counts()).paused).toBe(true);
+		await redis.queues.mails.resume();
+		expect((await redis.queues.mails.counts()).paused).toBe(false);
+	});
+
 	test('a finished pending across redis.close() rejects CLOSED, and CLIENT LIST is back to baseline', async () => {
 		const baseline = await connections();
 		const redis = track(await openRedis(handed()));

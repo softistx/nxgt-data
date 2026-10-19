@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { Duration } from './duration';
+import type { AddKeyed, QueueRate, QueueRateLimit } from './flow-types';
 import type { JobHandle } from './handle-types';
 import type { ResultOf } from './result-types';
 import type { Handler, Worker, WorkOptions } from './worker/types';
@@ -51,6 +52,8 @@ export type QueueInput<
 	 * run as 24.8 days.
 	 */
 	timeout?: Duration;
+	/** At most `limit` jobs start per `per` across every worker; see {@link QueueRateLimit}. */
+	rateLimit?: QueueRateLimit;
 };
 
 /** What `defineQueue` returns: frozen, every option resolved, spans in milliseconds. */
@@ -69,17 +72,21 @@ export type QueueDefinition<
 		| { readonly age: number; readonly count: number };
 	readonly keepFailed: number;
 	readonly timeout: number | undefined;
+	readonly rateLimit: QueueRate | undefined;
 };
 
-/** What `add` takes beside the payload. `delay` and `at` are two ways to say the same thing. */
+/**
+ * What `add` takes beside the payload. `delay` and `at` are two ways to say
+ * the same thing. `debounce` and `throttle` name the job by a key, so they
+ * take no `id`, and exclude each other; `debounce` also sets the run time, so
+ * it takes no `delay` or `at`.
+ */
 export type AddOptions = {
-	/** The job's id, 1 to 256 characters without braces. Adding an id twice keeps the first. */
-	id?: string;
 	/** Whole number, 0 to 1000; a lower one runs first. Default 0. */
 	priority?: number;
 	/** Overrides the queue's `timeout` for this job. */
 	timeout?: Duration;
-} & ({ delay?: Duration; at?: never } | { at?: Date; delay?: never });
+} & AddKeyed;
 
 /** What `retry` takes beside the id. */
 export type RetryOptions = {
@@ -123,7 +130,7 @@ export type JobView<
 };
 
 /** How many jobs are in each state. */
-export type QueueCounts = Record<JobState, number>;
+export type QueueCounts = Record<JobState, number> & { paused: boolean };
 
 /** A queue bound to a client. */
 export type BoundQueue<
@@ -182,8 +189,20 @@ export type BoundQueue<
 		state: JobState,
 		page?: { offset?: number; limit?: number },
 	): Promise<JobView<S, R>[]>;
-	/** How many jobs are in each state, from one script. */
+	/** How many jobs are in each state, and whether it is paused: one script. */
 	counts(): Promise<QueueCounts>;
+	/**
+	 * Pauses the queue for every worker of every process: no new job is
+	 * claimed. Running jobs finish and settle, and a settle claims nothing
+	 * next. Delayed jobs still become due and lapsed leases are still
+	 * reclaimed, so `counts()` stays honest. Idempotent, and it works after
+	 * the Redis is closed, as `counts()` does.
+	 */
+	pause(): Promise<void>;
+	/**
+	 * Lifts a pause: blocked workers start claiming at once. Idempotent.
+	 */
+	resume(): Promise<void>;
 	/**
 	 * Puts a failed job back to `waiting`: its attempts start again from 0 and
 	 * its last error is cleared. Its steps are kept by default, so the next

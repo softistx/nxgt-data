@@ -31,6 +31,20 @@ export function enqueued() {
 	return mailQueue.add({ to: 'ada@example.com' }, { delay: '10m' });
 }
 
+/** A debounced and a throttled add: the option types come through the entry. */
+export function flowControlled() {
+	return [
+		mailQueue.add(
+			{ to: 'ada@example.com' },
+			{ debounce: { key: 'ada', wait: '30s' } },
+		),
+		mailQueue.add(
+			{ to: 'ada@example.com' },
+			{ throttle: { key: 'digest', window: '1h' } },
+		),
+	];
+}
+
 export function worker() {
 	return mailQueue.work(({ data }) => data.template, { concurrency: 4 });
 }

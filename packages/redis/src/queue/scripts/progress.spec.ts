@@ -13,7 +13,7 @@ const hget = (id: string, field: string) => client().hget(keys.job(id), field);
 
 async function take(id: string) {
 	await bindQueue(client(), mailQueue).add({ to: id }, { id });
-	const job = (await claim(client(), keys, 1, 30_000)).jobs.find(
+	const job = (await claim(client(), keys, 1, 30_000, undefined)).jobs.find(
 		(j) => j.id === id,
 	);
 	if (!job) throw new Error(`${id} was not claimed`);

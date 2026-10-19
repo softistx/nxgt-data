@@ -21,7 +21,8 @@ import { scriptKeys } from './claim';
  * failed, absent, or whose hash and set disagree changes nothing and
  * publishes nothing.
  *
- * KEYS: delayed, ready, active, completed, failed, seq, wake, events.
+ * KEYS: delayed, ready, active, completed, failed, seq, wake, events,
+ * paused, rate (`rate` is reserved for the rate limit).
  * ARGV: job-key prefix, id.
  * Returns 1 (canceled) or 0 (nothing to cancel, nothing changed).
  */

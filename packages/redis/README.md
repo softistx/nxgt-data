@@ -393,7 +393,7 @@ or `{ retryIn: '5m' }` to choose the wait. `redis.queues.mails` is the queue
 under the deployment's prefix; after `redis.close()`, `add`, `addMany`,
 `finished` and `work` throw `QueueError` `CLOSED`. A queue can also be bound by
 hand with `bindQueue(client, definition)`, with no prefix and no `CLOSED`. The
-[queue guide](docs/guide/queues.md) has results, timeouts, progress, events, priorities, retention, inspection and a spec.
+[queue guide](docs/guide/queues.md) has results, timeouts, progress, events, priorities, flow control, retention, inspection and a spec.
 
 ## What it does not do
 
@@ -625,12 +625,15 @@ with. Each subscription is one more connection.
 
 | | |
 | --- | --- |
-| `defineQueue({ name, schema, result?, attempts?, backoff?, lease?, keepCompleted?, keepFailed?, timeout? })` | describes a queue; talks to nothing. Frozen, every `Duration` resolved to milliseconds. Refuses a definition that could never work with a `TypeError` |
-| `bindQueue(client, definition)` | binds it to a `RedisClient`: `definition` (read-only), `add(data, { id?, priority?, timeout?, delay? \| at? })` (a `JobHandle`: `id`, `deduplicated`, `finished({ timeout? })`, `cancel()`), `addMany(items)`, `work(handler, { concurrency? })` (the handler's `job` has `id`, `data`, `attempt`, `attempts`, `signal`, `progress(value)`, `step(name, fn, { schema? })` and `key(name)`; a `Worker`: `close({ grace? })`, `idle()`, `on(event, listener)`), `get(id)`, `list(state, { offset?, limit? })`, `counts()`, `retry(id, { fresh? })` (`fresh: true` clears the stored steps), `remove(id)` and `cancel(id)`. Bound by hand: no prefix, never `CLOSED` |
+| `defineQueue({ name, schema, result?, attempts?, backoff?, lease?, keepCompleted?, keepFailed?, timeout?, rateLimit? })` | describes a queue; talks to nothing. Frozen, every `Duration` resolved to milliseconds. Refuses a definition that could never work with a `TypeError` |
+| `bindQueue(client, definition)` | binds it to a `RedisClient`: `definition` (read-only), `add(data, { id?, priority?, timeout?, delay? \| at? })` (or `debounce` or `throttle` in place of `id`) (a `JobHandle`: `id`, `deduplicated`, `finished({ timeout? })`, `cancel()`), `addMany(items)`, `work(handler, { concurrency? })` (the handler's `job` has `id`, `data`, `attempt`, `attempts`, `signal`, `progress(value)`, `step(name, fn, { schema? })` and `key(name)`; a `Worker`: `close({ grace? })`, `idle()`, `on(event, listener)`), `get(id)`, `list(state, { offset?, limit? })`, `counts()` (the five states and `paused`), `pause()`, `resume()`, `retry(id, { fresh? })` (`fresh: true` clears the stored steps), `remove(id)` and `cancel(id)`. Bound by hand: no prefix, never `CLOSED` |
+| `rateLimit: { limit, per, burst? }` | on `defineQueue`: at most `limit` jobs start per `per`, shared by every worker and process of the queue; only a job that starts is charged |
+| `queue.pause()`, `queue.resume()` | stop and restart claims for every worker; running jobs finish, lapsed leases are still reclaimed, `resume` wakes a worker at once; both work after `redis.close()` |
+| `add(data, { debounce: { key, wait } })`, `add(data, { throttle: { key, window } })` | debounce keeps the last data and runs `wait` after the last add; throttle keeps the first job and answers its id for `window`. `deduplicated` on the handle; see [flow control](docs/guide/queues.md#flow-control) |
 | `defineRedis({ queues })` | wires every queue of the module as `redis.queues.<key>`, under the deployment's prefix (keys `queue:{<prefix>:<name>}:…`, `job.key(name)` as `<prefix>:<queue>:<id>:<name>`), built on first read |
 | `redis.close({ grace? })` | closes the queues' workers with `grace` (default 30 s), then refuses `add`, `addMany`, `finished` and `work` with `CLOSED` and rejects pending `finished`; admin calls still pass. Memoised: a second call's `grace` is ignored; a malformed one rejects before anything closes |
 
-The types are `QueueDefinition`, `QueueInput`, `BoundQueue`, `Worker`, `WorkerEvents`, `WorkOptions`, `JobContext`, `StepOptions`, `Handler`, `JobHandle`, `AddOptions`, `RetryOptions`, `JobView`, `JobState`, `QueueCounts`, `ResultOf`, `ResultInputOf` and `Duration`; `JobError` is what a handler throws to choose its retry.
+The types are `QueueDefinition`, `QueueInput`, `BoundQueue`, `Worker`, `WorkerEvents`, `WorkOptions`, `JobContext`, `StepOptions`, `Handler`, `JobHandle`, `AddOptions`, `RetryOptions`, `JobView`, `JobState`, `QueueCounts`, `QueueRateLimit`, `QueueRate`, `DebounceOptions`, `ThrottleOptions`, `ResultOf`, `ResultInputOf` and `Duration`; `JobError` is what a handler throws to choose its retry.
 Wired, `QueueScope` is `redis.queues`, `SoleQueues` its top-level form, and `QueuesOf` and `QueuesIn` read the queues off a configuration.
 See the [queue guide](docs/guide/queues.md) and its [durable steps](docs/guide/queues.md#running-twice).
 

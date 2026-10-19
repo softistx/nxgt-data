@@ -20,8 +20,9 @@ item shipped in is the only number on this page.
   and built lazily on first use; the deployment `prefix` is on every key and in
   `job.key`; `redis.close({ grace })` closes the workers and refuses later adds
   with `QueueError` `CLOSED`; and a queue whose name is shared with a cache, a
-  rate limit or an idempotency is refused. Still to come in the same release:
-  debounce, throttle, pause and resume with a queue-wide rate limit; recurring
+  rate limit or an idempotency is refused. Flow control: `debounce` and `throttle` on `add`,
+  `pause()` and `resume()`, and a queue-wide `rateLimit` shared by every worker
+  (landed, not yet released). Still to come in the same release: recurring
   jobs by cron with time zones; concurrency and fairness per group; and a
   published benchmark.
 

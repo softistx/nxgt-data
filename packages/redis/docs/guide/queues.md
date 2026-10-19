@@ -50,10 +50,18 @@ Redis Cluster slot; for the same reason a name cannot contain braces.
 | `keepFailed` | `Duration` | `7d` | how long a failed job stays readable |
 | `result` | zod schema | none | what a handler returns, checked when it returns and again when it is read; see [Results](#results) |
 | `timeout` | `Duration` | none | how long one run may take before it is aborted and counted as a failed attempt; at least 1 ms; see [Timeouts](#timeouts-and-the-abort-signal) |
+| `rateLimit` | `{ limit, per, burst? }` | none | at most `limit` jobs start per `per`, across every worker; see [Flow control](#flow-control) |
 
 A `Duration` is a whole number of milliseconds, or a string with a unit —
 `'250ms'`, `'30s'`, `'10m'`, `'2h'`, `'7d'`. A fraction is fine in a string
 (`'1.5s'`) as long as it is a whole number of milliseconds.
+
+The `Duration` type is looser than the check: it accepts any `` `${number}s` ``
+shape, so a string such as `'1 m'` compiles, and only the run-time check
+refuses it, with a `TypeError` that names the option. `defineQueue` runs that
+check at import; `add`'s own durations (`delay`, `timeout`, `wait`, `window`)
+run it at the call, so a typo there fails when the line runs, not when it is
+compiled.
 
 ```ts
 export const thumbnails = defineQueue({
@@ -95,6 +103,8 @@ refusal is a `QueueError` with `code: 'INVALID'`, and nothing is written.
 | `delay` | `Duration` | none | the job becomes due after this long |
 | `at` | `Date` | none | the job becomes due then; a time in the past is due now. Give `delay` or `at`, not both |
 | `timeout` | `Duration` | the queue's | overrides the queue's `timeout` for this job; the per-job value wins |
+| `debounce` | `{ key, wait }` | none | collapses adds under one key into one job; see [Debounce and throttle](#debounce-and-throttle) |
+| `throttle` | `{ key, window }` | none | the first add under a key wins for `window`; see [Debounce and throttle](#debounce-and-throttle) |
 
 ```ts
 // Run in ten minutes, ahead of the ordinary jobs.
@@ -610,6 +620,136 @@ The messages name the queue and the step, never the value. `LEASE_LOST` is
 described above. See [troubleshooting](../troubleshooting.md#queues) for the
 messages.
 
+## Flow control
+
+Three ways to decide how fast jobs run, without touching the handler: stop the
+queue, cap how many jobs start, and collapse jobs that say the same thing.
+
+### Pause and resume
+
+```ts
+await queue.pause();   // no worker of any process claims a new job
+const { paused, waiting } = await queue.counts(); // paused: true
+await queue.resume();  // blocked workers claim at once
+```
+
+`pause()` stops **claims**, for every worker of every process of the queue.
+Jobs already running finish, and when one settles its worker claims nothing
+next. The queue still keeps its books: a lapsed lease is reclaimed and a
+delayed job that falls due is promoted to `waiting`, so `counts()` stays
+honest; it simply waits there. `resume()` wakes a blocked worker at once, not
+at its next poll. Both are idempotent, and both work after `redis.close()`, as
+`counts()` does.
+
+`counts()` carries `paused` beside the five states:
+
+```ts
+type QueueCounts = Record<JobState, number> & { paused: boolean };
+```
+
+`idle()` on a paused queue resolves once nothing is claimable, which is
+immediately when no job is running; it does not wait for the resume.
+
+### A rate limit
+
+```ts
+import { defineQueue } from '@nxgt/redis';
+import { z } from 'zod';
+
+export const mails = defineQueue({
+	name: 'mails',
+	schema: z.object({ to: z.string() }),
+	rateLimit: { limit: 10, per: '1s', burst: 20 },
+});
+```
+
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `limit` | `number` | required | jobs that may start per `per`; a whole number, at least 1 |
+| `per` | `Duration` | required | the span `limit` is counted over; at least 1 ms |
+| `burst` | `number` | `limit` | jobs that may start at once from a full bucket; a whole number, at least 1 |
+
+The limit is **shared by every worker and process** of the queue, counted in
+Redis by the same GCRA as [`defineRateLimit`](./guard/rate-limits.md), so ten
+workers on ten machines still start ten jobs a second. It is not
+`bindRateLimit`: that guards a call a handler or a route makes and answers
+`allowed: false` to it, while a queue's `rateLimit` decides when a job is
+**admitted**, and the job simply stays `waiting`.
+
+Only a job that **starts** is charged: a job a worker reclaims after a lapsed
+lease is not charged again. A limited worker waits for the `retryAfter` the
+limiter answers, and wakes for a new add or a resume; it does not spin, and an
+idle limited queue costs no more than an idle one. A malformed `rateLimit` is a
+`TypeError` from `defineQueue`.
+
+### Debounce and throttle
+
+Both name the job by a `key` instead of an `id`, scoped to the queue.
+
+| | `debounce: { key, wait }` | `throttle: { key, window }` |
+| --- | --- | --- |
+| Keeps | the **last** data | the **first** job |
+| Runs | `wait` after the last add: each add pushes it back | when it would have anyway; the key only blocks others |
+| A repeat add | replaces the data, moves the run time | adds nothing |
+| Answers | the waiting job's id, `deduplicated: true` | the first job's id, `deduplicated: true` |
+
+```ts
+// Reindex a document 30 s after the last edit, however many edits there are.
+await queue.add({ docId }, { debounce: { key: docId, wait: '30s' } });
+
+// At most one digest per user per hour.
+await queue.add({ userId }, { throttle: { key: userId, window: '1h' } });
+```
+
+A debounce decides on the **job's state**, not on the key alone. While the job
+is `waiting` or `delayed` and has not yet run (a job in retry backoff, or put back by `retry`, counts as
+under way), a new add replaces its data and pushes its run time back; it keeps
+its priority, attempts and timeout. A job that is already running, or has run
+once, is never changed: the next add makes a new job, so an edit made during a
+reindex is not lost. With `concurrency` above 1 the two can run at once, once
+`wait` has passed; keep the handler safe to overlap, or use concurrency 1.
+
+The state decides while the key lives, which is `wait` plus a day. A job left
+waiting longer than that (a paused queue, no worker, a backlog) can be joined
+by a second one.
+
+A throttle answers the first job's id for the whole `window`, **even after that
+job has finished**. `finished()` on that handle then waits for the stored job
+if it is there, and throws `NOT_FOUND` once retention has removed it:
+
+```ts
+const sent = await queue.add({ userId }, { throttle: { key: userId, window: '1h' } });
+if (sent.deduplicated) {
+	// a digest went out, or is queued, within the last hour
+}
+```
+
+`deduplicated` is on the handle either way. `addMany` applies the keys in the
+order given, so two items under one key in a batch behave as two calls:
+
+```ts
+const [first, second] = await queue.addMany([
+	{ data: { docId: 'a' }, options: { debounce: { key: 'a', wait: '30s' } } },
+	{ data: { docId: 'a' }, options: { debounce: { key: 'a', wait: '30s' } } },
+]);
+// second.id === first.id, second.deduplicated === true; the job holds the second data
+```
+
+Combinations that cannot mean anything are a `TypeError` from `add` or
+`addMany`, before any round trip, naming the call and the queue and never the
+value:
+
+| Given | Why it is refused |
+| --- | --- |
+| `debounce` with `throttle` | give one |
+| `debounce` or `throttle` with `id` | the key names the job |
+| `debounce` with `delay` or `at` | `wait` sets the run time |
+| a `key` of 0 or over 256 characters, or with a brace | the key is part of a Redis key |
+| a `wait` or `window` under 1 ms, or not a `Duration` | it could never hold |
+
+`throttle` with `delay` or `at` is allowed: the job is due then, and the window
+runs from the add.
+
 ## Retries and backoff
 
 A handler that throws is retried until `attempts` runs have been spent, then the
@@ -896,7 +1036,7 @@ waits for a retry waits milliseconds rather than seconds.
 | --- | --- |
 | `add` | 1 |
 | `addMany` | 1 per 500 jobs |
-| a busy worker | about 1 per job: it settles a job and claims the next in the same script |
+| a busy worker | about 1 per job: it settles a job and claims the next in the same script (it can exceed that under a queue `rateLimit`, whose refusal sends it back to wait; not measured, and bounded by one claim per `retryAfter`, never a spin) |
 | an idle worker | none while it waits; it blocks on a connection of its own |
 | `job.step` | 2 when it runs, 1 when its value is already stored |
 | `counts` | 1 |

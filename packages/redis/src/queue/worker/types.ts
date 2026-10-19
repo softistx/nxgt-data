@@ -120,7 +120,8 @@ export type Worker = {
 	 * at once when that already holds, and at once after `close`. The next
 	 * claimed job re-arms it. A job that was aborted (canceled, timed out, lost
 	 * its lease or cut off by `close`) frees its slot at once, so `idle` can
-	 * resolve while its handler, which ignored the signal, still runs.
+	 * resolve while its handler, which ignored the signal, still runs. On a
+	 * paused queue it resolves once the worker has nothing it can claim.
 	 */
 	idle(): Promise<void>;
 	/** Listens to an event; returns the way to stop listening. */
