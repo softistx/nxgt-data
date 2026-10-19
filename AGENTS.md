@@ -78,7 +78,8 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   `zod` `>=4.6.5 <5`, pinned exactly as devDependencies (`7.6.0`, `4.6.5`).
   Zod is not an implementation detail there: the schema an application writes
   is the package's input, so the application's copy has to be the one the
-  package parses with. Raise them together, after reading `mongodb.d.ts`,
+  package parses with. Raise them together, with the root's and the
+  examples' `zod` (same exact pin), after reading `mongodb.d.ts`,
   where `Filter`, `UpdateFilter` and `IndexDescription` live.
   `mongodb-memory-server-core` is a devDependency, and it depends on
   `mongodb ^7.2.0`: keep the pin inside that range, or the tree carries two
@@ -365,7 +366,8 @@ matching key in `exports` — except a `bin` target (`@nxgt/mongo-backup`'s
   own, which is what makes the package Bun-only and why it declares no driver
   peer — the one place in this repository where the "peers and pins move
   together" rule has nothing to pair. Its `zod` peer `>=4.6.5 <5` and its
-  exact `4.6.5` pin move with `@nxgt/mongo`'s: raise them together or the
+  exact `4.6.5` pin move with `@nxgt/mongo`'s, the root's and the examples'
+  (`examples/hono-api`, `examples/queue-mails`): raise them together or the
   workspace holds two zods. Read Bun's `redis.d.ts` before using a command,
   not the Redis manual: the client covers a subset, and has no `multi`/`exec`.
 - **The guards need no client dependency either**: `bindRateLimit` and
@@ -532,11 +534,12 @@ runs Biome instead.
   cold cache their builds into one directory broke each other on CI. `$REDIS_BIN` names a `redis-server` to
   use instead. CI caches `.cache/redis`, keyed on
   `packages/redis/src/testing/test-redis.ts` (the pinned version),
-  `packages/redis/test/server.ts` and the script. `examples/hono-api` starts a Redis
-  too, but carries **no copy**: its `test` script runs `scripts/redis.ts` and
-  passes the path it prints as `$REDIS_BIN`, and its `test/redis.ts` only
-  starts that binary (refusing to run without it), so it pins no
-  `REDIS_VERSION`, has no cache path, and is not in the CI key. `@nxgt/redis`'s `test/fixtures.ts` calls `closeRedis()` before stopping the server,
+  `packages/redis/test/server.ts` and the script. `examples/hono-api` and
+  `examples/queue-mails` start a Redis too, but carry **no copy**: their `test`
+  script runs `scripts/redis.ts` and passes the path it prints as
+  `$REDIS_BIN`, and their `test/redis.ts` only starts that binary (refusing to
+  run without it), so they pin no `REDIS_VERSION`, have no cache path, and are
+  not in the CI key. `@nxgt/redis`'s `test/fixtures.ts` calls `closeRedis()` before stopping the server,
   because `connectRedis` shares a client per URI and a connection a test left
   open would outlive it.
   **`bun install` builds no Redis in CI**: `redis-memory-server` is on Bun's
@@ -810,6 +813,7 @@ publishes to npm.
 | `idempotency/result.ts` and `RELEASE` in `idempotency/scripts.ts`, after `bindCache`'s `checked`/`get` in `cache/bind-cache.ts` and `withLock`'s `RELEASE`, **now in one package** | not code — no line is shared, though the layering no longer forbids it — but the same behaviour on purpose: a value parsed with the caller's schema on the way in (z.input → z.output) and on the way out, the stored form being what the schema gave back, and a lock-like key released only by a compare-and-delete on the holder's own token. **A rule changed in one is a rule to consider in the other.** What deliberately differs: a stored value the schema refuses is a **miss** for a cache and `INVALID` for an idempotent result, which stands for work already done; `run` parses its result back from JSON before storing it, where `remember` does not; the idempotency token lives in a hash field beside the state, not as the key's value; and `INVALID` names zod's issue **codes** only, where `bindCache`'s message joins zod's messages — which on zod 4.6.5 can quote a stray key. **Why nothing was shared when the guards moved in:** `checked` is a closure over a cache's definition that throws `RedisError` with zod's messages, and `toStored`/`fromStored` throw `GuardError` with issue codes only and parse twice, so a common function would take the error and the message as arguments and leave nothing; and `withLock`'s `RELEASE` is a string `GET` compared with a token and sent by `client.eval`, where the idempotency one is `HMGET` of two hash fields sent by `runScript` (`EVALSHA`) — what could be shared is `runScript`, which `withLock` could call instead of `client.eval`, and that is a change to the lock's behaviour left for its own PR |
 | `test/rejection.ts` of `@nxgt/mongo`, copied into `@nxgt/drizzle`, `@nxgt/redis`, `@nxgt/s3`, `@nxgt/backup`, `@nxgt/mongo-backup` and `@nxgt/mongo-meilisearch` (as the kit's copy, moved there when `@nxgt/mongo-search-kit` was folded in) | the helper that holds an expected rejection with `.then` where the promise is made — see Tests. `@nxgt/redis`'s (moved there from the former `@nxgt/redis-guard`, since dropped) is the full copy, `rejectionMessage` included, and `@nxgt/s3`'s, `@nxgt/backup`'s, `@nxgt/mongo-backup`'s and `@nxgt/mongo-meilisearch`'s are `@nxgt/redis`'s byte for byte; `@nxgt/drizzle`'s is an earlier, shorter one with `rejection` alone and a shorter comment. **A fix in one is a fix to make in the others** |
 | `test/server.ts` of `@nxgt/mongo` and of `@nxgt/meilisearch`, as `test/mongo.ts` and `test/meilisearch.ts` in `@nxgt/mongo-meilisearch`, `test/mongo.ts` alone in `@nxgt/mongo-backup` (its `dbName` apart), and once more in `examples/hono-api/test/mongo.ts` and `examples/mongo-backup-job/test/mongo.ts` (the version and cache only) | a package reaches no sibling's tests, and an example reaches no package's. Keep `MONGOD_VERSION` equal in all five mongod copies: CI keys the mongod cache on the hash of those five files. (There were seven until `@nxgt/mongo-kit` was folded into `@nxgt/mongo`, and six until `@nxgt/mongo-search-kit` was folded into `@nxgt/mongo-meilisearch`; the copies in each went with them.) |
+| `test/redis.ts` of `examples/hono-api`, copied and trimmed to `redisBin` and `startRedis` into `examples/queue-mails` | an example reaches no other example's tests, and both only start `$REDIS_BIN` with no version pin, so the CI cache key is unchanged |
 | `test/server.ts` of `@nxgt/meilisearch`, a **third** time as `test/meilisearch.ts` in `@nxgt/drizzle-meilisearch` (a fourth lived in `@nxgt/mongo-search-kit` until it was folded in) | the same rule. The Meilisearch cache key hashes `scripts/meilisearch.ts` alone — the script pins the version, and the copies only start the binary it prints — so a new copy needs no CI change |
 | `test/db.ts` of `@nxgt/drizzle`, copied into `@nxgt/drizzle-meilisearch` | the PGlite helper: one database per spec file, `reset` between tests. The copy carries this package's own `test/schema.ts` — one `articles` table instead of five — so only the four lines around `createTestDb` are the same |
 | `batch.ts`, `documents.ts`, `errors.ts` and `reindex.ts`'s `sendAll`/`removeUnwanted`, in `@nxgt/mongo-meilisearch` and `@nxgt/drizzle-meilisearch` | the two bridges write to Meilisearch the same way: chunking by `batchSize`, one `Entry` per id so adds and deletes cannot race, `keyOf` telling `1` from `'1'`, the same `SearchSyncError`/`failed` pair, and the same read-back of the index 1 000 ids at a time to find what to take out — `LIST_LIMIT`, `missingIndex` and `removeUnwanted` are identical. **A fix in one is a fix to make in the other.** What deliberately differs: `entryOf` takes a row and reads its id through the caller's required `toIndexId` instead of taking a Mongo `_id`; the batch helpers take a `wait` flag, because only `reindexAll` waits here; `reindexAll` takes a per-call `pageSize` where the Mongo one reads `ctx.pageSize`, and an `onPage` progress callback the Mongo one has not (its reindex runs inside `start` as often as from a script), and takes no resume token before the scan and saves no state after it; the Drizzle error has no `HISTORY_LOST`, `RUNNING` or `LEASE_LOST`, and so no `holder` or `expiresAt`, since nothing is followed and nothing is leased; and **the dedup by `Entry.key` sits on the other side** — the Mongo bridge's follower buffers into a `Map` before calling `send`, while here the list of rows is the caller's, so `indexRows` keys it itself, last one wins |

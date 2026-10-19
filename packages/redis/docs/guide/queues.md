@@ -1368,7 +1368,7 @@ queue on this machine:
 
 | Machine | OS | Bun | Redis | @nxgt/redis |
 | --- | --- | --- | --- | --- |
-| Apple M5 Pro, 18 cores | darwin 25.6.0 | 1.4.3 | 7.4.1 | 0.8.0 |
+| Apple M5 Pro, 18 cores | darwin 25.6.0 | 1.4.3 | 7.4.1 | unreleased, after 0.8.0 |
 
 Throughput, 100000 jobs:
 
@@ -1388,7 +1388,8 @@ What each number measures:
 
 - **add**: 100 000 jobs added with `addMany`, in chunks, timed on their own.
 - **process**: from the start of `work` until `idle()` resolves, with a
-  handler that does nothing, at the concurrency of the row.
+  handler that does nothing, at the concurrency of the row. The queue runs
+  with `keepCompleted: false`, so no completed job is kept.
 - **latency**: on a worker parked on its blocking read, from just before
   `add` to the first line of the handler, over 1 000 sequential jobs. After
   each sample the worker is awaited idle and given 10 ms to park again, so
@@ -1401,7 +1402,7 @@ bun run build
 bun run bench:queue
 ```
 
-It is local: it never runs in CI and takes minutes. The numbers depend on the
+It is local: it never runs in CI and takes under a minute here. The numbers depend on the
 machine, on Redis and on what the handler does, so read them as an order of
 magnitude and measure yours.
 
