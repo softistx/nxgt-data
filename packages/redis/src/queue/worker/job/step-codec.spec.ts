@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
-import { QueueError } from '../../errors/queue-error';
+import { QueueError } from '../../../errors/queue-error';
 import { checkStepName, decodeStep, encodeStep } from './step-codec';
 
 function thrown(run: () => unknown): unknown {

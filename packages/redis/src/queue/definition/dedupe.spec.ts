@@ -3,8 +3,8 @@ import { mailQueue, scriptCalls, useRedis } from '../../../test/fixtures';
 import { rejection } from '../../../test/rejection';
 import type { QueueError } from '../../errors/queue-error';
 import { bindQueue } from '../binding/bind-queue';
-import { queueKeys } from '../binding/keys';
-import type { AddOptions } from '../types/types';
+import { queueKeys } from '../keys';
+import type { AddOptions } from '../types/queue';
 
 const servers = useRedis();
 const keys = queueKeys('mails');

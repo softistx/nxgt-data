@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { queueKeys } from '../binding/keys';
+import { queueKeys } from '../keys';
 import type { WorkerContext } from './context';
 import { fireDue, MAX_WAIT, waitMs } from './fire';
 

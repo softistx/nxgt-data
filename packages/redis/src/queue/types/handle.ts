@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import type { Duration } from '../definition/duration';
-import type { ResultOf } from './result-types';
+import type { ResultOf } from './result';
 
 /** What `add` hands back. */
 export type JobHandle<R extends z.ZodType | undefined = undefined> = {

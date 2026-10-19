@@ -7,17 +7,17 @@ import {
 	scriptCalls,
 	subscribed as subscribedTo,
 	useRedis,
-} from '../../../test/fixtures';
-import { rejection } from '../../../test/rejection';
-import { QueueError } from '../../errors/queue-error';
-import { bindQueue } from '../binding/bind-queue';
-import { queueKeys } from '../binding/keys';
-import { claim } from '../scripts/claim/claim';
-import type { ClaimedJob } from '../scripts/claim/replies';
-import { abortRun, beginRun, endRun } from './abort';
-import type { WorkerContext } from './context';
+} from '../../../../test/fixtures';
+import { rejection } from '../../../../test/rejection';
+import { QueueError } from '../../../errors/queue-error';
+import { bindQueue } from '../../binding/bind-queue';
+import { queueKeys } from '../../keys';
+import { claim } from '../../scripts/claim/claim';
+import type { ClaimedJob } from '../../scripts/claim/replies';
+import { abortRun, beginRun, endRun } from '../abort';
+import type { WorkerContext } from '../context';
+import type { JobContext, Worker, WorkerEvents } from '../types';
 import { stepsOf } from './steps';
-import type { JobContext, Worker, WorkerEvents } from './types';
 
 const servers = useRedis();
 const keys = queueKeys('mails');

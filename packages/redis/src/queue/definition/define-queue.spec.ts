@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
-import { queueKeys } from '../binding/keys';
+import { queueKeys } from '../keys';
 import { defineQueue } from './define-queue';
 
 test('fills the defaults, in milliseconds, and freezes', () => {

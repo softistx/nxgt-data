@@ -9,7 +9,7 @@ import {
 } from '../../../test/fixtures';
 import { scheduleCalls } from '../../../test/schedule-calls';
 import { bindQueue } from '../binding/bind-queue';
-import { queueKeys } from '../binding/keys';
+import { queueKeys } from '../keys';
 import { claim } from '../scripts/claim/claim';
 import type { Worker } from './types';
 

@@ -8,9 +8,9 @@ import {
 } from '../../../test/fixtures';
 import { QueueError } from '../../errors/queue-error';
 import { bindQueue } from '../binding/bind-queue';
-import { queueKeys } from '../binding/keys';
 import { defineQueue } from '../definition/define-queue';
 import { flush } from '../events/subscriber';
+import { queueKeys } from '../keys';
 import {
 	abortAll,
 	abortLost,

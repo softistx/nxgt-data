@@ -13,9 +13,9 @@ import type {
 	QueueRate,
 	QueueRateLimit,
 	RetryOptions,
-} from './flow-types';
-import type { JobHandle } from './handle-types';
-import type { ResultOf } from './result-types';
+} from './flow';
+import type { JobHandle } from './handle';
+import type { ResultOf } from './result';
 
 /** What `defineQueue` takes. Every span of time is a {@link Duration}. */
 export type QueueInput<

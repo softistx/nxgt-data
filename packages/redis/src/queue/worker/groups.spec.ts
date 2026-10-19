@@ -9,8 +9,8 @@ import {
 	useRedis,
 } from '../../../test/fixtures';
 import { bindQueue } from '../binding/bind-queue';
-import { queueKeys } from '../binding/keys';
 import { defineQueue } from '../definition/define-queue';
+import { queueKeys } from '../keys';
 import { claim } from '../scripts/claim/claim';
 import type { Worker } from './types';
 

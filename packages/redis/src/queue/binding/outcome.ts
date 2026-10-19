@@ -1,7 +1,7 @@
 import type { RedisClient } from 'bun';
 import { parseEvent } from '../events/message';
 import { parseStoredError } from '../inspect/view';
-import type { queueKeys } from './keys';
+import type { queueKeys } from '../keys';
 
 export type Keys = ReturnType<typeof queueKeys>;
 export type Failure = { name: string; message: string };

@@ -1,11 +1,11 @@
 import type { RedisClient } from 'bun';
 import { QueueError } from '../../errors/queue-error';
 import { runScript } from '../../scripts/run-script';
-import type { queueKeys } from '../binding/keys';
+import type { queueKeys } from '../keys';
 import { REMOVE, RETRY } from '../scripts/admin';
 import { groupArgs, scriptKeys } from '../scripts/claim/claim';
-import { guardMode } from '../scripts/groups/groups-mode';
-import type { QueueGroups } from '../types/flow-types';
+import { guardMode } from '../scripts/groups/mode';
+import type { QueueGroups } from '../types/flow';
 
 type Keys = ReturnType<typeof queueKeys>;
 type Named = { name: string; groups?: QueueGroups | undefined };

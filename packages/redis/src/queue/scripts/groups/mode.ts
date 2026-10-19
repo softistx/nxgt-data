@@ -1,7 +1,7 @@
 import type { RedisClient } from 'bun';
 import { QueueError } from '../../../errors/queue-error';
-import type { queueKeys } from '../../binding/keys';
-import type { QueueGroups } from '../../types/flow-types';
+import type { queueKeys } from '../../keys';
+import type { QueueGroups } from '../../types/flow';
 import { MISMATCH } from './groups';
 
 /** A queue's groups mode as the `groups:mode` key holds it: `'0'` or `'1:<concurrency>'`. */

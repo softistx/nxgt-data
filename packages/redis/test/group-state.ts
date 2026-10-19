@@ -1,5 +1,5 @@
 import type { RedisClient } from 'bun';
-import type { queueKeys } from '../src/queue/binding/keys';
+import type { queueKeys } from '../src/queue/keys';
 import { ADD } from '../src/queue/scripts/add';
 import { groupArgs } from '../src/queue/scripts/claim/claim';
 import { runScript } from '../src/scripts/run-script';

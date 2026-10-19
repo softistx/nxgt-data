@@ -9,11 +9,11 @@ import { addGrouped, grouped, scan } from '../../../../test/group-state';
 import { rejection } from '../../../../test/rejection';
 import { QueueError } from '../../../errors/queue-error';
 import { bindQueue, bindQueueWith } from '../../binding/bind-queue';
-import { queueKeys } from '../../binding/keys';
+import { queueKeys } from '../../keys';
 import { claim } from '../claim/claim';
 import { complete, fail } from '../settle';
 import { MISMATCH } from './groups';
-import { guardMode } from './groups-mode';
+import { guardMode } from './mode';
 
 const servers = useRedis();
 const keys = queueKeys('mails');

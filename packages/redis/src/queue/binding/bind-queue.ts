@@ -2,6 +2,7 @@ import type { RedisClient } from 'bun';
 import type { z } from 'zod';
 import { runScript } from '../../scripts/run-script';
 import { checkQueue } from '../definition/define-queue';
+import { encodeData, resolveAdd } from '../encode';
 import {
 	countJobs,
 	getJob,
@@ -11,18 +12,17 @@ import {
 	resumeQueue,
 } from '../inspect/inspect';
 import { removeJob, retryJob } from '../inspect/job-admin';
+import { queueKeys } from '../keys';
 import { scheduleHandle } from '../schedule/handle';
 import { ADD } from '../scripts/add';
 import { cancel } from '../scripts/cancel';
 import { groupArgs } from '../scripts/claim/claim';
 import { parseAddReply } from '../scripts/claim/replies';
-import { guardMode } from '../scripts/groups/groups-mode';
-import type { JobHandle } from '../types/handle-types';
-import type { AddOptions, BoundQueue, QueueDefinition } from '../types/types';
+import { guardMode } from '../scripts/groups/mode';
+import type { JobHandle } from '../types/handle';
+import type { AddOptions, BoundQueue, QueueDefinition } from '../types/queue';
 import { resolveWork, startWorker } from '../worker/worker';
-import { encodeData, resolveAdd } from './encode';
 import { jobHandle } from './handle';
-import { queueKeys } from './keys';
 import { type QueueLife, refuseClosed, trackWorker } from './life';
 
 /** Jobs one `ADD` script call carries: a bound on its run time and its reply. */

@@ -4,8 +4,8 @@ import { mailQueue, scriptCalls, useRedis } from '../../../test/fixtures';
 import { rejection } from '../../../test/rejection';
 import { QueueError } from '../../errors/queue-error';
 import { defineQueue } from '../definition/define-queue';
+import { queueKeys } from '../keys';
 import { bindQueue } from './bind-queue';
-import { queueKeys } from './keys';
 
 const servers = useRedis();
 const mails = () => bindQueue(servers.redis.client, mailQueue);

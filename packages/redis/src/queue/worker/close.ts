@@ -1,6 +1,6 @@
-import { clampTimeout, RELEASE_MS } from '../binding/timers';
 import type { Duration } from '../definition/duration';
 import { durationMs } from '../definition/duration';
+import { clampTimeout, RELEASE_MS } from '../timers';
 import { abortAll } from './abort';
 import type { WorkerContext } from './context';
 import { settleIdle } from './idle';

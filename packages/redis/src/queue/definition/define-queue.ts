@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import { checkResolved, resolveSchedules } from '../schedule/define';
-import type { QueueDefinition, QueueInput } from '../types/types';
+import type { QueueDefinition, QueueInput } from '../types/queue';
 import { type Duration, toMs } from './duration';
 import { resolveGroups } from './group';
 import { resolveRateLimit } from './rate';

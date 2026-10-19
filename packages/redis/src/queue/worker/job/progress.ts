@@ -1,7 +1,7 @@
-import type { ClaimedJob } from '../scripts/claim/replies';
-import { progress as store } from '../scripts/progress';
-import type { WorkerContext } from './context';
-import { emit } from './events';
+import type { ClaimedJob } from '../../scripts/claim/replies';
+import { progress as store } from '../../scripts/progress';
+import type { WorkerContext } from '../context';
+import { emit } from '../events';
 
 /**
  * The `progress` function of one job's context: checks the value, stores it

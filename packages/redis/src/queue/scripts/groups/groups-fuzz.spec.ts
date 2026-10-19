@@ -9,7 +9,7 @@ import { scheduleCalls } from '../../../../test/schedule-calls';
 import { QueueError } from '../../../errors/queue-error';
 import { runScript } from '../../../scripts/run-script';
 import { bindQueue } from '../../binding/bind-queue';
-import { queueKeys } from '../../binding/keys';
+import { queueKeys } from '../../keys';
 import { ADD } from '../add';
 import { claim, groupArgs } from '../claim/claim';
 import { complete, fail } from '../settle';

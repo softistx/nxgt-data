@@ -1,15 +1,15 @@
 import type { RedisClient } from 'bun';
 import type { z } from 'zod';
 import { runScript } from '../../scripts/run-script';
-import type { queueKeys } from '../binding/keys';
+import type { queueKeys } from '../keys';
 import { COUNTS, PAUSE, RESUME } from '../scripts/admin';
-import type { RetryOptions } from '../types/flow-types';
+import type { RetryOptions } from '../types/flow';
 import type {
 	JobState,
 	JobView,
 	QueueCounts,
 	QueueDefinition,
-} from '../types/types';
+} from '../types/queue';
 import { STATES, toView } from './view';
 
 type Keys = ReturnType<typeof queueKeys>;

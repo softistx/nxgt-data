@@ -1,10 +1,10 @@
 import type { RedisClient } from 'bun';
 import { defineScript, runScript } from '../../../scripts/run-script';
-import type { queueKeys } from '../../binding/keys';
-import type { QueueGroups, QueueRate } from '../../types/flow-types';
+import type { queueKeys } from '../../keys';
+import type { QueueGroups, QueueRate } from '../../types/flow';
 import { groupLocals } from '../groups/groups';
-import { guardMode } from '../groups/groups-mode';
-import { CLAIM_FN, NOW_LUA } from './claim-body';
+import { guardMode } from '../groups/mode';
+import { CLAIM_FN, NOW_LUA } from './body';
 import { type ClaimReply, parseClaimReply } from './replies';
 
 /**

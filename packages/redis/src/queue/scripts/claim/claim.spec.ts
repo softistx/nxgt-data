@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
 import { mailQueue, useChannelLog, useRedis } from '../../../../test/fixtures';
 import { bindQueue } from '../../binding/bind-queue';
-import { queueKeys } from '../../binding/keys';
 import { defineQueue } from '../../definition/define-queue';
+import { queueKeys } from '../../keys';
 import { claim } from './claim';
 
 const servers = useRedis();

@@ -3,8 +3,8 @@ import { RedisClient } from 'bun';
 import { z } from 'zod';
 import { eventually, gate, mailQueue, useRedis } from '../../../test/fixtures';
 import { bindQueue } from '../binding/bind-queue';
-import { RELEASE_MS } from '../binding/timers';
 import { defineQueue } from '../definition/define-queue';
+import { RELEASE_MS } from '../timers';
 
 const servers = useRedis();
 

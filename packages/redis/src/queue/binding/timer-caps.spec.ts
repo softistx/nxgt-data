@@ -2,8 +2,8 @@ import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { gate, mailQueue, subscribed, useRedis } from '../../../test/fixtures';
 import { rejection } from '../../../test/rejection';
 import type { QueueError } from '../../errors/queue-error';
+import { queueKeys } from '../keys';
 import { bindQueue } from './bind-queue';
-import { queueKeys } from './keys';
 
 const servers = useRedis();
 const client = () => servers.redis.client;

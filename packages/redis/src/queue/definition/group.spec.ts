@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { scriptCalls, useRedis } from '../../../test/fixtures';
 import { rejection } from '../../../test/rejection';
 import { bindQueue } from '../binding/bind-queue';
-import { queueKeys } from '../binding/keys';
+import { queueKeys } from '../keys';
 import { defineQueue } from './define-queue';
 
 const servers = useRedis();

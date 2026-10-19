@@ -46,9 +46,8 @@ export type {
 	QueueRateLimit,
 	RetryOptions,
 	ThrottleOptions,
-} from './queue/types/flow-types';
-export type { JobHandle } from './queue/types/handle-types';
-export type { ResultInputOf, ResultOf } from './queue/types/result-types';
+} from './queue/types/flow';
+export type { JobHandle } from './queue/types/handle';
 export type {
 	AddOptions,
 	BoundQueue,
@@ -57,7 +56,8 @@ export type {
 	QueueCounts,
 	QueueDefinition,
 	QueueInput,
-} from './queue/types/types';
+} from './queue/types/queue';
+export type { ResultInputOf, ResultOf } from './queue/types/result';
 export type {
 	Handler,
 	JobContext,

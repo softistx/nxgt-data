@@ -1,4 +1,4 @@
-import type { QueueError } from '../../errors/queue-error';
+import type { QueueError } from '../../../errors/queue-error';
 
 /** The `INVALID` errors a step raised itself, told apart from any other the handler threw. */
 const refusals = new WeakSet<QueueError>();

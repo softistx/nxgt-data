@@ -1,5 +1,5 @@
 import { defineScript } from '../../scripts/run-script';
-import { CLAIM_FN, NOW_LUA } from './claim/claim-body';
+import { CLAIM_FN, NOW_LUA } from './claim/body';
 import { WAKE_FN } from './claim/wake';
 import { GROUP_FN, groupLocals } from './groups/groups';
 

@@ -5,13 +5,13 @@ import { eventually, subscribed, useRedis } from '../../../test/fixtures';
 import { rejection } from '../../../test/rejection';
 import { QueueError } from '../../errors/queue-error';
 import { defineQueue } from '../definition/define-queue';
+import { decodeResult, encodeResult } from '../encode';
+import { queueKeys } from '../keys';
 import { claim } from '../scripts/claim/claim';
 import { progress } from '../scripts/progress';
 import { complete, fail } from '../scripts/settle';
 import { bindQueue } from './bind-queue';
-import { decodeResult, encodeResult } from './encode';
 import { jobHandle } from './handle';
-import { queueKeys } from './keys';
 
 const servers = useRedis();
 const client = () => servers.redis.client;

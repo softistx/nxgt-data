@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mailQueue, useChannelLog, useRedis } from '../../../test/fixtures';
 import { runScript } from '../../scripts/run-script';
 import { bindQueue } from '../binding/bind-queue';
-import { queueKeys } from '../binding/keys';
+import { queueKeys } from '../keys';
 import { claim, scriptKeys } from './claim/claim';
 import { FIRE } from './schedule/schedule';
 

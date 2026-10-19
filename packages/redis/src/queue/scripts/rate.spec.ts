@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mailQueue, useRedis } from '../../../test/fixtures';
 import { checkRate } from '../../rate-limit/gcra';
 import { bindQueue } from '../binding/bind-queue';
-import { queueKeys } from '../binding/keys';
+import { queueKeys } from '../keys';
 import { claim } from './claim/claim';
 import { complete, fail } from './settle';
 

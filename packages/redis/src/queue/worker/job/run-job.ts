@@ -1,7 +1,7 @@
 import type { z } from 'zod';
-import { decodeData } from '../binding/encode';
-import { claim } from '../scripts/claim/claim';
-import type { ClaimedJob, ClaimReply } from '../scripts/claim/replies';
+import { decodeData } from '../../encode';
+import { claim } from '../../scripts/claim/claim';
+import type { ClaimedJob, ClaimReply } from '../../scripts/claim/replies';
 import {
 	armTimeout,
 	beginRun,
@@ -9,11 +9,11 @@ import {
 	type Outcome,
 	type Run,
 	raceAbort,
-} from './abort';
-import type { WorkerContext } from './context';
-import { announce, emit } from './events';
-import { fireDue } from './fire';
-import { markDrained } from './idle';
+} from '../abort';
+import type { WorkerContext } from '../context';
+import { announce, emit } from '../events';
+import { fireDue } from '../fire';
+import { markDrained } from '../idle';
 import { progressOf } from './progress';
 import {
 	failAttempt,

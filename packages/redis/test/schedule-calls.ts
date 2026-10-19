@@ -1,5 +1,5 @@
 import type { RedisClient } from 'bun';
-import { queueKeys } from '../src/queue/binding/keys';
+import { queueKeys } from '../src/queue/keys';
 import { groupArgs, scriptKeys } from '../src/queue/scripts/claim/claim';
 import {
 	DEFER,
@@ -8,7 +8,7 @@ import {
 	UNSCHEDULE,
 	UPSERT,
 } from '../src/queue/scripts/schedule/schedule';
-import type { QueueGroups } from '../src/queue/types/flow-types';
+import type { QueueGroups } from '../src/queue/types/flow';
 import { runScript } from '../src/scripts/run-script';
 
 /** Test helpers: the schedule scripts called as the client will call them. */

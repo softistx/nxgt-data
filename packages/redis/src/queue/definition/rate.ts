@@ -1,5 +1,5 @@
 import { checkRateValues } from '../../rate-limit/define-rate-limit';
-import type { QueueRate, QueueRateLimit } from '../types/flow-types';
+import type { QueueRate, QueueRateLimit } from '../types/flow';
 import { toMs } from './duration';
 
 /**

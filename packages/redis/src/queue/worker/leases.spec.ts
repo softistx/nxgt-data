@@ -7,7 +7,7 @@ import {
 	useRedis,
 } from '../../../test/fixtures';
 import { bindQueue } from '../binding/bind-queue';
-import { queueKeys } from '../binding/keys';
+import { queueKeys } from '../keys';
 import { claim } from '../scripts/claim/claim';
 import { keepLeases } from './leases';
 

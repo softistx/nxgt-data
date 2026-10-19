@@ -1,8 +1,8 @@
 import type { RedisClient } from 'bun';
 import { QueueError } from '../../errors/queue-error';
 import { flush } from '../events/subscriber';
+import { clampTimeout, RELEASE_MS } from '../timers';
 import type { Worker } from '../worker/types';
-import { clampTimeout, RELEASE_MS } from './timers';
 
 /**
  * What a wired queue knows of its Redis's close: plain data, shared by every

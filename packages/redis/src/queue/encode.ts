@@ -1,13 +1,13 @@
 import type { z } from 'zod';
-import { QueueError } from '../../errors/queue-error';
-import { check } from '../definition/check';
-import { type ResolvedDedupe, resolveDedupe } from '../definition/dedupe';
-import { durationMs } from '../definition/duration';
-import { resolveGroup } from '../definition/group';
-import { isName, NAME_RULE } from '../definition/name';
-import type { AddOptions, QueueDefinition } from '../types/types';
+import { QueueError } from '../errors/queue-error';
+import { check } from './definition/check';
+import { type ResolvedDedupe, resolveDedupe } from './definition/dedupe';
+import { durationMs } from './definition/duration';
+import { resolveGroup } from './definition/group';
+import { isName, NAME_RULE } from './definition/name';
 import { fromJson, toJson } from './round-trip';
 import { clampTimeout } from './timers';
+import type { AddOptions, QueueDefinition } from './types/queue';
 
 /**
  * The JSON a payload is stored as: the schema's **output** (defaults applied),

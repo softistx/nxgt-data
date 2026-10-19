@@ -11,9 +11,9 @@ import { JobError } from '../../errors/job-error';
 import type { QueueError } from '../../errors/queue-error';
 import { defineRedis } from '../../wiring/config/define-redis';
 import { openRedis } from '../../wiring/open-redis';
+import { queueKeys } from '../keys';
 import type { JobContext } from '../worker/types';
 import { bindQueue } from './bind-queue';
-import { queueKeys } from './keys';
 
 const servers = useRedis();
 const { track } = servers;

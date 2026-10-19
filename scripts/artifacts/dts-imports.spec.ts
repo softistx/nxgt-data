@@ -32,7 +32,7 @@ describe('withExtensions', () => {
 		expect(fix("declare module './zod-scalar' {}").text).toBe(
 			"declare module './zod-scalar.js' {}",
 		);
-		expect(fix("export * from '.';", inner).text).toBe(
+		expect(fix("export * from './';", inner).text).toBe(
 			"export * from './index.js';",
 		);
 		expect(fix("export * from '..';", inner).text).toBe(

@@ -5,12 +5,12 @@ import { eventually, subscribed, useRedis } from '../../../test/fixtures';
 import { rejection } from '../../../test/rejection';
 import { QueueError } from '../../errors/queue-error';
 import { defineQueue } from '../definition/define-queue';
+import { queueKeys } from '../keys';
 import { claim } from '../scripts/claim/claim';
 import { complete } from '../scripts/settle';
 import type { Worker } from '../worker/types';
 import { bindQueue } from './bind-queue';
 import { jobHandle } from './handle';
-import { queueKeys } from './keys';
 
 const servers = useRedis();
 const client = () => servers.redis.client;

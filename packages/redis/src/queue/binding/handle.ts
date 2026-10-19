@@ -2,13 +2,14 @@ import type { RedisClient } from 'bun';
 import type { z } from 'zod';
 import { QueueError } from '../../errors/queue-error';
 import { durationMs } from '../definition/duration';
+import { decodeResult } from '../encode';
 import { listenRaced } from '../events/listen-raced';
 import { flush } from '../events/subscriber';
 import { cancel } from '../scripts/cancel';
-import type { JobHandle } from '../types/handle-types';
-import type { ResultOf } from '../types/result-types';
-import type { QueueDefinition } from '../types/types';
-import { decodeResult } from './encode';
+import { clampTimeout } from '../timers';
+import type { JobHandle } from '../types/handle';
+import type { QueueDefinition } from '../types/queue';
+import type { ResultOf } from '../types/result';
 import { type QueueLife, refuseClosed, trackWait } from './life';
 import {
 	type Failure,
@@ -17,7 +18,6 @@ import {
 	type Outcome,
 	readStored,
 } from './outcome';
-import { clampTimeout } from './timers';
 
 /** How often a waiting `finished` re-reads the job: the net under a lost event. */
 const REREAD_MS = 5000;

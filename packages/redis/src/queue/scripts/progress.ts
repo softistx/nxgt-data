@@ -1,6 +1,6 @@
 import type { RedisClient } from 'bun';
 import { defineScript, runScript } from '../../scripts/run-script';
-import type { queueKeys } from '../binding/keys';
+import type { queueKeys } from '../keys';
 
 /**
  * Records a running job's progress if its token still holds, so a worker

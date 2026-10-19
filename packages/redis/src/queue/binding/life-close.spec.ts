@@ -5,9 +5,9 @@ import { useRedis } from '../../../test/fixtures';
 import { rejection } from '../../../test/rejection';
 import type { QueueError } from '../../errors/queue-error';
 import { defineQueue } from '../definition/define-queue';
+import { RELEASE_MS } from '../timers';
 import { bindQueueWith } from './bind-queue';
 import { closeLife, openLife } from './life';
-import { RELEASE_MS } from './timers';
 
 const servers = useRedis();
 

@@ -5,8 +5,8 @@ import { subscribed, useRedis } from '../../../test/fixtures';
 import { rejection } from '../../../test/rejection';
 import { QueueError } from '../../errors/queue-error';
 import { defineQueue } from '../definition/define-queue';
+import { queueKeys } from '../keys';
 import { bindQueue, bindQueueWith } from './bind-queue';
-import { queueKeys } from './keys';
 import { closeLife, openLife, trackWorker } from './life';
 
 const servers = useRedis();

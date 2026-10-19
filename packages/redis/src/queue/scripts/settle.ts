@@ -1,12 +1,12 @@
 import type { RedisClient } from 'bun';
 import { defineScript, runScript } from '../../scripts/run-script';
-import type { queueKeys } from '../binding/keys';
-import type { QueueDefinition } from '../types/types';
+import type { queueKeys } from '../keys';
+import type { QueueDefinition } from '../types/queue';
+import { CLAIM_FN, NOW_LUA } from './claim/body';
 import { groupArgs, newToken, rateArgs, scriptKeys } from './claim/claim';
-import { CLAIM_FN, NOW_LUA } from './claim/claim-body';
 import { type ClaimReply, parseComplete, parseFail } from './claim/replies';
 import { groupLocals } from './groups/groups';
-import { guardMode } from './groups/groups-mode';
+import { guardMode } from './groups/mode';
 
 /*
  * Settling trusts the token alone: the job is the caller's only while the

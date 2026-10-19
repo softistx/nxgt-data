@@ -6,7 +6,7 @@ import {
 	scan,
 } from '../../../../test/group-state';
 import { bindQueue } from '../../binding/bind-queue';
-import { queueKeys } from '../../binding/keys';
+import { queueKeys } from '../../keys';
 import { claim } from '../claim/claim';
 import { complete, fail } from '../settle';
 

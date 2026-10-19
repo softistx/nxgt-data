@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { eventually, mailQueue, useRedis } from '../../../test/fixtures';
 import { QueueError } from '../../errors/queue-error';
 import { bindQueue } from '../binding/bind-queue';
-import { queueKeys } from '../binding/keys';
+import { queueKeys } from '../keys';
 import { claim } from '../scripts/claim/claim';
 import { complete, fail } from '../scripts/settle';
 

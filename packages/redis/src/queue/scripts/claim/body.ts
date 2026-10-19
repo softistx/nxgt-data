@@ -1,7 +1,7 @@
 import { GCRA_FN } from '../../../rate-limit/gcra';
 import { GROUP_FN } from '../groups/groups';
 import { SCHEDULE_FIELDS, SCHEDULE_SOUND_FN } from '../schedule/schedule';
-import { CLAIM_STEPS_FN } from './claim-steps';
+import { CLAIM_STEPS_FN } from './steps';
 import { WAKE_FN } from './wake';
 
 /*

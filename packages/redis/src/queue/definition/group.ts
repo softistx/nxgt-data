@@ -1,4 +1,4 @@
-import type { QueueGroups, QueueGroupsInput } from '../types/flow-types';
+import type { QueueGroups, QueueGroupsInput } from '../types/flow';
 import { isName, MAX_NAME } from './name';
 
 /**

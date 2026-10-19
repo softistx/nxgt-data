@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { gate, mailQueue, useRedis } from '../../../test/fixtures';
-import type { BoundQueue } from '../types/types';
+import type { BoundQueue } from '../types/queue';
 import type { Worker } from '../worker/types';
 import { bindQueue, bindQueueWith } from './bind-queue';
 

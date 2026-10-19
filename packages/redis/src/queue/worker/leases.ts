@@ -1,5 +1,5 @@
 import type { RedisClient } from 'bun';
-import type { queueKeys } from '../binding/keys';
+import type { queueKeys } from '../keys';
 import { renew } from '../scripts/renew';
 
 /** The leases a worker keeps alive. */

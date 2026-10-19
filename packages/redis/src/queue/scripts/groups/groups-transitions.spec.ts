@@ -10,7 +10,7 @@ import { rejection } from '../../../../test/rejection';
 import { scheduleCalls } from '../../../../test/schedule-calls';
 import { runScript } from '../../../scripts/run-script';
 import { bindQueue } from '../../binding/bind-queue';
-import { queueKeys } from '../../binding/keys';
+import { queueKeys } from '../../keys';
 import { ADD } from '../add';
 import { claim, groupArgs } from '../claim/claim';
 import { fail } from '../settle';

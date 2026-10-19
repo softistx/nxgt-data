@@ -7,7 +7,7 @@ import type {
 	BoundIdempotency,
 	IdempotencyDefinition,
 } from '../idempotency/types';
-import type { BoundQueue, QueueDefinition } from '../queue/types/types';
+import type { BoundQueue, QueueDefinition } from '../queue/types/queue';
 import type { BoundRateLimit, RateLimitDefinition } from '../rate-limit/types';
 import type {
 	CachesOf,
