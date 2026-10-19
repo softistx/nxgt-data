@@ -165,31 +165,85 @@ describe('grouped claim: stale entries', () => {
 });
 
 describe('an ungrouped queue', () => {
-	test('writes no group key through add, claim, complete and fail', async () => {
+	test('writes no group key, only the mode marker, through add, claim, reclaim, promote, complete and fail', async () => {
 		const mails = bindQueue(client(), mailQueue);
 		for (const id of ['a', 'b', 'c']) await mails.add({ to: id }, { id });
+		await mails.add({ to: 'later' }, { id: 'later', delay: 60_000 });
 		const reply = await claim(client(), keys, 2, 30_000, undefined);
 		const [first, second] = reply.jobs;
 		if (!first || !second) throw new Error('two jobs expected');
+		await client().send('ZADD', [keys.active, '0', first.id]);
+		await client().send('ZADD', [keys.delayed, '0', 'later']);
+		const next = await claim(client(), keys, 1, 30_000, undefined);
+		expect(next.stalled).toEqual([first.id]);
 		await complete(
-			client(),
-			keys,
-			mailQueue,
-			first.id,
-			first.token,
-			undefined,
-			true,
-		);
-		await fail(
 			client(),
 			keys,
 			mailQueue,
 			second.id,
 			second.token,
+			undefined,
+			true,
+		);
+		const [third] = next.jobs;
+		if (!third) throw new Error('a third job expected');
+		await fail(
+			client(),
+			keys,
+			mailQueue,
+			third.id,
+			third.token,
 			boom,
 			10,
 			true,
 		);
-		expect(await scan(client(), `${keys.group.slice(0, -1)}*`)).toEqual([]);
+		const found = await scan(client(), `${keys.group.slice(0, -1)}*`);
+		expect(found).toEqual([keys.groupsMode]);
+		expect(await client().get(keys.groupsMode)).toBe('0');
+	});
+});
+
+describe('grouped claim: paused and rate limited', () => {
+	test('a paused claim pops nothing, leaves no token and keeps the list', async () => {
+		await addGrouped(client(), keys, 0, [...jobs('A', 2), job('B', 1)]);
+		await client().set(keys.paused, '1');
+		const reply = await take(3);
+		expect(reply.jobs).toEqual([]);
+		expect(reply.next).toBe(5_000);
+		expect(await llen(keys.wake)).toBe(0);
+		expect(await llen(keys.groupsReady)).toBe(2);
+		await expectGroupState(client(), keys, 0);
+	});
+
+	test('a rate-limited claim pops what the rate admits, then leaves no token', async () => {
+		const rate = { limit: 1, per: 60_000, burst: 1 };
+		await addGrouped(client(), keys, 0, [...jobs('A', 2), job('B', 1)]);
+		const first = await claim(client(), keys, 3, 30_000, rate, {
+			concurrency: 0,
+		});
+		expect(ids(first)).toEqual(['a1']);
+		expect(await llen(keys.wake)).toBe(0);
+		const second = await claim(client(), keys, 3, 30_000, rate, {
+			concurrency: 0,
+		});
+		expect(second.jobs).toEqual([]);
+		expect(second.next).toBeGreaterThan(0);
+		expect(await llen(keys.wake)).toBe(0);
+		expect(await llen(keys.groupsReady)).toBe(2);
+		await expectGroupState(client(), keys, 0);
+	});
+});
+
+describe('grouped claim: an unsound hash', () => {
+	test('a hash pop_groups pops but cannot trust is refused and the group goes on', async () => {
+		await addGrouped(client(), keys, 0, jobs('A', 2));
+		await client().hset(keys.job('a1'), 'attempts', 'x');
+		const first = await take(1);
+		expect(first.jobs).toEqual([]);
+		expect(first.failedInvalid).toEqual(['a1']);
+		expect(await client().hget(keys.job('a1'), 'state')).toBe('failed');
+		await expectGroupState(client(), keys, 0);
+		expect(ids(await take(1))).toEqual(['a2']);
+		await expectGroupState(client(), keys, 0);
 	});
 });

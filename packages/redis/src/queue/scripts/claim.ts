@@ -4,13 +4,14 @@ import type { QueueGroups, QueueRate } from '../flow-types';
 import type { queueKeys } from '../keys';
 import { CLAIM_FN, NOW_LUA } from './claim-body';
 import { groupLocals } from './groups';
+import { guardMode } from './groups-mode';
 import { type ClaimReply, parseClaimReply } from './replies';
 
 /**
  * Takes up to `n` jobs: reclaims, promotes and pops as {@link CLAIM_FN} says.
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake, events, paused,
- * rate, schedules, groupsReady, groupsQueued.
+ * rate, schedules, groupsReady, groupsQueued, groupsMode.
  * ARGV: job-key prefix, n, lease (ms), the rate's `per` (ms), `limit` and
  * `burst` (`0 0 0` for none; see {@link rateArgs}), the schedule-key prefix,
  * the three group arguments (see {@link groupArgs}), then `n` tokens.
@@ -28,7 +29,7 @@ return claim(tonumber(ARGV[2]), tonumber(ARGV[3]), tokens, now, rate_of(4, now_u
 /**
  * The keys of one queue, as a script takes them: `CLAIM_FN`'s seven, then
  * `events` (which only the scripts that publish read), `paused`, `rate`,
- * `schedules`, then `groupsReady` and `groupsQueued`.
+ * `schedules`, then `groupsReady`, `groupsQueued` and `groupsMode`.
  */
 export function scriptKeys(keys: ReturnType<typeof queueKeys>): string[] {
 	return [
@@ -45,6 +46,7 @@ export function scriptKeys(keys: ReturnType<typeof queueKeys>): string[] {
 		keys.schedules,
 		keys.groupsReady,
 		keys.groupsQueued,
+		keys.groupsMode,
 	];
 }
 
@@ -90,15 +92,18 @@ export async function claim(
 	groups?: QueueGroups,
 ): Promise<ClaimReply> {
 	const tokens = Array.from({ length: n }, newToken);
+	const argv = [
+		keys.prefix,
+		n,
+		lease,
+		...rateArgs(rate),
+		keys.schedule,
+		...groupArgs(keys, groups),
+		...tokens,
+	];
 	return parseClaimReply(
-		await runScript(client, CLAIM, scriptKeys(keys), [
-			keys.prefix,
-			n,
-			lease,
-			...rateArgs(rate),
-			keys.schedule,
-			...groupArgs(keys, groups),
-			...tokens,
-		]),
+		await guardMode(client, keys, groups, 'claim', () =>
+			runScript(client, CLAIM, scriptKeys(keys), argv),
+		),
 	);
 }

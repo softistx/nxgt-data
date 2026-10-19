@@ -1,5 +1,5 @@
 import { defineScript } from '../../scripts/run-script';
-import { GROUP_FN } from './groups';
+import { GROUP_FN, groupModeCheck } from './groups';
 import { WAKE_FN } from './wake';
 
 /*
@@ -49,8 +49,7 @@ local function add_job(id, data, priority, attempts, delay, at, timeout, group)
 	if GROUPED and group ~= '' then redis.call('HSET', key, 'group', group) end
 	if due then
 		local score = tonumber(priority) * 1099511627776 + redis.call('INCR', SEQ)
-		ready_add(id, string.format('%d', score), GROUPED and group or '')
-		poke()
+		if ready_add(id, string.format('%d', score), GROUPED and group or '') then poke() end
 	else
 		if is_head(DELAYED, runAt) then poke() end
 		redis.call('ZADD', DELAYED, string.format('%d', runAt), id)
@@ -96,7 +95,8 @@ end
  * goes to its group's zset (see `GROUP_FN`) and a debounce moves it out of
  * there.
  *
- * KEYS: delayed, ready, seq, wake, paused, groupsReady, groupsQueued.
+ * KEYS: delayed, ready, seq, wake, paused, groupsReady, groupsQueued,
+ * groupsMode (checked first, see `groupModeCheck`).
  * ARGV: job-key prefix, dedupe-key prefix, `grouped` (`'1'` or `'0'`), the
  * cap (0 for none), the group key prefix (see `groupArgs`), then per job `id,
  * data, priority, attempts, delayMs, atMs, timeoutMs, mode, dedupeKey, ttlMs,
@@ -112,6 +112,7 @@ ${WAKE_FN}
 local prefix, dprefix = ARGV[1], ARGV[2]
 local GROUPED, CONCURRENCY, GPREFIX = ARGV[3] == '1', tonumber(ARGV[4]), ARGV[5]
 local GREADY, GQUEUED = KEYS[6], KEYS[7]
+${groupModeCheck(8, 3)}
 -- A paused queue's workers are told by RESUME, so no token is left meanwhile.
 local paused = redis.call('EXISTS', KEYS[5]) == 1
 local function poke()

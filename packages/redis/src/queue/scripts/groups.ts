@@ -21,7 +21,9 @@
  * - `group_of(key)` is the `group` field of a job hash, `''` when absent;
  * - `has_slot(g)` says whether `g` may start one more job;
  * - `ready_add(id, score, g)` and `ready_rem(id, g)` write `ready` and its
- *   mirror, and `ready_add` queues a group with a free slot;
+ *   mirror; `ready_add` queues a group with a free slot and answers whether
+ *   the job is claimable now (always true on an ungrouped queue), so the
+ *   caller leaves a wake token only then;
  * - `slot_taken(g)` counts a job that became active;
  * - `slot_freed(g)` runs exactly when `ZREM active` answered 1: it uncounts
  *   the job, queues the group when it has ready jobs and answers whether the
@@ -47,9 +49,11 @@ local function rr_take()
 end
 local function ready_add(id, score, g)
 	redis.call('ZADD', READY, score, id)
-	if not GROUPED then return end
+	if not GROUPED then return true end
 	redis.call('ZADD', gkey(g, 'ready'), score, id)
-	if has_slot(g) then rr_push(g) end
+	if not has_slot(g) then return false end
+	rr_push(g)
+	return true
 end
 local function ready_rem(id, g)
 	redis.call('ZREM', READY, id)
@@ -80,5 +84,25 @@ end
 export function groupLocals(at: number): string {
 	return `
 local READY, GREADY, GQUEUED = KEYS[2], KEYS[12], KEYS[13]
-local GROUPED, CONCURRENCY, GPREFIX = ARGV[${at}] == '1', tonumber(ARGV[${at + 1}]), ARGV[${at + 2}]`;
+local GROUPED, CONCURRENCY, GPREFIX = ARGV[${at}] == '1', tonumber(ARGV[${at + 1}]), ARGV[${at + 2}]
+${groupModeCheck(14, at)}`;
 }
+
+/**
+ * The marker check every script that takes `grouped` runs first, before any
+ * write: the queue's `groups:mode` key (at KEYS[`key`]) holds `'0'` for an
+ * ungrouped queue and `'1:<concurrency>'` otherwise, from the script's own
+ * `grouped` and `concurrency` ARGVs (starting at `at`). A missing key is set
+ * to the script's mode, the same mode passes, a different one is refused with
+ * the error reply `ERR groups mismatch` and nothing is written: processes that
+ * disagree on `groups` would strand jobs, run one twice or leak a slot.
+ */
+export function groupModeCheck(key: number, at: number): string {
+	return `local MODE = ARGV[${at}] == '1' and ('1:' .. ARGV[${at + 1}]) or '0'
+local HELD = redis.call('GET', KEYS[${key}])
+if HELD and HELD ~= MODE then return redis.error_reply('${MISMATCH}') end
+if not HELD then redis.call('SET', KEYS[${key}], MODE) end`;
+}
+
+/** The error reply a script answers when the queue's groups mode differs. */
+export const MISMATCH = 'ERR groups mismatch';

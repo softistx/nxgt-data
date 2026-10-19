@@ -5,6 +5,7 @@ import type { QueueDefinition } from '../types';
 import { groupArgs, newToken, rateArgs, scriptKeys } from './claim';
 import { CLAIM_FN, NOW_LUA } from './claim-body';
 import { groupLocals } from './groups';
+import { guardMode } from './groups-mode';
 import { type ClaimReply, parseComplete, parseFail } from './replies';
 
 /*
@@ -53,7 +54,7 @@ end
  * {@link CLAIM_FN} for one job, so a busy worker spends one script per job.
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake, events,
- * paused, rate, schedules, groupsReady, groupsQueued.
+ * paused, rate, schedules, groupsReady, groupsQueued, groupsMode.
  * ARGV: job-key prefix, id, token, keepAge (ms, -1 to keep nothing),
  * keepCount, lease (ms), claim token (`''` for no claim), result (JSON,
  * `''` for none), then the rate's `per`, `limit` and `burst` (`0 0 0` for
@@ -178,20 +179,23 @@ export async function complete(
 	claimNext: boolean,
 ): Promise<ClaimReply & { settled: boolean }> {
 	const keep = definition.keepCompleted;
+	const argv = [
+		keys.prefix,
+		id,
+		token,
+		keep === false ? -1 : keep.age,
+		keep === false ? -1 : keep.count,
+		definition.lease,
+		claimNext ? newToken() : '',
+		result ?? '',
+		...rateArgs(definition.rateLimit),
+		keys.schedule,
+		...groupArgs(keys, definition.groups),
+	];
 	return parseComplete(
-		await runScript(client, COMPLETE, scriptKeys(keys), [
-			keys.prefix,
-			id,
-			token,
-			keep === false ? -1 : keep.age,
-			keep === false ? -1 : keep.count,
-			definition.lease,
-			claimNext ? newToken() : '',
-			result ?? '',
-			...rateArgs(definition.rateLimit),
-			keys.schedule,
-			...groupArgs(keys, definition.groups),
-		]),
+		await guardMode(client, keys, definition.groups, 'complete', () =>
+			runScript(client, COMPLETE, scriptKeys(keys), argv),
+		),
 	);
 }
 
@@ -210,19 +214,22 @@ export async function fail(
 	retryInMs: number | null,
 	claimNext: boolean,
 ): Promise<ClaimReply & { settled: boolean; final: boolean }> {
+	const argv = [
+		keys.prefix,
+		id,
+		token,
+		JSON.stringify({ name: error.name, message: error.message }),
+		retryInMs ?? -1,
+		definition.keepFailed,
+		definition.lease,
+		claimNext ? newToken() : '',
+		...rateArgs(definition.rateLimit),
+		keys.schedule,
+		...groupArgs(keys, definition.groups),
+	];
 	return parseFail(
-		await runScript(client, FAIL, scriptKeys(keys), [
-			keys.prefix,
-			id,
-			token,
-			JSON.stringify({ name: error.name, message: error.message }),
-			retryInMs ?? -1,
-			definition.keepFailed,
-			definition.lease,
-			claimNext ? newToken() : '',
-			...rateArgs(definition.rateLimit),
-			keys.schedule,
-			...groupArgs(keys, definition.groups),
-		]),
+		await guardMode(client, keys, definition.groups, 'fail', () =>
+			runScript(client, FAIL, scriptKeys(keys), argv),
+		),
 	);
 }

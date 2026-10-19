@@ -62,6 +62,7 @@ export async function addGrouped(
 			keys.paused,
 			keys.groupsReady,
 			keys.groupsQueued,
+			keys.groupsMode,
 		],
 		argv,
 	);

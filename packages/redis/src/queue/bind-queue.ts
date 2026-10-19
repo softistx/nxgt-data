@@ -21,6 +21,7 @@ import { scheduleHandle } from './schedule/handle';
 import { ADD } from './scripts/add';
 import { cancel } from './scripts/cancel';
 import { groupArgs } from './scripts/claim';
+import { guardMode } from './scripts/groups-mode';
 import { parseAddReply } from './scripts/replies';
 import type { AddOptions, BoundQueue, QueueDefinition } from './types';
 import { resolveWork, startWorker } from './worker/worker';
@@ -69,19 +70,22 @@ async function addChunks<S extends z.ZodType, R extends z.ZodType | undefined>(
 			);
 		}
 		const reply = parseAddReply(
-			await runScript(
-				client,
-				ADD,
-				[
-					keys.delayed,
-					keys.ready,
-					keys.seq,
-					keys.wake,
-					keys.paused,
-					keys.groupsReady,
-					keys.groupsQueued,
-				],
-				argv,
+			await guardMode(client, keys, definition.groups, call, () =>
+				runScript(
+					client,
+					ADD,
+					[
+						keys.delayed,
+						keys.ready,
+						keys.seq,
+						keys.wake,
+						keys.paused,
+						keys.groupsReady,
+						keys.groupsQueued,
+						keys.groupsMode,
+					],
+					argv,
+				),
 			),
 			chunk.length,
 		);

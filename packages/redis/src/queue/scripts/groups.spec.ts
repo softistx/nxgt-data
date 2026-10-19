@@ -54,6 +54,20 @@ describe('grouped add', () => {
 		await expectGroupState(client(), keys, CAP);
 	});
 
+	test('an add into a full group leaves no wake token and no list entry', async () => {
+		await started('a1');
+		expect(await llen(keys.wake)).toBe(0);
+		await addGrouped(client(), keys, CAP, [{ id: 'a2', group: 'A' }]);
+		expect(await llen(keys.wake)).toBe(0);
+		expect(await llen(keys.groupsReady)).toBe(0);
+		await expectGroupState(client(), keys, CAP);
+	});
+
+	test('an add into a claimable group leaves the token', async () => {
+		await addGrouped(client(), keys, CAP, [{ id: 'a1', group: 'A' }]);
+		expect(await llen(keys.wake)).toBe(1);
+	});
+
 	test('a group with no free slot is not queued by a new job', async () => {
 		await started('a1');
 		await addGrouped(client(), keys, CAP, [{ id: 'a2', group: 'A' }]);

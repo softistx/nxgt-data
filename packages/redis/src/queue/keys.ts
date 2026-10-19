@@ -37,6 +37,8 @@ export function queueKeys(name: string) {
 		groupsReady: `${base}groups:ready`,
 		/** The set of the groups in `groupsReady`, so none is listed twice. */
 		groupsQueued: `${base}groups:queued`,
+		/** The queue's groups mode, `'0'` or `'1:<concurrency>'`, set by the first script and checked by every one. */
+		groupsMode: `${base}groups:mode`,
 		/** What a script appends `<group>:ready` or `<group>:active` to. */
 		group: `${base}group:`,
 		/** What a script appends a debounce or throttle key to. */
