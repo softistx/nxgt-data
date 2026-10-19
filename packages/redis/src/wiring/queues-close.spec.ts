@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { gate, settled, subscribed, useRedis } from '../../test/fixtures';
+import {
+	eventually,
+	gate,
+	settled,
+	subscribed,
+	useRedis,
+} from '../../test/fixtures';
 import { rejection } from '../../test/rejection';
 import * as queues from '../../test/wiring/queues';
 import type { QueueError } from '../errors/queue-error';
@@ -162,7 +168,8 @@ describe('closing a Redis with queues', () => {
 		const pending = rejection(handle.finished());
 		await redis.close();
 		expect(((await pending) as QueueError).code).toBe('CLOSED');
-		expect(await connections()).toBe(baseline);
+		// The server drops a closed socket a moment after the client lets go.
+		await eventually(connections, baseline);
 	});
 
 	test('an owned connection: after close, CLIENT LIST is back to baseline', async () => {
@@ -174,7 +181,8 @@ describe('closing a Redis with queues', () => {
 		await worker.idle();
 		expect(await connections()).toBeGreaterThan(baseline);
 		await redis.close();
-		expect(await connections()).toBe(baseline);
+		// The server drops a closed socket a moment after the client lets go.
+		await eventually(connections, baseline);
 	});
 
 	test('close() twice returns one promise, the second grace ignored', async () => {
@@ -202,7 +210,8 @@ describe('closing a Redis with queues', () => {
 		const handle = await redis.queues.mails.add(to('a@b.c'));
 		await handle.finished();
 		await redis[Symbol.asyncDispose]();
-		expect(await connections()).toBe(baseline);
+		// The server drops a closed socket a moment after the client lets go.
+		await eventually(connections, baseline);
 		const refused = (await rejection(
 			redis.queues.mails.add(to('a@b.c')),
 		)) as QueueError;
