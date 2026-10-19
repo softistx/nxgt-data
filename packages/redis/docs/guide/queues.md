@@ -1156,6 +1156,7 @@ type JobView<S, R> = {
 	attempt: number;
 	attempts: number;
 	priority: number;
+	group?: string;                // absent for a job in the default group
 	error?: { name: string; message: string }; // the last failure
 	added: Date;
 	runAt: Date;                   // when the job is next due
