@@ -49,6 +49,19 @@ test('a leap day is found years ahead', () => {
 	);
 });
 
+test('Feb 29 on a Sunday, Wednesday or Saturday is found', () => {
+	// 2026-01-01 onwards: 2028-02-29 is a Tuesday, 2032-02-29 a Sunday.
+	expect(iso(next('0 0 29 2 */3', 'UTC', utc(2026, 1, 1)))).toBe(
+		'2032-02-29T00:00:00.000Z',
+	);
+});
+
+test('a match decades away is still found', () => {
+	expect(iso(next('0 0 29 2 */7', 'UTC', utc(2032, 3, 1)))).toBe(
+		'2060-02-29T00:00:00.000Z',
+	);
+});
+
 test('day of week, and the Vixie OR', () => {
 	// 2026-05-05 is a Tuesday.
 	expect(iso(next('0 8 * * mon', 'UTC', utc(2026, 5, 5)))).toBe(

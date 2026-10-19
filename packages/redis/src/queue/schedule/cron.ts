@@ -13,10 +13,10 @@ export interface Cron {
 	readonly months: ReadonlySet<number>;
 	/** Allowed days of the week, 0–6 where 0 is Sunday (7 is folded into 0). */
 	readonly weekdays: ReadonlySet<number>;
-	/** The day-of-month field is not exactly `*`. */
-	readonly daysRestricted: boolean;
-	/** The day-of-week field is not exactly `*`. */
-	readonly weekdaysRestricted: boolean;
+	/** The day-of-month field begins with a star (a bare star or a star with a step), as Vixie cron reads it. */
+	readonly daysStar: boolean;
+	/** The day-of-week field begins with a star, with or without a step. */
+	readonly weekdaysStar: boolean;
 }
 
 interface Field {
@@ -53,7 +53,6 @@ const FIELDS: readonly Field[] = [
 ];
 
 /** The most days each month can have, February counting its leap day. */
-const LONGEST_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
 /**
  * Parses a five-field cron: minute, hour, day of month, month (`1`–`12` or
@@ -86,8 +85,8 @@ export function parseCron(text: string): Cron {
 		days,
 		months,
 		weekdays,
-		daysRestricted: parts[2] !== '*',
-		weekdaysRestricted: parts[4] !== '*',
+		daysStar: (parts[2] as string).startsWith('*'),
+		weekdaysStar: (parts[4] as string).startsWith('*'),
 	};
 	checkReachable(cron);
 	return cron;
@@ -95,8 +94,8 @@ export function parseCron(text: string): Cron {
 
 /**
  * Whether a day matches: its month must be listed, and then, as in Vixie
- * cron, the day of month or the day of week when both are restricted, the one
- * that is restricted when only one is, and any day when neither is.
+ * cron, both the day of month and the day of week when either field begins with
+ * `*`, and either of them when neither does.
  *
  * @param month 1–12.
  * @param dayOfMonth 1–31.
@@ -113,9 +112,7 @@ export function matchesDay(
 	}
 	const day = cron.days.has(dayOfMonth);
 	const week = cron.weekdays.has(dayOfWeek);
-	return cron.daysRestricted && cron.weekdaysRestricted
-		? day || week
-		: day && week;
+	return cron.daysStar || cron.weekdaysStar ? day && week : day || week;
 }
 
 /** Whether the hour and the minute are both listed. */
@@ -192,23 +189,30 @@ function refusal(field: Field, reason: string): TypeError {
 	return new TypeError(`cron ${field.name}: ${reason}`);
 }
 
+/** Days in the Gregorian cycle, after which months, dates and weekdays repeat. */
+export const CYCLE_DAYS = 146_097;
+
 /**
- * Refuses a cron whose days can never exist: only a restricted day of month
- * with a day of week of `*` can fail to match, and it fails when no listed
- * month has any listed day.
+ * Refuses a cron whose days can never exist, exactly: it walks one full
+ * 400-year Gregorian cycle of calendar days (UTC arithmetic, no time zone) and
+ * stops at the first day that matches.
  */
 function checkReachable(cron: Cron): void {
-	if (!cron.daysRestricted || cron.weekdaysRestricted) {
-		return;
-	}
-	for (const month of cron.months) {
-		for (const day of cron.days) {
-			if (day <= (LONGEST_MONTH[month - 1] as number)) {
-				return;
-			}
+	const start = Date.UTC(2000, 0, 1);
+	for (let i = 0; i < CYCLE_DAYS; i++) {
+		const date = new Date(start + i * 86_400_000);
+		if (
+			matchesDay(
+				cron,
+				date.getUTCMonth() + 1,
+				date.getUTCDate(),
+				date.getUTCDay(),
+			)
+		) {
+			return;
 		}
 	}
 	throw new TypeError(
-		'cron day of month: no listed month has any listed day, so it would never match',
+		'cron day of month and day of week: no day of a 400-year cycle matches, so it would never match',
 	);
 }

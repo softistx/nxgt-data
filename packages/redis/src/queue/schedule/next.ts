@@ -1,11 +1,11 @@
-import { type Cron, matchesDay, matchesTime } from './cron';
+import { type Cron, CYCLE_DAYS, matchesDay, matchesTime } from './cron';
 import { instantsOf, wallOf } from './zone';
 
 /**
  * How many days the search walks. A cron that passed the reachability check
- * meets a day within the longest gap between two leap days (8 years).
+ * meets a day within one 400-year Gregorian cycle, plus a leap year.
  */
-const MAX_DAYS = 3000;
+const MAX_DAYS = CYCLE_DAYS + 366;
 
 /** Wall times this far before `t`'s wall time cannot have a first instant after `t`. */
 const SKIP_BEFORE_MS = 3 * 3_600_000;

@@ -3,18 +3,21 @@ import { matchesDay, matchesTime, parseCron } from './cron';
 
 const sorted = (set: ReadonlySet<number>) => [...set].sort((a, b) => a - b);
 
-test('a star takes the whole range, and only a star is unrestricted', () => {
+test('a star takes the whole range, and a field beginning with a star is a star', () => {
 	const cron = parseCron('* * * * *');
 	expect(cron.minutes.size).toBe(60);
 	expect(cron.hours.size).toBe(24);
 	expect(cron.days.size).toBe(31);
 	expect(cron.months.size).toBe(12);
 	expect(sorted(cron.weekdays)).toEqual([0, 1, 2, 3, 4, 5, 6]);
-	expect(cron.daysRestricted).toBe(false);
-	expect(cron.weekdaysRestricted).toBe(false);
+	expect(cron.daysStar).toBe(true);
+	expect(cron.weekdaysStar).toBe(true);
 	const some = parseCron('0 0 1 * 1');
-	expect(some.daysRestricted).toBe(true);
-	expect(some.weekdaysRestricted).toBe(true);
+	expect(some.daysStar).toBe(false);
+	expect(some.weekdaysStar).toBe(false);
+	const stepped = parseCron('0 0 */2 * */3');
+	expect(stepped.daysStar).toBe(true);
+	expect(stepped.weekdaysStar).toBe(true);
 });
 
 test.each([
@@ -89,6 +92,19 @@ test('a leap day, and a date some listed month has, are accepted', () => {
 	expect(() => parseCron('0 0 31 2,3 *')).not.toThrow();
 	// With a day of week listed too, the OR rule makes the date reachable.
 	expect(() => parseCron('0 0 31 2 1')).not.toThrow();
+	// AND with a weekday step: Feb 29 on a Sunday, Wednesday or Saturday.
+	expect(() => parseCron('0 0 29 2 */3')).not.toThrow();
+	// Feb 29 on a Sunday comes every 28 years or so: far past a few thousand days.
+	expect(() => parseCron('0 0 29 2 */7')).not.toThrow();
+});
+
+test('an impossible cron is found by an exact walk, quickly', () => {
+	const started = performance.now();
+	expect(() => parseCron('0 0 31 2 *')).toThrow('never');
+	expect(() => parseCron('0 0 30 2 *')).toThrow('never');
+	// Feb 30th in AND with a weekday step is impossible too.
+	expect(() => parseCron('0 0 30 2 */3')).toThrow('never');
+	expect(performance.now() - started).toBeLessThan(1500);
 });
 
 test('Vixie OR: restricted day of month and day of week match either', () => {
@@ -98,6 +114,23 @@ test('Vixie OR: restricted day of month and day of week match either', () => {
 	expect(matchesDay(cron, 6, 12, 5)).toBe(true);
 	expect(matchesDay(cron, 6, 12, 6)).toBe(false);
 	expect(matchesDay(cron, 6, 14, 0)).toBe(false);
+});
+
+test('a star with a step makes the day rule an AND, as in Vixie cron', () => {
+	// */2 in day of month: odd days that are Mondays.
+	const cron = parseCron('0 0 */2 * 1');
+	expect(matchesDay(cron, 5, 11, 1)).toBe(true);
+	expect(matchesDay(cron, 5, 12, 1)).toBe(false);
+	expect(matchesDay(cron, 5, 11, 2)).toBe(false);
+	// */1 in day of month leaves the day of week alone to decide.
+	const every = parseCron('0 0 */1 * 1');
+	expect(matchesDay(every, 5, 12, 1)).toBe(true);
+	expect(matchesDay(every, 5, 12, 2)).toBe(false);
+	// A star-stepped weekday ANDs with the day of month.
+	const week = parseCron('0 0 13 * */2');
+	expect(matchesDay(week, 6, 13, 0)).toBe(true);
+	expect(matchesDay(week, 6, 13, 1)).toBe(false);
+	expect(matchesDay(week, 6, 14, 0)).toBe(false);
 });
 
 test('with one of them a star, the other alone decides, and month filters', () => {
