@@ -25,8 +25,9 @@ item shipped in is the only number on this page.
   (landed, not yet released). Recurring jobs: `schedules` in `defineQueue` and
   `queue.schedules.upsert`, `remove` and `list`, by cron with time zones or by
   interval (landed, not yet released). Groups: `groups` in `defineQueue` and `group` on `add`, round-robin between
-  groups with a `concurrency` cap per group (landed, not yet released). Still to
-  come in the same release: a published benchmark.
+  groups with a `concurrency` cap per group (landed, not yet released). A
+  benchmark of throughput and latency is published in the
+  [queue guide](guide/queues.md#benchmark) (landed, not yet released).
 
 ## Next
 
@@ -57,6 +58,11 @@ item shipped in is the only number on this page.
 
 ## Not planned
 
+- **An in-memory fake of the queue** — the queue is Lua scripts on the
+  server, so a fake would test something else. Specs run against the real
+  scripts on `startTestRedis()`.
+- **An OpenTelemetry dependency** — a worker emits typed events in process;
+  wire them to your own telemetry.
 - **Running on Node** — the client is Bun's own `RedisClient`, which is why
   this package installs no driver at all. There is nothing to swap for Node,
   and a build for it is not coming: it needs Bun 1.4 or later, for

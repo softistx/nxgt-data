@@ -36,7 +36,9 @@
 		"rate-limit",
 		"idempotency",
 		"queue",
-		"jobs"
+		"jobs",
+		"cron",
+		"worker"
 	],
 	"repository": {
 		"type": "git",
