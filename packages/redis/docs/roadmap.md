@@ -5,29 +5,35 @@ item shipped in is the only number on this page.
 
 ## Now
 
-- **A queue** — jobs typed by a schema, with delays, priorities, and workers
-  that run them at least once: a lease per job, retries with backoff, and
-  retention of what completed or failed, with a way to inspect it. A job
-  returns a typed result that `finished()` awaits; it can be canceled, given
-  a timeout and an `AbortSignal`, and report progress; workers emit typed
-  events, tell you when they are `idle()`, and `close({ grace })` lets running
-  jobs finish. Durable steps: `job.step(name, fn, { schema? })` runs a side
-  effect once per job rather than once per attempt, so a retry skips the work
-  already done, and a stale worker is fenced out by token and lease;
-  `job.key(name)` gives a stable idempotency key to hand a provider; and
-  `finished({ timeout })` is a hard bound. Wiring: queues are declared as
-  `queues` in `defineRedis` and `openRedis`, reached as `redis.queues.<key>`
-  and built lazily on first use; the deployment `prefix` is on every key and in
-  `job.key`; `redis.close({ grace })` closes the workers and refuses later adds
-  with `QueueError` `CLOSED`; and a queue whose name is shared with a cache, a
-  rate limit or an idempotency is refused. Flow control: `debounce` and `throttle` on `add`,
-  `pause()` and `resume()`, and a queue-wide `rateLimit` shared by every worker
-  (landed, not yet released). Recurring jobs: `schedules` in `defineQueue` and
-  `queue.schedules.upsert`, `remove` and `list`, by cron with time zones or by
-  interval (landed, not yet released). Groups: `groups` in `defineQueue` and `group` on `add`, round-robin between
-  groups with a `concurrency` cap per group (landed, not yet released). A
-  benchmark of throughput and latency is published in the
-  [queue guide](guide/queues.md#benchmark) (landed, not yet released).
+- **A queue** — jobs typed by a schema, run by workers at least once:
+  - **Core** — delays and priorities; workers that run jobs at least once, with
+    a lease per job, retries with backoff, and retention of what completed or
+    failed, with a way to inspect it. A job returns a typed result that
+    `finished()` awaits; it can be canceled, given a timeout and an
+    `AbortSignal`, and report progress. Workers emit typed events, tell you when
+    they are `idle()`, and `close({ grace })` lets running jobs finish.
+  - **Durable steps** — `job.step(name, fn, { schema? })` runs a side effect
+    once per job rather than once per attempt, so a retry skips the work already
+    done, and a stale worker is fenced out by token and lease; `job.key(name)`
+    gives a stable idempotency key to hand a provider; and `finished({ timeout })`
+    is a hard bound.
+  - **Flow control** — `debounce` and `throttle` on `add`, `pause()` and
+    `resume()`, and a queue-wide `rateLimit` shared by every worker (landed, not
+    yet released).
+  - **Recurring jobs** — `schedules` in `defineQueue` and
+    `queue.schedules.upsert`, `remove` and `list`, by cron with time zones or by
+    interval (landed, not yet released).
+  - **Groups** — `groups` in `defineQueue` and `group` on `add`, round-robin
+    between groups with a `concurrency` cap per group (landed, not yet
+    released).
+  - **Wiring** — queues are declared as `queues` in `defineRedis` and
+    `openRedis`, reached as `redis.queues.<key>` and built lazily on first use;
+    the deployment `prefix` is on every key and in `job.key`;
+    `redis.close({ grace })` closes the workers and refuses later adds with
+    `QueueError` `CLOSED`; and a queue whose name is shared with a cache, a rate
+    limit or an idempotency is refused.
+  - **Benchmark** — throughput and latency, published in the
+    [queue guide](guide/queues.md#benchmark) (landed, not yet released).
 
 ## Next
 
