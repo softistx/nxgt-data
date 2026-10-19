@@ -1,4 +1,4 @@
-import type { ClaimReply } from '../scripts/replies';
+import type { ClaimReply } from '../scripts/claim/replies';
 import type { WorkerContext } from './context';
 import type { WorkerEvents } from './types';
 

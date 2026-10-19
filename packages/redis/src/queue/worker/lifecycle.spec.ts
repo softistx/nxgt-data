@@ -2,10 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
 import { eventually, gate, mailQueue, useRedis } from '../../../test/fixtures';
 import { JobError } from '../../errors/job-error';
-import { bindQueue } from '../bind-queue';
-import { defineQueue } from '../define-queue';
+import { bindQueue } from '../binding/bind-queue';
+import { defineQueue } from '../definition/define-queue';
 import { queueKeys } from '../keys';
-import { claim } from '../scripts/claim';
+import { claim } from '../scripts/claim/claim';
 import type { Worker, WorkerEvents } from './types';
 
 const servers = useRedis();

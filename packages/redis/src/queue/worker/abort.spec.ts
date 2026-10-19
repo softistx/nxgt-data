@@ -7,8 +7,8 @@ import {
 	useRedis,
 } from '../../../test/fixtures';
 import { QueueError } from '../../errors/queue-error';
-import { bindQueue } from '../bind-queue';
-import { defineQueue } from '../define-queue';
+import { bindQueue } from '../binding/bind-queue';
+import { defineQueue } from '../definition/define-queue';
 import { flush } from '../events/subscriber';
 import { queueKeys } from '../keys';
 import {

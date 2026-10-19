@@ -4,8 +4,8 @@ import { QueueError } from '../../errors/queue-error';
 import { runScript } from '../../scripts/run-script';
 import { decodeData } from '../encode';
 import type { queueKeys } from '../keys';
-import { SCHEDULES, UNSCHEDULE, UPSERT } from '../scripts/schedule';
-import type { QueueDefinition } from '../types';
+import { SCHEDULES, UNSCHEDULE, UPSERT } from '../scripts/schedule/schedule';
+import type { QueueDefinition } from '../types/queue';
 import { firstNext, ID_RULE, isScheduleId, resolveSchedule } from './define';
 import type { QueueSchedules, ScheduleView } from './types';
 

@@ -7,10 +7,10 @@ import {
 	useClients,
 	useRedis,
 } from '../../../test/fixtures';
-import { bindQueue } from '../bind-queue';
-import { defineQueue } from '../define-queue';
+import { bindQueue } from '../binding/bind-queue';
+import { defineQueue } from '../definition/define-queue';
 import { queueKeys } from '../keys';
-import { claim } from '../scripts/claim';
+import { claim } from '../scripts/claim/claim';
 import type { Worker } from './types';
 
 const servers = useRedis();

@@ -8,10 +8,10 @@ import {
 	useClients,
 	useRedis,
 } from '../../../test/fixtures';
-import { bindQueue } from '../bind-queue';
-import { defineQueue } from '../define-queue';
+import { bindQueue } from '../binding/bind-queue';
+import { defineQueue } from '../definition/define-queue';
 import { queueKeys } from '../keys';
-import { claim } from '../scripts/claim';
+import { claim } from '../scripts/claim/claim';
 import type { Worker } from './types';
 
 const servers = useRedis();
@@ -33,43 +33,46 @@ afterEach(async () => {
 describe('a grouped queue with workers', () => {
 	test('a group never runs above its concurrency, across workers and clients', async () => {
 		const q = bindQueue(client(), capped);
-		await q.addMany([
-			...Array.from({ length: 10 }, (_, n) => ({
+		await q.addMany(
+			Array.from({ length: 10 }, (_, n) => ({
 				data: { n },
 				options: { group: 'A' },
 			})),
-			...Array.from({ length: 6 }, (_, n) => ({
-				data: { n: 100 + n },
-				options: { group: 'B' },
-			})),
-		]);
+		);
+		// A's jobs are held at a gate, so the cap is measured on state rather
+		// than on how 40 ms sleeps happened to overlap on a loaded machine.
+		const hold = gate();
 		let running = 0;
 		let max = 0;
-		let b = 0;
-		let overlap = false;
 		for (const own of clients()) {
 			for (let i = 0; i < 2; i++) {
 				opened.push(
 					bindQueue(own, capped).work(async (job) => {
-						if (job.data.n < 100) {
-							running++;
-							max = Math.max(max, running);
-							if (b > 0) overlap = true;
-							await Bun.sleep(40);
-							running--;
-						} else {
-							b++;
-							await Bun.sleep(40);
-							b--;
-						}
+						if (job.data.n >= 100) return;
+						running++;
+						max = Math.max(max, running);
+						await hold.opened;
+						running--;
 					}),
 				);
 			}
 		}
+		// B's jobs come only once A holds its two slots, so every B job
+		// finishes while A is full: B is never queued behind the full group.
+		await eventually(() => running, 2);
+		await q.addMany(
+			Array.from({ length: 6 }, (_, n) => ({
+				data: { n: 100 + n },
+				options: { group: 'B' },
+			})),
+		);
+		await eventually(async () => (await q.counts()).completed, 6);
+		expect(running).toBe(2);
+		await Bun.sleep(200);
+		expect(running).toBe(2);
+		hold.open();
 		await eventually(async () => (await q.counts()).completed, 16);
-		expect(max).toBeLessThanOrEqual(2);
 		expect(max).toBe(2);
-		expect(overlap).toBe(true);
 	});
 
 	test('workers do not spin while every ready job sits in a full group', async () => {

@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { mailQueue, useChannelLog, useRedis } from '../../../test/fixtures';
 import { runScript } from '../../scripts/run-script';
-import { bindQueue } from '../bind-queue';
+import { bindQueue } from '../binding/bind-queue';
 import { queueKeys } from '../keys';
-import { claim, scriptKeys } from './claim';
-import { FIRE } from './schedule';
+import { claim, scriptKeys } from './claim/claim';
+import { FIRE } from './schedule/schedule';
 
 const servers = useRedis();
 const channelLog = useChannelLog();

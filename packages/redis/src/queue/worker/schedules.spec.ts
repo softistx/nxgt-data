@@ -3,11 +3,11 @@ import { RedisClient } from 'bun';
 import { z } from 'zod';
 import { eventually, useRedis } from '../../../test/fixtures';
 import { def, type Fields, scheduleCalls } from '../../../test/schedule-calls';
-import { bindQueue } from '../bind-queue';
-import { defineQueue } from '../define-queue';
+import { bindQueue } from '../binding/bind-queue';
+import { defineQueue } from '../definition/define-queue';
 import { queueKeys } from '../keys';
-import { CLAIM } from '../scripts/claim';
-import { FIRE, SYNC } from '../scripts/schedule';
+import { CLAIM } from '../scripts/claim/claim';
+import { FIRE, SYNC } from '../scripts/schedule/schedule';
 import type { Worker } from './types';
 
 const servers = useRedis();

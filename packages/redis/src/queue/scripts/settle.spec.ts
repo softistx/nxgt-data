@@ -6,10 +6,10 @@ import {
 	useChannelLog,
 	useRedis,
 } from '../../../test/fixtures';
-import { bindQueue } from '../bind-queue';
-import { defineQueue } from '../define-queue';
+import { bindQueue } from '../binding/bind-queue';
+import { defineQueue } from '../definition/define-queue';
 import { queueKeys } from '../keys';
-import { claim } from './claim';
+import { claim } from './claim/claim';
 import { renew } from './renew';
 import { complete, fail } from './settle';
 

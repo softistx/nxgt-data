@@ -6,7 +6,7 @@ import type { PingResult } from '../connection/connect';
 import type { IdempotencyDefinition } from '../idempotency/types';
 import type { LockOptions } from '../lock/with-lock';
 import type { Duration } from '../queue/duration';
-import type { QueueDefinition } from '../queue/types';
+import type { QueueDefinition } from '../queue/types/queue';
 import type { RateLimitDefinition } from '../rate-limit/types';
 import type {
 	CachesIn,

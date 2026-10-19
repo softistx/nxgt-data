@@ -394,6 +394,7 @@ under the deployment's prefix; after `redis.close()`, `add`, `addMany`,
 `finished` and `work` throw `QueueError` `CLOSED`. A queue can also be bound by
 hand with `bindQueue(client, definition)`, with no prefix and no `CLOSED`. The
 [queue guide](docs/guide/queues.md) has results, timeouts, progress, events, priorities, flow control, retention, inspection and a spec.
+A complete example, with a producer, a worker, groups per tenant and a nightly schedule, is `examples/queue-mails` in the [repository](https://github.com/softistx/nxgt-data/tree/develop/examples/queue-mails); the guide's [benchmark](docs/guide/queues.md#benchmark) gives throughput and latency, measured locally.
 
 ## What it does not do
 

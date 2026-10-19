@@ -1,11 +1,11 @@
 import type { z } from 'zod';
-import { claim } from '../scripts/claim';
-import type { ClaimedJob } from '../scripts/replies';
+import { claim } from '../scripts/claim/claim';
+import type { ClaimedJob } from '../scripts/claim/replies';
 import type { WorkerContext } from './context';
 import { announce, emit } from './events';
 import { fireDue, MAX_WAIT, waitMs } from './fire';
 import { markDrained, settleIdle } from './idle';
-import { runSlot } from './run-job';
+import { runSlot } from './job/run-job';
 import { syncRetryIn, syncSchedules } from './sync';
 
 /** The wait after a Redis failure, doubling up to the cap, reset by a success. */

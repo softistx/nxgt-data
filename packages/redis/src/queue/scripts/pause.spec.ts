@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { mailQueue, useRedis } from '../../../test/fixtures';
-import { bindQueue } from '../bind-queue';
+import { bindQueue } from '../binding/bind-queue';
 import { queueKeys } from '../keys';
-import { claim } from './claim';
+import { claim } from './claim/claim';
 import { complete } from './settle';
 
 const servers = useRedis();

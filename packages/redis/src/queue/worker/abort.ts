@@ -1,7 +1,7 @@
 import { QueueError } from '../../errors/queue-error';
 import { parseEvent } from '../events/message';
 import { listen } from '../events/subscriber';
-import type { ClaimedJob } from '../scripts/replies';
+import type { ClaimedJob } from '../scripts/claim/replies';
 import { clampTimeout } from '../timers';
 import type { WorkerContext } from './context';
 

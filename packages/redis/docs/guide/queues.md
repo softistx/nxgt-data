@@ -1333,6 +1333,10 @@ test('a welcome mail is sent once', async () => {
 });
 ```
 
+A worker stores the definition's schedules once per client. After a `FLUSHDB`
+(or `server.reset()`) between tests, open a fresh `RedisClient`, or give each
+test its own prefix, so they are stored again.
+
 A test can also wait with `await worker.idle()`, or on one job with
 `await handle.finished({ timeout: '5s' })`, instead of polling `counts`.
 
@@ -1354,6 +1358,53 @@ waits for a retry waits milliseconds rather than seconds.
 | `schedules.upsert`, `remove`, `list` | 1 |
 | `list` | 1 for the ids, and the jobs' reads pipelined into 1 more |
 | any of the above on a grouped queue | the same: the groups are kept inside the same scripts |
+
+What those cost in time is measured in the [benchmark](#benchmark).
+
+## Benchmark
+
+A local benchmark, `scripts/bench-queue.ts` in the repository, measured the
+queue on this machine:
+
+| Machine | OS | Bun | Redis | @nxgt/redis |
+| --- | --- | --- | --- | --- |
+| Apple M5 Pro, 18 cores | darwin 25.6.0 | 1.4.3 | 7.4.1 | unreleased, after 0.8.0 |
+
+Throughput, 100000 jobs:
+
+| Concurrency | add (addMany) jobs/s | process jobs/s |
+| --- | --- | --- |
+| 1 | 201205 | 18794 |
+| 8 | 227184 | 51629 |
+| 64 | 228826 | 52857 |
+
+Latency, add to handler start, parked worker, 1000 samples:
+
+| p50 ms | p99 ms |
+| --- | --- |
+| 0.27 | 0.52 |
+
+What each number measures:
+
+- **add**: 100 000 jobs added with `addMany`, in chunks, timed on their own.
+- **process**: from the start of `work` until `idle()` resolves, with a
+  handler that does nothing, at the concurrency of the row. The queue runs
+  with `keepCompleted: false`, so no completed job is kept.
+- **latency**: on a worker parked on its blocking read, from just before
+  `add` to the first line of the handler, over 1 000 sequential jobs. After
+  each sample the worker is awaited idle and given 10 ms to park again, so
+  every add pays the wake-up.
+
+Rerun it from a checkout of the repository:
+
+```bash
+bun run build
+bun run bench:queue
+```
+
+It is local: it never runs in CI and takes under a minute here. The numbers depend on the
+machine, on Redis and on what the handler does, so read them as an order of
+magnitude and measure yours.
 
 See also [Pub/sub](channels.md), for events nobody has to be sure received, and
 [Locks](locks.md), for work that must not overlap.

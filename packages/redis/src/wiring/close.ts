@@ -1,5 +1,5 @@
+import { closeLife } from '../queue/binding/life';
 import { durationMs } from '../queue/duration';
-import { closeLife } from '../queue/life';
 import type { WiringContext } from './context';
 
 /**

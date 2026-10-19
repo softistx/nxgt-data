@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test';
 import { RedisClient } from 'bun';
 import { z } from 'zod';
 import { eventually, gate, mailQueue, useRedis } from '../../../test/fixtures';
-import { bindQueue } from '../bind-queue';
-import { defineQueue } from '../define-queue';
+import { bindQueue } from '../binding/bind-queue';
+import { defineQueue } from '../definition/define-queue';
 import { RELEASE_MS } from '../timers';
 
 const servers = useRedis();

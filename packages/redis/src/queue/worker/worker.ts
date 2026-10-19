@@ -2,7 +2,7 @@ import type { RedisClient } from 'bun';
 import type { z } from 'zod';
 import type { Duration } from '../duration';
 import type { queueKeys } from '../keys';
-import type { QueueDefinition } from '../types';
+import type { QueueDefinition } from '../types/queue';
 import { abortLost, hearCancels } from './abort';
 import { closeWorker, resolveGrace } from './close';
 import type { WorkerContext } from './context';

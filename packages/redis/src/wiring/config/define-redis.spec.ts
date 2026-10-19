@@ -4,7 +4,7 @@ import * as caches from '../../../test/wiring/caches';
 import * as channels from '../../../test/wiring/channels';
 import { defineCache } from '../../cache/define-cache';
 import { defineChannel } from '../../channel/define-channel';
-import { defineQueue } from '../../queue/define-queue';
+import { defineQueue } from '../../queue/definition/define-queue';
 import { defineRedis } from './define-redis';
 
 const uri = 'redis://127.0.0.1:6379';

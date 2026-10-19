@@ -1,11 +1,11 @@
 import type { RedisClient } from 'bun';
 import { defineScript, runScript } from '../../scripts/run-script';
-import type { QueueGroups } from '../flow-types';
 import type { queueKeys } from '../keys';
-import { groupArgs, scriptKeys } from './claim';
-import { GROUP_FN, groupLocals } from './groups';
-import { guardMode } from './groups-mode';
-import { WAKE_FN } from './wake';
+import type { QueueGroups } from '../types/flow';
+import { groupArgs, scriptKeys } from './claim/claim';
+import { WAKE_FN } from './claim/wake';
+import { GROUP_FN, groupLocals } from './groups/groups';
+import { guardMode } from './groups/mode';
 
 /*
  * Cancelling decides by a job's place and its stored `state` together, as

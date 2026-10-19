@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
 import { QueueError } from '../../errors/queue-error';
-import { defineQueue } from '../define-queue';
+import { defineQueue } from '../definition/define-queue';
 
 const schema = z.object({ to: z.string(), n: z.number().default(1) });
 const data = { to: 'a@b.c' };
