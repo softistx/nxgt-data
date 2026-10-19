@@ -14,7 +14,7 @@ import { rejection, rejectionMessage } from '../../test/rejection';
 import { SEAWEEDFS_CACHE } from '../../test/server';
 import { bindBucket } from '../bucket/bind-bucket';
 import { defineBucket } from '../bucket/define-bucket';
-import { startTestS3, type TestS3 } from './';
+import { startTestS3, type TestS3 } from '.';
 import { seaweedfsBinary } from './seaweedfs';
 import { socketsOf } from './weed';
 
