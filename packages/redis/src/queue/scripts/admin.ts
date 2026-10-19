@@ -1,6 +1,6 @@
 import { defineScript } from '../../scripts/run-script';
 import { CLAIM_FN, NOW_LUA } from './claim/body';
-import { GROUP_FN, groupLocals } from './groups/groups';
+import { GROUP_FN, groupLocals, groupModeCheck } from './groups/groups';
 import { WAKE_FN } from './wake';
 
 /*
@@ -47,11 +47,13 @@ return 1
  * at once (passing the baton, or sizing its wait to the delayed job that
  * fell due during the pause). Idempotent.
  *
- * KEYS: paused, ready, wake, delayed, groupsReady.
- * ARGV: `grouped` (`'1'` or `'0'`).
+ * KEYS: paused, ready, wake, delayed, groupsReady, groupsMode.
+ * ARGV: the three group arguments (see `groupArgs`); the marker check of
+ * `groupModeCheck` runs first, before the `DEL`.
  */
 export const RESUME = defineScript(`
 ${WAKE_FN}
+${groupModeCheck(6, 1)}
 redis.call('DEL', KEYS[1])
 local claimable
 if ARGV[1] == '1' then claimable = redis.call('LLEN', KEYS[5]) > 0

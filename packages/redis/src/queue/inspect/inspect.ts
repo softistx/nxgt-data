@@ -3,7 +3,9 @@ import type { z } from 'zod';
 import { runScript } from '../../scripts/run-script';
 import type { queueKeys } from '../keys';
 import { COUNTS, PAUSE, RESUME } from '../scripts/admin';
-import type { RetryOptions } from '../types/flow';
+import { groupArgs } from '../scripts/claim/claim';
+import { guardMode } from '../scripts/groups/mode';
+import type { QueueGroups, RetryOptions } from '../types/flow';
 import type {
 	JobState,
 	JobView,
@@ -151,17 +153,31 @@ export async function pauseQueue(
 	await runScript(client, PAUSE, [keys.paused], []);
 }
 
-/** Resumes the queue, waking a blocked worker when jobs wait: one script. */
+/**
+ * Resumes the queue, waking a blocked worker when jobs wait: one script.
+ *
+ * @throws QueueError `GROUPS_MISMATCH` when `groups` differs from the queue's.
+ */
 export async function resumeQueue(
 	client: RedisClient,
 	keys: Keys,
-	grouped: boolean,
+	groups: QueueGroups | undefined,
+	name: string,
 ): Promise<void> {
-	await runScript(
-		client,
-		RESUME,
-		[keys.paused, keys.ready, keys.wake, keys.delayed, keys.groupsReady],
-		[grouped ? '1' : '0'],
+	await guardMode(client, keys, groups, 'resume', name, () =>
+		runScript(
+			client,
+			RESUME,
+			[
+				keys.paused,
+				keys.ready,
+				keys.wake,
+				keys.delayed,
+				keys.groupsReady,
+				keys.groupsMode,
+			],
+			groupArgs(keys, groups),
+		),
 	);
 }
 

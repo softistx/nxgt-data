@@ -209,7 +209,7 @@ export function bindQueueWith<
 		list: (state, page) => listJobs(client, keys, definition, state, page),
 		counts: () => countJobs(client, keys),
 		pause: () => pauseQueue(client, keys),
-		resume: () => resumeQueue(client, keys, grouped),
+		resume: () => resumeQueue(client, keys, definition.groups, definition.name),
 		async retry(id, options) {
 			return await retryJob(
 				client,

@@ -111,6 +111,18 @@ describe('the groups mode marker', () => {
 		expect(await client().get(`${keys.group}A:active`)).toBe('1');
 	});
 
+	test('a grouped resume on an ungrouped queue is refused, still paused', async () => {
+		const mails = bindQueue(client(), mailQueue);
+		await mails.add({ to: 'a' }, { id: 'a' });
+		await mails.pause();
+		const before = await snapshot();
+		const error = await rejection(bindQueue(client(), grouped(1)).resume());
+		expect((error as QueueError).code).toBe('GROUPS_MISMATCH');
+		expect((error as QueueError).message).toStartWith('resume on "mails": ');
+		expect(await snapshot()).toBe(before);
+		expect(await client().exists(keys.paused)).toBe(true);
+	});
+
 	test('a worker whose claim is refused emits error and does not spin', async () => {
 		await client().set(keys.groupsMode, '0');
 		const worker = bindQueue(client(), grouped(1)).work(() => undefined);
