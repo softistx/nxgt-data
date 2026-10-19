@@ -16,6 +16,44 @@ import { WAKE_FN } from './wake';
  */
 
 /**
+ * The Lua that writes one plain job, shared by `ADD` and the schedules' `FIRE`
+ * so a job is stored in one place. The including script defines, before it:
+ * `prefix` (the job-key prefix), `now` (ms), `poke()` (leaves the wake token,
+ * or nothing while paused), and `DELAYED`, `READY` and `SEQ` (the keys of
+ * `delayed`, `ready` and `seq`).
+ *
+ * `add_job(id, data, priority, attempts, delay, at, timeout)` takes the
+ * script's ARGV strings for `id`, `data`, `priority` and `attempts`, and
+ * numbers for `delay` (ms), `at` (ms, -1 for none; a past one is due now) and
+ * `timeout` (ms, -1 for none). It answers `false` when the id already has a
+ * hash (left alone) and `true` once the job is stored, in `ready` when due
+ * and in `delayed` otherwise, with the wake rules {@link ADD} describes.
+ */
+export const ADD_JOB_FN = `
+local function add_job(id, data, priority, attempts, delay, at, timeout)
+	local key = prefix .. id
+	if redis.call('EXISTS', key) == 1 then return false end
+	local runAt = now + delay
+	if at >= 0 then runAt = at end
+	local due = runAt <= now
+	if due then runAt = now end
+	redis.call('HSET', key, 'data', data, 'priority', priority, 'attempt', 0,
+		'attempts', attempts, 'state', due and 'waiting' or 'delayed',
+		'added', now, 'runAt', runAt)
+	if timeout >= 0 then redis.call('HSET', key, 'timeout', string.format('%d', timeout)) end
+	if due then
+		local score = tonumber(priority) * 1099511627776 + redis.call('INCR', SEQ)
+		redis.call('ZADD', READY, string.format('%d', score), id)
+		poke()
+	else
+		if is_head(DELAYED, runAt) then poke() end
+		redis.call('ZADD', DELAYED, string.format('%d', runAt), id)
+	end
+	return true
+end
+`;
+
+/**
  * Adds up to 500 jobs, in order, and says for each whether it was new.
  *
  * An id that already has a hash is left alone, even when an earlier job of
@@ -67,6 +105,8 @@ local function poke()
 end
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+local DELAYED, READY, SEQ = KEYS[1], KEYS[2], KEYS[3]
+${ADD_JOB_FN}
 -- Whether a stored key value is an id this script could have written.
 local function is_id(held)
 	return #held >= 1 and #held <= 256 and not string.find(held, '[{}]')
@@ -88,7 +128,6 @@ for i = 3, #ARGV, 10 do
 	local id, data, priority, attempts = ARGV[i], ARGV[i + 1], ARGV[i + 2], ARGV[i + 3]
 	local delay, at, timeout = tonumber(ARGV[i + 4]), tonumber(ARGV[i + 5]), tonumber(ARGV[i + 6])
 	local mode, dkey, ttl = ARGV[i + 7], ARGV[i + 8], ARGV[i + 9]
-	local key = prefix .. id
 	local held = false
 	if mode ~= '' then held = redis.call('GET', dprefix .. dkey) end
 	if held and not is_id(held) then held = false end
@@ -105,27 +144,13 @@ for i = 3, #ARGV, 10 do
 		out[#out + 1] = hit
 	elseif hit then
 		out[#out + 1] = hit
-	elseif redis.call('EXISTS', key) == 1 then
-		out[#out + 1] = 1
 	else
-		local runAt = now + delay
-		if at >= 0 then runAt = at end
-		local due = runAt <= now
-		if due then runAt = now end
-		redis.call('HSET', key, 'data', data, 'priority', priority, 'attempt', 0,
-			'attempts', attempts, 'state', due and 'waiting' or 'delayed',
-			'added', now, 'runAt', runAt)
-		if timeout >= 0 then redis.call('HSET', key, 'timeout', string.format('%d', timeout)) end
-		if due then
-			local score = tonumber(priority) * 1099511627776 + redis.call('INCR', KEYS[3])
-			redis.call('ZADD', KEYS[2], string.format('%d', score), id)
-			poke()
+		if add_job(id, data, priority, attempts, delay, at, timeout) then
+			if mode ~= '' then redis.call('SET', dprefix .. dkey, id, 'PX', ttl) end
+			out[#out + 1] = 0
 		else
-			if is_head(KEYS[1], runAt) then poke() end
-			redis.call('ZADD', KEYS[1], string.format('%d', runAt), id)
+			out[#out + 1] = 1
 		end
-		if mode ~= '' then redis.call('SET', dprefix .. dkey, id, 'PX', ttl) end
-		out[#out + 1] = 0
 	end
 end
 return out

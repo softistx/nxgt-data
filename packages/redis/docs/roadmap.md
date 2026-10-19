@@ -22,8 +22,9 @@ item shipped in is the only number on this page.
   with `QueueError` `CLOSED`; and a queue whose name is shared with a cache, a
   rate limit or an idempotency is refused. Flow control: `debounce` and `throttle` on `add`,
   `pause()` and `resume()`, and a queue-wide `rateLimit` shared by every worker
-  (landed, not yet released). Still to come in the same release: recurring
-  jobs by cron with time zones; concurrency and fairness per group; and a
+  (landed, not yet released). Recurring jobs: `schedules` in `defineQueue` and
+  `queue.schedules.upsert`, `remove` and `list`, by cron with time zones or by
+  interval (landed, not yet released). Still to come in the same release: concurrency and fairness per group; and a
   published benchmark.
 
 ## Next

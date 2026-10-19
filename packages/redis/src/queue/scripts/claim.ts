@@ -9,23 +9,25 @@ import { type ClaimReply, parseClaimReply } from './replies';
  * Takes up to `n` jobs: reclaims, promotes and pops as {@link CLAIM_FN} says.
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake, events, paused,
- * rate.
+ * rate, schedules.
  * ARGV: job-key prefix, n, lease (ms), the rate's `per` (ms), `limit` and
- * `burst` (`0 0 0` for none; see {@link rateArgs}), then `n` tokens.
- * Returns `{jobs, stalled, invalid, next}`.
+ * `burst` (`0 0 0` for none; see {@link rateArgs}), the schedule-key prefix,
+ * then `n` tokens.
+ * Returns `{jobs, stalled, invalid, next, due}`.
  */
 export const CLAIM = defineScript(`
 local prefix = ARGV[1]
 ${CLAIM_FN}
 ${NOW_LUA}
 local tokens = {}
-for i = 7, #ARGV do tokens[#tokens + 1] = ARGV[i] end
-return claim(tonumber(ARGV[2]), tonumber(ARGV[3]), tokens, now, rate_of(4, now_us))
+for i = 8, #ARGV do tokens[#tokens + 1] = ARGV[i] end
+return claim(tonumber(ARGV[2]), tonumber(ARGV[3]), tokens, now, rate_of(4, now_us), ARGV[7])
 `);
 
 /**
  * The keys of one queue, as a script takes them: `CLAIM_FN`'s seven, then
- * `events` (which only the scripts that publish read), `paused` and `rate`.
+ * `events` (which only the scripts that publish read), `paused`, `rate` and
+ * `schedules`.
  */
 export function scriptKeys(keys: ReturnType<typeof queueKeys>): string[] {
 	return [
@@ -39,6 +41,7 @@ export function scriptKeys(keys: ReturnType<typeof queueKeys>): string[] {
 		keys.events,
 		keys.paused,
 		keys.rate,
+		keys.schedules,
 	];
 }
 
@@ -77,6 +80,7 @@ export async function claim(
 			n,
 			lease,
 			...rateArgs(rate),
+			keys.schedule,
 			...tokens,
 		]),
 	);

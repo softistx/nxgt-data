@@ -17,6 +17,7 @@ import {
 } from './inspect';
 import { queueKeys } from './keys';
 import { type QueueLife, refuseClosed, trackWorker } from './life';
+import { scheduleHandle } from './schedule/handle';
 import { ADD } from './scripts/add';
 import { cancel } from './scripts/cancel';
 import { parseAddReply } from './scripts/replies';
@@ -185,6 +186,7 @@ export function bindQueueWith<
 		},
 		remove: (id) => removeJob(client, keys, definition, id),
 		cancel: (id) => cancel(client, keys, id),
+		schedules: scheduleHandle(client, keys, definition),
 		work(handler, options) {
 			refuseClosed(life, 'work', definition.name);
 			const worker = startWorker(client, definition, keys, handler, {

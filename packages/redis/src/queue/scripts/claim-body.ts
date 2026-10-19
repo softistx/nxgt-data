@@ -1,4 +1,5 @@
 import { GCRA_FN } from '../../rate-limit/gcra';
+import { SCHEDULE_FIELDS, SCHEDULE_SOUND_FN } from './schedule';
 import { WAKE_FN } from './wake';
 
 /*
@@ -40,11 +41,13 @@ end
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake (a script may
  * be given more keys after these, as {@link scriptKeys} appends `events`,
- * `paused` (KEYS[9]) and `rate` (KEYS[10], the queue-wide GCRA state)).
- * `claim(n, lease, tokens, now, rate)` takes a table of at least `n` tokens, one
- * per slot, and returns `{jobs, stalled, invalid, next}`, each job being
+ * `paused` (KEYS[9]), `rate` (KEYS[10], the queue-wide GCRA state) and
+ * `schedules` (KEYS[11])).
+ * `claim(n, lease, tokens, now, rate, sprefix)` takes a table of at least `n`
+ * tokens, one per slot, and the schedule-hash key prefix, and returns
+ * `{jobs, stalled, invalid, next, due}`, each job being
  * `{id, data, attempt, attempts, token, timeout}` (`timeout` in ms, `-1` for
- * none):
+ * none), and `due` the schedules to fire (see below):
  *
  * 1. reclaims up to 100 `active` ids whose score is below `now`. The attempt
  *    was counted when the lease began, so a job that kills its process does
@@ -62,7 +65,16 @@ end
  * 5. gives the ms until the first `delayed` score, `-1` when it is empty,
  *    5000 while paused (the worker's own cap: it only has to notice a lost
  *    resume token), and, while the rate refuses the jobs in `ready`, the
- *    GCRA's `retryAfter` for one job when that is sooner.
+ *    GCRA's `retryAfter` for one job when that is sooner;
+ * 6. reports up to 20 sound schedules due now (the first 100 scored at or
+ *    below `now`, earliest first, are read, so an unsound hash does not hide
+ *    a sound one) as `{id, kind, spec, timezone, due}`, paused or not:
+ *    schedules fire while paused. The claim fires nothing: the client
+ *    computes each `next` and calls `FIRE`. A hash that fails
+ *    `schedule_sound` is left out and left alone. `next` is 0 only when 20
+ *    were reported (a backlog drains at once); otherwise it is bounded by the
+ *    first schedule not yet due, so a due one nobody fires cannot make
+ *    workers spin.
  *
  * `rate` is `{per, limit, burst, us}` (`us` the script's `TIME` in µs, `per`
  * in ms) or `nil` for no limit. The pop is bounded by what a GCRA peek at
@@ -76,6 +88,7 @@ export const CLAIM_FN = `
 ${WAKE_FN}
 ${GCRA_FN}
 ${PUBLISH_FN}
+${SCHEDULE_SOUND_FN}
 local function int(x) return string.format('%d', x) end
 -- tonumber alone would accept 'inf', 'nan', '1e3', '0x10', '-4' and '1.5':
 -- an attempts of 'inf' would reclaim a crash-looping job forever, and a
@@ -125,8 +138,38 @@ local function admitted(n, paused, rate)
 	if one[1] == 0 then return 0 end
 	return math.min(n, one[2] + 1)
 end
-local function claim(n, lease, tokens, now, rate)
+-- The schedules due now: the first 20 sound ones of the first 100 due (an
+-- unsound hash is skipped, never repaired, and does not hide a sound one),
+-- each {id, kind, spec, timezone, due}.
+local function due_schedules(sprefix, now)
+	local out = {}
+	local rows = redis.call('ZRANGEBYSCORE', KEYS[11], '-inf', int(now), 'LIMIT', 0, 100, 'WITHSCORES')
+	for i = 1, #rows, 2 do
+		local f = redis.call('HMGET', sprefix .. rows[i], ${SCHEDULE_FIELDS})
+		if #out < 20 and schedule_sound(f) then
+			out[#out + 1] = {rows[i], f[1], f[2], f[3] or '', tonumber(rows[i + 1])}
+		end
+	end
+	return out
+end
+-- The ms a worker may wait: 0 for a full page of due schedules (a backlog
+-- drains at once), else the sooner of the first delayed job, the first
+-- schedule not yet due, and the rate's retry; -1 for nothing.
+local function next_wait(now, backlog, retry)
+	if backlog then return 0 end
+	local wait = -1
+	local first = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+	if first[2] then wait = math.max(0, tonumber(first[2]) - now) end
+	local head = redis.call('ZRANGEBYSCORE', KEYS[11], '(' .. int(now), '+inf', 'LIMIT', 0, 1, 'WITHSCORES')
+	if head[2] and (wait < 0 or tonumber(head[2]) - now < wait) then
+		wait = tonumber(head[2]) - now
+	end
+	if retry >= 0 and (wait < 0 or retry < wait) then wait = retry end
+	return wait
+end
+local function claim(n, lease, tokens, now, rate, sprefix)
 	local jobs, stalled, invalid = {}, {}, {}
+	local scheduled = due_schedules(sprefix, now)
 	local lapsed = redis.call('ZRANGEBYSCORE', KEYS[3], '-inf', '(' .. int(now), 'LIMIT', 0, 100)
 	for _, id in ipairs(lapsed) do
 		local key = prefix .. id
@@ -192,12 +235,8 @@ local function claim(n, lease, tokens, now, rate)
 	else
 		redis.call('DEL', KEYS[7])
 	end
-	if paused then return {jobs, stalled, invalid, 5000} end
-	local nextDue = -1
-	local first = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
-	if first[2] then nextDue = math.max(0, tonumber(first[2]) - now) end
-	if retry >= 0 and (nextDue < 0 or retry < nextDue) then nextDue = retry end
-	return {jobs, stalled, invalid, nextDue}
+	if paused then return {jobs, stalled, invalid, 5000, scheduled} end
+	return {jobs, stalled, invalid, next_wait(now, #scheduled >= 20, retry), scheduled}
 end
 `;
 

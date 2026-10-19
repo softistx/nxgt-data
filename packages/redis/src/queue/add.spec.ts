@@ -141,6 +141,10 @@ describe('add', () => {
 			[id, { id: '' }],
 			[id, { id: 'x'.repeat(257) }],
 			[
+				'id cannot start with "schedule:", which names scheduled occurrences',
+				{ id: 'schedule:x:1' },
+			],
+			[
 				'delay and at say the same thing; give one',
 				{ delay: '1m', at: new Date() },
 			],

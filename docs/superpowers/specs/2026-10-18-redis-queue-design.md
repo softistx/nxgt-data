@@ -266,11 +266,27 @@ hash whose shape it does not recognise is refused, never "repaired".
 - **PAUSE**, **RESUME**: set or delete `paused`; RESUME leaves one `wake`
   token when `ready` or `delayed` holds jobs, so a blocked worker starts at
   once (a delayed job may have fallen due during the pause).
-- **FIRE**(scheduleId, due, next): if the schedule's score is still `due`, add
-  the occurrence `schedule:<id>:<due>` and set the score to `next`; else do
-  nothing (another process fired it).
+- **FIRE**(scheduleId, due, next): if the schedule's score is still `due`, `due`
+  is not in the future and the hash is one this package could have written,
+  add the occurrence `schedule:<id>:<due>` (through the Lua of ADD, with the
+  definition's `attempts` and `timeout`, priority 0) and set the score to
+  `next`; else do nothing (another process fired it). A `next` that is not a
+  whole number of ms above `due` is an error reply before any write. The
+  occurrence is added while paused too, and waits in `ready` for RESUME.
+- **DEFER**(scheduleId, due, until): for a due schedule whose spec the client
+  cannot parse any more. If the score is still `due` and the hash is sound,
+  set the score to `until` (the client sends now + 1 h) and add no job;
+  answer 1, else 0. An `until` not above `due` is an error reply.
 - **SYNC**(definitions…): make the `origin=definition` schedules equal to
   `defineQueue`'s — add, update, remove — and never touch `origin=runtime`.
+  A stored score is kept when `kind`, `spec` and `timezone` are unchanged,
+  so a restart pushes nothing. The ids a definition owns are the set
+  `schedules:definition`, which only SYNC writes: the sweep reads that set,
+  never the whole of `schedules`. A runtime schedule of a static id is taken
+  over (the definition wins). At most 1 000 schedules per call, and SYNC
+  refuses (error reply, before any write) while the set holds more than 2 000
+  ids. `upsert` and `remove` refuse an id whose stored `origin` is
+  `definition`; that is decided in the script, through the same hash.
 
 Events cross processes over one pub/sub channel per queue,
 `queue:{<name>}:events` (`completed`, `failed`, `canceled` with the id): it is
@@ -288,10 +304,23 @@ opens **one** shared subscriber connection, lazily, for all its queues.
   cap is how a missed token, or a schedule another process added, is noticed).
   A wake-up claims as many jobs as the worker has free slots.
 - **Leases**: renewed by RENEW every `lease / 3` for all its active jobs.
-- **Schedules**: each worker, on each wake-up, reads the due entries of
-  `schedules`, computes each one's next occurrence after now, and FIREs it.
-  An outage fires the missed occurrence once, never one per missed tick. On
-  start, the first worker of a queue in a process runs SYNC.
+- **Schedules**: CLAIM's reply carries the schedules whose time has come, at
+  most 20, earliest first, each `{id, kind, spec, timezone, due}`; so do the
+  replies of COMPLETE and FAIL, so a busy worker fires too. Between the claim
+  and the wait, the worker computes each one's next occurrence from the later
+  of `due` and now (an outage fires the missed occurrence once, never one per
+  missed tick, and the grid keeps its phase) and sends one FIRE; a spec that
+  no longer parses gets a DEFER and an `error` event, and never stays due.
+  CLAIM's `next` is the first schedule strictly after now, and 0 only when
+  the page held 20 sound due schedules (a backlog): the worker honours that 0
+  only when it sent a FIRE or DEFER that round, and waits the shortest of the
+  claim's `next`, each fired schedule's new next, and the 5 s cap. Schedules
+  fire while the queue is paused, at the paused 5 s cadence, and their jobs
+  wait in `ready` for RESUME. Nothing fires without a worker. SYNC runs once
+  per client and queue in a process, before the first claim of the first
+  worker of that queue. Its failure is an `error` event and a retry, after
+  1 s doubling to 30 s; jobs keep running, and the static schedules are
+  updated once it succeeds.
 - **`close()`** stops claiming, waits for the jobs in flight up to `grace`,
   then fires their `signal` and stops renewing — their leases lapse and they
   are reclaimed elsewhere. It closes the duplicated connection.

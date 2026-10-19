@@ -7,6 +7,7 @@ import {
 	scriptCalls,
 	useRedis,
 } from '../../../test/fixtures';
+import { scheduleCalls } from '../../../test/schedule-calls';
 import { bindQueue } from '../bind-queue';
 import { queueKeys } from '../keys';
 import { claim } from '../scripts/claim';
@@ -36,12 +37,15 @@ describe('a paused queue', () => {
 		await queue.add({ to: 'a' }, { id: 'a' });
 		// Loads CLAIM in the server's cache: a cold EVALSHA costs two calls.
 		await claim(client(), keys, 1, 30_000, undefined);
+		// And SYNC, which the first worker runs once.
+		await scheduleCalls(client).sync([]);
 		const before = await scriptCalls(client());
 		work(() => ({ messageId: 'x' }));
 		work(() => ({ messageId: 'x' }));
 		await Bun.sleep(2_000);
-		// One claim per worker, then each blocks until its 5 s cap.
-		expect((await scriptCalls(client())) - before).toBeLessThanOrEqual(2);
+		// One SYNC for the client, one claim per worker, then each blocks until
+		// its 5 s cap.
+		expect((await scriptCalls(client())) - before).toBeLessThanOrEqual(3);
 		expect(await state('a')).toBe('waiting');
 	});
 

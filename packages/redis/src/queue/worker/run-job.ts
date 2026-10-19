@@ -12,6 +12,7 @@ import {
 } from './abort';
 import type { WorkerContext } from './context';
 import { announce, emit } from './events';
+import { fireDue } from './fire';
 import { markDrained } from './idle';
 import { progressOf } from './progress';
 import {
@@ -94,6 +95,7 @@ const NOTHING: ClaimReply = {
 	stalled: [],
 	failedInvalid: [],
 	next: -1,
+	due: [],
 };
 
 /** An aborted run settled nothing, so its slot claims its next job itself, unless the worker is closing. */
@@ -116,9 +118,11 @@ export async function runSlot<S extends z.ZodType>(
 			const reply: ClaimReply =
 				(await runJob(context, job)) ?? (await claimAfterAbort(context));
 			announce(context, reply);
+			// A busy worker never reaches the loop's claim: its settles fire too.
+			const round = await fireDue(context, reply.due);
 			// Past the close's bound a claimed job is left to lapse.
 			job = context.open ? reply.jobs[0] : undefined;
-			if (!job) markDrained(context, true);
+			if (!job) markDrained(context, round.added === 0);
 		} catch (error) {
 			// The job's lease lapses and another worker takes it back.
 			emit(context, 'error', error);
