@@ -10,8 +10,10 @@
  *   concurrency 1, 8 and 64. Adding and processing are timed apart; the
  *   processing clock starts when `work` starts and stops when `idle()`
  *   resolves.
- * - **Latency**: 1 000 sequential jobs on an idle worker, each from just
- *   before `add` to the handler's first line.
+ * - **Latency**: 1 000 sequential jobs on a **parked** worker, each from just
+ *   before `add` to the handler's first line. After every sample the worker
+ *   is awaited idle and given 10 ms to park on its blocking read again, so
+ *   each add pays the wake-up, not a claim the worker was already making.
  *
  * Redis is flushed between scenarios. The worker is closed, then Redis
  * stopped, on exit and on SIGINT. Uses `$REDIS_BIN` like `scripts/redis.ts`.
@@ -114,6 +116,8 @@ async function latency(queue: Queue): Promise<number[]> {
 		const before = performance.now();
 		await queue.add({ n: i });
 		samples.push((await first) - before);
+		await worker.idle();
+		await Bun.sleep(10); // park on the blocking read again
 	}
 	await worker.close();
 	worker = undefined;
@@ -168,7 +172,9 @@ async function main(): Promise<void> {
 			]),
 		),
 	);
-	console.log(`\n## Latency, add to handler start, ${SAMPLES} samples\n`);
+	console.log(
+		`\n## Latency, add to handler start, parked worker, ${SAMPLES} samples\n`,
+	);
 	console.log(
 		renderTable(
 			['p50 ms', 'p99 ms'],
