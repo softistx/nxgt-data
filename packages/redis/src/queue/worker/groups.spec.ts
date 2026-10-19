@@ -43,33 +43,33 @@ describe('a grouped queue with workers', () => {
 				options: { group: 'B' },
 			})),
 		]);
+		// A's jobs are held at a gate, so the cap is measured on state rather
+		// than on how 40 ms sleeps happened to overlap on a loaded machine.
+		const hold = gate();
 		let running = 0;
 		let max = 0;
-		let b = 0;
-		let overlap = false;
 		for (const own of clients()) {
 			for (let i = 0; i < 2; i++) {
 				opened.push(
 					bindQueue(own, capped).work(async (job) => {
-						if (job.data.n < 100) {
-							running++;
-							max = Math.max(max, running);
-							if (b > 0) overlap = true;
-							await Bun.sleep(40);
-							running--;
-						} else {
-							b++;
-							await Bun.sleep(40);
-							b--;
-						}
+						if (job.data.n >= 100) return;
+						running++;
+						max = Math.max(max, running);
+						await hold.opened;
+						running--;
 					}),
 				);
 			}
 		}
+		// Every B job finishes while A holds its two slots: B is never queued
+		// behind the full group.
+		await eventually(async () => (await q.counts()).completed, 6);
+		await eventually(() => running, 2);
+		await Bun.sleep(200);
+		expect(running).toBe(2);
+		hold.open();
 		await eventually(async () => (await q.counts()).completed, 16);
-		expect(max).toBeLessThanOrEqual(2);
 		expect(max).toBe(2);
-		expect(overlap).toBe(true);
 	});
 
 	test('workers do not spin while every ready job sits in a full group', async () => {
