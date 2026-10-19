@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
 import { defineQueue } from './define-queue';
 import { queueKeys } from './keys';
@@ -92,4 +92,67 @@ test('keys share one hash tag', () => {
 	]) {
 		expect(k[part as 'seq']).toBe(`queue:{app-prod-mails}:${part}`);
 	}
+});
+
+test('rateLimit is resolved, burst defaults to limit, and freezes', () => {
+	const q = defineQueue({
+		name: 'm',
+		schema: z.string(),
+		rateLimit: { limit: 5, per: '1m' },
+	});
+	expect(q.rateLimit).toEqual({ limit: 5, per: 60_000, burst: 5 });
+	expect(Object.isFrozen(q.rateLimit)).toBe(true);
+	expect(
+		defineQueue({
+			name: 'm',
+			schema: z.string(),
+			rateLimit: { limit: 5, per: 1000, burst: 9 },
+		}).rateLimit?.burst,
+	).toBe(9);
+	expect(
+		defineQueue({ name: 'm', schema: z.string() }).rateLimit,
+	).toBeUndefined();
+});
+
+describe('a rateLimit defineQueue refuses', () => {
+	const rate = (rateLimit: unknown) => () =>
+		defineQueue({
+			name: 'mails',
+			schema: z.string(),
+			rateLimit: rateLimit as { limit: number; per: number },
+		});
+	test.each([
+		[
+			{ limit: 0, per: 1000 },
+			'defineQueue: "mails" rateLimit has a limit of 0; it is a whole number of requests, and must be at least 1',
+		],
+		[
+			{ limit: 1, per: '0s' },
+			'defineQueue: "mails" rateLimit has a per of 0; it is a whole number of milliseconds, and must be at least 1',
+		],
+		[
+			{ limit: 1, per: 1000, burst: 1.5 },
+			'defineQueue: "mails" rateLimit has a burst of 1.5; it is a whole number of requests, and must be at least 1',
+		],
+		[
+			{ limit: 1, per: 9_007_199_254_740, burst: 2 },
+			'defineQueue: "mails" rateLimit has a burst of 2 and a per of 9007199254740ms; burst × per must be at most 9007199254740 for the script to count exactly',
+		],
+		[
+			{ limit: 1, per: 'soon' },
+			'defineQueue: "mails" rateLimit per is "soon"; a duration is a whole number of milliseconds or a string such as \'10m\'',
+		],
+		[
+			{ per: 1000 },
+			'defineQueue: "mails" rateLimit has a limit of undefined; it is a whole number of requests, and must be at least 1',
+		],
+	])('%j', (value, message) => {
+		expect(rate(value)).toThrow(message);
+	});
+
+	test('a rateLimit that is not an object', () => {
+		expect(rate(5)).toThrow(
+			'defineQueue: "mails" has a rateLimit that is not an object; it is { limit, per, burst? }',
+		);
+	});
 });

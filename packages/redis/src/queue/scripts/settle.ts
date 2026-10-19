@@ -2,7 +2,7 @@ import type { RedisClient } from 'bun';
 import { defineScript, runScript } from '../../scripts/run-script';
 import type { queueKeys } from '../keys';
 import type { QueueDefinition } from '../types';
-import { newToken, scriptKeys } from './claim';
+import { newToken, rateArgs, scriptKeys } from './claim';
 import { CLAIM_FN, NOW_LUA } from './claim-body';
 import { type ClaimReply, parseComplete, parseFail } from './replies';
 
@@ -52,10 +52,11 @@ end
  * {@link CLAIM_FN} for one job, so a busy worker spends one script per job.
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake, events,
- * paused, rate (`rate` is reserved for the rate limit).
+ * paused, rate.
  * ARGV: job-key prefix, id, token, keepAge (ms, -1 to keep nothing),
  * keepCount, lease (ms), claim token (`''` for no claim), result (JSON,
- * `''` for none).
+ * `''` for none), then the rate's `per`, `limit` and `burst` (`0 0 0` for
+ * none).
  * Returns `{settled, jobs, stalled, invalid, next}`.
  */
 export const COMPLETE = defineScript(`
@@ -87,7 +88,7 @@ end
 -- The claim depends on the worker's free slot, not on the settle taking.
 local out = {settled, {}, {}, {}, -1}
 if ARGV[7] ~= '' then
-	local claimed = claim(1, tonumber(ARGV[6]), {ARGV[7]}, now)
+	local claimed = claim(1, tonumber(ARGV[6]), {ARGV[7]}, now, rate_of(9, now_us))
 	out = {settled, claimed[1], claimed[2], claimed[3], claimed[4]}
 end
 return out
@@ -102,10 +103,11 @@ return out
  * Claims the next job as `COMPLETE` does.
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake, events,
- * paused, rate (`rate` is reserved for the rate limit).
+ * paused, rate.
  * ARGV: job-key prefix, id, token, error (JSON `{name, message}`), retryIn
  * (ms, -1 for no retry), keepFailed age (ms), lease (ms), claim token (`''`
- * for no claim).
+ * for no claim), then the rate's `per`, `limit` and `burst` (`0 0 0` for
+ * none).
  * Returns `{settled, final, jobs, stalled, invalid, next}`.
  */
 export const FAIL = defineScript(`
@@ -138,7 +140,7 @@ if redis.call('HGET', key, 'token') == token then
 end
 local out = {settled, final, {}, {}, {}, -1}
 if ARGV[8] ~= '' then
-	local claimed = claim(1, tonumber(ARGV[7]), {ARGV[8]}, now)
+	local claimed = claim(1, tonumber(ARGV[7]), {ARGV[8]}, now, rate_of(9, now_us))
 	out = {settled, final, claimed[1], claimed[2], claimed[3], claimed[4]}
 end
 -- After the claim, whose DEL of an empty \`ready\` would erase it: a retry that
@@ -150,7 +152,7 @@ return out
 /** What a settle needs of the definition. */
 type Retention = Pick<
 	QueueDefinition<never>,
-	'lease' | 'keepCompleted' | 'keepFailed'
+	'lease' | 'keepCompleted' | 'keepFailed' | 'rateLimit'
 >;
 
 /**
@@ -180,6 +182,7 @@ export async function complete(
 			definition.lease,
 			claimNext ? newToken() : '',
 			result ?? '',
+			...rateArgs(definition.rateLimit),
 		]),
 	);
 }
@@ -209,6 +212,7 @@ export async function fail(
 			definition.keepFailed,
 			definition.lease,
 			claimNext ? newToken() : '',
+			...rateArgs(definition.rateLimit),
 		]),
 	);
 }

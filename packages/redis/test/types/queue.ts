@@ -87,6 +87,21 @@ defineQueue({
 // @ts-expect-error a lease unit that does not exist
 defineQueue({ name: 'x', schema: z.string(), lease: '1w' });
 
+// A rate limit needs both a limit and a per, and per is a duration.
+defineQueue({
+	name: 'x',
+	schema: z.string(),
+	rateLimit: { limit: 1, per: '1m' },
+});
+defineQueue({
+	name: 'x',
+	schema: z.string(),
+	// @ts-expect-error '1 min' is not a unit
+	rateLimit: { limit: 1, per: '1 min' },
+});
+// @ts-expect-error a rate limit needs a limit
+defineQueue({ name: 'x', schema: z.string(), rateLimit: { per: '1m' } });
+
 // The codes a refusal can carry.
 const code: QueueErrorCode = 'ACTIVE';
 void code;

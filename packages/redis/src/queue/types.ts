@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { Duration } from './duration';
+import type { QueueRate, QueueRateLimit } from './flow-types';
 import type { JobHandle } from './handle-types';
 import type { ResultOf } from './result-types';
 import type { Handler, Worker, WorkOptions } from './worker/types';
@@ -51,6 +52,8 @@ export type QueueInput<
 	 * run as 24.8 days.
 	 */
 	timeout?: Duration;
+	/** At most `limit` jobs start per `per` across every worker; see {@link QueueRateLimit}. */
+	rateLimit?: QueueRateLimit;
 };
 
 /** What `defineQueue` returns: frozen, every option resolved, spans in milliseconds. */
@@ -69,6 +72,7 @@ export type QueueDefinition<
 		| { readonly age: number; readonly count: number };
 	readonly keepFailed: number;
 	readonly timeout: number | undefined;
+	readonly rateLimit: QueueRate | undefined;
 };
 
 /** What `add` takes beside the payload. `delay` and `at` are two ways to say the same thing. */

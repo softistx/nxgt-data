@@ -1,5 +1,6 @@
 import type { RedisClient } from 'bun';
 import { defineScript, runScript } from '../../scripts/run-script';
+import type { QueueRate } from '../flow-types';
 import type { queueKeys } from '../keys';
 import { CLAIM_FN, NOW_LUA } from './claim-body';
 import { type ClaimReply, parseClaimReply } from './replies';
@@ -9,7 +10,8 @@ import { type ClaimReply, parseClaimReply } from './replies';
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake, events, paused,
  * rate.
- * ARGV: job-key prefix, n, lease (ms), then `n` tokens.
+ * ARGV: job-key prefix, n, lease (ms), the rate's `per` (ms), `limit` and
+ * `burst` (`0 0 0` for none; see {@link rateArgs}), then `n` tokens.
  * Returns `{jobs, stalled, invalid, next}`.
  */
 export const CLAIM = defineScript(`
@@ -17,8 +19,8 @@ local prefix = ARGV[1]
 ${CLAIM_FN}
 ${NOW_LUA}
 local tokens = {}
-for i = 4, #ARGV do tokens[#tokens + 1] = ARGV[i] end
-return claim(tonumber(ARGV[2]), tonumber(ARGV[3]), tokens, now)
+for i = 7, #ARGV do tokens[#tokens + 1] = ARGV[i] end
+return claim(tonumber(ARGV[2]), tonumber(ARGV[3]), tokens, now, rate_of(4, now_us))
 `);
 
 /**
@@ -40,6 +42,14 @@ export function scriptKeys(keys: ReturnType<typeof queueKeys>): string[] {
 	];
 }
 
+/**
+ * A queue's rate as the scripts' ARGV takes it: `per` (ms), `limit`, `burst`,
+ * or three zeros for none.
+ */
+export function rateArgs(rate: QueueRate | undefined): number[] {
+	return rate ? [rate.per, rate.limit, rate.burst] : [0, 0, 0];
+}
+
 /** A claim's token: 128 random bits, as 32 lowercase hex characters. */
 export function newToken(): string {
 	return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
@@ -51,12 +61,14 @@ export function newToken(): string {
  * Claims up to `n` jobs in one script, each under a fresh token.
  *
  * @param lease - ms the lease lasts, from the server's clock.
+ * @param rate - the queue's `rateLimit`, or none.
  */
 export async function claim(
 	client: RedisClient,
 	keys: ReturnType<typeof queueKeys>,
 	n: number,
 	lease: number,
+	rate?: QueueRate,
 ): Promise<ClaimReply> {
 	const tokens = Array.from({ length: n }, newToken);
 	return parseClaimReply(
@@ -64,6 +76,7 @@ export async function claim(
 			keys.prefix,
 			n,
 			lease,
+			...rateArgs(rate),
 			...tokens,
 		]),
 	);

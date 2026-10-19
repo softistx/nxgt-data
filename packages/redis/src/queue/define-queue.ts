@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import { type Duration, toMs } from './duration';
+import { resolveRateLimit } from './rate';
 import type { QueueDefinition, QueueInput } from './types';
 
 const DEFAULTS = {
@@ -139,6 +140,7 @@ function resolve<S extends z.ZodType, R extends z.ZodType | undefined>(
 		keepCompleted: keepCompleted(input.keepCompleted, call, name),
 		keepFailed,
 		timeout,
+		rateLimit: resolveRateLimit(input.rateLimit, call, name),
 	});
 }
 

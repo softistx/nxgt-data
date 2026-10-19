@@ -36,9 +36,10 @@ const isCount = (n: unknown): n is number =>
  *
  * @param call - the call that makes the checks, which opens each message.
  * @param owner - the subject of each message's sentence, which then
- * continues with `has a limit of …`: `"api"`, or `"mails" rateLimit`.
+ * continues with `has a limit of …`: `"api"`, or `"mails" rateLimit`
+ * (what `defineQueue` passes).
  */
-export function checkRate(
+export function checkRateValues(
 	call: string,
 	owner: string,
 	limit: number,
@@ -91,7 +92,7 @@ export function checkRateLimit<P>(
 			`${call}: "${name}" has no key function; it builds the rest of the key from the params`,
 		);
 	}
-	checkRate(call, `"${name}"`, limit, per, burst);
+	checkRateValues(call, `"${name}"`, limit, per, burst);
 }
 
 /**

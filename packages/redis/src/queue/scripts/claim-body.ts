@@ -1,3 +1,4 @@
+import { GCRA_FN } from '../../rate-limit/gcra';
 import { WAKE_FN } from './wake';
 
 /*
@@ -39,8 +40,8 @@ end
  *
  * KEYS: delayed, ready, active, completed, failed, seq, wake (a script may
  * be given more keys after these, as {@link scriptKeys} appends `events`,
- * `paused` (KEYS[9]) and `rate`).
- * `claim(n, lease, tokens, now)` takes a table of at least `n` tokens, one
+ * `paused` (KEYS[9]) and `rate` (KEYS[10], the queue-wide GCRA state)).
+ * `claim(n, lease, tokens, now, rate)` takes a table of at least `n` tokens, one
  * per slot, and returns `{jobs, stalled, invalid, next}`, each job being
  * `{id, data, attempt, attempts, token, timeout}` (`timeout` in ms, `-1` for
  * none):
@@ -56,14 +57,24 @@ end
  *    exists (1 and 2 still run, so `counts` stays honest) it pops nothing;
  * 4. leaves one `wake` token when `ready` still holds jobs (none if one is
  *    there), so a blocked peer takes over; deletes `wake` when it is empty,
- *    and also while paused: a token there would make every worker spin on
- *    claims that pop nothing;
- * 5. gives the ms until the first `delayed` score, `-1` when it is empty, and
+ *    and also while paused or rate-limited: a token there would make every
+ *    worker spin on claims that pop nothing;
+ * 5. gives the ms until the first `delayed` score, `-1` when it is empty,
  *    5000 while paused (the worker's own cap: it only has to notice a lost
- *    resume token).
+ *    resume token), and, while the rate refuses the jobs in `ready`, the
+ *    GCRA's `retryAfter` for one job when that is sooner.
+ *
+ * `rate` is `{per, limit, burst, us}` (`us` the script's `TIME` in µs, `per`
+ * in ms) or `nil` for no limit. The pop is bounded by what a GCRA peek at
+ * cost 1 admits (its `remaining` plus the one it spends): `min(n, remaining +
+ * 1)`, or 0 when the peek is denied. Once `k` jobs have started, `k` is
+ * charged in one write, only when `k > 0`: a reclaim, a promotion, a job
+ * refused as invalid, charge nothing. The state is read at the script's own
+ * clock, so every process shares one bucket.
  */
 export const CLAIM_FN = `
 ${WAKE_FN}
+${GCRA_FN}
 ${PUBLISH_FN}
 local function int(x) return string.format('%d', x) end
 -- tonumber alone would accept 'inf', 'nan', '1e3', '0x10', '-4' and '1.5':
@@ -97,7 +108,24 @@ local function refuse(id, now, invalid)
 	publish(KEYS[8], 'failed', id, 'error', INVALID_ERROR)
 	invalid[#invalid + 1] = id
 end
-local function claim(n, lease, tokens, now)
+-- The queue's rate from ARGV[i..i+2] (per ms, limit, burst; per 0 for none).
+local function rate_of(i, us)
+	local per = tonumber(ARGV[i])
+	if per == 0 then return nil end
+	return {per = per, limit = tonumber(ARGV[i + 1]), burst = tonumber(ARGV[i + 2]), us = us}
+end
+local function peek(rate, cost)
+	return gcra(KEYS[10], rate.us, rate.per, rate.limit, rate.burst, cost, false)
+end
+-- How many jobs a claim of n may pop: none while paused or refused.
+local function admitted(n, paused, rate)
+	if paused then return 0 end
+	if not rate then return n end
+	local one = peek(rate, 1)
+	if one[1] == 0 then return 0 end
+	return math.min(n, one[2] + 1)
+end
+local function claim(n, lease, tokens, now, rate)
 	local jobs, stalled, invalid = {}, {}, {}
 	local lapsed = redis.call('ZRANGEBYSCORE', KEYS[3], '-inf', '(' .. int(now), 'LIMIT', 0, 100)
 	for _, id in ipairs(lapsed) do
@@ -133,7 +161,8 @@ local function claim(n, lease, tokens, now)
 	end
 	local paused = redis.call('EXISTS', KEYS[9]) == 1
 	local popped = {}
-	if not paused then popped = redis.call('ZPOPMIN', KEYS[2], n) end
+	local admit = admitted(n, paused, rate)
+	if admit > 0 then popped = redis.call('ZPOPMIN', KEYS[2], admit) end
 	for i = 1, #popped, 2 do
 		local id = popped[i]
 		local key = prefix .. id
@@ -148,7 +177,17 @@ local function claim(n, lease, tokens, now)
 			jobs[#jobs + 1] = {id, f[1], attempt, tonumber(f[3]), token, f[5] and tonumber(f[5]) or -1}
 		end
 	end
-	if not paused and redis.call('ZCARD', KEYS[2]) > 0 then
+	if rate and #jobs > 0 then
+		gcra(KEYS[10], rate.us, rate.per, rate.limit, rate.burst, #jobs, true)
+	end
+	-- Jobs wait in ready that the rate refuses: no token, so no worker spins.
+	local ready = redis.call('ZCARD', KEYS[2]) > 0
+	local retry = -1
+	if rate and ready and not paused then
+		local one = peek(rate, 1)
+		if one[1] == 0 then retry = one[4] end
+	end
+	if not paused and ready and retry < 0 then
 		wake(KEYS[7])
 	else
 		redis.call('DEL', KEYS[7])
@@ -157,12 +196,14 @@ local function claim(n, lease, tokens, now)
 	local nextDue = -1
 	local first = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
 	if first[2] then nextDue = math.max(0, tonumber(first[2]) - now) end
+	if retry >= 0 and (nextDue < 0 or retry < nextDue) then nextDue = retry end
 	return {jobs, stalled, invalid, nextDue}
 end
 `;
 
-/** The server's clock in ms, as `ADD` reads it. */
+/** The server's clock in ms, as `ADD` reads it, and in µs as `now_us` (the GCRA's), from one `TIME`. */
 export const NOW_LUA = `
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+local now_us = tonumber(time[1]) * 1000000 + tonumber(time[2])
 `;
