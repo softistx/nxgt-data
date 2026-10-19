@@ -117,7 +117,7 @@ application can handle.
   - [`defineQueue: "mails" schedule "nightly": has an every under 1 second; it is at least 1s`](#definequeue-mails-schedule-nightly-has-an-every-under-1-second-it-is-at-least-1s)
   - [`defineQueue: "mails" a schedule id is a string of 1 to 256 characters without braces or colons`](#definequeue-mails-a-schedule-id-is-a-string-of-1-to-256-characters-without-braces-or-colons)
   - [`defineQueue: "mails" has 1001 schedules; at most 1000, which is what one sync takes`](#definequeue-mails-has-1001-schedules-at-most-1000-which-is-what-one-sync-takes)
-  - [`defineQueue: "mails" schedule "nightly": data is refused by the schema (QueueError `INVALID`)`](#definequeue-mails-schedule-nightly-data-is-refused-by-the-schema-queueerror-invalid)
+  - [`defineQueue: "mails" schedule "nightly" data does not match the schema (invalid_type)`](#definequeue-mails-schedule-nightly-data-does-not-match-the-schema-invalid_type)
   - [`schedules.upsert on "mails": "nightly" belongs to the definition; change it in defineQueue`](#schedulesupsert-on-mails-nightly-belongs-to-the-definition-change-it-in-definequeue)
   - [`add on "mails": id cannot start with "schedule:", which names scheduled occurrences`](#add-on-mails-id-cannot-start-with-schedule-which-names-scheduled-occurrences)
   - [My schedule does not fire](#my-schedule-does-not-fire)
@@ -1319,7 +1319,7 @@ const { deduplicated } = await queue.add(payload, { id: `receipt:${orderId}` });
 const mails = defineQueue({
 	name: 'mails',
 	schema,
-	schedules: { nightly: { cron: '0 3 * * *', data: {} } },
+	schedules: { nightly: { cron: '0 3 * * *', data: { to: 'ops@example.com', template: 'report' } } },
 });
 ```
 
@@ -1333,7 +1333,7 @@ const mails = defineQueue({
 const mails = defineQueue({
 	name: 'mails',
 	schema,
-	schedules: { nightly: { cron: '*/5 * * * *', data: {} } },
+	schedules: { nightly: { cron: '*/5 * * * *', data: { to: 'ops@example.com', template: 'report' } } },
 });
 ```
 
@@ -1347,7 +1347,7 @@ const mails = defineQueue({
 const mails = defineQueue({
 	name: 'mails',
 	schema,
-	schedules: { nightly: { cron: '0 17-23,0-9 * * *', data: {} } },
+	schedules: { nightly: { cron: '0 17-23,0-9 * * *', data: { to: 'ops@example.com', template: 'report' } } },
 });
 ```
 
@@ -1361,7 +1361,7 @@ const mails = defineQueue({
 const mails = defineQueue({
 	name: 'mails',
 	schema,
-	schedules: { nightly: { cron: '0 3 * jan *', data: {} } },
+	schedules: { nightly: { cron: '0 3 * jan *', data: { to: 'ops@example.com', template: 'report' } } },
 });
 ```
 
@@ -1375,7 +1375,7 @@ const mails = defineQueue({
 const mails = defineQueue({
 	name: 'mails',
 	schema,
-	schedules: { nightly: { cron: '*/10 * * * *', data: {} } },
+	schedules: { nightly: { cron: '*/10 * * * *', data: { to: 'ops@example.com', template: 'report' } } },
 });
 ```
 
@@ -1389,7 +1389,7 @@ const mails = defineQueue({
 const mails = defineQueue({
 	name: 'mails',
 	schema,
-	schedules: { nightly: { cron: '0 0 * * *', data: {} } },
+	schedules: { nightly: { cron: '0 0 * * *', data: { to: 'ops@example.com', template: 'report' } } },
 });
 ```
 
@@ -1403,7 +1403,7 @@ const mails = defineQueue({
 const mails = defineQueue({
 	name: 'mails',
 	schema,
-	schedules: { nightly: { cron: '0 0 28 2 *', data: {} } },
+	schedules: { nightly: { cron: '0 0 28 2 *', data: { to: 'ops@example.com', template: 'report' } } },
 });
 ```
 
@@ -1414,7 +1414,7 @@ const mails = defineQueue({
 **Fix:** Use an IANA name; it defaults to `"UTC"`:
 
 ```ts
-schedules: { nightly: { cron: '0 3 * * *', timezone: 'Europe/Paris', data: {} } },
+schedules: { nightly: { cron: '0 3 * * *', timezone: 'Europe/Paris', data: { to: 'ops@example.com', template: 'report' } } },
 ```
 
 ### `defineQueue: "mails" schedule "nightly": has both cron and every; give one`
@@ -1424,7 +1424,7 @@ schedules: { nightly: { cron: '0 3 * * *', timezone: 'Europe/Paris', data: {} } 
 **Fix:** Keep one:
 
 ```ts
-nightly: { every: '1h', data: {} }
+nightly: { every: '1h', data: { to: 'ops@example.com', template: 'report' } }
 ```
 
 ### `defineQueue: "mails" schedule "nightly": has neither cron nor every; give one`
@@ -1434,7 +1434,7 @@ nightly: { every: '1h', data: {} }
 **Fix:** Give one:
 
 ```ts
-nightly: { cron: '0 3 * * *', data: {} }
+nightly: { cron: '0 3 * * *', data: { to: 'ops@example.com', template: 'report' } }
 ```
 
 ### `defineQueue: "mails" schedule "nightly": has a timezone with every; a timezone goes with a cron`
@@ -1444,7 +1444,7 @@ nightly: { cron: '0 3 * * *', data: {} }
 **Fix:** Drop the timezone, or use a cron:
 
 ```ts
-nightly: { every: '1h', data: {} }
+nightly: { every: '1h', data: { to: 'ops@example.com', template: 'report' } }
 ```
 
 ### `defineQueue: "mails" schedule "nightly": has an every under 1 second; it is at least 1s`
@@ -1454,7 +1454,7 @@ nightly: { every: '1h', data: {} }
 **Fix:** Give `1s` or more:
 
 ```ts
-nightly: { every: '1s', data: {} }
+nightly: { every: '1s', data: { to: 'ops@example.com', template: 'report' } }
 ```
 
 ### `defineQueue: "mails" a schedule id is a string of 1 to 256 characters without braces or colons`
@@ -1464,7 +1464,7 @@ nightly: { every: '1s', data: {} }
 **Fix:** Use a plain id:
 
 ```ts
-schedules: { 'nightly-report': { cron: '0 3 * * *', data: {} } },
+schedules: { 'nightly-report': { cron: '0 3 * * *', data: { to: 'ops@example.com', template: 'report' } } },
 ```
 
 ### `defineQueue: "mails" has 1001 schedules; at most 1000, which is what one sync takes`
@@ -1474,17 +1474,18 @@ schedules: { 'nightly-report': { cron: '0 3 * * *', data: {} } },
 **Fix:** Keep the static set under 1 000 and add the rest at run time with `schedules.upsert` (the definition set as a whole stays under 2 000):
 
 ```ts
-await mails.schedules.upsert(`tenant-${id}`, { every: '1h', data: { tenant: id } });
+const queue = bindQueue(redis.client, mails);
+await queue.schedules.upsert(`tenant-${id}`, { every: '1h', data: { to, template: 'digest' } });
 ```
 
-### `defineQueue: "mails" schedule "nightly": data is refused by the schema (QueueError `INVALID`)`
+### `defineQueue: "mails" schedule "nightly" data does not match the schema (invalid_type)`
 
-**When:** A schedule whose `data` does not pass the queue's `schema` in `defineQueue`, or in `schedules.upsert` (`schedules.upsert on "mails": schedule "nightly" …`). It is a `QueueError` with code `INVALID`, not a `TypeError`; the message names the zod issue codes, never the data.
+**When:** A schedule whose `data` does not pass the queue's `schema`, in `defineQueue` or in `schedules.upsert`, which prints `schedules.upsert on "mails": schedule "n2" data does not match the schema (invalid_type)`. It is a `QueueError` with code `INVALID`, not a `TypeError`. Only the zod issue code in the parentheses varies; the message never quotes the data.
 **Why:** Each occurrence is a job, so its payload has to pass the schema, and survive the JSON round trip, now rather than when it fires.
 **Fix:** Give data that the schema accepts as its output:
 
 ```ts
-nightly: { cron: '0 3 * * *', data: schema.parse({ kind: 'report' }) },
+nightly: { cron: '0 3 * * *', data: { to: 'ops@example.com', template: 'report' } },
 ```
 
 ### `schedules.upsert on "mails": "nightly" belongs to the definition; change it in defineQueue`
@@ -1494,7 +1495,11 @@ nightly: { cron: '0 3 * * *', data: schema.parse({ kind: 'report' }) },
 **Fix:** Edit it in `defineQueue`, or use another id for a runtime schedule:
 
 ```ts
-await mails.schedules.upsert('nightly-extra', { cron: '0 4 * * *', data });
+const queue = bindQueue(redis.client, mails);
+await queue.schedules.upsert('nightly-extra', {
+	cron: '0 4 * * *',
+	data: { to: 'ops@example.com', template: 'report' },
+});
 ```
 
 ### `add on "mails": id cannot start with "schedule:", which names scheduled occurrences`
@@ -1504,7 +1509,7 @@ await mails.schedules.upsert('nightly-extra', { cron: '0 4 * * *', data });
 **Fix:** Use another prefix:
 
 ```ts
-await mails.add(data, { id: `receipt:${orderId}` });
+await redis.queues.mails.add(data, { id: `receipt:${orderId}` });
 ```
 
 ### My schedule does not fire
@@ -1514,9 +1519,11 @@ await mails.add(data, { id: `receipt:${orderId}` });
 **Fix:** Read `next` in `schedules.list()` (soonest first). A `next` in the past means no worker is firing; one an hour ahead of where it should be means the deferral. Then check the worker and listen for `error`:
 
 ```ts
-for (const s of await mails.schedules.list()) console.log(s.id, s.next, s.origin);
-const { paused } = await mails.counts();
-if (paused) await mails.resume();
+const queue = redis.queues.mails;
+for (const s of await queue.schedules.list()) console.log(s.id, s.next, s.origin);
+const { paused } = await queue.counts();
+if (paused) await queue.resume();
+const worker = queue.work(handler);
 worker.on('error', (error) => console.error(error));
 ```
 
