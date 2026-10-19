@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import {
+	blocked,
 	eventually,
 	gate,
 	mailQueue,
@@ -47,13 +48,31 @@ describe('a paused queue', () => {
 		const queue = mails();
 		await queue.pause();
 		await queue.add({ to: 'a' }, { id: 'a' });
-		const before = await scriptCalls(client());
 		const started = gate();
 		work(() => {
 			started.open();
 			return { messageId: 'x' };
 		});
-		await eventually(async () => (await scriptCalls(client())) > before, true);
+		await blocked(client());
+		await queue.resume();
+		const late = Bun.sleep(500).then(() => 'late');
+		expect(await Promise.race([started.opened.then(() => 'ran'), late])).toBe(
+			'ran',
+		);
+	});
+
+	test('resume wakes a blocked worker for a delayed job that fell due during the pause', async () => {
+		const queue = mails();
+		await queue.pause();
+		await queue.add({ to: 'a' }, { id: 'a', delay: 50 });
+		const started = gate();
+		work(() => {
+			started.open();
+			return { messageId: 'x' };
+		});
+		await blocked(client());
+		// Past its time, yet nothing promoted it: the worker is blocked.
+		await Bun.sleep(100);
 		await queue.resume();
 		const late = Bun.sleep(500).then(() => 'late');
 		expect(await Promise.race([started.opened.then(() => 'ran'), late])).toBe(

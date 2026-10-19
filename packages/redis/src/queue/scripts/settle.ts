@@ -51,7 +51,8 @@ end
  * stale token publishes nothing. With a claim token it then runs
  * {@link CLAIM_FN} for one job, so a busy worker spends one script per job.
  *
- * KEYS: delayed, ready, active, completed, failed, seq, wake, events.
+ * KEYS: delayed, ready, active, completed, failed, seq, wake, events,
+ * paused, rate (`rate` is reserved for the rate limit).
  * ARGV: job-key prefix, id, token, keepAge (ms, -1 to keep nothing),
  * keepCount, lease (ms), claim token (`''` for no claim), result (JSON,
  * `''` for none).
@@ -100,7 +101,8 @@ return out
  * (`{type: 'failed', id, error}`). A retry and a stale token publish nothing.
  * Claims the next job as `COMPLETE` does.
  *
- * KEYS: delayed, ready, active, completed, failed, seq, wake, events.
+ * KEYS: delayed, ready, active, completed, failed, seq, wake, events,
+ * paused, rate (`rate` is reserved for the rate limit).
  * ARGV: job-key prefix, id, token, error (JSON `{name, message}`), retryIn
  * (ms, -1 for no retry), keepFailed age (ms), lease (ms), claim token (`''`
  * for no claim).

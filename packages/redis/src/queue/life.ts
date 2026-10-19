@@ -11,7 +11,8 @@ import type { Worker } from './worker/types';
  * `close` runs in two phases: `closing` refuses `work` and closes the
  * workers with their grace; `closed` then refuses `add`, `addMany` and
  * `finished`, and ends every `finished` still waiting. Admin calls
- * (`get`, `list`, `counts`, `retry`, `remove`, `cancel`) are never refused.
+ * (`get`, `list`, `counts`, `pause`, `resume`, `retry`, `remove`,
+ * `cancel`) are never refused.
  */
 export interface QueueLife {
 	state: 'open' | 'closing' | 'closed';

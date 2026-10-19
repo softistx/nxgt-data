@@ -158,7 +158,12 @@ export async function resumeQueue(
 	client: RedisClient,
 	keys: Keys,
 ): Promise<void> {
-	await runScript(client, RESUME, [keys.paused, keys.ready, keys.wake], []);
+	await runScript(
+		client,
+		RESUME,
+		[keys.paused, keys.ready, keys.wake, keys.delayed],
+		[],
+	);
 }
 
 /**

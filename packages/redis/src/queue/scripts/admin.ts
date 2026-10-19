@@ -40,15 +40,16 @@ return 1
 
 /**
  * Resumes a queue: deletes `paused`, and leaves one `wake` token when
- * `ready` holds jobs, so a blocked worker starts at once and passes the
- * baton. Idempotent.
+ * `ready` holds jobs or `delayed` is not empty, so a blocked worker starts
+ * at once (passing the baton, or sizing its wait to the delayed job that
+ * fell due during the pause). Idempotent.
  *
- * KEYS: paused, ready, wake.
+ * KEYS: paused, ready, wake, delayed.
  */
 export const RESUME = defineScript(`
 ${WAKE_FN}
 redis.call('DEL', KEYS[1])
-if redis.call('ZCARD', KEYS[2]) > 0 then wake(KEYS[3]) end
+if redis.call('ZCARD', KEYS[2]) > 0 or redis.call('ZCARD', KEYS[4]) > 0 then wake(KEYS[3]) end
 return 1
 `);
 
@@ -67,7 +68,8 @@ return 1
  * one this package could have written is retried; anything else changes
  * nothing.
  *
- * KEYS: delayed, ready, active, completed, failed, seq, wake.
+ * KEYS: delayed, ready, active, completed, failed, seq, wake, events, paused,
+ * rate (it reads only the first seven).
  * ARGV: job-key prefix, id, fresh (`'1'` or `'0'`).
  * Returns 1 (retried) or 0 (not retryable, nothing changed).
  */

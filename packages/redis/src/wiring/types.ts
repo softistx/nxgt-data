@@ -188,8 +188,8 @@ export interface Redis<C> extends AsyncDisposable {
 	 * finish within `grace`, then their signals abort with `CLOSED`; `add`
 	 * still works, so a handler may enqueue a follow-up. Then `add`,
 	 * `addMany` and `finished` are refused with `CLOSED`, and each pending
-	 * `finished` rejects. Admin calls (`get`, `list`, `counts`, `retry`,
-	 * `remove`, `cancel`) are never refused.
+	 * `finished` rejects. Admin calls (`get`, `list`, `counts`, `pause`,
+	 * `resume`, `retry`, `remove`, `cancel`) are never refused.
 	 *
 	 * `grace` is how long a running job gets, per worker; the default is the
 	 * worker's own, 30 seconds. A malformed `grace` rejects with a
