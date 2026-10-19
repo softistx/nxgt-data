@@ -826,6 +826,9 @@ Ownership is one rule, the definition wins:
 - At SYNC, a static id that matches a stored runtime schedule takes it over.
 - A static schedule removed from the definition is removed at the next first
   worker start of a process; runtime schedules are never touched by SYNC.
+- If SYNC fails, jobs keep running and the worker retries it every 1 to 30 s,
+  with an `error` event each time. Until it succeeds, the static schedules are
+  the stored ones: a schedule removed from the definition still fires.
 - A definition may hold at most 1000 schedules.
 
 A schedule id is 1 to 256 characters, with no braces and no `:`.

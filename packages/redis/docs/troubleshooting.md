@@ -1530,11 +1530,15 @@ worker.on('error', (error) => console.error(error));
 ### `ERR the definition set holds more than 2000 ids`
 
 **When:** A worker starts (the sync of the definition) and the `error` event carries this reply, again on each retry, or `ERR at most 1000 schedules per call`.
-**Why:** SYNC keeps the ids the definition owns in the set `schedules:definition` and refuses to sweep more than 2 000. A definition can never exceed 1 000 schedules, so the set was polluted by writes that are not SYNC's. Nothing is written. Jobs keep running meanwhile; only the static schedules are not updated until a SYNC succeeds, which the worker retries every 1 to 30 s.
-**Fix:** Delete the set; the next SYNC rebuilds it:
+**Why:** SYNC keeps the ids the definition owns in the set `schedules:definition` and refuses to sweep more than 2 000. A definition can never exceed 1 000 schedules, so the set was polluted by writes that are not SYNC's. Nothing is written. Jobs keep running meanwhile. Only the static schedules are not updated until a SYNC succeeds, which the worker retries every 1 to 30 s. Until then, a schedule removed from the definition still fires.
+**Fix:** Remove from the set only the ids that have no definition-owned schedule behind them, then let the next SYNC run. Do not `DEL` the whole set. An id it still held for an older definition would then never be swept, and that schedule would keep firing, since `upsert` and `remove` refuse definition-owned ids.
 
 ```sh
-redis-cli DEL 'queue:{mails}:schedules:definition'
+key='queue:{mails}'
+redis-cli SMEMBERS "$key:schedules:definition" | while read -r id; do
+	[ "$(redis-cli HGET "$key:schedule:$id" origin)" = definition ] ||
+		redis-cli SREM "$key:schedules:definition" "$id"
+done
 ```
 
 ## Wiring: `defineRedis` and `openRedis`
