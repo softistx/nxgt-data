@@ -220,21 +220,29 @@ hash whose shape it does not recognise is refused, never "repaired".
   hash, `ZADD delayed` (a future run time) or `ZADD ready`, and push one
   `wake` token if the list is empty (it holds at most one: "ready has work",
   or a delayed job became the head of `delayed`; each woken worker passes the
-  baton, see CLAIM).
-- **CLAIM**(n, lease, token): if `paused`, return nothing. Reclaim up to 100
+  baton, see CLAIM), but none while `paused` exists: RESUME leaves one. A
+  debounce joins only a job that has not run (`attempt` 0): a job in retry
+  backoff is under way, like an active one, so a new job is added.
+- **CLAIM**(n, lease, token): reclaim up to 100
   lapsed leases from `active` — each counts as an attempt (a job that kills
   its process does not loop forever): back to `ready`, or to `failed` with
   "lease lapsed" when spent; report them as `stalled`. Promote up to 1000 due
-  jobs from `delayed` to `ready`. Admit up to n under `rateLimit` (the GCRA of
-  `defineRateLimit`, its Lua shared, not copied). Pop that many from `ready`
-  (round-robin over groups from slice 7), set `state=active`, the token,
+  jobs from `delayed` to `ready`; both still run while `paused`, so `counts`
+  stays honest. While `paused` exists, pop nothing. Otherwise admit up to n
+  under `rateLimit` (the GCRA of `defineRateLimit`, its Lua shared, not
+  copied; a peek at cost 1, then the jobs popped are charged once). Pop that
+  many from `ready` (round-robin over groups from slice 7), set `state=active`, the token,
   `attempt+1`, and `ZADD active now+lease`. If `ready` still has jobs, push
   one `wake` token back if the list is empty, so a blocked peer takes over; if
-  `ready` is empty, `DEL wake`. That `DEL wake` may erase a delayed-head token
+  `ready` is empty, or the queue is paused, or the rate refuses the jobs in
+  `ready`, `DEL wake` (a token there would make every worker spin on claims
+  that pop nothing). That `DEL wake` may erase a delayed-head token
   pushed in the one round trip between a worker's empty claim and its `BLPOP`;
   that job then waits at most the 5 s cap (accepted). Return the jobs, the
-  stalled ids, and the ms until the next `delayed` job, schedule or rate
-  admission (the next wait).
+  stalled ids, and the ms until the next wait ends: the next `delayed` job or
+  schedule, `-1` when none; 5 s while paused (the worker's own cap, it only
+  has to notice a lost resume token); while the rate refuses, the GCRA's
+  `retryAfter` for one job when that is sooner than the delayed head.
 - **RENEW**(token, ids…): for each id still holding the token, push its lease;
   return the ids that lost it (their `signal` fires). One call per worker per
   `lease / 3`, whatever its concurrency.
@@ -254,7 +262,9 @@ hash whose shape it does not recognise is refused, never "repaired".
   fires; its late COMPLETE/FAIL finds no token and is dropped silently).
 - **RETRY**, **REMOVE**: on a job in `failed` (RETRY resets `attempt`) or, for
   REMOVE, in any state but active (cancel it first).
-- **PAUSE**, **RESUME**: set or delete `paused`; RESUME pushes wake tokens.
+- **PAUSE**, **RESUME**: set or delete `paused`; RESUME leaves one `wake`
+  token when `ready` or `delayed` holds jobs, so a blocked worker starts at
+  once (a delayed job may have fallen due during the pause).
 - **FIRE**(scheduleId, due, next): if the schedule's score is still `due`, add
   the occurrence `schedule:<id>:<due>` and set the score to `next`; else do
   nothing (another process fired it).
@@ -392,6 +402,9 @@ the job id (never the data):
 - **Round trips, pinned by specs** that count commands through a wrapped
   client: `add` 1, `addMany` 1 per 500, CLAIM of n 1, a busy worker 1 per job
   (COMPLETE/FAIL claim the next), RENEW 1 per worker per `lease / 3`.
+  Under a `rateLimit` a busy worker may spend up to about 3 round trips per
+  job, since a settle's claim may be refused by the rate; the 1-per-job budget
+  holds without a limit.
   A regression is a failing spec.
 - **Bounded scripts**: no script scans a whole structure; every loop has a
   cap (reclaim 100, promote 1000, trim per call), so one call cannot hold the

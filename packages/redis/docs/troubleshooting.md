@@ -733,7 +733,7 @@ rateLimit: { limit: 100, per: '1h' } // not '100y'
 ### `defineQueue: "mails" rateLimit would take longer than ten years to refill from empty (burst × per ÷ limit); check that per is in milliseconds`
 
 **When:** `defineQueue` with a `rateLimit` whose bucket takes more than ten years to refill.
-**Why:** it is almost always a `per` written in seconds as a bare number: `per: 60` is 60 milliseconds, while `per: 60_000_000_000` is far too long.
+**Why:** it is almost always a `per` written in a unit smaller than milliseconds: `per: 4e11` (400 billion ms, about 12 years) with `limit: 1` throws, while a minute is `per: 60_000`. A bare `per: 60` does not throw: it is 60 milliseconds.
 **Fix:**
 
 ```ts

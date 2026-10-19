@@ -633,7 +633,7 @@ with. Each subscription is one more connection.
 | `defineRedis({ queues })` | wires every queue of the module as `redis.queues.<key>`, under the deployment's prefix (keys `queue:{<prefix>:<name>}:…`, `job.key(name)` as `<prefix>:<queue>:<id>:<name>`), built on first read |
 | `redis.close({ grace? })` | closes the queues' workers with `grace` (default 30 s), then refuses `add`, `addMany`, `finished` and `work` with `CLOSED` and rejects pending `finished`; admin calls still pass. Memoised: a second call's `grace` is ignored; a malformed one rejects before anything closes |
 
-The types are `QueueDefinition`, `QueueInput`, `BoundQueue`, `Worker`, `WorkerEvents`, `WorkOptions`, `JobContext`, `StepOptions`, `Handler`, `JobHandle`, `AddOptions`, `RetryOptions`, `JobView`, `JobState`, `QueueCounts`, `QueueRateLimit`, `DebounceOptions`, `ThrottleOptions`, `ResultOf`, `ResultInputOf` and `Duration`; `JobError` is what a handler throws to choose its retry.
+The types are `QueueDefinition`, `QueueInput`, `BoundQueue`, `Worker`, `WorkerEvents`, `WorkOptions`, `JobContext`, `StepOptions`, `Handler`, `JobHandle`, `AddOptions`, `RetryOptions`, `JobView`, `JobState`, `QueueCounts`, `QueueRateLimit`, `QueueRate`, `DebounceOptions`, `ThrottleOptions`, `ResultOf`, `ResultInputOf` and `Duration`; `JobError` is what a handler throws to choose its retry.
 Wired, `QueueScope` is `redis.queues`, `SoleQueues` its top-level form, and `QueuesOf` and `QueuesIn` read the queues off a configuration.
 See the [queue guide](docs/guide/queues.md) and its [durable steps](docs/guide/queues.md#running-twice).
 
