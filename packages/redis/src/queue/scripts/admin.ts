@@ -1,7 +1,7 @@
 import { defineScript } from '../../scripts/run-script';
 import { CLAIM_FN, NOW_LUA } from './claim/body';
-import { WAKE_FN } from './claim/wake';
 import { GROUP_FN, groupLocals } from './groups/groups';
+import { WAKE_FN } from './wake';
 
 /*
  * The scripts of inspection and repair. `RETRY` and `REMOVE` act on one job

@@ -1,7 +1,7 @@
 import { defineScript } from '../../../scripts/run-script';
 import { ADD_JOB_FN } from '../add';
-import { WAKE_FN } from '../claim/wake';
 import { groupLocals } from '../groups/groups';
+import { WAKE_FN } from '../wake';
 
 /*
  * One zset, `schedules` (id to the ms of the next occurrence), and one hash

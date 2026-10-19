@@ -1,8 +1,8 @@
 import { GCRA_FN } from '../../../rate-limit/gcra';
 import { GROUP_FN } from '../groups/groups';
 import { SCHEDULE_FIELDS, SCHEDULE_SOUND_FN } from '../schedule/schedule';
+import { WAKE_FN } from '../wake';
 import { CLAIM_STEPS_FN } from './steps';
-import { WAKE_FN } from './wake';
 
 /*
  * The trust rule of the queue's scripts, as the guards' (see

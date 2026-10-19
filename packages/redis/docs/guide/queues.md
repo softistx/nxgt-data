@@ -1046,14 +1046,13 @@ await queue.schedules.upsert('poll', { every: '90s', data: { kind: 'poll' } });
   `error` event each time; the others keep firing.
 - **Two processes never fire one occurrence twice.** The occurrence is a job
   with the id `schedule:<id>:<due in ms>`, and the schedule moves on in the same
-  script.
-
-Because of that id, a job id given to `add` cannot start with `schedule:`; it
-is refused with a `TypeError`.
-
+  script. Because of that id, a job id given to `add` cannot start with
+  `schedule:`; it is refused with a `TypeError`.
 - **Next occurrences are computed on the worker's clock.** A host that lags the
   Redis server by more than `every` fires extra occurrences until it catches
-  up, so keep hosts NTP-synced.
+  up. A host ahead of it skips occurrences: the next one is computed after the
+  later of the due time and the host's now, so a cron every minute on a host 2
+  minutes ahead loses ticks. Keep hosts NTP-synced.
 
 Ownership of a schedule is kept in a set that Redis could evict under a
 `maxmemory` policy that removes keys; give a queue's Redis `noeviction`.

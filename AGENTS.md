@@ -158,7 +158,7 @@ is no tsconfig `paths` to a sibling and no relative import into one.
   and `channels` always did, so one module can be passed to several slots (and
   `isCache` now requires no `lease`, so an idempotency is not wired as a cache).
   `checkNoClash` (`config/checks.ts`) refuses one name shared by a cache, a rate
-  limit and an idempotency on one instance — they all write `<name>:<key>` —
+  limit, an idempotency and a queue on one instance — they all write `<name>:<key>` —
   comparing names, at run time only; channels are checked among themselves. Its
   last version, 0.4.0, stays on npm as a deprecated re-export.
 
@@ -269,8 +269,8 @@ matching key in `exports` — except a `bin` target (`@nxgt/mongo-backup`'s
   `package.json`): without the `.js` `build.ts` adds, `mongo`'s fails the
   second with TS2305. `mongo`'s fixture (`test/declarations/mongo.ts`)
   covers the collections, a bucket, the config, a `Mongo` of one database and of two,
-  `as`, `transaction` and `sync`; `redis`'s the rate limit and
-  idempotency, defined and bound to Bun's `RedisClient`. A builder whose
+  `as`, `transaction` and `sync`; `redis`'s the rate limit,
+  idempotency and queue, defined and bound to Bun's `RedisClient`. A builder whose
   type an app exports gets a case there. The folder is typechecked with its
   package and never built or shipped.
   `changeset:publish` runs it, so a release cannot skip it.
@@ -695,6 +695,16 @@ runs Biome instead.
   start and stop), so `spawnWeed` passes `-logdir=<the server's dir>`, a global
   flag that comes before `server`; `stop()` removes the directory with them.
 
+- **The queue's specs** (`packages/redis/src/queue/`) run the scripts against
+  the real server (`startTestRedis`, through `test/server.ts`).
+  `scripts/stored-state.spec.ts` writes by hand the state a script must refuse
+  and the groups fuzz (`scripts/groups/groups-fuzz.spec.ts`) replays a seeded
+  random run (`FUZZ_SEED`, default 42; a failure replays with its seed), each
+  step ending in `test/group-state.ts`'s invariants (`expectGroupState`).
+  Round-trip budgets are pinned by counting commands from `INFO commandstats`
+  (`inspect.spec.ts`, `worker/lifecycle.spec.ts`). A spec holds a handler or a
+  worker with a gate (`gate()` in `test/fixtures.ts`, `deferred()` in `test/fake-worker.ts`), never a
+  sleep.
 - **Type tests** are `test/types/*.ts`, checked by the package's
   `typecheck` (`tsc --noEmit`) and never run. A call that must not compile
   carries `// @ts-expect-error`; if it compiles, tsc fails on the unused

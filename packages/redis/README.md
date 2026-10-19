@@ -697,14 +697,14 @@ class, not a `RedisError`.
 | `QueueErrorCode` | |
 | --- | --- |
 | `INVALID` | `add` or `addMany` got a payload its schema refuses (or throws on), or JSON cannot carry (nothing was written); a handler's result fails the result schema (the job fails, no retry); or `finished` read a stored result the result schema now refuses |
-| `NOT_FOUND` | `retry` named a job that is not failed, `remove` one that does not exist, or `finished` waited on one that is not in the queue |
+| `NOT_FOUND` | `retry` named a job that is not failed, `remove` one that does not exist, `finished` waited on one that is not in the queue, or `schedules.remove` named a schedule that does not exist |
 | `ACTIVE` | `remove` named a job a worker is running |
 | `CANCELED` | `finished` waited on a job that was canceled; also a handler's `signal.reason` |
 | `FAILED` | `finished` waited on a job that failed for good; `lastError` is `{ name, message }` |
 | `WAIT_TIMEOUT` | `finished` waited as long as its `timeout` allowed; the job is untouched |
 | `TIMEOUT` | a run passed its `timeout`: a handler's `signal.reason` |
 | `LEASE_LOST` | a run lost its lease, or was canceled while the worker missed the event: a handler's `signal.reason` |
-| `CLOSED` | the worker closed and its grace passed: only ever a handler's `signal.reason` |
+| `CLOSED` | `add`, `addMany`, `finished` or `work` on a wiring whose `redis.close()` has run, or a `finished` still pending when it closed; also a handler's `signal.reason` once the worker closed and its grace passed |
 | `GROUPS_MISMATCH` | a call on a queue whose stored `groups` mode (`queue:{<name>}:groups:mode`) differs from this process's `groups` or `concurrency`; nothing was written. Every process must share `groups`; to change it, drain the queue and delete the marker |
 
 `defineQueue` (and `bindQueue`, for a definition written by hand) refuses a
