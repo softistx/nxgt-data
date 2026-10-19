@@ -99,7 +99,7 @@ test(`seed ${SEED}: ${STEPS} operations keep the group invariants`, async () => 
 	const step = async (): Promise<string> => {
 		const roll = below(100);
 		const id = pick(known) ?? 'none';
-		if (roll < 25) {
+		if (roll < 20) {
 			const group = pick(GROUPS) ?? '';
 			const jobId = fresh();
 			known.push(jobId);
@@ -108,7 +108,7 @@ test(`seed ${SEED}: ${STEPS} operations keep the group invariants`, async () => 
 			]);
 			return `add ${jobId} group "${group}"`;
 		}
-		if (roll < 40) {
+		if (roll < 30) {
 			const n = below(2) + 1;
 			const reply = await claim(client(), keys, n, 30_000, undefined, {
 				concurrency: CAP,
@@ -116,7 +116,7 @@ test(`seed ${SEED}: ${STEPS} operations keep the group invariants`, async () => 
 			for (const job of reply.jobs) tokens.set(job.id, job.token);
 			return `claim ${n} -> ${reply.jobs.map((j) => j.id).join(',')}`;
 		}
-		if (roll < 52) {
+		if (roll < 40) {
 			const active = (await client().send('ZRANGE', [
 				keys.active,
 				'0',
@@ -134,7 +134,7 @@ test(`seed ${SEED}: ${STEPS} operations keep the group invariants`, async () => 
 			);
 			return `complete ${target}`;
 		}
-		if (roll < 64) {
+		if (roll < 50) {
 			const active = (await client().send('ZRANGE', [
 				keys.active,
 				'0',
@@ -154,25 +154,63 @@ test(`seed ${SEED}: ${STEPS} operations keep the group invariants`, async () => 
 			);
 			return `fail ${target} retryIn ${retryIn}`;
 		}
-		if (roll < 74) {
+		if (roll < 60) {
+			const short = await claim(client(), keys, below(2) + 1, 1, undefined, {
+				concurrency: CAP,
+			});
+			for (const job of short.jobs) tokens.set(job.id, job.token);
+			await Bun.sleep(4);
+			const again = await claim(client(), keys, 1, 30_000, undefined, {
+				concurrency: CAP,
+			});
+			for (const job of again.jobs) tokens.set(job.id, job.token);
+			return `lapse ${short.jobs.map((j) => j.id).join(',')} -> stalled ${again.stalled.join(',')}`;
+		}
+		if (roll < 70) {
 			await tolerated(() => q.cancel(id));
 			return `cancel ${id}`;
 		}
-		if (roll < 82) {
+		if (roll < 75) {
 			await tolerated(() => q.remove(id));
 			return `remove ${id}`;
 		}
-		if (roll < 90) {
+		if (roll < 80) {
 			await tolerated(() => q.retry(id));
 			return `retry ${id}`;
 		}
-		if (roll < 96) {
+		if (roll < 85) {
 			const jobId = fresh();
 			const group = pick(GROUPS) ?? '';
 			const dkey = `k${below(3)}`;
 			known.push(jobId);
 			await debounce(jobId, group, dkey);
 			return `debounce ${jobId} group "${group}" key ${dkey}`;
+		}
+		if (roll < 90) {
+			const items = Array.from({ length: below(2) + 2 }, () => {
+				const jobId = fresh();
+				known.push(jobId);
+				return { jobId, group: pick(GROUPS) ?? '' };
+			});
+			await q.addMany(
+				items.map((item) => ({
+					data: { to: 'x' },
+					options: {
+						id: item.jobId,
+						...(item.group === '' ? {} : { group: item.group }),
+						priority: below(3),
+					},
+				})),
+			);
+			return `addMany ${items.map((i) => `${i.jobId}:"${i.group}"`).join(',')}`;
+		}
+		if (roll < 94) {
+			await q.pause();
+			return 'pause';
+		}
+		if (roll < 98) {
+			await q.resume();
+			return 'resume';
 		}
 		schedules += 1;
 		const scheduleId = `s${schedules}`;

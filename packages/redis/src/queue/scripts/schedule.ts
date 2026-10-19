@@ -137,6 +137,10 @@ return added and 1 or 0
  * does nothing. An `until` that is not a whole number above `due` is an error
  * reply before any write, as for {@link FIRE}'s `next`.
  *
+ * It takes no groups arguments and checks no groups marker: like `SYNC`,
+ * `UPSERT` and `UNSCHEDULE` it writes only `schedules`, never `ready` or
+ * `active`, so no group state can go wrong through it.
+ *
  * KEYS: schedules.
  * ARGV: schedule-key prefix, id, due (ms), until (ms).
  * Returns 1 (deferred) or 0.
