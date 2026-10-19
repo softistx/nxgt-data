@@ -139,6 +139,11 @@ export function parseLost(raw: unknown): string[] {
 	return texts(raw, 'lost ids');
 }
 
+/** `RELEASE`'s reply: the ids given back. */
+export function parseReleased(raw: unknown): string[] {
+	return texts(raw, 'released ids');
+}
+
 /** What `stepBegin` answers. */
 export type StepBegin =
 	| { stored: true; json: string }

@@ -13,6 +13,7 @@ import {
 import type { WorkerContext } from '../context';
 import { announce, emit } from '../events';
 import { fireDue } from '../fire';
+import { giveBack } from '../give-back';
 import { markDrained } from '../idle';
 import { progressOf } from './progress';
 import {
@@ -128,8 +129,9 @@ export async function runSlot<S extends z.ZodType>(
 			announce(context, reply);
 			// A busy worker never reaches the loop's claim: its settles fire too.
 			const round = await fireDue(context, reply.due);
-			// Past the close's bound a claimed job is left to lapse.
+			// After the close a claimed job is given back, never started.
 			job = context.open ? reply.jobs[0] : undefined;
+			if (!context.open) await giveBack(context, reply.jobs);
 			if (!job) markDrained(context, round.added === 0);
 		} catch (error) {
 			// The job's lease lapses and another worker takes it back.

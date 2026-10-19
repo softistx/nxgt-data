@@ -4,6 +4,7 @@ import type { ClaimedJob } from '../scripts/claim/replies';
 import type { WorkerContext } from './context';
 import { announce, emit } from './events';
 import { fireDue, MAX_WAIT, waitMs } from './fire';
+import { giveBack } from './give-back';
 import { markDrained, settleIdle } from './idle';
 import { runSlot } from './job/run-job';
 import { syncRetryIn, syncSchedules } from './sync';
@@ -82,8 +83,9 @@ export async function loop<S extends z.ZodType>(
 			);
 			retry = FIRST_RETRY;
 			announce(context, reply);
-			// A reply past the close's bound starts nothing: no lease renews it.
+			// A reply after the close starts nothing: its jobs are given back.
 			if (context.open) for (const job of reply.jobs) start(context, job);
+			else await giveBack(context, reply.jobs);
 			// Between the claim and the wait, so a busy worker fires too.
 			const round = await fireDue(context, reply.due);
 			markDrained(context, reply.jobs.length === 0 && round.added === 0);
