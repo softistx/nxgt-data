@@ -48,6 +48,8 @@ item shipped in is the only number on this page.
 - **A batch handler** — one handler called with several jobs at once.
 - **A rate limit per group** — a limit on how fast one group's jobs run,
   beside the per-group concurrency.
+- **A count bound on kept failures** — `keepFailed: { age, count }`, as
+  `keepCompleted` has, so a burst of failures cannot pile up for the whole age.
 
 ## Later
 

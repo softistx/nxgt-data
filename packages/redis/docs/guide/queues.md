@@ -238,6 +238,9 @@ read, `SUBSCRIBE` or subscriber flush cannot defer it.
   when the job was waiting, delayed or running (a running job's handler is
   aborted with `CANCELED`), and `false` when there was nothing to cancel:
   finished, removed or unknown. A canceled job is deleted.
+  Unlike `remove(id)`, which throws `NOT_FOUND` or `ACTIVE`: a cancel that
+  loses the race with the job's own end is normal, so it answers rather than
+  throws, while removing an unknown or running job is the caller's mistake.
 
 ## Timeouts and the abort signal
 
@@ -355,7 +358,9 @@ type Worker = {
 `close({ grace })` stops taking jobs and resolves once the running ones have
 finished, or once `grace` has passed (default 30 seconds, a `Duration`). The
 handlers still running then are aborted with `CLOSED`, and their leases are left
-to lapse, so another worker retakes the jobs. Only the **first call's** `grace`
+to lapse, so another worker retakes the jobs. A claim already in flight when `close` is
+called starts nothing: the jobs it took are given back to the queue at once,
+with their attempt and group slot returned, rather than left to lapse. Only the **first call's** `grace`
 counts; a later call gets the same promise. Call it on shutdown.
 `await using worker = queue.work(…)` closes it, with the default grace, at the
 end of the block.
