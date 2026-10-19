@@ -1,10 +1,8 @@
 import type { RedisClient } from 'bun';
 import type { z } from 'zod';
-import { QueueError } from '../errors/queue-error';
 import { runScript } from '../scripts/run-script';
 import type { queueKeys } from './keys';
-import { COUNTS, PAUSE, REMOVE, RESUME, RETRY } from './scripts/admin';
-import { scriptKeys } from './scripts/claim';
+import { COUNTS, PAUSE, RESUME } from './scripts/admin';
 import type {
 	JobState,
 	JobView,
@@ -179,67 +177,4 @@ export function resolveRetry(
 		throw new TypeError(`retry on "${queue}": fresh is true or false`);
 	}
 	return fresh === true;
-}
-
-/**
- * Puts a failed job back to `waiting`, its attempts reset, and with `fresh`
- * its stored step values cleared.
- *
- * @throws QueueError `NOT_FOUND` when the job is not in `failed`.
- */
-export async function retryJob(
-	client: RedisClient,
-	keys: Keys,
-	definition: { name: string },
-	id: string,
-	fresh: boolean,
-): Promise<void> {
-	const reply = await runScript(client, RETRY, scriptKeys(keys), [
-		keys.prefix,
-		id,
-		fresh ? '1' : '0',
-	]);
-	if (reply !== 1) {
-		throw new QueueError(
-			'NOT_FOUND',
-			definition.name,
-			`retry on "${definition.name}": job "${id}" is not failed`,
-			id,
-		);
-	}
-}
-
-/**
- * Removes a job that is not running.
- *
- * @throws QueueError `ACTIVE` for a running job, `NOT_FOUND` for none.
- */
-export async function removeJob(
-	client: RedisClient,
-	keys: Keys,
-	definition: { name: string },
-	id: string,
-): Promise<void> {
-	const reply = await runScript(
-		client,
-		REMOVE,
-		[keys.delayed, keys.ready, keys.active, keys.completed, keys.failed],
-		[keys.prefix, id],
-	);
-	if (reply === 2) {
-		throw new QueueError(
-			'ACTIVE',
-			definition.name,
-			`remove on "${definition.name}": job "${id}" is running`,
-			id,
-		);
-	}
-	if (reply !== 1) {
-		throw new QueueError(
-			'NOT_FOUND',
-			definition.name,
-			`remove on "${definition.name}": no job "${id}"`,
-			id,
-		);
-	}
 }

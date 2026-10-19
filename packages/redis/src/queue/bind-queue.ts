@@ -10,11 +10,10 @@ import {
 	getJob,
 	listJobs,
 	pauseQueue,
-	removeJob,
 	resolveRetry,
 	resumeQueue,
-	retryJob,
 } from './inspect';
+import { removeJob, retryJob } from './job-admin';
 import { queueKeys } from './keys';
 import { type QueueLife, refuseClosed, trackWorker } from './life';
 import { scheduleHandle } from './schedule/handle';
@@ -203,7 +202,7 @@ export function bindQueueWith<
 			);
 		},
 		remove: (id) => removeJob(client, keys, definition, id),
-		cancel: (id) => cancel(client, keys, id),
+		cancel: (id) => cancel(client, keys, id, definition.groups),
 		schedules: scheduleHandle(client, keys, definition),
 		work(handler, options) {
 			refuseClosed(life, 'work', definition.name);

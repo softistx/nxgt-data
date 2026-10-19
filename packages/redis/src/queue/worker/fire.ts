@@ -1,7 +1,8 @@
 import { runScript } from '../../scripts/run-script';
 import { type Cron, parseCron } from '../schedule/cron';
 import { nextAfter, nextEvery } from '../schedule/next';
-import { scriptKeys } from '../scripts/claim';
+import { groupArgs, scriptKeys } from '../scripts/claim';
+import { guardMode } from '../scripts/groups-mode';
 import type { DueSchedule } from '../scripts/replies';
 import { DEFER, FIRE } from '../scripts/schedule';
 import type { WorkerContext } from './context';
@@ -114,15 +115,23 @@ export async function fireDue(
 				round.sent += 1;
 				continue;
 			}
-			const added = await runScript(client, FIRE, scriptKeys(keys), [
-				keys.prefix,
-				keys.schedule,
-				schedule.id,
-				schedule.due,
-				next,
-				definition.attempts,
-				definition.timeout ?? -1,
-			]);
+			const added = await guardMode(
+				client,
+				keys,
+				definition.groups,
+				'fire',
+				() =>
+					runScript(client, FIRE, scriptKeys(keys), [
+						keys.prefix,
+						keys.schedule,
+						schedule.id,
+						schedule.due,
+						next,
+						definition.attempts,
+						definition.timeout ?? -1,
+						...groupArgs(keys, definition.groups),
+					]),
+			);
 			round.sent += 1;
 			if (added === 1) round.added += 1;
 			round.soonest = Math.min(round.soonest, next);

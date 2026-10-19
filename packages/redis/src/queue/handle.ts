@@ -204,6 +204,6 @@ export function jobHandle<
 		deduplicated,
 		finished: (options) =>
 			waitFinished(waiting, options) as Promise<ResultOf<R>>,
-		cancel: () => cancel(client, keys, id),
+		cancel: () => cancel(client, keys, id, definition.groups),
 	};
 }

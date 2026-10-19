@@ -1,5 +1,6 @@
 import { defineScript } from '../../scripts/run-script';
 import { ADD_JOB_FN } from './add';
+import { groupLocals } from './groups';
 import { WAKE_FN } from './wake';
 
 /*
@@ -89,15 +90,20 @@ return 0
  * adds nothing, but the schedule still moves on. No wake token is left
  * while `paused` exists: the job waits in `ready` for `RESUME`.
  *
+ * On a grouped queue the occurrence goes to the default group `''` and the
+ * marker check of `groupModeCheck` runs first, before any write (the next
+ * check, on `due` and `next`, comes after it).
+ *
  * KEYS: those of `scriptKeys`.
  * ARGV: job-key prefix, schedule-key prefix, id, due (ms), next (ms),
- * attempts, timeout (ms, -1 for none).
+ * attempts, timeout (ms, -1 for none), the three group arguments (see
+ * `groupArgs`).
  * Returns 1 when a job was added and 0 otherwise.
  */
 export const FIRE = defineScript(`
 ${WAKE_FN}
 ${SCHEDULE_SOUND_FN}
-local prefix = ARGV[1]
+local prefix = ARGV[1]${groupLocals(8)}
 local id, due = ARGV[3], ARGV[4]
 -- Before any write: a next that is not a whole ms after due would leave the
 -- schedule due again at once, or a job added and the schedule not moved.
@@ -107,9 +113,7 @@ if not (string.match(due, '^%d+$') and string.match(ARGV[5], '^%d+$')
 end
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
-local DELAYED, READY, SEQ = KEYS[1], KEYS[2], KEYS[6]
--- Schedule occurrences have no group yet: nothing of the groups is written.
-local GROUPED, CONCURRENCY, GPREFIX, GREADY, GQUEUED = false, 0, '', KEYS[12], KEYS[13]
+local DELAYED, SEQ = KEYS[1], KEYS[6]
 local paused = redis.call('EXISTS', KEYS[9]) == 1
 local function poke()
 	if not paused then wake(KEYS[7]) end
