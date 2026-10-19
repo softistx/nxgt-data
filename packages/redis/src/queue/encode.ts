@@ -76,7 +76,7 @@ export function resolveAdd(
 	options: AddOptions | undefined,
 	call: string,
 	queue: string,
-	grouped = false,
+	grouped: boolean,
 ): ResolvedAdd {
 	const { id, priority, delay, at, timeout } = (options ?? {}) as {
 		id?: unknown;

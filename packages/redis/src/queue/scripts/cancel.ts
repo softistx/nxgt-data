@@ -71,6 +71,7 @@ export async function cancel(
 	keys: ReturnType<typeof queueKeys>,
 	id: string,
 	groups?: QueueGroups,
+	// Production callers pass the definition's name; only specs rely on ''.
 	name = '',
 ): Promise<boolean> {
 	const reply = await guardMode(client, keys, groups, 'cancel', name, () =>

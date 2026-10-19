@@ -90,6 +90,7 @@ export async function claim(
 	lease: number,
 	rate: QueueRate | undefined,
 	groups?: QueueGroups,
+	// Production callers pass the definition's name; only specs rely on ''.
 	name = '',
 ): Promise<ClaimReply> {
 	const tokens = Array.from({ length: n }, newToken);
