@@ -7,7 +7,7 @@ export type Deps = {
 	/** The provider; `idempotencyKey` is what it deduplicates on. */
 	sendMail(mail: {
 		to: string;
-		tenantId?: string;
+		tenantId?: string | undefined;
 		subject: string;
 		idempotencyKey: string;
 	}): Promise<void>;
@@ -17,17 +17,26 @@ export type Deps = {
 
 const handle = (deps: Deps) => async (job: JobContext<typeof mailSchema>) => {
 	const { data } = job;
-	const subject = data.kind === 'welcome' ? 'Welcome' : 'Your daily digest';
-	const to = data.kind === 'welcome' ? data.to : 'ops@saas.test';
-	const tenantId = data.kind === 'welcome' ? data.tenantId : undefined;
+	const { to, tenantId, subject } = (() => {
+		switch (data.kind) {
+			case 'welcome':
+				return { to: data.to, tenantId: data.tenantId, subject: 'Welcome' };
+			case 'digest':
+				return {
+					to: 'ops@saas.test',
+					tenantId: undefined,
+					subject: 'Your daily digest',
+				};
+		}
+	})();
 	// Each step runs once per job, however many attempts it takes. A crash
 	// between the send and its commit is covered by the provider's key.
 	await job.step('send', () =>
 		deps.sendMail({
 			to,
 			subject,
+			tenantId,
 			idempotencyKey: job.key('send'),
-			...(tenantId ? { tenantId } : {}),
 		}),
 	);
 	await job.step('record', () => deps.recordSent(to));
@@ -43,11 +52,14 @@ export function work(
 	return redis.queues.mails.work(handle(deps), options);
 }
 
-/** Works until SIGTERM or SIGINT, then lets the running jobs finish (20 s at most) and resolves. */
+/**
+ * Works until SIGTERM or SIGINT, then lets the running jobs finish (20 s at
+ * most) and resolves; rejects with the error when the close itself fails.
+ */
 export function serve(redis: AppRedis, deps: Deps): Promise<void> {
 	work(redis, deps, { concurrency: 8 });
-	return new Promise((done) => {
-		const stop = () => void redis.close({ grace: '20s' }).then(done);
+	return new Promise((done, fail) => {
+		const stop = () => void redis.close({ grace: '20s' }).then(done, fail);
 		process.once('SIGTERM', stop);
 		process.once('SIGINT', stop);
 	});
@@ -56,8 +68,13 @@ export function serve(redis: AppRedis, deps: Deps): Promise<void> {
 // bun src/worker.ts: the provider is a log line here, no real SMTP.
 if (import.meta.main) {
 	const redis = await openRedis(config);
-	await serve(redis, {
-		sendMail: async (mail) => console.log('mail', mail),
-		recordSent: async () => {},
-	});
+	try {
+		await serve(redis, {
+			sendMail: async (mail) => console.log('mail', mail),
+			recordSent: async () => {},
+		});
+	} catch (error) {
+		console.error('worker: close failed', error);
+		process.exit(1);
+	}
 }

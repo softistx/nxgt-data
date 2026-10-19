@@ -76,8 +76,12 @@ test('welcome mails of two tenants all run, at most two at once per tenant', asy
 test('the digest is scheduled nightly, in the zone of the definition', async () => {
 	const worker = work(redis, recorder().deps);
 	// The first worker stores the definition's schedules, a moment after it starts.
+	const deadline = Date.now() + 5000;
 	let schedules = await redis.queues.mails.schedules.list();
-	for (let i = 0; i < 50 && schedules.length === 0; i++) {
+	while (schedules.length === 0) {
+		if (Date.now() > deadline) {
+			throw new Error('the worker did not store the schedules within 5 s');
+		}
 		await sleep(20);
 		schedules = await redis.queues.mails.schedules.list();
 	}
@@ -142,6 +146,9 @@ test('the worker closes on SIGTERM and the running job finishes first', async ()
 	});
 	await running;
 	process.kill(process.pid, 'SIGTERM');
+	// What this proves: close waits for the running job, so `serve` has not
+	// resolved after 100 ms with the job held. It does not prove the grace
+	// bound (20 s here); the package's own specs measure that.
 	await sleep(100);
 	expect(stopped).toBe(false);
 
