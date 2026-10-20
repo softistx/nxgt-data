@@ -1,5 +1,11 @@
 # @nxgt/redis
 
+## 0.9.1
+
+### Patch Changes
+
+- [#227](https://github.com/softistx/nxgt-data/pull/227) [`0d25246`](https://github.com/softistx/nxgt-data/commit/0d2524693c88daa009289177cfcb1150b4b0f2fc) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The roadmap lists the queue under Shipped in 0.9.0, and the guide's benchmark names 0.9.0 as the version measured.
+
 ## 0.9.0
 
 ### Minor Changes
