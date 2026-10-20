@@ -1,5 +1,11 @@
 # @nxgt/redis
 
+## 0.9.2
+
+### Patch Changes
+
+- [#230](https://github.com/softistx/nxgt-data/pull/230) [`21b08cb`](https://github.com/softistx/nxgt-data/commit/21b08cb16064e22e9efeda19d50a7144d409b75a) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The refusal of a queue that shares its name with a cache, a rate limit or an idempotency no longer says they would share every key in Redis, which a queue's `queue:{<name>}:` keys do not: it says one name means one thing on an instance.
+
 ## 0.9.1
 
 ### Patch Changes
