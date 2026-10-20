@@ -127,10 +127,14 @@ function refuseClash(where: string, groups: readonly Group[]): void {
 						'in Redis. Export one of them, or give it a name of its own.',
 				);
 			} else {
+				const why =
+					kind === 'queue'
+						? 'One name means one thing on an instance.'
+						: 'They would share every key in Redis.';
 				throw new TypeError(
 					`${where} wires the ${first.kind} "${first.key}" and the ${kind} ` +
-						`"${key}" under one name, "${definition.name}". They would share ` +
-						'every key in Redis. Give one of them a name of its own.',
+						`"${key}" under one name, "${definition.name}". ${why} ` +
+						'Give one of them a name of its own.',
 				);
 			}
 		}

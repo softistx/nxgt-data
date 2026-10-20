@@ -150,7 +150,7 @@ application can handle.
   - [``defineRedis: `instances` is empty. Give it one, or write the single instance as the configuration itself.``](#defineredis-instances-is-empty-give-it-one-or-write-the-single-instance-as-the-configuration-itself)
   - [`openRedis: instance "main" has neither uri nor client. Give it one.`](#openredis-instance-main-has-neither-uri-nor-client-give-it-one)
   - [`defineRedis: instance "default" wires the queue named "mails" twice, under "mails" and "outbox". They would share every key in Redis. Export one of them, or give it a name of its own.`](#defineredis-instance-default-wires-the-queue-named-mails-twice-under-mails-and-outbox-they-would-share-every-key-in-redis-export-one-of-them-or-give-it-a-name-of-its-own)
-  - [`defineRedis: instance "default" wires the cache "users" and the queue "mails" under one name, "mail". They would share every key in Redis. Give one of them a name of its own.`](#defineredis-instance-default-wires-the-cache-users-and-the-queue-mails-under-one-name-mail-they-would-share-every-key-in-redis-give-one-of-them-a-name-of-its-own)
+  - [`defineRedis: instance "default" wires the cache "users" and the queue "mails" under one name, "mail". One name means one thing on an instance. Give one of them a name of its own.`](#defineredis-instance-default-wires-the-cache-users-and-the-queue-mails-under-one-name-mail-one-name-means-one-thing-on-an-instance-give-one-of-them-a-name-of-its-own)
   - [`defineRedis: instance "default" has a prefix with braces, and it wires queues; a queue's name is its keys' hash tag, so the prefix in front of it cannot hold any.`](#defineredis-instance-default-has-a-prefix-with-braces-and-it-wires-queues-a-queues-name-is-its-keys-hash-tag-so-the-prefix-in-front-of-it-cannot-hold-any)
   - [`add on "mails": the Redis is closed`](#add-on-mails-the-redis-is-closed) — also `addMany` and `finished`
   - [`work on "mails": the Redis is closing`](#work-on-mails-the-redis-is-closing)
@@ -2057,7 +2057,7 @@ export const mails = defineQueue({ name: 'mails', schema });
 export const outbox = defineQueue({ name: 'outbox', schema });
 ```
 
-#### `defineRedis: instance "default" wires the cache "users" and the queue "mails" under one name, "mail". They would share every key in Redis. Give one of them a name of its own.`
+#### `defineRedis: instance "default" wires the cache "users" and the queue "mails" under one name, "mail". One name means one thing on an instance. Give one of them a name of its own.`
 
 **When:** calling `defineRedis` (or `openRedis`) with a queue and a cache, a
 rate limit or an idempotency that have one `name` on one instance. The kinds in

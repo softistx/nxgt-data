@@ -49,8 +49,7 @@ local g = group_of(key)
 if state == 'active' then token = redis.call('HGET', key, 'token') end
 if state == 'waiting' then ready_rem(id, g)
 else
-	redis.call('ZREM', from, id)
-	if state == 'active' then freed = slot_freed(g) end
+	if redis.call('ZREM', from, id) == 1 and state == 'active' then freed = slot_freed(g) end
 end
 redis.call('DEL', key)
 if freed and redis.call('EXISTS', KEYS[9]) == 0 then wake(KEYS[7]) end

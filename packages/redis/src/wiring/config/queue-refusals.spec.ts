@@ -56,7 +56,7 @@ describe('queues in the configuration', () => {
 		const same = { ...queues.mails, name: caches.users.name };
 		expect(() => defineRedis({ uri, caches, queues: { same } })).toThrow(
 			'defineRedis: instance "default" wires the cache "users" and the queue ' +
-				'"same" under one name, "user". They would share every key in Redis. ' +
+				'"same" under one name, "user". One name means one thing on an instance. ' +
 				'Give one of them a name of its own.',
 		);
 	});
