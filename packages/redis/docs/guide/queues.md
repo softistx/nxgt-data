@@ -1372,7 +1372,7 @@ queue on this machine:
 
 | Machine | OS | Bun | Redis | @nxgt/redis |
 | --- | --- | --- | --- | --- |
-| Apple M5 Pro, 18 cores | darwin 25.6.0 | 1.4.3 | 7.4.1 | unreleased, after 0.8.0 |
+| Apple M5 Pro, 18 cores | darwin 25.6.0 | 1.4.3 | 7.4.1 | 0.9.0 (measured just before its release) |
 
 Throughput, 100000 jobs:
 
