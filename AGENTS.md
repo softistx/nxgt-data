@@ -952,9 +952,11 @@ the file.
 
 - Biome, with tabs and single quotes. Run `./node_modules/.bin/biome check
   --write` before committing, and `bunx biome ci` must pass, as in CI.
-- Commit messages: `<type>: <Capitalized summary>`, with types `feat`, `fix`,
-  `update`, `chore`, `docs`, `typo`, and `ci` for the workflows and the setup
-  action.
+- Commit messages and PR titles follow Conventional Commits, as "Commits" in
+  `~/.claude/CLAUDE.md` says (`type(scope)!: description`; `ci` for the
+  workflows and the setup action). Commits before 2026-10-22 used
+  `<type>: <Capitalized summary>` with `update` and `typo`, which are no longer
+  types.
 - Git: the default branch is `develop`. Work on a feature branch and open a
   pull request into `develop`.
 - A repository script is a TypeScript file run by Bun, with Bun Shell, not a
