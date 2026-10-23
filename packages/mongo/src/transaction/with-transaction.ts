@@ -10,16 +10,19 @@ function isSession(host: TransactionHost): host is ClientSession {
 	return typeof (host as ClientSession).inTransaction === 'function';
 }
 
-const RETRYABLE_LABELS = [
-	'TransientTransactionError',
-	'UnknownTransactionCommitResult',
-];
+/**
+ * The one label the driver acts on when it comes out of the callback: it
+ * aborts and reruns `fn`. `UnknownTransactionCommitResult` there is passed
+ * on as it is (the driver takes it as a manual commit), so it is not handed
+ * back.
+ */
+const RETRY_LABEL = 'TransientTransactionError';
 
 /**
- * `fn`, with a retryable driver error handed back as the driver's own.
+ * `fn`, with a transient driver error handed back as the driver's own.
  *
- * The driver retries only an error that is its own `MongoError` with a retry
- * label, and a collection method has already turned that error into a
+ * The driver retries only an error that is its own `MongoError` labelled
+ * `TransientTransactionError`, and a collection method has already turned that error into a
  * `DataError`. The driver error sits on its `cause`: throwing that one lets
  * the driver see it. Whatever else `fn` throws goes through unchanged.
  */
@@ -36,7 +39,7 @@ function retryableByDriver<T>(
 					| undefined;
 				if (
 					typeof cause?.hasErrorLabel === 'function' &&
-					RETRYABLE_LABELS.some((label) => cause.hasErrorLabel?.(label))
+					cause.hasErrorLabel(RETRY_LABEL)
 				) {
 					throw cause;
 				}
@@ -69,9 +72,14 @@ function retryableByDriver<T>(
  *
  * Two things the driver does that are easy to be surprised by:
  *
- * - it **retries `fn`** from the start on a `TransientTransactionError`, and
- *   the commit alone on an `UnknownTransactionCommitResult`, until 120 seconds
- *   have passed. `fn` must therefore be safe to run twice.
+ * - it **retries `fn`** from the start on a `TransientTransactionError`, until
+ *   120 seconds have passed (and the commit alone when the commit reports an
+ *   unknown result). `fn` must therefore be safe to run twice. A failure
+ *   labelled transient that will happen again every time, such as a
+ *   deterministic collision the server aborts the transaction for, is retried
+ *   for the whole window; what comes back at the end is a `DataError` whose
+ *   `cause` is the driver's error (its timeout error, when the client was
+ *   given a `timeoutMS`).
  * - `session.abortTransaction()` inside `fn` ends the transaction without
  *   throwing: `withTransaction` then resolves.
  */

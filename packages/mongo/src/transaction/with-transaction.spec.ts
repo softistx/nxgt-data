@@ -11,7 +11,7 @@ import { rejection, rejectionMessage } from '../../test/rejection';
 import { users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { getCollection } from '../collection/get-collection';
-import { ConflictError } from '../errors/data-error';
+import { ConflictError, DataError } from '../errors/data-error';
 import { withTransaction } from './with-transaction';
 
 let t: TestServer;
@@ -191,6 +191,37 @@ describe('withTransaction', () => {
 			);
 			expect(runs).toBe(2);
 			expect(await emails()).toEqual(['ada@example.com']);
+		});
+	});
+
+	describe('an error the driver does not retry', () => {
+		test('a DataError without a retry label runs the callback once', async () => {
+			await t.failNext(['insert'], { errorCode: 11000 });
+			let runs = 0;
+			const error = await rejection(
+				withTransaction(t.client, async (session) => {
+					runs += 1;
+					await collection()
+						.withSession(session)
+						.create({ email: 'ada@example.com' });
+				}),
+			);
+			expect(runs).toBe(1);
+			expect(error).toBeInstanceOf(DataError);
+			expect(await emails()).toEqual([]);
+		});
+
+		test('a DataError whose cause carries no hasErrorLabel passes through unchanged', async () => {
+			const thrown = new DataError('boom', { cause: new Error('plain') });
+			let runs = 0;
+			const error = await rejection(
+				withTransaction(t.client, async () => {
+					runs += 1;
+					throw thrown;
+				}),
+			);
+			expect(runs).toBe(1);
+			expect(error).toBe(thrown);
 		});
 	});
 });

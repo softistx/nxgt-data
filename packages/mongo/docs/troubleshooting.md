@@ -65,6 +65,7 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`This MongoDB deployment does not support retryable writes. Please add retryWrites=false to your connection string.`](#this-mongodb-deployment-does-not-support-retryable-writes-please-add-retrywritesfalse-to-your-connection-string)
   - [`The $changeStream stage is only supported on replica sets`](#the-changestream-stage-is-only-supported-on-replica-sets)
   - [`withTransaction: this session is already in a transaction, which this call joins.`](#withtransaction-this-session-is-already-in-a-transaction-which-this-call-joins)
+  - [A transaction hangs about two minutes, then fails with the abort or write conflict on its `cause`](#a-transaction-hangs-about-two-minutes-then-fails-with-the-abort-or-write-conflict-on-its-cause)
   - [`onChange: a filter cannot use $expr.`](#onchange-a-filter-cannot-use-expr)
   - [An unhandled rejection from `closed` ends the process](#an-unhandled-rejection-from-closed-ends-the-process)
 - **GridFS**
@@ -952,6 +953,27 @@ operation inside takes `collection.withSession(session)` — and the driver's
 own methods (`collection.aggregate(…)`) want `{ session }` in their options
 as usual. And the callback may be **retried** for up to 120 seconds, so it
 must be safe to run twice and must not swallow errors.
+
+### A transaction hangs about two minutes, then fails with the abort or write conflict on its `cause`
+
+**When:** a transaction whose callback hits a collision that does not go
+away, such as `putOnce` inside a transaction against a stray committed
+chunk. After about 120 seconds the `DataError` arrives, its `cause` the
+driver's abort (`Transaction ... has been aborted`) or write conflict. When
+the client was given a `timeoutMS`, the driver's own timeout error
+(`Timed out during withTransaction`, or `Server reported a timeout error`)
+comes back instead, with that error on its `cause`.
+**Why:** the server labels the abort `TransientTransactionError`, so the
+driver reruns the callback from the start until its window closes. The
+collision is deterministic, so every run fails the same way.
+**Fix:** resolve the collision rather than waiting it out, for a stray chunk
+by removing it:
+
+```ts
+// a maintenance pass, on a bucket nothing is writing (see the `putOnce` entry
+// on chunks no file claims): remove the chunks whose files_id matches no
+// document in <bucket>.files, then run the transaction again
+```
 
 ### `onChange: a filter cannot use $expr.`
 

@@ -84,6 +84,15 @@ the transient error came out of a collection method as a `DataError`. So the
 callback must be safe to run twice, and must not swallow errors — the driver
 cannot otherwise tell whether the transaction was aborted.
 
+A failure labelled transient that **will happen again every time** — a
+deterministic collision the server aborts the transaction for, such as
+`putOnce` against a stray committed chunk — is retried for the whole window.
+What comes back at the end is a `DataError` with the driver's error, the
+abort or the write conflict, on its `cause` (the driver's timeout error when
+the client was given a `timeoutMS`). Only `TransientTransactionError` is
+handed back to the driver; an error without that label, a duplicate key for
+one, fails at once and the callback runs once.
+
 **`session.abortTransaction()` inside the callback resolves.**
 `withTransaction` returns the callback's value; it does not throw.
 
