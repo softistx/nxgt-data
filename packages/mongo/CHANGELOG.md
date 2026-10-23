@@ -1,5 +1,11 @@
 # @nxgt/mongo
 
+## 0.23.1
+
+### Patch Changes
+
+- [#247](https://github.com/softistx/nxgt-data/pull/247) [`de0bbb9`](https://github.com/softistx/nxgt-data/commit/de0bbb9b1d8a6bd28dac1d587960534ba9e84f74) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `retryTransient: false` no longer hands back a commit whose result is unknown. The callback still runs exactly once, but a commit that fails with `UnknownTransactionCommitResult` (other than `MaxTimeMSExpired`) is now retried on its own for up to 120 seconds, as the driver's `withTransaction` does, instead of reaching a caller whose own retry could apply the work twice.
+
 ## 0.23.0
 
 ### Minor Changes
