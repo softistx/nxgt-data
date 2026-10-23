@@ -157,10 +157,28 @@ export interface DatabaseConfig<C, B = object> {
 	bucketOptions?: WiredBucketOptions;
 }
 
+/**
+ * What the Mongo does by default for the transactions it starts: the config's
+ * `transactions`.
+ */
+export interface TransactionsConfig {
+	/**
+	 * The default of a transaction's `retryTransient`, for every transaction
+	 * this Mongo starts. A call's own `retryTransient` outranks it; with
+	 * neither, the body is retried (`true`). A transaction that joins an outer
+	 * one has no choice to make: it is the outer one's.
+	 */
+	retryTransient?: boolean;
+}
+
 /** One database, or several under their names. */
-export type MongoConfigInput =
+export type MongoConfigInput = (
 	| DatabaseConfig<object>
-	| { databases: Record<string, DatabaseConfig<object>> };
+	| { databases: Record<string, DatabaseConfig<object>> }
+) & {
+	/** What every transaction of this Mongo does unless its call says otherwise. */
+	transactions?: TransactionsConfig;
+};
 
 /**
  * The config with every key it has to refuse — one the driver's `Db` already
@@ -232,6 +250,8 @@ export type BucketsIn<C, N extends DbName<C>> = DatabasesOf<C>[N] extends {
  * whether the Mongo has a `db` of its own.
  */
 export interface MongoConfig<C> {
+	/** The transaction defaults the config gave; none when it gave none. */
+	readonly transactions?: Readonly<TransactionsConfig>;
 	readonly databases: {
 		readonly [N in DbName<C>]: DatabaseConfig<
 			CollectionsIn<C, N>,

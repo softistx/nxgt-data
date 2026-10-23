@@ -5,6 +5,7 @@ import type {
 	DatabaseConfig,
 	MongoConfig,
 	MongoConfigInput,
+	TransactionsConfig,
 } from './types';
 
 /** Whether the config named its databases, or is one database itself. */
@@ -18,7 +19,9 @@ function databasesOf(
 		);
 	}
 	if (!('databases' in config)) {
-		return { default: config as DatabaseConfig<object> };
+		// `transactions` is the Mongo's, not the database's.
+		const { transactions: _, ...database } = config;
+		return { default: database as DatabaseConfig<object> };
 	}
 	const { databases } = config;
 	if (typeof databases !== 'object' || databases === null) {
@@ -38,6 +41,42 @@ function databasesOf(
 		);
 	}
 	return databases as Record<string, DatabaseConfig<object>>;
+}
+
+const TRANSACTION_KEYS = ['retryTransient'] as const;
+
+/** The `transactions` of a config, refused when it is not what it says it is. */
+function checkTransactions(transactions: unknown): void {
+	if (transactions === undefined) return;
+	if (
+		typeof transactions !== 'object' ||
+		transactions === null ||
+		Array.isArray(transactions)
+	) {
+		throw new WiringError(
+			'CONFIG',
+			'defineMongo: transactions must be an object, as ' +
+				'`{ transactions: { retryTransient: false } }`',
+		);
+	}
+	for (const key of Object.keys(transactions)) {
+		if (!(TRANSACTION_KEYS as readonly string[]).includes(key)) {
+			throw new WiringError(
+				'CONFIG',
+				`defineMongo: transactions has "${key}", which it does not take. ` +
+					`It takes ${TRANSACTION_KEYS.map((k) => `"${k}"`).join(', ')}.`,
+				{ key },
+			);
+		}
+	}
+	const { retryTransient } = transactions as { retryTransient?: unknown };
+	if (retryTransient !== undefined && typeof retryTransient !== 'boolean') {
+		throw new WiringError(
+			'CONFIG',
+			'defineMongo: transactions.retryTransient must be a boolean',
+			{ key: 'retryTransient' },
+		);
+	}
 }
 
 /**
@@ -71,10 +110,13 @@ export function defineMongo<const C extends MongoConfigInput>(
 	config: C & Checked<C>,
 ): MongoConfig<C> {
 	const databases = databasesOf(config);
+	const { transactions } = config as { transactions?: TransactionsConfig };
+	checkTransactions(transactions);
 	for (const [name, database] of Object.entries(databases)) {
 		checkDatabase(name, database);
 	}
 	return Object.freeze({
 		databases: Object.freeze({ ...databases }),
+		...(transactions && { transactions: Object.freeze({ ...transactions }) }),
 	}) as MongoConfig<C>;
 }

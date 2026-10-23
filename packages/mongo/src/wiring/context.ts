@@ -42,6 +42,11 @@ export interface WiringContext {
 	readonly actor: unknown;
 	/** The collections already built, per database name then per key. */
 	readonly cache: Map<string, Map<string, unknown>>;
+	/**
+	 * The config's default `retryTransient`, carried by every derived Mongo;
+	 * `undefined` when the config gave none.
+	 */
+	readonly retryTransient: boolean | undefined;
 	/** Whether this is the Mongo `openMongo` returned, the only one to close. */
 	readonly root: boolean;
 }
@@ -55,6 +60,7 @@ export function derived(
 		databases: ctx.databases,
 		session: 'session' in change ? change.session : ctx.session,
 		actor: 'actor' in change ? change.actor : ctx.actor,
+		retryTransient: ctx.retryTransient,
 		cache: new Map(),
 		root: false,
 	};
