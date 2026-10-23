@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { RedisClient } from 'bun';
 import { z } from 'zod';
-import { useRedis } from '../../../test/fixtures';
+import { eventually, useRedis } from '../../../test/fixtures';
 import { expectGroupState } from '../../../test/group-state';
 import { bindQueue } from '../binding/bind-queue';
+import { jobHandle } from '../binding/handle';
 import { defineQueue } from '../definition/define-queue';
 import { queueKeys } from '../keys';
 import { RELEASE } from '../scripts/release';
@@ -56,7 +57,11 @@ function spied(onComplete: () => void) {
  * Runs `a` and `b` on a worker of one slot that closes while a's COMPLETE,
  * which claims b, is in flight; answers what that worker ran and b's handle.
  */
-async function closeDuringComplete(definition: typeof once) {
+async function closeDuringComplete(
+	definition: typeof once,
+	// Called with b's id before the worker starts, to wait on it early.
+	early?: (id: string) => void,
+) {
 	let closing: Promise<void> | undefined;
 	let worker: Worker | undefined;
 	const { proxy, seen } = spied(() => {
@@ -66,6 +71,7 @@ async function closeDuringComplete(definition: typeof once) {
 	const group = definition.groups ? { group: 'A' } : {};
 	await queue.add({ n: 1 }, { id: 'a', ...group });
 	const b = await queue.add({ n: 2 }, { id: 'b', ...group });
+	early?.('b');
 	const ran: string[] = [];
 	worker = bindQueue(proxy, definition).work(
 		async (job) => {
@@ -104,5 +110,34 @@ describe('a worker closing while a claim is in flight', () => {
 		await expectGroupState(client(), keys, 1);
 		opened.push(queue.work(() => undefined));
 		expect(await b.finished()).toBeUndefined();
+	});
+});
+
+describe('finished() across a give-back', () => {
+	test('is not settled by the give-back: it waits, and settles when a later worker completes the job', async () => {
+		let outcome: { value: unknown } | { error: unknown } | undefined;
+		const waiter = (id: string) =>
+			// Re-reads every 20 ms, so the stored `waiting` state is seen over and over.
+			void jobHandle(client(), once, keys, id, false, 20)
+				.finished()
+				.then(
+					(value) => {
+						outcome = { value };
+					},
+					(error: unknown) => {
+						outcome = { error };
+					},
+				);
+		const { ran, queue } = await closeDuringComplete(once, waiter);
+		expect(ran).toEqual(['a']);
+		expect(await client().hget(keys.job('b'), 'state')).toBe('waiting');
+		// The give-back wrote `waiting`; the waiter has had many rereads since.
+		await Bun.sleep(200);
+		expect(outcome).toBeUndefined();
+		const next: string[] = [];
+		opened.push(queue.work(async (job) => void next.push(job.id)));
+		await eventually(() => outcome !== undefined, true);
+		expect(outcome).toEqual({ value: undefined });
+		expect(next).toEqual(['b']);
 	});
 });

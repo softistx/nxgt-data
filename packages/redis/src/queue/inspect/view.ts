@@ -12,6 +12,11 @@ export const STATES: readonly string[] = [
 	'failed',
 ];
 
+function whole(value: string | undefined): number | undefined {
+	if (value === undefined || !/^\d+$/.test(value)) return undefined;
+	return Number(value);
+}
+
 function date(value: string | undefined): Date | undefined {
 	if (value === undefined || !/^\d+$/.test(value)) return undefined;
 	return new Date(Number(value));
@@ -40,8 +45,10 @@ export function parseStoredError(
 
 /**
  * Maps a job hash to a {@link JobView}. A hash that is not one this package
- * wrote (no `state` it knows) is `undefined`, as an absent job is: showing
- * guessed fields would be the "repair" the scripts refuse to do.
+ * wrote (no `state` it knows, or a missing or non-numeric `attempt`,
+ * `attempts`, `priority` or `progress`, which would show as `NaN`) is
+ * `undefined`, as an absent job is: showing guessed fields would be the
+ * "repair" the scripts refuse to do.
  */
 export function toView<
 	S extends z.ZodType,
@@ -56,7 +63,12 @@ export function toView<
 	const { error: stored, finished: end, result } = hash;
 	const added = date(hash['added']);
 	const runAt = date(hash['runAt']);
+	const counts = [whole(attempt), whole(attempts), whole(priority)];
+	const progress =
+		hash['progress'] === undefined ? 0 : Number(hash['progress']);
 	if (
+		counts.includes(undefined) ||
+		!Number.isFinite(progress) ||
 		state === undefined ||
 		!STATES.includes(state) ||
 		added === undefined ||
@@ -69,10 +81,10 @@ export function toView<
 		id,
 		state: state as JobState,
 		data: decoded?.ok ? decoded.data : undefined,
-		attempt: Number(attempt),
-		attempts: Number(attempts),
-		priority: Number(priority),
-		progress: Number(hash['progress'] ?? 0),
+		attempt: counts[0] as number,
+		attempts: counts[1] as number,
+		priority: counts[2] as number,
+		progress,
 		added,
 		runAt,
 	};

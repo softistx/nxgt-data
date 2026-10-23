@@ -108,6 +108,48 @@ describe('get', () => {
 		await send('HSET', keys.job('a'), 'data', 'not json');
 		expect((await mails().get('a'))?.data).toBeUndefined();
 	});
+
+	test.each([
+		['attempt', undefined],
+		['attempts', 'many'],
+		['priority', ''],
+		['attempt', '1.5'],
+		['progress', 'NaN'],
+		['progress', 'Infinity'],
+	])(
+		'get and list give undefined for a foreign hash whose %s is %p, not NaN',
+		async (field, value) => {
+			await mails().add(to('a'), { id: 'a' });
+			if (value === undefined) await send('HDEL', keys.job('a'), field);
+			else await send('HSET', keys.job('a'), field, value);
+			expect(await mails().get('a')).toBeUndefined();
+			expect(await mails().list('waiting')).toEqual([]);
+		},
+	);
+
+	test('get reads a hand-written hash with every field numeric', async () => {
+		await send(
+			'HSET',
+			keys.job('h'),
+			'state',
+			'waiting',
+			'data',
+			'{"to":"h"}',
+			'attempt',
+			'0',
+			'attempts',
+			'3',
+			'priority',
+			'2',
+			'added',
+			'1700000000000',
+			'runAt',
+			'1700000000000',
+		);
+		const view = await mails().get('h');
+		expect(view).toMatchObject({ attempt: 0, attempts: 3, priority: 2 });
+		expect(view?.progress).toBe(0);
+	});
 });
 
 describe('list', () => {
