@@ -799,7 +799,7 @@ The driver reruns the callback on a transient error for up to 120 seconds. For
 a loser that should fail fast and run its own bounded retry, pass
 `{ retryTransient: false }` (also on `mongo.transaction(fn, options)`): the
 callback runs once, and the first transient error comes back as a `DataError`
-whose `hasErrorLabel('TransientTransactionError')` is true. A client with many
+whose `hasErrorLabel('TransientTransactionError')` is true. One caveat: an unknown commit result is still retried on the commit alone, up to 120 s, as the driver does; the callback never reruns. A client with many
 sites sets it once, as `defineMongo({ …, transactions: { retryTransient: false } })`:
 the call's own value outranks it, and a joined call inherits the outer
 transaction's. See

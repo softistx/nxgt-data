@@ -84,17 +84,20 @@ function isMaxTimeMSExpired(error: unknown): boolean {
 	);
 }
 
+type ClientSessionError = { hasErrorLabel(label: string): boolean };
+
 /**
  * Commits, and retries the commit **alone** while its result is unknown: the
  * driver's `withTransaction`, step 10.1. A commit is idempotent and the driver
  * applies a majority write concern on a retry, so a commit that may have landed
  * is asked again rather than handed to a caller whose own retry would apply
  * the work twice. It stops at a `MaxTimeMSExpired` error, and once the
- * driver's 120 seconds have passed since `startedAt`. `fn` never reruns.
+ * `deadline` (a `performance.now()` instant) has passed. `fn` never reruns.
+ * Exported for its spec only; the package index does not re-export it.
  */
-async function commitRetryingUnknownResult(
+export async function commitRetryingUnknownResult(
 	session: ClientSession,
-	startedAt: number,
+	deadline: number,
 ): Promise<void> {
 	for (;;) {
 		try {
@@ -110,15 +113,13 @@ async function commitRetryingUnknownResult(
 			if (
 				!unknown ||
 				isMaxTimeMSExpired(error) ||
-				performance.now() - startedAt >= COMMIT_RETRY_WINDOW_MS
+				performance.now() >= deadline
 			) {
 				throw error;
 			}
 		}
 	}
 }
-
-type ClientSessionError = { hasErrorLabel(label: string): boolean };
 
 /**
  * `fn` in a transaction, run exactly once: started, `fn`, committed, and
@@ -134,11 +135,11 @@ async function runOnce<T>(
 	fn: (session: ClientSession) => Promise<T>,
 	options: TransactionOptions | undefined,
 ): Promise<T> {
-	const startedAt = performance.now();
+	const deadline = performance.now() + COMMIT_RETRY_WINDOW_MS;
 	session.startTransaction(options);
 	try {
 		const result = await fn(session);
-		await commitRetryingUnknownResult(session, startedAt);
+		await commitRetryingUnknownResult(session, deadline);
 		return result;
 	} catch (error) {
 		if (session.inTransaction()) {
