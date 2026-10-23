@@ -115,6 +115,7 @@ describe('get', () => {
 		['priority', ''],
 		['attempt', '1.5'],
 		['progress', 'NaN'],
+		['progress', 'Infinity'],
 	])(
 		'get and list give undefined for a foreign hash whose %s is %p, not NaN',
 		async (field, value) => {

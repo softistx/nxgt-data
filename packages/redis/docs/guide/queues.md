@@ -1144,7 +1144,7 @@ await queue.remove('receipt:41'); // any state but active
 
 | Call | Returns | Throws |
 | --- | --- | --- |
-| `get(id)` | the `JobView`, or `undefined` | |
+| `get(id)` | the `JobView`, or `undefined` for no such job or a hash it did not write | |
 | `list(state, { offset?, limit? })` | a page of `JobView`s; `offset` from 0 (default 0), `limit` 1 to 1000 (default 50) | `TypeError` for an `offset` or `limit` out of range, or an unknown state |
 | `counts()` | `Record<JobState, number>`, from one script | |
 | `retry(id, { fresh? })` | nothing; `fresh: true` clears the stored steps (default `false`: they are kept) | `TypeError` for a `fresh` that is not a boolean; `QueueError` `NOT_FOUND` when the job is not failed |
@@ -1173,6 +1173,11 @@ type JobView<S, R> = {
 `waiting`, `delayed` and `active` are listed oldest first, in the order they
 will be taken; `completed` and `failed` newest first. A job removed while the
 page is read is left out, so a page can be shorter than `limit`.
+
+A key that is not a job this package wrote reads as absent: `get` gives
+`undefined` and `list` skips it. That is a hash with no known `state`, `added`
+or `runAt`, an `attempt`, `attempts` or `priority` that is not whole digits, or
+a `progress` that is not a finite number.
 
 A realistic use — a Hono route that lists what failed and lets an operator put
 a job back:

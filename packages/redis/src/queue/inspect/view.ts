@@ -46,8 +46,9 @@ export function parseStoredError(
 /**
  * Maps a job hash to a {@link JobView}. A hash that is not one this package
  * wrote (no `state` it knows, or a missing or non-numeric `attempt`,
- * `attempts`, `priority` or `progress`, which would show as `NaN`) is `undefined`, as an absent job is: showing
- * guessed fields would be the "repair" the scripts refuse to do.
+ * `attempts`, `priority` or `progress`, which would show as `NaN`) is
+ * `undefined`, as an absent job is: showing guessed fields would be the
+ * "repair" the scripts refuse to do.
  */
 export function toView<
 	S extends z.ZodType,

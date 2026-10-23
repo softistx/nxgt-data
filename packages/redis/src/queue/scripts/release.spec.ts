@@ -176,7 +176,7 @@ describe('RELEASE against a reclaim of the same job', () => {
 		['ungrouped', mailQueue],
 		['grouped', grouped],
 	] as const)(
-		'a RELEASE with the old token is refused by the fence, %s, and the job runs once',
+		'a RELEASE with the old token is refused by the state check (token deleted), %s, and the job runs once',
 		async (_name, definition) => {
 			const token = await reclaimed(definition);
 			expect(await hget('a', 'state')).toBe('waiting');
@@ -207,18 +207,27 @@ describe('RELEASE against a reclaim of the same job', () => {
 		},
 	);
 
-	test('a RELEASE with the old token leaves the job its reclaim then claimed again', async () => {
-		const token = await reclaimed(mailQueue);
-		const [again] = (await claim(client(), keys, 1, 30_000, undefined)).jobs;
-		if (!again) throw new Error('not claimed again');
-		expect(again.id).toBe('a');
-		expect(again.token).not.toBe(token);
-		const before = await snapshot();
-		expect(
-			await release(client(), keys, mailQueue, [{ id: 'a', token }]),
-		).toEqual([]);
-		expect(await snapshot()).toBe(before);
-		expect(await hget('a', 'token')).toBe(again.token);
-		expect(await hget('a', 'attempt')).toBe('2');
-	});
+	test.each([
+		['ungrouped', mailQueue],
+		['grouped', grouped],
+	] as const)(
+		'a RELEASE with the old token is refused by the token fence once the reclaim is claimed again, %s',
+		async (_name, definition) => {
+			const token = await reclaimed(definition);
+			const [again] = (
+				await claim(client(), keys, 1, 30_000, undefined, definition.groups)
+			).jobs;
+			if (!again) throw new Error('not claimed again');
+			expect(again.id).toBe('a');
+			expect(again.token).not.toBe(token);
+			const before = await snapshot();
+			expect(
+				await release(client(), keys, definition, [{ id: 'a', token }]),
+			).toEqual([]);
+			expect(await snapshot()).toBe(before);
+			expect(await hget('a', 'token')).toBe(again.token);
+			expect(await hget('a', 'attempt')).toBe('2');
+			if (definition.groups) await expectGroupState(client(), keys, 5);
+		},
+	);
 });
