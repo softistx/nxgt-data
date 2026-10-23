@@ -284,26 +284,29 @@ describe('withTransaction', () => {
 		test('runs fn once when the commit fails transiently', async () => {
 			await t.failNext(['commitTransaction'], transient);
 			let runs = 0;
-			const error = await rejection(
-				withTransaction(
-					t.client,
-					async (session) => {
-						runs += 1;
-						await collection()
-							.withSession(session)
-							.create({ email: 'ada@example.com' });
-					},
-					{ retryTransient: false },
-				),
-			);
-			// The driver did not retry the commit (a transient label is not a
-			// retryable write error), and the injected failure never reached the
-			// server, which still holds the transaction open. The driver cannot
-			// abort after a commit attempt, so end it here or the next
-			// `dropDatabase` waits for it.
-			await t.client.db('admin').command({ killAllSessions: [] });
-			expect(runs).toBe(1);
-			expect(error).toBeInstanceOf(DataError);
+			try {
+				const error = await rejection(
+					withTransaction(
+						t.client,
+						async (session) => {
+							runs += 1;
+							await collection()
+								.withSession(session)
+								.create({ email: 'ada@example.com' });
+						},
+						{ retryTransient: false },
+					),
+				);
+				expect(runs).toBe(1);
+				expect(error).toBeInstanceOf(DataError);
+			} finally {
+				// The driver did not retry the commit (a transient label is not a
+				// retryable write error), and the injected failure never reached the
+				// server, which still holds the transaction open. The driver cannot
+				// abort after a commit attempt, so end it here or the next
+				// `dropDatabase` waits for it.
+				await t.client.db('admin').command({ killAllSessions: [] });
+			}
 			expect(await emails()).toEqual([]);
 		});
 

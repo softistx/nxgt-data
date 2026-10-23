@@ -792,7 +792,8 @@ driver's way, in its options: `collection.aggregate(pipeline, { session })`.
 
 Given a session that is already in a transaction, `withTransaction` joins it.
 MongoDB has no savepoints, so an inner failure takes the whole transaction
-down.
+down, and options, `retryTransient` included, are refused when joining, like
+the other options.
 
 The driver reruns the callback on a transient error for up to 120 seconds. For
 a loser that should fail fast and run its own bounded retry, pass
@@ -1476,7 +1477,7 @@ each: [configuration](docs/guide/wiring/configuration.md), the
 | `syncCollection`, `syncCollections`, `syncAll` | create and bring in line, with `dryRun` |
 | `registeredCollections`, `clearCollectionRegistry` | what `syncAll` covers |
 | `resetAutoSync(db?)` | forget the syncs `autoSync` has run |
-| `withTransaction(clientOrSession, fn, options?)` | a transaction, joined when nested |
+| `withTransaction(clientOrSession, fn, options?)`, `WithTransactionOptions` | a transaction, joined when nested; the options add `retryTransient` to the driver's |
 | `toMongoJsonSchema(schema)` | a Zod schema as a MongoDB `$jsonSchema` |
 | `encodeCursor`, `decodeCursor`, `pageWindow`, `cursorLimit`, `toPage` | the pagination pieces, for a list this package does not produce. The three that refuse — `decodeCursor`, `pageWindow`, `cursorLimit` — take an optional last argument naming the call, which they put in the message. A cursor `paginateByCursor` wrote with a `scope` carries a hash of it in its key (`<field>:<dir>#<hash>`), so `decodeCursor(cursor, '<field>:<dir>')` refuses it with "it was written for another scope": the expected key is for cursors you encoded yourself |
 | `DataError` and its subclasses, `toDataError` | the errors |

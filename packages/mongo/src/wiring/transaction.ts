@@ -50,7 +50,8 @@ export function hostFor(
 /**
  * Runs `fn` in a transaction, with a Mongo whose collections are all in it.
  * The driver retries `fn` from the start on a transient error, so `fn` must
- * be safe to run twice, unless `retryTransient: false` — `@nxgt/mongo`'s `withTransaction` says the rest.
+ * be safe to run twice, unless `retryTransient: false` — `@nxgt/mongo`'s
+ * `withTransaction` says the rest.
  */
 export async function transact<T>(
 	ctx: WiringContext,
