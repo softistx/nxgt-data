@@ -960,7 +960,7 @@ as usual. And the callback may be **retried** for up to 120 seconds, so it
 must be safe to run twice and must not swallow errors — unless the
 transaction is given `retryTransient: false` (or the client default,
 `defineMongo({ …, transactions: { retryTransient: false } })`), which runs it
-once.
+once (an unknown commit result is still retried on the commit alone).
 
 ### A transaction hangs about two minutes, then fails with the abort or write conflict on its `cause`
 

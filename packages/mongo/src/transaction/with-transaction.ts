@@ -12,8 +12,12 @@ export type WithTransactionOptions = TransactionOptions & {
 	 * Default `true`. `false` runs `fn` **exactly once**: the first transient
 	 * error comes back as a `DataError` whose
 	 * `hasErrorLabel('TransientTransactionError')` is true, for the caller's
-	 * own bounded retry. A failed commit is not retried either. It belongs to
-	 * this call alone: a joined transaction refuses it.
+	 * own bounded retry. A commit that fails transiently does not rerun `fn`
+	 * either, but a commit whose result is unknown
+	 * (`UnknownTransactionCommitResult`, other than `MaxTimeMSExpired`) is
+	 * retried on its own, as the driver does, for up to 120 seconds: a commit
+	 * is idempotent. It belongs to this call alone: a joined transaction
+	 * refuses it.
 	 */
 	retryTransient?: boolean;
 };
@@ -62,9 +66,64 @@ function retryableByDriver<T>(
 	};
 }
 
+/** The driver's `MAX_TIMEOUT` for `withTransaction`, from the start of the call. */
+const COMMIT_RETRY_WINDOW_MS = 120_000;
+
+/** The server's `MaxTimeMSExpired` code. */
+const MAX_TIME_MS_EXPIRED = 50;
+
+/** The driver's `isMaxTimeMSExpiredError`, read without `instanceof`: two copies of the driver. */
+function isMaxTimeMSExpired(error: unknown): boolean {
+	const { code, writeConcernError } = error as {
+		code?: unknown;
+		writeConcernError?: { code?: unknown };
+	};
+	return (
+		code === MAX_TIME_MS_EXPIRED ||
+		writeConcernError?.code === MAX_TIME_MS_EXPIRED
+	);
+}
+
+/**
+ * Commits, and retries the commit **alone** while its result is unknown: the
+ * driver's `withTransaction`, step 10.1. A commit is idempotent and the driver
+ * applies a majority write concern on a retry, so a commit that may have landed
+ * is asked again rather than handed to a caller whose own retry would apply
+ * the work twice. It stops at a `MaxTimeMSExpired` error, and once the
+ * driver's 120 seconds have passed since `startedAt`. `fn` never reruns.
+ */
+async function commitRetryingUnknownResult(
+	session: ClientSession,
+	startedAt: number,
+): Promise<void> {
+	for (;;) {
+		try {
+			await session.commitTransaction();
+			return;
+		} catch (error) {
+			const unknown =
+				typeof (error as { hasErrorLabel?: unknown }).hasErrorLabel ===
+					'function' &&
+				(error as ClientSessionError).hasErrorLabel(
+					'UnknownTransactionCommitResult',
+				);
+			if (
+				!unknown ||
+				isMaxTimeMSExpired(error) ||
+				performance.now() - startedAt >= COMMIT_RETRY_WINDOW_MS
+			) {
+				throw error;
+			}
+		}
+	}
+}
+
+type ClientSessionError = { hasErrorLabel(label: string): boolean };
+
 /**
  * `fn` in a transaction, run exactly once: started, `fn`, committed, and
- * aborted on any error, which is then rethrown as it is.
+ * aborted on any error, which is then rethrown as it is. A commit whose
+ * result is unknown is retried alone (see `commitRetryingUnknownResult`).
  *
  * The driver's `session.withTransaction` is not used: it also reruns `fn`
  * when the commit fails with `TransientTransactionError`, and it retries a
@@ -75,10 +134,11 @@ async function runOnce<T>(
 	fn: (session: ClientSession) => Promise<T>,
 	options: TransactionOptions | undefined,
 ): Promise<T> {
+	const startedAt = performance.now();
 	session.startTransaction(options);
 	try {
 		const result = await fn(session);
-		await session.commitTransaction();
+		await commitRetryingUnknownResult(session, startedAt);
 		return result;
 	} catch (error) {
 		if (session.inTransaction()) {

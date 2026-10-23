@@ -104,7 +104,12 @@ one, fails at once and the callback runs once.
 a write nor one from the commit is retried — a raw driver error thrown through
 `.raw` is not either. The first transient error comes back as a `DataError`
 whose `hasErrorLabel('TransientTransactionError')` is true, for your own
-bounded retry. The option never reaches the driver. It is refused, with the
+bounded retry. One thing is still retried, as the driver does: a commit whose
+result is unknown (`UnknownTransactionCommitResult`, other than
+`MaxTimeMSExpired`) is committed again **on its own**, for up to 120 seconds,
+because a commit is idempotent. The callback never reruns for it, and a commit
+that may have landed never reaches your retry loop to apply the work twice.
+The option never reaches the driver. It is refused, with the
 other options, by a call that joins an open transaction.
 
 ```ts
