@@ -91,7 +91,7 @@ await mongo.db.users.count(); // 0
 | --- | --- | --- | --- |
 | `on` | `DbName<C>` | the only client | Which database's client carries the transaction. Required once the Mongo holds more than one **client** |
 | `readConcern`, `writeConcern`, `readPreference`, `maxCommitTimeMS` | the driver's `TransactionOptions` | the client's | Passed to the driver as they are |
-| `retryTransient` | `boolean` | the config's `transactions.retryTransient`, else `true` | `false` runs the body once and returns the first transient error as a `DataError`. The call's value outranks the config's default, which is set once with `defineMongo({ …, transactions: { retryTransient: false } })`. A joined call inherits the outer transaction's and takes none. See [Failing fast: `retryTransient: false`](../transactions.md#failing-fast-retrytransient-false) |
+| `retryTransient` | `boolean` | the config's `transactions.retryTransient`, else `true` | `false` runs the body once and returns the first transient error as a `DataError`; an unknown commit result is still retried on the commit alone, up to 120 s, as the driver does, and the callback never reruns. The call's value outranks the config's default, which is set once with `defineMongo({ …, transactions: { retryTransient: false } })`. A joined call inherits the outer transaction's and takes none. See [Failing fast: `retryTransient: false`](../transactions.md#failing-fast-retrytransient-false) |
 
 ```ts
 await mongo.transaction(

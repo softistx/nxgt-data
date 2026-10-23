@@ -12,7 +12,10 @@ import { users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
 import { getCollection } from '../collection/get-collection';
 import { ConflictError, DataError } from '../errors/data-error';
-import { withTransaction } from './with-transaction';
+import {
+	commitRetryingUnknownResult,
+	withTransaction,
+} from './with-transaction';
 
 let t: TestServer;
 
@@ -308,6 +311,94 @@ describe('withTransaction', () => {
 				await t.client.db('admin').command({ killAllSessions: [] });
 			}
 			expect(await emails()).toEqual([]);
+		});
+
+		describe('an unknown commit result', () => {
+			// A retryable write error the server labels as an unknown commit
+			// result. The driver's `commitTransaction` retries it once by itself,
+			// so two failures are what reach the caller.
+			const unknown = {
+				errorCode: 262,
+				errorLabels: ['UnknownTransactionCommitResult'],
+			};
+
+			test('retries the commit alone, fn runs once and the work lands once', async () => {
+				try {
+					await t.failNext(['commitTransaction'], unknown, 2);
+					let runs = 0;
+					await withTransaction(
+						t.client,
+						async (session) => {
+							runs += 1;
+							await collection()
+								.withSession(session)
+								.create({ email: 'ada@example.com' });
+						},
+						{ retryTransient: false },
+					);
+					expect(runs).toBe(1);
+					expect(await emails()).toEqual(['ada@example.com']);
+				} finally {
+					await t.clearFailures();
+					await t.client.db('admin').command({ killAllSessions: [] });
+				}
+			});
+
+			test('stops retrying once its deadline has passed', async () => {
+				const session = t.client.startSession();
+				try {
+					await t.failNext(['commitTransaction'], unknown, 2);
+					session.startTransaction();
+					await collection()
+						.withSession(session)
+						.create({ email: 'ada@example.com' });
+					const error = await rejection(
+						commitRetryingUnknownResult(session, performance.now() - 1),
+					);
+					expect(error).toBeDefined();
+					expect(
+						(error as { hasErrorLabel(label: string): boolean }).hasErrorLabel(
+							'UnknownTransactionCommitResult',
+						),
+					).toBe(true);
+				} finally {
+					await t.clearFailures();
+					await t.client.db('admin').command({ killAllSessions: [] });
+					await session.endSession().catch(() => {});
+				}
+			});
+
+			test('is not retried when it is MaxTimeMSExpired', async () => {
+				// Guards the retry loop against retrying MaxTimeMSExpired (the old code also refused it).
+				try {
+					// Three failures: if the commit were retried, the spec would see
+					// it succeed or the failpoint run out.
+					await t.failNext(
+						['commitTransaction'],
+						{ errorCode: 50, errorLabels: ['UnknownTransactionCommitResult'] },
+						3,
+					);
+					let runs = 0;
+					const error = await rejection(
+						withTransaction(
+							t.client,
+							async (session) => {
+								runs += 1;
+								await collection()
+									.withSession(session)
+									.create({ email: 'ada@example.com' });
+							},
+							{ retryTransient: false },
+						),
+					);
+					expect(runs).toBe(1);
+					expect(error).toBeInstanceOf(DataError);
+				} finally {
+					await t.clearFailures();
+					await t.client.db('admin').command({ killAllSessions: [] });
+				}
+				expect(await emails()).toEqual([]);
+			});
 		});
 
 		test('does not rerun fn on a raw driver error', async () => {

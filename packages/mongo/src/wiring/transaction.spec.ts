@@ -131,6 +131,26 @@ describe('transaction', () => {
 			expect(await mongo.db.users.count()).toBe(0);
 		});
 
+		test('false still retries an unknown commit result, on the commit alone', async () => {
+			const mongo = await withDefault(false);
+			await server.failNext(
+				['commitTransaction'],
+				{ errorCode: 262, errorLabels: ['UnknownTransactionCommitResult'] },
+				2,
+			);
+			let runs = 0;
+			try {
+				await mongo.transaction(async (tx) => {
+					runs += 1;
+					await tx.db.users.create({ email: 'ada@example.com' });
+				});
+			} finally {
+				await server.clearFailures();
+			}
+			expect(runs).toBe(1);
+			expect(await mongo.db.users.count()).toBe(1);
+		});
+
 		test('false gives way to a call’s own retryTransient: true', async () => {
 			const mongo = await withDefault(false);
 			await server.failNext(['insert'], transient);

@@ -960,7 +960,7 @@ as usual. And the callback may be **retried** for up to 120 seconds, so it
 must be safe to run twice and must not swallow errors — unless the
 transaction is given `retryTransient: false` (or the client default,
 `defineMongo({ …, transactions: { retryTransient: false } })`), which runs it
-once.
+once (an unknown commit result is still retried on the commit alone).
 
 ### A transaction hangs about two minutes, then fails with the abort or write conflict on its `cause`
 
@@ -979,7 +979,9 @@ collision is deterministic, so every run fails the same way.
 or `mongo.transaction(fn, options)`; for every transaction of a client at
 once, `defineMongo({ …, transactions: { retryTransient: false } })`): the
 callback runs once and the first transient error comes back at once as a
-`DataError`, for your own bounded retry. For a stray chunk, remove it:
+`DataError`, for your own bounded retry (an unknown commit result is still
+retried on the commit alone, up to 120 s, as the driver does; the callback
+never reruns). For a stray chunk, remove it:
 
 ```ts
 // a maintenance pass, on a bucket nothing is writing (see the `putOnce` entry
@@ -994,7 +996,8 @@ Mongo whose `defineMongo` set `transactions: { retryTransient: false }`, fails o
 conflict or a transient commit error, and the `DataError` has
 `hasErrorLabel('TransientTransactionError')` true.
 **Why:** that is the intended outcome. `false` runs the callback once and
-hands the first transient error back instead of rerunning it for 120 seconds.
+hands the first transient error back instead of rerunning it for 120 seconds;
+a commit whose result is unknown is retried on its own first.
 **Fix:** none is needed; run your own bounded retry loop, as shown in
 [Failing fast](guide/transactions.md#failing-fast-retrytransient-false).
 
