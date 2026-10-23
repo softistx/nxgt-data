@@ -120,7 +120,7 @@
     },
     "packages/mongo": {
       "name": "@nxgt/mongo",
-      "version": "0.19.3",
+      "version": "0.20.0",
       "devDependencies": {
         "@types/bun": "^1.4.0",
         "mongodb": "7.6.0",
@@ -156,7 +156,7 @@
     },
     "packages/mongo-meilisearch": {
       "name": "@nxgt/mongo-meilisearch",
-      "version": "0.5.2",
+      "version": "0.5.3",
       "devDependencies": {
         "@nxgt/meilisearch": "workspace:^",
         "@nxgt/mongo": "workspace:^",

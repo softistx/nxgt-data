@@ -1,5 +1,11 @@
 # @nxgt/mongo
 
+## 0.20.0
+
+### Minor Changes
+
+- [#234](https://github.com/softistx/nxgt-data/pull/234) [`aa112a3`](https://github.com/softistx/nxgt-data/commit/aa112a302a5aa3047c64df105ff25dab39152473) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `paginateByCursor` takes an optional `scope` that binds a cursor to one list, so a cursor written for another scope, or for none, is refused with an `InvalidCursorError`.
+
 ## 0.19.3
 
 ### Patch Changes
