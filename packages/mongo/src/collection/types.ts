@@ -302,6 +302,15 @@ export interface CursorPaginateOptions<Def> extends ReadOptions {
 	orderBy?: FieldOf<Def>;
 	/** Default `'asc'`. */
 	direction?: OrderDirection;
+	/**
+	 * Binds the cursor to one list (a tenant, a filter). A cursor written with
+	 * another scope, or without one, is refused with an `InvalidCursorError`,
+	 * and so is a scoped cursor given to a call without one. Only a hash of it
+	 * enters the cursor, so it never shows in the cursor nor in an error
+	 * message. It binds, it does not authenticate: the cursor is encoded, not
+	 * signed, and anyone who knows the scope can compute the hash.
+	 */
+	scope?: string;
 }
 
 /**

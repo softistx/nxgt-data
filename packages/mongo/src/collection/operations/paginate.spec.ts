@@ -269,6 +269,103 @@ describe('paginateByCursor', () => {
 		);
 	});
 
+	describe('scope', () => {
+		const another =
+			'Invalid cursor in paginateByCursor on "posts": it was written for another scope';
+
+		test('refuses a cursor written for another scope', async () => {
+			const collection = await seedPosts();
+			const first = await collection.paginateByCursor({
+				limit: 2,
+				scope: 'a',
+			});
+			const error = await collection
+				.paginateByCursor({ after: first.nextCursor, scope: 'b' })
+				.then(
+					() => undefined,
+					(reason: unknown) => reason,
+				);
+			expect(error).toBeInstanceOf(InvalidCursorError);
+			expect(error).toHaveProperty('collection', 'posts');
+			expect((error as Error).message).toBe(another);
+		});
+
+		test('refuses a scoped cursor without a scope, and the reverse', async () => {
+			const collection = await seedPosts();
+			const scoped = await collection.paginateByCursor({
+				limit: 2,
+				scope: 'a',
+			});
+			const plain = await collection.paginateByCursor({ limit: 2 });
+			expect(
+				await rejectionMessage(
+					collection.paginateByCursor({ after: scoped.nextCursor }),
+				),
+			).toBe(another);
+			expect(
+				await rejectionMessage(
+					collection.paginateByCursor({ after: plain.nextCursor, scope: 'a' }),
+				),
+			).toBe(another);
+		});
+
+		test('pages on with the same scope', async () => {
+			const collection = await seedPosts();
+			const pages = await walk((after) =>
+				collection.paginateByCursor({ after, limit: 10, scope: 'tenant-1' }),
+			);
+			expect(pages.map((page) => page.length)).toEqual([10, 10, 5]);
+			expect(new Set(pages.flat()).size).toBe(25);
+		});
+
+		test('the scope shows neither in the cursor nor in a message', async () => {
+			const collection = await seedPosts();
+			const scope = 'tenant-42';
+			const page = await collection.paginateByCursor({ limit: 2, scope });
+			const text = Buffer.from(
+				page.nextCursor as string,
+				'base64url',
+			).toString();
+			expect(text).not.toContain(scope);
+			expect(text).toMatch(/#[0-9a-f]{16}"/);
+			const message = await rejectionMessage(
+				collection.paginateByCursor({
+					after: page.nextCursor,
+					scope: 'wrong-scope-7',
+				}),
+			);
+			expect(message).not.toContain(scope);
+			expect(message).not.toContain('wrong-scope-7');
+		});
+
+		test('an ordering mismatch on a scoped cursor prints only orderings', async () => {
+			const collection = await seedPosts();
+			const page = await collection.paginateByCursor({ limit: 2, scope: 'a' });
+			const message = await rejectionMessage(
+				collection.paginateByCursor({
+					after: page.nextCursor,
+					scope: 'a',
+					orderBy: 'rank',
+				}),
+			);
+			expect(message).toBe(
+				'Invalid cursor in paginateByCursor on "posts": it was written for ' +
+					'the ordering _id:asc, not rank:asc',
+			);
+		});
+
+		test('a scope that is not a string is a TypeError', async () => {
+			const collection = await seedPosts();
+			// The types refuse it; this is a caller that reads it off a request.
+			const scope = 42 as unknown as string;
+			const error = await rejection(collection.paginateByCursor({ scope }));
+			expect(error).toBeInstanceOf(TypeError);
+			expect((error as Error).message).toBe(
+				'paginateByCursor: "scope" of "posts" must be a string, not number',
+			);
+		});
+	});
+
 	test('a `limit` it will not take names the call and the collection', async () => {
 		const collection = await seedPosts();
 		expect(

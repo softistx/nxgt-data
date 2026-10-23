@@ -1,11 +1,39 @@
+import { createHash } from 'node:crypto';
 import { ObjectId } from 'mongodb';
 import { InvalidCursorError } from '../errors/data-error';
 
 /** What a cursor holds: the ordering values of the last document of a page. */
 export interface CursorPayload {
-	/** The ordering it was written for: `<field>:<asc|desc>`. */
+	/**
+	 * The ordering it was written for: `<field>:<asc|desc>`, followed by
+	 * `#<scope hash>` when the list is bound to a scope (see `cursorKey`).
+	 */
 	readonly key: string;
 	readonly values: readonly unknown[];
+}
+
+/**
+ * The key a cursor is written under: the ordering, and, for a list bound to a
+ * `scope`, the first 16 hex characters of its SHA-256 after a `#`. Only the
+ * hash enters the cursor, so the scope itself never shows in it nor in an
+ * error message. Without a scope the key is the bare ordering, which is what
+ * every cursor written before scopes carries.
+ */
+export function cursorKey(ordering: string, scope?: string): string {
+	if (scope === undefined) return ordering;
+	const hash = createHash('sha256').update(scope).digest('hex').slice(0, 16);
+	return `${ordering}#${hash}`;
+}
+
+/** Splits a key into its ordering and its scope hash, when it has one. */
+function splitKey(key: string): {
+	ordering: string;
+	scope: string | undefined;
+} {
+	const match = /^(.*)#([0-9a-f]{16})$/s.exec(key);
+	return match
+		? { ordering: match[1] as string, scope: match[2] }
+		: { ordering: key, scope: undefined };
 }
 
 /** An `ObjectId`, read without `instanceof`: two copies of the driver. */
@@ -76,8 +104,8 @@ export function encodeCursor(payload: CursorPayload): string {
 
 /**
  * Reads a cursor `encodeCursor` wrote. Throws `InvalidCursorError` for
- * anything else, and for a cursor written for another ordering when
- * `expectedKey` is given.
+ * anything else, and for a cursor written for another ordering, or another
+ * scope, when `expectedKey` is given.
  *
  * `where` names the call it came from, so the sentence reads `Invalid cursor
  * in paginateByCursor on "users": unexpected shape`: every paginated call
@@ -117,9 +145,19 @@ export function decodeCursor(
 	}
 	const [key, values] = parsed as [string, unknown[]];
 	if (expectedKey !== undefined && key !== expectedKey) {
+		// Only the orderings are printed: a scope hash is not an ordering, and
+		// naming one would read as if it were.
+		const written = splitKey(key);
+		const expected = splitKey(expectedKey);
+		if (written.ordering !== expected.ordering) {
+			throw new InvalidCursorError(
+				`Invalid cursor${at}: it was written for the ordering ` +
+					`${written.ordering}, not ${expected.ordering}`,
+				on,
+			);
+		}
 		throw new InvalidCursorError(
-			`Invalid cursor${at}: it was written for the ordering ` +
-				`${key}, not ${expectedKey}`,
+			`Invalid cursor${at}: it was written for another scope`,
 			on,
 		);
 	}
