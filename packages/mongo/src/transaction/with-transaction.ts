@@ -1,4 +1,5 @@
 import type { ClientSession, MongoClient, TransactionOptions } from 'mongodb';
+import { DataError } from '../errors/data-error';
 import { toDataError } from '../errors/to-data-error';
 
 /** What a transaction can be started from: a client, or a session. */
@@ -7,6 +8,45 @@ export type TransactionHost = MongoClient | ClientSession;
 /** A session, read without `instanceof`: two copies of the driver. */
 function isSession(host: TransactionHost): host is ClientSession {
 	return typeof (host as ClientSession).inTransaction === 'function';
+}
+
+/**
+ * The one label the driver acts on when it comes out of the callback: it
+ * aborts and reruns `fn`. `UnknownTransactionCommitResult` there is passed
+ * on as it is (the driver takes it as a manual commit), so it is not handed
+ * back.
+ */
+const RETRY_LABEL = 'TransientTransactionError';
+
+/**
+ * `fn`, with a transient driver error handed back as the driver's own.
+ *
+ * The driver retries only an error that is its own `MongoError` labelled
+ * `TransientTransactionError`, and a collection method has already turned that error into a
+ * `DataError`. The driver error sits on its `cause`: throwing that one lets
+ * the driver see it. Whatever else `fn` throws goes through unchanged.
+ */
+function retryableByDriver<T>(
+	fn: (session: ClientSession) => Promise<T>,
+): (session: ClientSession) => Promise<T> {
+	return async (session) => {
+		try {
+			return await fn(session);
+		} catch (error) {
+			if (error instanceof DataError) {
+				const cause = error.cause as
+					| { hasErrorLabel?: (label: string) => boolean }
+					| undefined;
+				if (
+					typeof cause?.hasErrorLabel === 'function' &&
+					cause.hasErrorLabel(RETRY_LABEL)
+				) {
+					throw cause;
+				}
+			}
+			throw error;
+		}
+	};
 }
 
 /**
@@ -32,9 +72,14 @@ function isSession(host: TransactionHost): host is ClientSession {
  *
  * Two things the driver does that are easy to be surprised by:
  *
- * - it **retries `fn`** from the start on a `TransientTransactionError`, and
- *   the commit alone on an `UnknownTransactionCommitResult`, until 120 seconds
- *   have passed. `fn` must therefore be safe to run twice.
+ * - it **retries `fn`** from the start on a `TransientTransactionError`, until
+ *   120 seconds have passed (and the commit alone when the commit reports an
+ *   unknown result). `fn` must therefore be safe to run twice. A failure
+ *   labelled transient that will happen again every time, such as a
+ *   deterministic collision the server aborts the transaction for, is retried
+ *   for the whole window; what comes back at the end is a `DataError` whose
+ *   `cause` is the driver's error (its timeout error, when the client was
+ *   given a `timeoutMS`).
  * - `session.abortTransaction()` inside `fn` ends the transaction without
  *   throwing: `withTransaction` then resolves.
  */
@@ -56,12 +101,12 @@ export async function withTransaction<T>(
 				}
 				return await fn(host);
 			}
-			return await host.withTransaction(fn, options);
+			return await host.withTransaction(retryableByDriver(fn), options);
 		}
 
 		const session = host.startSession();
 		try {
-			return await session.withTransaction(fn, options);
+			return await session.withTransaction(retryableByDriver(fn), options);
 		} finally {
 			await session.endSession();
 		}

@@ -842,7 +842,10 @@ The wiring's refusals are not among these: they are a `WiringError`, a
 `ConflictError` carries `index`, `keys` and, when the server gives them,
 `values`. `ValidationError` carries `issues`, MongoDB's `errInfo` flattened
 into `{ path, reason, specifiedAs, consideredValue }`. Anything that is not a
-server error reaches you untouched.
+server error reaches you untouched. Every `DataError` carries the driver's
+`errorLabels` and a `hasErrorLabel(label)`, for a retry loop of your own
+(`error.hasErrorLabel('TransientTransactionError')`); inside a transaction the
+driver already retries those for you.
 
 ## Connecting
 
@@ -1130,7 +1133,12 @@ What follows from that:
   Measured: the duplicate key aborts it on the server, so what comes back is
   the driver's abort and not this package's `ConflictError`. There is nothing
   to wait for in one either — another transaction's document is not in this
-  one's snapshot.
+  one's snapshot. The abort is labelled transient, so the driver **runs the
+  callback again until its window closes** (120 seconds by default) and the
+  collision, being deterministic, happens every time. The caller then gets a
+  `DataError` with the driver's error, the abort, on its `cause` (the driver's
+  timeout error when the client was given a `timeoutMS`). Resolve the
+  collision, such as by removing the stray chunks, rather than waiting it out.
 - **Files stored by an earlier release keep their own ids.** They are still
   found by digest and given back, so nothing needs moving.
 

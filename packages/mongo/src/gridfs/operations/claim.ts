@@ -164,7 +164,10 @@ const POLL_MS = 20;
  *
  * There is no case for a session here. Measured: inside a transaction the
  * duplicate key aborts the transaction on the server, so the read below is
- * what raises, with the driver's own abort — the wait is never reached.
+ * what raises, with the driver's own abort — the wait is never reached. That
+ * abort is labelled transient, so the driver runs the callback again until its
+ * window closes (120 seconds by default); the collision happens every time,
+ * and the caller gets the abort, as a `DataError`'s `cause`, at the end.
  */
 async function winner(
 	ctx: BucketContext,
