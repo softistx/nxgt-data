@@ -74,6 +74,7 @@ do {
 | `orderBy` | `FieldOf<Def>` | `'_id'` | the field to page along. A field the schema does not have is a `TypeError` |
 | `direction` | `'asc' \| 'desc'` | `'asc'` | |
 | `filter` | `FilterOf<Def>` | `{}` | |
+| `scope` | `string` | — | binds the cursor to one list (a tenant, a filter): see [below](#binding-a-cursor-to-a-list). A value that is not a string is a `TypeError` |
 | `withDeleted` | `boolean` | `false` | |
 
 The cursor is a keyset on the field **and** `_id`, which breaks its ties: no
@@ -97,6 +98,31 @@ await collection.paginateByCursor({ orderBy: 'rank' });
 //            Page along a field every document has.
 ```
 
+### Binding a cursor to a list
+
+A cursor knows its ordering, not its list: one written for a filtered list is
+accepted by another list with the same ordering. `scope` closes that. Give
+every call of one list the same string, and a cursor from another list is
+refused:
+
+```ts
+const scope = `tenant:${tenantId}`;
+const page = await collection.paginateByCursor({
+	filter: { tenantId },
+	scope,
+	after,
+});
+// A cursor written with scope 'tenant:b', or without a scope, throws:
+// InvalidCursorError: Invalid cursor in paginateByCursor on "posts": it was
+// written for another scope
+```
+
+Only the first 16 hex characters of the scope's SHA-256 enter the cursor, so
+the scope shows neither in the cursor nor in a message. **It binds, it does not
+authenticate**: the cursor is encoded, not signed, and anyone who knows the
+scope can compute the hash. Without a scope a cursor is the same as before, so
+cursors already handed out keep working.
+
 ### What a refused cursor says
 
 The message leads with `Invalid cursor`, which is the part to search for, then
@@ -107,6 +133,7 @@ names the call and the collection, then what is wrong with it:
 | `: it cannot be decoded` | not base64url of JSON: a truncated query string, or a cursor from somewhere else |
 | `: unexpected shape` | it decodes, but it is not `[key, values]` |
 | `: it was written for the ordering createdAt:asc, not rank:desc` | the page before was ordered differently — `orderBy` or `direction` changed between two pages |
+| `: it was written for another scope` | the page before was cut with another `scope`, or with none, or this call has none and that one had |
 | `: it holds 2 value(s) where the ordering _id:asc needs 1 (_id)` | the ordering pages along one field here and two there |
 
 ```ts
@@ -114,8 +141,8 @@ await collection.paginateByCursor({ after: 'garbage' });
 // InvalidCursorError: Invalid cursor in paginateByCursor on "posts": it cannot be decoded
 ```
 
-All four are a client's input — a cursor travels in a query string — so all
-four are a 400, and all four are an `InvalidCursorError` carrying
+All of them are a client's input — a cursor travels in a query string — so all
+are a 400, and all are an `InvalidCursorError` carrying
 `code: 'INVALID_CURSOR'`. One `catch` takes the lot, and
 [a map from the code alone](errors.md#turning-them-into-answers) answers
 them:
@@ -208,6 +235,11 @@ decodeCursor('garbage', 'rank:desc', 'topPosts');
 
 It is optional on all three, so a call that passes none reads exactly as it
 did.
+
+A cursor written by `paginateByCursor` with a `scope` carries a hash of it in
+its key (`<field>:<dir>#<hash>`), so `decodeCursor(cursor, '<field>:<dir>')`
+refuses it with "it was written for another scope". The expected key of
+`decodeCursor` is meant for cursors you encoded yourself.
 
 ```ts
 function pageWindow(options?: PageOptions, maxPageSize?: number, where?: string): PageWindow;

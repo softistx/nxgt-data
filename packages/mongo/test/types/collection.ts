@@ -80,6 +80,10 @@ const cursorPage = await collection.paginateByCursor({ orderBy: 'createdAt' });
 assertType<Equal<typeof cursorPage, CursorPage<ReadUser>>>(true);
 // @ts-expect-error no such field
 await collection.paginateByCursor({ orderBy: 'nope' });
+// A scope is a string.
+await collection.paginateByCursor({ scope: 'tenant-1' });
+// @ts-expect-error a scope is a string, not a number
+await collection.paginateByCursor({ scope: 42 });
 const page = await collection.paginate({ pageSize: 10 });
 assertType<Equal<typeof page, Page<ReadUser>>>(true);
 

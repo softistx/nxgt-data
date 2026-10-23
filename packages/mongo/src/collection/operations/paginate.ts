@@ -1,5 +1,5 @@
 import { InvalidCursorError } from '../../errors/data-error';
-import { decodeCursor, encodeCursor } from '../../pagination/cursor';
+import { cursorKey, decodeCursor, encodeCursor } from '../../pagination/cursor';
 import {
 	type CursorPage,
 	cursorLimit,
@@ -44,7 +44,14 @@ export async function paginateByCursor(
 	}
 	const direction = (opts['direction'] as OrderDirection | undefined) ?? 'asc';
 	const fields = sortField === '_id' ? ['_id'] : [sortField, '_id'];
-	const cursorKey = `${sortField}:${direction}`;
+	const scope = opts['scope'];
+	if (scope !== undefined && typeof scope !== 'string') {
+		throw new TypeError(
+			`paginateByCursor: "scope" of "${ctx.name}" must be a string, ` +
+				`not ${scope === null ? 'null' : typeof scope}`,
+		);
+	}
+	const key = cursorKey(`${sortField}:${direction}`, scope);
 	const limit = cursorLimit(
 		opts['limit'] as number | undefined,
 		ctx.maxPageSize,
@@ -57,7 +64,7 @@ export async function paginateByCursor(
 		const where = `paginateByCursor on "${ctx.name}"`;
 		const { values } = decodeCursor(
 			opts['after'] as string,
-			cursorKey,
+			key,
 			where,
 			ctx.name,
 		);
@@ -68,7 +75,7 @@ export async function paginateByCursor(
 			// failure a client can cause by pasting the wrong page's link.
 			throw new InvalidCursorError(
 				`Invalid cursor in ${where}: it holds ${values.length} value(s) ` +
-					`where the ordering ${cursorKey} needs ${fields.length} ` +
+					`where the ordering ${sortField}:${direction} needs ${fields.length} ` +
 					`(${fields.join(', ')})`,
 				{ collection: ctx.name },
 			);
@@ -113,5 +120,5 @@ export async function paginateByCursor(
 		}
 		return value;
 	});
-	return { items, nextCursor: encodeCursor({ key: cursorKey, values }) };
+	return { items, nextCursor: encodeCursor({ key, values }) };
 }

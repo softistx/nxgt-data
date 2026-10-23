@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { InvalidCursorError } from '../errors/data-error';
-import { decodeCursor, encodeCursor } from './cursor';
+import { cursorKey, decodeCursor, encodeCursor } from './cursor';
 
 describe('encodeCursor and decodeCursor', () => {
 	test('round-trip an ObjectId, a Date, a string and a number', () => {
@@ -37,6 +37,27 @@ describe('encodeCursor and decodeCursor', () => {
 			'written for the ordering _id:asc, not _id:desc',
 		);
 		expect(decodeCursor(cursor, '_id:asc').values).toEqual([1]);
+	});
+
+	test('a scoped key adds a hash, never the scope', () => {
+		expect(cursorKey('_id:asc')).toBe('_id:asc');
+		const key = cursorKey('_id:asc', 'tenant-42');
+		expect(key).toMatch(/^_id:asc#[0-9a-f]{16}$/);
+		expect(key).not.toContain('tenant-42');
+	});
+
+	test('name only the orderings, or another scope', () => {
+		const a = cursorKey('_id:asc', 'a');
+		const cursor = encodeCursor({ key: a, values: [1] });
+		expect(decodeCursor(cursor, a).values).toEqual([1]);
+		expect(() => decodeCursor(cursor, cursorKey('_id:desc', 'b'))).toThrow(
+			'Invalid cursor: it was written for the ordering _id:asc, not _id:desc',
+		);
+		for (const other of [cursorKey('_id:asc', 'b'), '_id:asc']) {
+			expect(() => decodeCursor(cursor, other)).toThrow(
+				'Invalid cursor: it was written for another scope',
+			);
+		}
 	});
 
 	test('its error is a DataError with a code', () => {
