@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { MongoClient, ObjectId } from 'mongodb';
-import { rejectionMessage } from '../../test/rejection';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { collections, events, useMongo } from '../../test/wiring';
+import { DataError } from '../errors/data-error';
 import { WiringError } from '../errors/wiring-error';
 import { defineMongo } from './config/define-mongo';
 import { openMongo } from './open-mongo';
@@ -40,6 +41,55 @@ describe('transaction', () => {
 		}
 		expect(runs).toBe(2);
 		expect(await mongo.db.users.count()).toBe(1);
+	});
+
+	test('retryTransient: false runs the body once and hands the error back', async () => {
+		const mongo = await plainMongo();
+		await server.failNext(['insert'], {
+			errorCode: 112,
+			errorLabels: ['TransientTransactionError'],
+		});
+		let runs = 0;
+		let error: unknown;
+		try {
+			error = await rejection(
+				mongo.transaction(
+					async (tx) => {
+						runs += 1;
+						await tx.db.users.create({ email: 'ada@example.com' });
+					},
+					{ retryTransient: false },
+				),
+			);
+		} finally {
+			await server.clearFailures();
+		}
+		expect(runs).toBe(1);
+		expect(error).toBeInstanceOf(DataError);
+		expect(
+			(error as DataError).hasErrorLabel('TransientTransactionError'),
+		).toBe(true);
+		expect(await mongo.db.users.count()).toBe(0);
+	});
+
+	test('retryTransient: false commits on success', async () => {
+		const mongo = await plainMongo();
+		await mongo.transaction(
+			(tx) => tx.db.users.create({ email: 'ada@example.com' }),
+			{ retryTransient: false },
+		);
+		expect(await mongo.db.users.count()).toBe(1);
+	});
+
+	test('retryTransient is the outer transaction’s inside a joined one', async () => {
+		const mongo = await plainMongo();
+		expect(
+			await rejectionMessage(
+				mongo.transaction((tx) =>
+					tx.transaction(async () => {}, { retryTransient: false }),
+				),
+			),
+		).toContain('retryTransient');
 	});
 
 	test('rolls back everything when the body throws', async () => {

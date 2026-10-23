@@ -91,6 +91,7 @@ await mongo.db.users.count(); // 0
 | --- | --- | --- | --- |
 | `on` | `DbName<C>` | the only client | Which database's client carries the transaction. Required once the Mongo holds more than one **client** |
 | `readConcern`, `writeConcern`, `readPreference`, `maxCommitTimeMS` | the driver's `TransactionOptions` | the client's | Passed to the driver as they are |
+| `retryTransient` | `boolean` | `true` | `false` runs the body once and returns the first transient error as a `DataError`. See [Failing fast: `retryTransient: false`](../transactions.md#failing-fast-retrytransient-false) |
 
 ```ts
 await mongo.transaction(
@@ -101,8 +102,8 @@ await mongo.transaction(
 
 ### What the body must accept
 
-- **It may run twice.** The driver retries it from the start on a transient
-  error, so it must hold nothing MongoDB would not roll back — no email sent,
+- **It may run more than once**, unless `retryTransient: false`. The driver
+  retries it from the start on a transient error, so it must hold nothing MongoDB would not roll back — no email sent,
   no counter raised in Redis, no file written.
 - **A transaction inside a transaction joins the outer one**, and takes no
   `on`: the session has already decided. MongoDB has no savepoints, so an

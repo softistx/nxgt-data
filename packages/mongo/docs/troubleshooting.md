@@ -66,6 +66,7 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`The $changeStream stage is only supported on replica sets`](#the-changestream-stage-is-only-supported-on-replica-sets)
   - [`withTransaction: this session is already in a transaction, which this call joins.`](#withtransaction-this-session-is-already-in-a-transaction-which-this-call-joins)
   - [A transaction hangs about two minutes, then fails with the abort or write conflict on its `cause`](#a-transaction-hangs-about-two-minutes-then-fails-with-the-abort-or-write-conflict-on-its-cause)
+  - [A `DataError` labelled `TransientTransactionError` comes back with `retryTransient: false`](#a-dataerror-labelled-transienttransactionerror-comes-back-with-retrytransient-false)
   - [`onChange: a filter cannot use $expr.`](#onchange-a-filter-cannot-use-expr)
   - [An unhandled rejection from `closed` ends the process](#an-unhandled-rejection-from-closed-ends-the-process)
 - **GridFS**
@@ -939,10 +940,10 @@ on mongod 8.2: server code `40573`, wrapped as a `DataError`.
 
 **When:** `withTransaction(session, fn, options)` inside another
 transaction.
-**Why:** MongoDB has no savepoints, so the read concern, the write concern
-and the read preference are the outer transaction's; passing options here
-would suggest otherwise.
-**Fix:**
+**Why:** MongoDB has no savepoints, so the read concern, the write concern,
+the read preference and `retryTransient` are the outer transaction's; passing
+options here would suggest otherwise.
+**Fix:** pass no options, and give them to the outer transaction instead:
 
 ```ts
 await withTransaction(session, async (s) => { /* … */ }); // no options
@@ -952,7 +953,8 @@ Two more things about transactions: there is **no ambient session**, so every
 operation inside takes `collection.withSession(session)` — and the driver's
 own methods (`collection.aggregate(…)`) want `{ session }` in their options
 as usual. And the callback may be **retried** for up to 120 seconds, so it
-must be safe to run twice and must not swallow errors.
+must be safe to run twice and must not swallow errors — unless the
+transaction is given `retryTransient: false`, which runs it once.
 
 ### A transaction hangs about two minutes, then fails with the abort or write conflict on its `cause`
 
@@ -966,14 +968,27 @@ comes back instead, with that error on its `cause`.
 **Why:** the server labels the abort `TransientTransactionError`, so the
 driver reruns the callback from the start until its window closes. The
 collision is deterministic, so every run fails the same way.
-**Fix:** resolve the collision rather than waiting it out, for a stray chunk
-by removing it:
+**Fix:** resolve the collision rather than waiting it out, or pass
+`{ retryTransient: false }` to the transaction (`withTransaction(host, fn, options)`
+or `mongo.transaction(fn, options)`): the callback runs once and the first
+transient error comes back at once as a `DataError`, for your own bounded
+retry. For a stray chunk, remove it:
 
 ```ts
 // a maintenance pass, on a bucket nothing is writing (see the `putOnce` entry
 // on chunks no file claims): remove the chunks whose files_id matches no
 // document in <bucket>.files, then run the transaction again
 ```
+
+### A `DataError` labelled `TransientTransactionError` comes back with `retryTransient: false`
+
+**When:** a transaction given `{ retryTransient: false }` fails on a write
+conflict or a transient commit error, and the `DataError` has
+`hasErrorLabel('TransientTransactionError')` true.
+**Why:** that is the intended outcome. `false` runs the callback once and
+hands the first transient error back instead of rerunning it for 120 seconds.
+**Fix:** none is needed; run your own bounded retry loop, as shown in
+[Failing fast](guide/transactions.md#failing-fast-retrytransient-false).
 
 ### `onChange: a filter cannot use $expr.`
 

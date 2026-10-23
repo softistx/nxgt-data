@@ -73,8 +73,8 @@ async function chargeAndLog(host: MongoClient | ClientSession) {
 ```
 
 Passing transaction options to a call that joins is a `TypeError`: the read
-concern, the write concern and the read preference are the outer
-transaction's.
+concern, the write concern, the read preference and `retryTransient` are the
+outer transaction's.
 
 ## Two things the driver does
 
@@ -95,6 +95,37 @@ one, fails at once and the callback runs once.
 
 **`session.abortTransaction()` inside the callback resolves.**
 `withTransaction` returns the callback's value; it does not throw.
+
+## Failing fast: `retryTransient: false`
+
+`retryTransient` (default `true`) is a per-transaction option on
+`withTransaction(host, fn, options)` and on `mongo.transaction(fn, options)`.
+`false` runs the callback **exactly once**, and neither a transient error from
+a write nor one from the commit is retried — a raw driver error thrown through
+`.raw` is not either. The first transient error comes back as a `DataError`
+whose `hasErrorLabel('TransientTransactionError')` is true, for your own
+bounded retry. The option never reaches the driver. It is refused, with the
+other options, by a call that joins an open transaction.
+
+```ts
+async function claim(id: ObjectId) {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return await withTransaction(
+				client,
+				(session) => locks.withSession(session).update(id, { owner: me }),
+				{ retryTransient: false },
+			);
+		} catch (error) {
+			const transient =
+				error instanceof DataError &&
+				error.hasErrorLabel('TransientTransactionError');
+			if (!transient || attempt === 5) throw error;
+			await Bun.sleep(20 * attempt); // the loser backs off, rather than 120 s of reruns
+		}
+	}
+}
+```
 
 ## What may not run in one
 

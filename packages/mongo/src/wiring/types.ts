@@ -1,9 +1,4 @@
-import type {
-	ClientSession,
-	Db,
-	MongoClient,
-	TransactionOptions,
-} from 'mongodb';
+import type { ClientSession, Db, MongoClient } from 'mongodb';
 import type { ActorOf, TypedCollection } from '../collection/types';
 import type { PingResult } from '../connection/connect';
 import type {
@@ -12,6 +7,7 @@ import type {
 	TypedBucket,
 } from '../gridfs';
 import type { SyncOptions, SyncReport } from '../sync/sync-collection';
+import type { WithTransactionOptions } from '../transaction/with-transaction';
 import type {
 	BucketsIn,
 	BucketsOf,
@@ -86,7 +82,7 @@ export type SoleScope<C> =
 		: never;
 
 /** A transaction's options, and which database's client carries it. */
-export type MongoTransactionOptions<C> = TransactionOptions & {
+export type MongoTransactionOptions<C> = WithTransactionOptions & {
 	/** Required once the Mongo holds more than one client. */
 	on?: DbName<C>;
 };

@@ -792,7 +792,15 @@ driver's way, in its options: `collection.aggregate(pipeline, { session })`.
 
 Given a session that is already in a transaction, `withTransaction` joins it.
 MongoDB has no savepoints, so an inner failure takes the whole transaction
-down.
+down, and options, `retryTransient` included, are refused when joining, like
+the other options.
+
+The driver reruns the callback on a transient error for up to 120 seconds. For
+a loser that should fail fast and run its own bounded retry, pass
+`{ retryTransient: false }` (also on `mongo.transaction(fn, options)`): the
+callback runs once, and the first transient error comes back as a `DataError`
+whose `hasErrorLabel('TransientTransactionError')` is true. See
+[docs/guide/transactions.md](docs/guide/transactions.md#failing-fast-retrytransient-false).
 
 ## Optimistic locking
 
@@ -1138,7 +1146,8 @@ What follows from that:
   collision, being deterministic, happens every time. The caller then gets a
   `DataError` with the driver's error, the abort, on its `cause` (the driver's
   timeout error when the client was given a `timeoutMS`). Resolve the
-  collision, such as by removing the stray chunks, rather than waiting it out.
+  collision, such as by removing the stray chunks, rather than waiting it out,
+  or pass `retryTransient: false` to the transaction to have it fail at once.
 - **Files stored by an earlier release keep their own ids.** They are still
   found by digest and given back, so nothing needs moving.
 
@@ -1341,7 +1350,7 @@ deep.
 | `databases`, `clients` | Every scope and every `MongoClient`, under the database's name. |
 | `actor`, `session` | What this `Mongo` stamps and runs in, if anything. |
 | `as(actor)`, `withSession(session)` | **Another** `Mongo` over the same clients; the one it came from is unchanged. |
-| `transaction(fn, options?)` | `fn` with a `Mongo` whose collections and buckets are all in the transaction. May run twice. |
+| `transaction(fn, options?)` | `fn` with a `Mongo` whose collections and buckets are all in the transaction. May run twice, unless `options.retryTransient` is `false`. |
 | `sync(options?)` | `SyncReport[]` per database, collections only. A deployment step. |
 | `syncBuckets()` | Creates each bucket's four indexes, per database and bucket key. |
 | `ping(options?)` | `PingResult` per database. Never throws; `timeoutMS`, 2 s by default, plus a 250 ms grace; `0` is not "no limit" here, it leaves only the grace. |
@@ -1468,7 +1477,7 @@ each: [configuration](docs/guide/wiring/configuration.md), the
 | `syncCollection`, `syncCollections`, `syncAll` | create and bring in line, with `dryRun` |
 | `registeredCollections`, `clearCollectionRegistry` | what `syncAll` covers |
 | `resetAutoSync(db?)` | forget the syncs `autoSync` has run |
-| `withTransaction(clientOrSession, fn, options?)` | a transaction, joined when nested |
+| `withTransaction(clientOrSession, fn, options?)`, `WithTransactionOptions` | a transaction, joined when nested; the options add `retryTransient` to the driver's |
 | `toMongoJsonSchema(schema)` | a Zod schema as a MongoDB `$jsonSchema` |
 | `encodeCursor`, `decodeCursor`, `pageWindow`, `cursorLimit`, `toPage` | the pagination pieces, for a list this package does not produce. The three that refuse — `decodeCursor`, `pageWindow`, `cursorLimit` — take an optional last argument naming the call, which they put in the message. A cursor `paginateByCursor` wrote with a `scope` carries a hash of it in its key (`<field>:<dir>#<hash>`), so `decodeCursor(cursor, '<field>:<dir>')` refuses it with "it was written for another scope": the expected key is for cursors you encoded yourself |
 | `DataError` and its subclasses, `toDataError` | the errors |
