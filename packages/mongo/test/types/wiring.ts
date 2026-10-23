@@ -146,3 +146,14 @@ const quiet = await openMongo(defineMongo({ uri, collections: { events } }));
 
 // @ts-expect-error — nothing to stamp, so `as` takes nothing.
 void quiet.as(objectId());
+
+void many.transaction(async () => undefined, {
+	on: 'main',
+	retryTransient: false,
+});
+
+void many.transaction(async () => undefined, {
+	on: 'main',
+	// @ts-expect-error — `retryTransient` is a boolean.
+	retryTransient: 'no',
+});

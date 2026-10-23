@@ -233,6 +233,7 @@ export {
 } from './sync/validator-diff';
 export {
 	type TransactionHost,
+	type WithTransactionOptions,
 	withTransaction,
 } from './transaction/with-transaction';
 export { defineMongo } from './wiring/config/define-mongo';

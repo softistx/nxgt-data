@@ -1,7 +1,8 @@
-import type { MongoClient, TransactionOptions } from 'mongodb';
+import type { MongoClient } from 'mongodb';
 import { WiringError } from '../errors/wiring-error';
 import {
 	type TransactionHost,
+	type WithTransactionOptions,
 	withTransaction,
 } from '../transaction/with-transaction';
 import { databaseOf, derived, type WiringContext } from './context';
@@ -49,18 +50,18 @@ export function hostFor(
 /**
  * Runs `fn` in a transaction, with a Mongo whose collections are all in it.
  * The driver retries `fn` from the start on a transient error, so `fn` must
- * be safe to run twice — `@nxgt/mongo`'s `withTransaction` says the rest.
+ * be safe to run twice, unless `retryTransient: false` — `@nxgt/mongo`'s `withTransaction` says the rest.
  */
 export async function transact<T>(
 	ctx: WiringContext,
 	build: (ctx: WiringContext) => unknown,
 	fn: (mongo: never) => Promise<T>,
-	options: (TransactionOptions & { on?: string }) | undefined,
+	options: (WithTransactionOptions & { on?: string }) | undefined,
 ): Promise<T> {
 	const { on, ...rest } = options ?? {};
 	const host = hostFor(ctx, on);
 	const transactionOptions =
-		Object.keys(rest).length > 0 ? (rest as TransactionOptions) : undefined;
+		Object.keys(rest).length > 0 ? (rest as WithTransactionOptions) : undefined;
 	return withTransaction(
 		host,
 		(session) => fn(build(derived(ctx, { session })) as never),

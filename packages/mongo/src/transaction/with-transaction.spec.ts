@@ -194,6 +194,153 @@ describe('withTransaction', () => {
 		});
 	});
 
+	describe('retryTransient: false', () => {
+		const transient = {
+			errorCode: 112,
+			errorLabels: ['TransientTransactionError'],
+		};
+		const hasLabel = (error: unknown) =>
+			error instanceof DataError &&
+			error.hasErrorLabel('TransientTransactionError');
+
+		test('commits on success', async () => {
+			const created = await withTransaction(
+				t.client,
+				(session) =>
+					collection()
+						.withSession(session)
+						.create({ email: 'ada@example.com' }),
+				{ retryTransient: false },
+			);
+			expect(created.email).toBe('ada@example.com');
+			expect(await emails()).toEqual(['ada@example.com']);
+		});
+
+		test('still passes the driver options on', async () => {
+			await withTransaction(
+				t.client,
+				async (session) => {
+					expect(
+						(
+							session as unknown as {
+								transaction: { options: { readConcern?: { level?: string } } };
+							}
+						).transaction.options.readConcern?.level,
+					).toBe('snapshot');
+					await collection()
+						.withSession(session)
+						.create({ email: 'ada@example.com' });
+				},
+				{ retryTransient: false, readConcern: { level: 'snapshot' } },
+			);
+			expect(await emails()).toEqual(['ada@example.com']);
+		});
+
+		test('a session not in a transaction takes the same path', async () => {
+			const session = t.client.startSession();
+			let runs = 0;
+			try {
+				await t.failNext(['insert'], transient);
+				const error = await rejection(
+					withTransaction(
+						session,
+						async (same) => {
+							runs += 1;
+							await collection()
+								.withSession(same)
+								.create({ email: 'ada@example.com' });
+						},
+						{ retryTransient: false },
+					),
+				);
+				expect(hasLabel(error)).toBe(true);
+			} finally {
+				await session.endSession();
+			}
+			expect(runs).toBe(1);
+			expect(await emails()).toEqual([]);
+		});
+
+		test('runs fn once on a transient error, handed back as a DataError', async () => {
+			await t.failNext(['insert'], transient);
+			let runs = 0;
+			const error = await rejection(
+				withTransaction(
+					t.client,
+					async (session) => {
+						runs += 1;
+						await collection()
+							.withSession(session)
+							.create({ email: 'ada@example.com' });
+					},
+					{ retryTransient: false },
+				),
+			);
+			expect(runs).toBe(1);
+			expect(hasLabel(error)).toBe(true);
+			expect(await emails()).toEqual([]);
+		});
+
+		test('runs fn once when the commit fails transiently', async () => {
+			await t.failNext(['commitTransaction'], transient);
+			let runs = 0;
+			const error = await rejection(
+				withTransaction(
+					t.client,
+					async (session) => {
+						runs += 1;
+						await collection()
+							.withSession(session)
+							.create({ email: 'ada@example.com' });
+					},
+					{ retryTransient: false },
+				),
+			);
+			// The driver did not retry the commit (a transient label is not a
+			// retryable write error), and the injected failure never reached the
+			// server, which still holds the transaction open. The driver cannot
+			// abort after a commit attempt, so end it here or the next
+			// `dropDatabase` waits for it.
+			await t.client.db('admin').command({ killAllSessions: [] });
+			expect(runs).toBe(1);
+			expect(error).toBeInstanceOf(DataError);
+			expect(await emails()).toEqual([]);
+		});
+
+		test('does not rerun fn on a raw driver error', async () => {
+			await t.failNext(['insert'], transient);
+			let runs = 0;
+			const error = await rejection(
+				withTransaction(
+					t.client,
+					async (session) => {
+						runs += 1;
+						await collection().raw.insertOne(
+							{ email: 'ada@example.com' } as never,
+							{ session },
+						);
+					},
+					{ retryTransient: false },
+				),
+			);
+			expect(runs).toBe(1);
+			expect(error).toBeInstanceOf(DataError);
+			expect(await emails()).toEqual([]);
+		});
+
+		test('a joined transaction refuses it', async () => {
+			await withTransaction(t.client, async (session) => {
+				expect(
+					await rejectionMessage(
+						withTransaction(session, async () => {}, {
+							retryTransient: false,
+						}),
+					),
+				).toContain('retryTransient');
+			});
+		});
+	});
+
 	describe('an error the driver does not retry', () => {
 		test('a DataError without a retry label runs the callback once', async () => {
 			await t.failNext(['insert'], { errorCode: 11000 });

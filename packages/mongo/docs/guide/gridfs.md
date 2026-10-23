@@ -407,7 +407,8 @@ What follows from that:
   collision, being deterministic, happens every time. The caller then gets a
   `DataError` with the driver's error, the abort, on its `cause` (the driver's
   timeout error when the client was given a `timeoutMS`). Resolve the
-  collision, such as by removing the stray chunks, rather than waiting it out.
+  collision, such as by removing the stray chunks, rather than waiting it out,
+  or pass `retryTransient: false` to the transaction to have it fail at once.
 - **Files stored by an earlier release keep their own ids.** They are still
   found by digest and given back, so nothing needs moving.
 
