@@ -1290,10 +1290,12 @@ describe('two callers storing the same bytes at once', () => {
 		// what comes back is the abort and not this package's `ConflictError`.
 		// There is nothing to wait for either — a document another transaction
 		// wrote is not in this one's snapshot however long it waits.
+		let runs = 0;
 		const error = await rejection(
 			withTransaction(
 				t.client,
 				async (session) => {
+					runs += 1;
 					await files.withSession(session).putOnce(mine);
 				},
 				// The abort is labelled transient, so the driver runs the callback
@@ -1302,8 +1304,23 @@ describe('two callers storing the same bytes at once', () => {
 				{ timeoutMS: 3000 } as TransactionOptions,
 			),
 		);
-		// What is left is the driver's timeout, with the abort as its cause.
-		expect(String((error as Error).cause)).toMatch(/aborted/);
+		// What is left is the driver's timeout, and which error it ends on
+		// depends on timing: the abort itself, or a retried command that met the
+		// server's MaxTimeMS as the window closed. Both are accepted; what this
+		// pins is that the callback was run again, that the call failed with
+		// an error whose cause is one of the two (the driver's timeout error
+		// reaches the caller as it is, not as a `DataError`), and that nothing
+		// was stored.
+		expect(runs).toBeGreaterThan(1);
+		expect(error).toBeInstanceOf(Error);
+		expect(String((error as Error).cause)).toMatch(
+			/aborted|exceeded time limit/,
+		);
+		expect(
+			await t.db
+				.collection('uploads.files')
+				.countDocuments({ 'metadata.sha256': digest }),
+		).toBe(0);
 	}, 30_000);
 
 	test('one of them finishing last changes nothing', async () => {
