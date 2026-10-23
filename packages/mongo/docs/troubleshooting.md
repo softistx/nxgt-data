@@ -121,6 +121,7 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`defineMongo: database "main" has options for "posts", which it does not wire`](#definemongo-database-main-has-options-for-posts-which-it-does-not-wire)
   - [``defineMongo: databases names none. Give it at least one, as `{ databases: { main: … } }`.``](#definemongo-databases-names-none-give-it-at-least-one-as--databases--main---)
   - [`defineMongo: transactions must be an object`, `transactions has "…", which it does not take`, `transactions.retryTransient must be a boolean`](#definemongo-transactions-must-be-an-object-transactions-has--which-it-does-not-take-transactionsretrytransient-must-be-a-boolean)
+  - [`defineMongo: database "a" has transactions, which belong beside databases, not in one`](#definemongo-database-a-has-transactions-which-belong-beside-databases-not-in-one)
   - [`` defineMongo: database "main" has a buckets object with no bucket definition in it: pass the module, as in `import * as buckets` ``](#-definemongo-database-main-has-a-buckets-object-with-no-bucket-definition-in-it-pass-the-module-as-in-import--as-buckets-)
   - [`defineMongo: database "main" wires "users" as both a collection and a bucket: export one of them under another name`](#definemongo-database-main-wires-users-as-both-a-collection-and-a-bucket-export-one-of-them-under-another-name)
   - [`defineMongo: database "main" wires "avatars" and "pictures" to the same bucket, "avatars"`](#definemongo-database-main-wires-avatars-and-pictures-to-the-same-bucket-avatars)
@@ -1939,6 +1940,24 @@ otherwise be ignored and the transactions would keep retrying.
 
 ```ts
 defineMongo({ uri, collections, transactions: { retryTransient: false } });
+```
+
+### `defineMongo: database "a" has transactions, which belong beside databases, not in one`
+
+**When:** calling `defineMongo` with several databases, one of which holds a
+`transactions` key. The types refuse it as well, under that key.
+
+**Why:** `transactions` is the Mongo's default, not a database's: a transaction
+may touch several databases, so no one of them can own it. Left inside one, it
+would be ignored and the transactions would keep retrying.
+
+**Fix:** move it beside `databases`:
+
+```ts
+defineMongo({
+	databases: { a: { uri, collections } },
+	transactions: { retryTransient: false },
+});
 ```
 
 ### `` defineMongo: database "main" has a buckets object with no bucket definition in it: pass the module, as in `import * as buckets` ``

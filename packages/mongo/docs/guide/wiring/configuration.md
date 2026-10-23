@@ -73,7 +73,7 @@ checked again against the object at `openMongo`.
 | `autoSync` | `boolean` | `false` | Sync each collection before its first operation, and create each bucket's indexes before its first call — which, [inside a transaction](#autosync), makes the driver run the body twice |
 | `buckets` | module object | — | `import * as buckets from './files'`: [GridFS buckets](files.md), on the scope beside the collections |
 | `bucketOptions` | `WiredBucketOptions` | `{}` | `@nxgt/mongo/gridfs`'s `validate`, `coerce` and `hash`, for every bucket of this database |
-| `transactions` | `{ retryTransient?: boolean }` | `{}` | The Mongo's, not a database's: written beside `uri` for one database, or beside `databases` for several. `retryTransient` is the default of every transaction it starts, `true` when left out; a call's own value outranks it. See [Failing fast](../transactions.md#a-default-for-the-whole-client) |
+| `transactions` | `{ retryTransient?: boolean }` | `{}` | The Mongo's, not a database's: written beside `uri` for one database, or beside `databases` for several. `retryTransient` is the default of every transaction it starts, `true` when left out; a call's own value outranks it. See [A default for the whole client](../transactions.md#a-default-for-the-whole-client) |
 
 `options` and `optionsFor` take `@nxgt/mongo`'s own collection options —
 `maxPageSize`, `coerce`, `validate`, `softDelete`, `touchUpdatedAt`,
@@ -198,7 +198,8 @@ defineMongo({ collections });
 - `optionsFor` under a key the database does not wire;
 - `db`, `session`, `actor` or `autoSync` inside `options` or `optionsFor`;
 - a `transactions` that is not an object, a key in it other than
-  `retryTransient`, or a `retryTransient` that is not a boolean;
+  `retryTransient`, or a `retryTransient` that is not a boolean, and a
+  `transactions` inside one database of `databases`;
 - a `buckets` object with no bucket definition in it, a bucket key a
   collection of the same database already holds, two keys wiring the same
   bucket, `session` or `autoSync` inside `bucketOptions`, and

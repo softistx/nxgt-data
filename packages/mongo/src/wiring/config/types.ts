@@ -2,6 +2,10 @@ import type { Db, MongoClient, MongoClientOptions } from 'mongodb';
 import type { CollectionOptions } from '../../collection/types';
 import type { AnyCollectionDefinition } from '../../definition/define-collection';
 import type { BucketDefinition, BucketOptions } from '../../gridfs';
+import type {
+	NoTransactionsInDatabase,
+	TransactionsConfig,
+} from './transactions';
 
 /**
  * The collections of a module, as `import * as collections` gives them: its
@@ -157,40 +161,24 @@ export interface DatabaseConfig<C, B = object> {
 	bucketOptions?: WiredBucketOptions;
 }
 
-/**
- * What the Mongo does by default for the transactions it starts: the config's
- * `transactions`.
- */
-export interface TransactionsConfig {
-	/**
-	 * The default of a transaction's `retryTransient`, for every transaction
-	 * this Mongo starts. A call's own `retryTransient` outranks it; with
-	 * neither, the body is retried (`true`). A transaction that joins an outer
-	 * one has no choice to make: it is the outer one's.
-	 */
-	retryTransient?: boolean;
-}
-
 /** One database, or several under their names. */
 export type MongoConfigInput = (
 	| DatabaseConfig<object>
 	| { databases: Record<string, DatabaseConfig<object>> }
 ) & {
-	/** What every transaction of this Mongo does unless its call says otherwise. */
 	transactions?: TransactionsConfig;
 };
 
 /**
  * The config with every key it has to refuse — one the driver's `Db` already
- * answers to, or options for a collection that is not wired — turned into the
- * message above. `defineMongo` takes its argument as `C & Checked<C>`, and a
- * constraint written that way is what makes the refusal land on the key the
- * application wrote, rather than on the whole object.
+ * answers to, options for a collection that is not wired, a `transactions`
+ * inside a database — turned into the message above. Written as `C & Checked<C>`,
+ * the refusal lands on the key the application wrote, not on the whole object.
  */
 export type Checked<C> = C extends { databases: infer D }
 	? {
 			databases: {
-				[N in keyof D]: CheckedDatabase<D[N]>;
+				[N in keyof D]: CheckedDatabase<D[N]> & NoTransactionsInDatabase<D[N]>;
 			};
 		}
 	: CheckedDatabase<C>;

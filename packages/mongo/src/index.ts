@@ -238,6 +238,10 @@ export {
 } from './transaction/with-transaction';
 export { defineMongo } from './wiring/config/define-mongo';
 export type {
+	NoTransactionsInDatabase,
+	TransactionsConfig,
+} from './wiring/config/transactions';
+export type {
 	BucketsIn,
 	BucketsOf,
 	CollectionsIn,

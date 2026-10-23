@@ -178,3 +178,14 @@ void defineMongo({
 	// @ts-expect-error — `transactions` takes `retryTransient` and nothing else.
 	transactions: { retries: 3 },
 });
+
+void defineMongo({
+	databases: {
+		a: {
+			uri,
+			collections,
+			// @ts-expect-error — `transactions` belongs beside `databases`, not in one.
+			transactions: { retryTransient: false },
+		},
+	},
+});

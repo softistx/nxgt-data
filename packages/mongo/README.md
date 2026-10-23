@@ -803,7 +803,8 @@ whose `hasErrorLabel('TransientTransactionError')` is true. A client with many
 sites sets it once, as `defineMongo({ …, transactions: { retryTransient: false } })`:
 the call's own value outranks it, and a joined call inherits the outer
 transaction's. See
-[docs/guide/transactions.md](docs/guide/transactions.md#failing-fast-retrytransient-false).
+[Failing fast](docs/guide/transactions.md#failing-fast-retrytransient-false) and
+[A default for the whole client](docs/guide/transactions.md#a-default-for-the-whole-client).
 
 ## Optimistic locking
 
@@ -1342,7 +1343,7 @@ A single database is named `default`.
 | `autoSync` | `false` | Sync each collection before its first operation, and create each bucket's indexes before its first call. A bucket's first call inside a transaction then makes the driver run the body twice: call `syncBuckets()` at start-up instead. |
 | `buckets` | — | `import * as buckets from './files'`: `@nxgt/mongo/gridfs` buckets, on the scope beside the collections. |
 | `bucketOptions` | `{}` | `validate`, `coerce`, `hash`, for every bucket. Not `session` or `autoSync`, and not without `buckets`. |
-| `transactions` | `{}` | `{ retryTransient: false }` makes every transaction this Mongo starts run once, unless its call says `retryTransient: true`. The Mongo's, so beside `databases` for several. |
+| `transactions` | `{}` | `{ retryTransient: false }` makes every transaction this Mongo starts run once, unless its call says `retryTransient: true`. The Mongo's, so beside `databases` for several. See [A default for the whole client](docs/guide/transactions.md#a-default-for-the-whole-client). |
 
 `db`, `session`, `actor` and `autoSync` are not collection options here: the
 wiring decides them, and one of them under `options` does not compile, while
@@ -1486,10 +1487,10 @@ each: [configuration](docs/guide/wiring/configuration.md), the
 | `toMongoJsonSchema(schema)` | a Zod schema as a MongoDB `$jsonSchema` |
 | `encodeCursor`, `decodeCursor`, `pageWindow`, `cursorLimit`, `toPage` | the pagination pieces, for a list this package does not produce. The three that refuse — `decodeCursor`, `pageWindow`, `cursorLimit` — take an optional last argument naming the call, which they put in the message. A cursor `paginateByCursor` wrote with a `scope` carries a hash of it in its key (`<field>:<dir>#<hash>`), so `decodeCursor(cursor, '<field>:<dir>')` refuses it with "it was written for another scope": the expected key is for cursors you encoded yourself |
 | `DataError` and its subclasses, `toDataError` | the errors |
-| `defineMongo(config)`, `openMongo(config)`, `Mongo`, `MongoOf`, `MongoConfig`, `MongoConfigInput`, `MongoActor`, `MongoTransactionOptions`, `WiredCollectionOptions`, `WiredBucketOptions` | the [wiring](#wiring): a checked configuration, and the object it opens |
+| `defineMongo(config)`, `openMongo(config)`, `Mongo`, `MongoOf`, `MongoConfig`, `MongoConfigInput`, `TransactionsConfig`, `MongoActor`, `MongoTransactionOptions`, `WiredCollectionOptions`, `WiredBucketOptions` | the [wiring](#wiring): a checked configuration, and the object it opens |
 | `WiringError`, `WiringErrorCode`, `WiringErrorOptions` | what the wiring refuses, a `TypeError` with a `code` |
 | `discoverCollections(options)`, `DiscoverOptions` | definitions read from a glob, for scripts, under Bun |
-| `DbScope`, `SoleScope`, `DbName`, `DbMemberName`, `DatabaseConfig`, `CollectionsIn`, `CollectionsOf`, `BucketsIn`, `BucketsOf`, `BucketSyncReport`, `NoCollision`, `NoBucketCollision`, `NoOwnedBucketOption`, `NoBucketsToOption`, `Unwired` | the types the wiring is written with |
+| `DbScope`, `SoleScope`, `DbName`, `DbMemberName`, `DatabaseConfig`, `CollectionsIn`, `CollectionsOf`, `BucketsIn`, `BucketsOf`, `BucketSyncReport`, `NoCollision`, `NoBucketCollision`, `NoOwnedBucketOption`, `NoTransactionsInDatabase`, `NoBucketsToOption`, `Unwired` | the types the wiring is written with |
 | `defineMigration`, `migrate`, `rollback`, `migrationStatus`, `MigrationError`, `MigrationLockedError` | from `@nxgt/mongo/migrations`: migrations, in code |
 | `defineBucket`, `getFiles` | from `@nxgt/mongo/gridfs`: a bucket, described once and bound to a database |
 | `TypedBucket`, `TypedPutOptions`, `PutOnceOptions` | what a bound bucket is, and what its writes take. `PutOnceOptions` is the same without `id` |

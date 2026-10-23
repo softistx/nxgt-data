@@ -107,6 +107,26 @@ whose `hasErrorLabel('TransientTransactionError')` is true, for your own
 bounded retry. The option never reaches the driver. It is refused, with the
 other options, by a call that joins an open transaction.
 
+```ts
+async function claim(id: ObjectId) {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return await withTransaction(
+				client,
+				(session) => locks.withSession(session).update(id, { owner: me }),
+				{ retryTransient: false },
+			);
+		} catch (error) {
+			const transient =
+				error instanceof DataError &&
+				error.hasErrorLabel('TransientTransactionError');
+			if (!transient || attempt === 5) throw error;
+			await Bun.sleep(20 * attempt); // the loser backs off, rather than 120 s of reruns
+		}
+	}
+}
+```
+
 ### A default for the whole client
 
 A client with many transaction sites sets the default once, in `defineMongo`,
@@ -134,26 +154,6 @@ inside a joined body fails the outer transaction once, with no rerun.
 
 The standalone `withTransaction(host, fn, options)` has no configuration and
 keeps its own default, `true`.
-
-```ts
-async function claim(id: ObjectId) {
-	for (let attempt = 1; ; attempt++) {
-		try {
-			return await withTransaction(
-				client,
-				(session) => locks.withSession(session).update(id, { owner: me }),
-				{ retryTransient: false },
-			);
-		} catch (error) {
-			const transient =
-				error instanceof DataError &&
-				error.hasErrorLabel('TransientTransactionError');
-			if (!transient || attempt === 5) throw error;
-			await Bun.sleep(20 * attempt); // the loser backs off, rather than 120 s of reruns
-		}
-	}
-}
-```
 
 ## What may not run in one
 

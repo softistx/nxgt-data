@@ -184,6 +184,26 @@ describe('defineMongo', () => {
 			);
 		});
 
+		test('a `transactions` inside one database of several', () => {
+			const error = thrown(() =>
+				defineMongo({
+					databases: {
+						a: {
+							uri,
+							collections: { users },
+							transactions: { retryTransient: false },
+						},
+					},
+				} as never),
+			);
+			expect(error).toBeInstanceOf(WiringError);
+			expect(error).toHaveProperty('code', 'CONFIG');
+			expect(error).toHaveProperty(
+				'message',
+				'defineMongo: database "a" has transactions, which belong beside databases, not in one',
+			);
+		});
+
 		test('a `retryTransient` that is not a boolean', () => {
 			const error = thrown(() =>
 				defineMongo({
