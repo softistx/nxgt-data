@@ -91,7 +91,7 @@ await mongo.db.users.count(); // 0
 | --- | --- | --- | --- |
 | `on` | `DbName<C>` | the only client | Which database's client carries the transaction. Required once the Mongo holds more than one **client** |
 | `readConcern`, `writeConcern`, `readPreference`, `maxCommitTimeMS` | the driver's `TransactionOptions` | the client's | Passed to the driver as they are |
-| `retryTransient` | `boolean` | `true` | `false` runs the body once and returns the first transient error as a `DataError`. See [Failing fast: `retryTransient: false`](../transactions.md#failing-fast-retrytransient-false) |
+| `retryTransient` | `boolean` | the config's `transactions.retryTransient`, else `true` | `false` runs the body once and returns the first transient error as a `DataError`. The call's value outranks the config's default, which is set once with `defineMongo({ …, transactions: { retryTransient: false } })`. A joined call inherits the outer transaction's and takes none. See [Failing fast: `retryTransient: false`](../transactions.md#failing-fast-retrytransient-false) |
 
 ```ts
 await mongo.transaction(
@@ -102,7 +102,8 @@ await mongo.transaction(
 
 ### What the body must accept
 
-- **It may run more than once**, unless `retryTransient: false`. The driver
+- **It may run more than once**, unless `retryTransient: false` (on the call, or
+  as the client default in `defineMongo`'s `transactions`). The driver
   retries it from the start on a transient error, so it must hold nothing MongoDB would not roll back — no email sent,
   no counter raised in Redis, no file written.
 - **A transaction inside a transaction joins the outer one**, and takes no

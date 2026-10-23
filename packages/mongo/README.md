@@ -799,7 +799,10 @@ The driver reruns the callback on a transient error for up to 120 seconds. For
 a loser that should fail fast and run its own bounded retry, pass
 `{ retryTransient: false }` (also on `mongo.transaction(fn, options)`): the
 callback runs once, and the first transient error comes back as a `DataError`
-whose `hasErrorLabel('TransientTransactionError')` is true. See
+whose `hasErrorLabel('TransientTransactionError')` is true. A client with many
+sites sets it once, as `defineMongo({ …, transactions: { retryTransient: false } })`:
+the call's own value outranks it, and a joined call inherits the outer
+transaction's. See
 [docs/guide/transactions.md](docs/guide/transactions.md#failing-fast-retrytransient-false).
 
 ## Optimistic locking
@@ -1147,7 +1150,8 @@ What follows from that:
   `DataError` with the driver's error, the abort, on its `cause` (the driver's
   timeout error when the client was given a `timeoutMS`). Resolve the
   collision, such as by removing the stray chunks, rather than waiting it out,
-  or pass `retryTransient: false` to the transaction to have it fail at once.
+  or pass `retryTransient: false` to the transaction (or set it as the client
+  default in `defineMongo`'s `transactions`) to have it fail at once.
 - **Files stored by an earlier release keep their own ids.** They are still
   found by digest and given back, so nothing needs moving.
 
@@ -1338,6 +1342,7 @@ A single database is named `default`.
 | `autoSync` | `false` | Sync each collection before its first operation, and create each bucket's indexes before its first call. A bucket's first call inside a transaction then makes the driver run the body twice: call `syncBuckets()` at start-up instead. |
 | `buckets` | — | `import * as buckets from './files'`: `@nxgt/mongo/gridfs` buckets, on the scope beside the collections. |
 | `bucketOptions` | `{}` | `validate`, `coerce`, `hash`, for every bucket. Not `session` or `autoSync`, and not without `buckets`. |
+| `transactions` | `{}` | `{ retryTransient: false }` makes every transaction this Mongo starts run once, unless its call says `retryTransient: true`. The Mongo's, so beside `databases` for several. |
 
 `db`, `session`, `actor` and `autoSync` are not collection options here: the
 wiring decides them, and one of them under `options` does not compile, while
@@ -1350,7 +1355,7 @@ deep.
 | `databases`, `clients` | Every scope and every `MongoClient`, under the database's name. |
 | `actor`, `session` | What this `Mongo` stamps and runs in, if anything. |
 | `as(actor)`, `withSession(session)` | **Another** `Mongo` over the same clients; the one it came from is unchanged. |
-| `transaction(fn, options?)` | `fn` with a `Mongo` whose collections and buckets are all in the transaction. May run twice, unless `options.retryTransient` is `false`. |
+| `transaction(fn, options?)` | `fn` with a `Mongo` whose collections and buckets are all in the transaction. May run twice, unless `options.retryTransient` (else the config's `transactions.retryTransient`) is `false`. |
 | `sync(options?)` | `SyncReport[]` per database, collections only. A deployment step. |
 | `syncBuckets()` | Creates each bucket's four indexes, per database and bucket key. |
 | `ping(options?)` | `PingResult` per database. Never throws; `timeoutMS`, 2 s by default, plus a 250 ms grace; `0` is not "no limit" here, it leaves only the grace. |
