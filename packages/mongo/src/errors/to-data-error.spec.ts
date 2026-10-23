@@ -203,3 +203,27 @@ describe('toDataError, on anything else', () => {
 		expect(new DataError('x').issues).toEqual([]);
 	});
 });
+
+describe('error labels', () => {
+	const transient = {
+		name: 'MongoServerError',
+		code: 112,
+		codeName: 'WriteConflict',
+		message: 'write conflict',
+		errorLabels: ['TransientTransactionError'],
+	};
+
+	test('a DataError carries the labels of the driver error it wraps', () => {
+		const error = toDataError(transient) as DataError;
+		expect(error.errorLabels).toEqual(['TransientTransactionError']);
+		expect(error.hasErrorLabel('TransientTransactionError')).toBe(true);
+		expect(error.hasErrorLabel('RetryableWriteError')).toBe(false);
+	});
+
+	test('has none when the cause has none, or there is no cause', () => {
+		const { errorLabels: _, ...unlabelled } = transient;
+		expect((toDataError(unlabelled) as DataError).errorLabels).toEqual([]);
+		expect(new DataError('x').errorLabels).toEqual([]);
+		expect(new DataError('x').hasErrorLabel('anything')).toBe(false);
+	});
+});

@@ -842,7 +842,10 @@ The wiring's refusals are not among these: they are a `WiringError`, a
 `ConflictError` carries `index`, `keys` and, when the server gives them,
 `values`. `ValidationError` carries `issues`, MongoDB's `errInfo` flattened
 into `{ path, reason, specifiedAs, consideredValue }`. Anything that is not a
-server error reaches you untouched.
+server error reaches you untouched. Every `DataError` carries the driver's
+`errorLabels` and a `hasErrorLabel(label)`, for a retry loop of your own
+(`error.hasErrorLabel('TransientTransactionError')`); inside a transaction the
+driver already retries those for you.
 
 ## Connecting
 

@@ -79,6 +79,9 @@ class DataError extends Error {
 	readonly issues: ValidationIssue[];
 	readonly expectedVersion: number | undefined;
 	readonly actualVersion: number | undefined;
+	/** MongoDB's labels on the driver error: `TransientTransactionError`… */
+	readonly errorLabels: readonly string[];
+	hasErrorLabel(label: string): boolean;
 }
 
 interface ValidationIssue {
@@ -92,6 +95,14 @@ interface ValidationIssue {
 	description?: string;
 }
 ```
+
+`errorLabels` are the labels MongoDB put on the driver error a `DataError`
+wraps, empty when there are none, and `hasErrorLabel` reads them. A retry loop
+of your own outside a transaction can ask
+`error.hasErrorLabel('TransientTransactionError')`. Inside `withTransaction`
+there is nothing to write: the driver retries a transient error from a
+collection method even though it arrives as a `DataError`, and the `DataError`
+reaches you only once the retries are over.
 
 Match on `serverCode`, not `serverCodeName`. What decides whether the name is
 there is how the server refuses, not which method was called. When it refuses

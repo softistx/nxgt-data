@@ -79,7 +79,8 @@ transaction's.
 ## Two things the driver does
 
 **It retries the callback** from the start on a transient error, and the
-commit alone on an unknown commit result, for up to 120 seconds. So the
+commit alone on an unknown commit result, for up to 120 seconds — also when
+the transient error came out of a collection method as a `DataError`. So the
 callback must be safe to run twice, and must not swallow errors — the driver
 cannot otherwise tell whether the transaction was aborted.
 

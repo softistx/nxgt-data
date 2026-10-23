@@ -23,6 +23,25 @@ describe('transaction', () => {
 		expect(await mongo.db.posts.count()).toBe(1);
 	});
 
+	test('is retried when a write fails with a transient error', async () => {
+		const mongo = await plainMongo();
+		await server.failNext(['insert'], {
+			errorCode: 112,
+			errorLabels: ['TransientTransactionError'],
+		});
+		let runs = 0;
+		try {
+			await mongo.transaction(async (tx) => {
+				runs += 1;
+				await tx.db.users.create({ email: 'ada@example.com' });
+			});
+		} finally {
+			await server.clearFailures();
+		}
+		expect(runs).toBe(2);
+		expect(await mongo.db.users.count()).toBe(1);
+	});
+
 	test('rolls back everything when the body throws', async () => {
 		const mongo = await plainMongo();
 		expect(

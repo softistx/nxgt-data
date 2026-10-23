@@ -10,7 +10,12 @@ import { createHash } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
-import type { Collection, CommandStartedEvent, Db } from 'mongodb';
+import type {
+	Collection,
+	CommandStartedEvent,
+	Db,
+	TransactionOptions,
+} from 'mongodb';
 import { Binary, GridFSBucket, MongoClient, ObjectId } from 'mongodb';
 import { avatars, clips, uploads } from '../../test/buckets';
 import { rejection, rejectionMessage } from '../../test/rejection';
@@ -1285,13 +1290,20 @@ describe('two callers storing the same bytes at once', () => {
 		// what comes back is the abort and not this package's `ConflictError`.
 		// There is nothing to wait for either — a document another transaction
 		// wrote is not in this one's snapshot however long it waits.
-		expect(
-			await rejectionMessage(
-				withTransaction(t.client, async (session) => {
+		const error = await rejection(
+			withTransaction(
+				t.client,
+				async (session) => {
 					await files.withSession(session).putOnce(mine);
-				}),
+				},
+				// The abort is labelled transient, so the driver runs the callback
+				// again until its window closes: 120 s unless told a shorter one. The
+				// driver takes `timeoutMS` here; its `TransactionOptions` type omits it.
+				{ timeoutMS: 3000 } as TransactionOptions,
 			),
-		).toMatch(/aborted/);
+		);
+		// What is left is the driver's timeout, with the abort as its cause.
+		expect(String((error as Error).cause)).toMatch(/aborted/);
 	}, 30_000);
 
 	test('one of them finishing last changes nothing', async () => {

@@ -1,5 +1,6 @@
 import {
 	afterAll,
+	afterEach,
 	beforeAll,
 	beforeEach,
 	describe,
@@ -22,6 +23,7 @@ beforeEach(async () => {
 	await t.reset();
 	await getCollection(t.db, users).sync();
 });
+afterEach(() => t.clearFailures());
 afterAll(() => t.stop());
 
 const collection = () => getCollection(t.db, users);
@@ -152,5 +154,43 @@ describe('withTransaction', () => {
 			await session.endSession();
 		}
 		expect(await emails()).toEqual(['ada@example.com']);
+	});
+
+	describe('a transient error inside the transaction', () => {
+		// The server fails the first insert as a write conflict, which it labels
+		// as one the whole transaction is safe to retry after.
+		const failOnce = () =>
+			t.failNext(['insert'], {
+				errorCode: 112,
+				errorLabels: ['TransientTransactionError'],
+			});
+
+		test('is retried by the driver, though the collection threw a DataError', async () => {
+			await failOnce();
+			let runs = 0;
+			await withTransaction(t.client, async (session) => {
+				runs += 1;
+				await collection()
+					.withSession(session)
+					.create({ email: 'ada@example.com' });
+			});
+			expect(runs).toBe(2);
+			expect(await emails()).toEqual(['ada@example.com']);
+		});
+
+		test('is retried through a joined transaction too', async () => {
+			await failOnce();
+			let runs = 0;
+			await withTransaction(t.client, (outer) =>
+				withTransaction(outer, async (session) => {
+					runs += 1;
+					await collection()
+						.withSession(session)
+						.create({ email: 'ada@example.com' });
+				}),
+			);
+			expect(runs).toBe(2);
+			expect(await emails()).toEqual(['ada@example.com']);
+		});
 	});
 });

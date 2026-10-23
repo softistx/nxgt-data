@@ -1,4 +1,5 @@
 import type { ClientSession, MongoClient, TransactionOptions } from 'mongodb';
+import { DataError } from '../errors/data-error';
 import { toDataError } from '../errors/to-data-error';
 
 /** What a transaction can be started from: a client, or a session. */
@@ -7,6 +8,42 @@ export type TransactionHost = MongoClient | ClientSession;
 /** A session, read without `instanceof`: two copies of the driver. */
 function isSession(host: TransactionHost): host is ClientSession {
 	return typeof (host as ClientSession).inTransaction === 'function';
+}
+
+const RETRYABLE_LABELS = [
+	'TransientTransactionError',
+	'UnknownTransactionCommitResult',
+];
+
+/**
+ * `fn`, with a retryable driver error handed back as the driver's own.
+ *
+ * The driver retries only an error that is its own `MongoError` with a retry
+ * label, and a collection method has already turned that error into a
+ * `DataError`. The driver error sits on its `cause`: throwing that one lets
+ * the driver see it. Whatever else `fn` throws goes through unchanged.
+ */
+function retryableByDriver<T>(
+	fn: (session: ClientSession) => Promise<T>,
+): (session: ClientSession) => Promise<T> {
+	return async (session) => {
+		try {
+			return await fn(session);
+		} catch (error) {
+			if (error instanceof DataError) {
+				const cause = error.cause as
+					| { hasErrorLabel?: (label: string) => boolean }
+					| undefined;
+				if (
+					typeof cause?.hasErrorLabel === 'function' &&
+					RETRYABLE_LABELS.some((label) => cause.hasErrorLabel?.(label))
+				) {
+					throw cause;
+				}
+			}
+			throw error;
+		}
+	};
 }
 
 /**
@@ -56,12 +93,12 @@ export async function withTransaction<T>(
 				}
 				return await fn(host);
 			}
-			return await host.withTransaction(fn, options);
+			return await host.withTransaction(retryableByDriver(fn), options);
 		}
 
 		const session = host.startSession();
 		try {
-			return await session.withTransaction(fn, options);
+			return await session.withTransaction(retryableByDriver(fn), options);
 		} finally {
 			await session.endSession();
 		}

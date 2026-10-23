@@ -76,6 +76,13 @@ export class DataError extends Error {
 	readonly issues: ValidationIssue[];
 	readonly expectedVersion: number | undefined;
 	readonly actualVersion: number | undefined;
+	/**
+	 * The error labels MongoDB put on the driver error this wraps:
+	 * `TransientTransactionError`, `RetryableWriteError`… Empty when there is
+	 * none. A retry loop of an application's own reads them with
+	 * `hasErrorLabel`.
+	 */
+	readonly errorLabels: readonly string[];
 
 	constructor(message = 'Database error', options: DataErrorOptions = {}) {
 		super(
@@ -92,6 +99,16 @@ export class DataError extends Error {
 		this.issues = options.issues ?? [];
 		this.expectedVersion = options.expectedVersion;
 		this.actualVersion = options.actualVersion;
+		const labels = (options.cause as { errorLabels?: unknown } | null)
+			?.errorLabels;
+		this.errorLabels = Array.isArray(labels)
+			? labels.filter((label): label is string => typeof label === 'string')
+			: [];
+	}
+
+	/** Whether MongoDB labelled the underlying error with `label`. */
+	hasErrorLabel(label: string): boolean {
+		return this.errorLabels.includes(label);
 	}
 }
 
