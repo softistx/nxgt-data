@@ -1,5 +1,11 @@
 # @nxgt/mongo
 
+## 0.22.0
+
+### Minor Changes
+
+- [#240](https://github.com/softistx/nxgt-data/pull/240) [`f765424`](https://github.com/softistx/nxgt-data/commit/f765424bbab44c246ce172bc2626299730732c75) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `withTransaction` and `mongo.transaction` take `retryTransient: false`, which runs the callback exactly once and hands the first transient error (from a write or from the commit) back as a `DataError` labelled `TransientTransactionError`, for the caller's own bounded retry. The default stays the driver's 120 s retry.
+
 ## 0.21.0
 
 ### Minor Changes
