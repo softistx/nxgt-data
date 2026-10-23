@@ -236,6 +236,11 @@ decodeCursor('garbage', 'rank:desc', 'topPosts');
 It is optional on all three, so a call that passes none reads exactly as it
 did.
 
+A cursor written by `paginateByCursor` with a `scope` carries a hash of it in
+its key (`<field>:<dir>#<hash>`), so `decodeCursor(cursor, '<field>:<dir>')`
+refuses it with "it was written for another scope". The expected key of
+`decodeCursor` is meant for cursors you encoded yourself.
+
 ```ts
 function pageWindow(options?: PageOptions, maxPageSize?: number, where?: string): PageWindow;
 function cursorLimit(limit: number | undefined, maxPageSize?: number, where?: string): number;

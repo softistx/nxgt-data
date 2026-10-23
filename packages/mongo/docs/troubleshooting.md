@@ -50,6 +50,7 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`Invalid cursor in paginateByCursor on "users": it cannot be decoded`](#invalid-cursor-in-paginatebycursor-on-users-it-cannot-be-decoded)
   - [`Invalid cursor in paginateByCursor on "users": it was written for the ordering createdAt:asc, not _id:asc`](#invalid-cursor-in-paginatebycursor-on-users-it-was-written-for-the-ordering-createdatasc-not-_idasc)
   - [`Invalid cursor in paginateByCursor on "users": it was written for another scope`](#invalid-cursor-in-paginatebycursor-on-users-it-was-written-for-another-scope)
+  - [`paginateByCursor: "scope" of "users" must be a string, not number`](#paginatebycursor-scope-of-users-must-be-a-string-not-number)
   - [`paginateByCursor: "createdAt" is null in a document of "users". Page along a field every document has.`](#paginatebycursor-createdat-is-null-in-a-document-of-users-page-along-a-field-every-document-has)
   - [`paginate on "users": page must be an integer of at least 1, not 0`](#paginate-on-users-page-must-be-an-integer-of-at-least-1-not-0)
   - [`Invalid cursor in paginateByCursor on "users": unexpected shape`](#invalid-cursor-in-paginatebycursor-on-users-unexpected-shape)
@@ -742,6 +743,21 @@ await users.paginateByCursor({ scope: `tenant:${tenantId}`, after });
 
 Give every page of a list the same `scope`, and never a cursor from one list
 to another. The scope is not in the message, on purpose.
+
+### `paginateByCursor: "scope" of "users" must be a string, not number`
+
+**When:** passing `scope` something that is not a string: a number, an object,
+`null`. The message names the type it got (`null` for `null`).
+**Why:** `scope` is hashed into the cursor's key, and only a string has a
+stable hash. A `TypeError`: a bug in the call, not data.
+**Fix:**
+
+```ts
+await users.paginateByCursor({ scope: `tenant:${tenantId}`, after });
+```
+
+Build the `scope` as a string, as above, and give every page of a list the
+same one.
 
 ### `paginateByCursor: "createdAt" is null in a document of "users". Page along a field every document has.`
 

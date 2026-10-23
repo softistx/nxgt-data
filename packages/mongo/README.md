@@ -1462,7 +1462,7 @@ each: [configuration](docs/guide/wiring/configuration.md), the
 | `resetAutoSync(db?)` | forget the syncs `autoSync` has run |
 | `withTransaction(clientOrSession, fn, options?)` | a transaction, joined when nested |
 | `toMongoJsonSchema(schema)` | a Zod schema as a MongoDB `$jsonSchema` |
-| `encodeCursor`, `decodeCursor`, `pageWindow`, `cursorLimit`, `toPage` | the pagination pieces, for a list this package does not produce. The three that refuse — `decodeCursor`, `pageWindow`, `cursorLimit` — take an optional last argument naming the call, which they put in the message |
+| `encodeCursor`, `decodeCursor`, `pageWindow`, `cursorLimit`, `toPage` | the pagination pieces, for a list this package does not produce. The three that refuse — `decodeCursor`, `pageWindow`, `cursorLimit` — take an optional last argument naming the call, which they put in the message. A cursor `paginateByCursor` wrote with a `scope` carries a hash of it in its key (`<field>:<dir>#<hash>`), so `decodeCursor(cursor, '<field>:<dir>')` refuses it with "it was written for another scope": the expected key is for cursors you encoded yourself |
 | `DataError` and its subclasses, `toDataError` | the errors |
 | `defineMongo(config)`, `openMongo(config)`, `Mongo`, `MongoOf`, `MongoConfig`, `MongoConfigInput`, `MongoActor`, `MongoTransactionOptions`, `WiredCollectionOptions`, `WiredBucketOptions` | the [wiring](#wiring): a checked configuration, and the object it opens |
 | `WiringError`, `WiringErrorCode`, `WiringErrorOptions` | what the wiring refuses, a `TypeError` with a `code` |

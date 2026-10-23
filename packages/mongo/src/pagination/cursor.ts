@@ -25,7 +25,11 @@ export function cursorKey(ordering: string, scope?: string): string {
 	return `${ordering}#${hash}`;
 }
 
-/** Splits a key into its ordering and its scope hash, when it has one. */
+/**
+ * Splits a key into its ordering and its scope hash, when it has one.
+ * An ordering field literally ending in `#` + 16 hex would be read as scoped:
+ * harmless, keys are compared whole first and only the printed message changes.
+ */
 function splitKey(key: string): {
 	ordering: string;
 	scope: string | undefined;
