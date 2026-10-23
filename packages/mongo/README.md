@@ -745,6 +745,15 @@ document is repeated or skipped while the collection is written to, where
 `skip` would do both. It is opaque and URL-safe, and it survives `ObjectId`,
 `Date` and `bigint` values. It is encoded, not signed.
 
+`scope` binds a cursor to one list: a cursor written with another scope, or
+without one, is refused, so a filtered list's cursor does not open another's.
+Only a hash of the scope enters the cursor.
+
+```ts
+await repo.paginateByCursor({ filter: { tenantId }, scope: `tenant:${tenantId}`, after });
+// InvalidCursorError: Invalid cursor in paginateByCursor on "users": it was written for another scope
+```
+
 **Both refusals name the call and the collection**, because every paginated
 call takes the same options and a log line holding one sentence said nothing
 about which listing produced it:
@@ -757,7 +766,7 @@ await repo.paginateByCursor({ after: 'garbage' });
 ```
 
 `Invalid cursor` still leads the sentence, which is the part to search for.
-The four endings are in
+The endings are in
 [docs/guide/pagination.md](docs/guide/pagination.md#what-a-refused-cursor-says).
 
 ## Transactions
@@ -819,7 +828,7 @@ application never reads a numeric code:
 | `ConflictError` | `CONFLICT` | a unique index refused the write (`E11000`); `put({ id })` named a file the bucket already has; or `putOnce` found the id its bytes decide held by a write that never finished, claimed and let go twice under it, blocked by a chunk an interrupted write left where this file's own would go, or holding a file whose digest is not the one asked for |
 | `ValidationError` | `VALIDATION` | the collection's validator refused it (121) |
 | `OptimisticLockError` | `OPTIMISTIC_LOCK` | the version in the patch no longer matches |
-| `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write, or one written for another ordering. The message names the call and the collection |
+| `InvalidCursorError` | `INVALID_CURSOR` | a cursor this package did not write, or one written for another ordering or scope. The message names the call and the collection |
 | `InvalidIdError` | `INVALID_ID` | a value that is no `ObjectId`, nor the string of one — raised by `toObjectId`, `toObjectIds` and `objectIdParam`, and by `put({ id })`, where the id is the caller's own. Reading a string never throws: a malformed id on `findById`, `get`, `serve` or any other read matches nothing |
 | `CorruptFileError` | `CORRUPT_FILE` | a stored file is missing a chunk, or one of them is short, or one holds something that is not bytes — raised while its bytes are read, not when it is found, and naming the chunk, the file and the bucket |
 | `MigrationError` | `MIGRATION` | a migration failed, or the list does not match the records — from `@nxgt/mongo/migrations` |
