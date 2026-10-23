@@ -1,5 +1,11 @@
 # @nxgt/redis
 
+## 0.9.3
+
+### Patch Changes
+
+- [#243](https://github.com/softistx/nxgt-data/pull/243) [`28f61e6`](https://github.com/softistx/nxgt-data/commit/28f61e6b081e887df899a50b386969e97d88b307) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `queue.get` and `queue.list` no longer show `NaN` for a job hash written by something else: a hash with an `attempt`, `attempts` or `priority` missing or not whole digits, or a `progress` that is not finite, is `undefined` (skipped by `list`), as a hash with no known `state` already was.
+
 ## 0.9.2
 
 ### Patch Changes
