@@ -78,6 +78,26 @@ describe('defineMongo', () => {
 		expect(config.databases.default?.bucketOptions).toEqual({ hash: false });
 	});
 
+	test('keeps the transaction default, beside either shape', () => {
+		const one = defineMongo({
+			uri,
+			collections: { users },
+			transactions: { retryTransient: false },
+		});
+		expect(one.transactions).toEqual({ retryTransient: false });
+		expect(Object.keys(one.databases.default ?? {})).not.toContain(
+			'transactions',
+		);
+		const many = defineMongo({
+			databases: { main: { uri, collections: { users } } },
+			transactions: { retryTransient: false },
+		});
+		expect(many.transactions).toEqual({ retryTransient: false });
+		expect(
+			defineMongo({ uri, collections: { users } }).transactions,
+		).toBeUndefined();
+	});
+
 	test('takes a client the application opened', () => {
 		const client = new MongoClient(uri);
 		const config = defineMongo({ client, collections: { users } });
@@ -130,6 +150,75 @@ describe('defineMongo', () => {
 			);
 			expect(error).toHaveProperty('database', 'analytics');
 			expect(error).toHaveProperty('code', 'CONFIG');
+		});
+
+		test('a `transactions` that is not an object', () => {
+			for (const bad of ['no', null, 1, ['retryTransient']]) {
+				const error = thrown(() =>
+					defineMongo({
+						uri,
+						collections: { users },
+						transactions: bad,
+					} as never),
+				);
+				expect(error).toBeInstanceOf(WiringError);
+				expect(error).toHaveProperty('code', 'CONFIG');
+				expect(error).toHaveProperty(
+					'message',
+					expect.stringContaining('transactions must be an object'),
+				);
+			}
+		});
+
+		test('a key `transactions` does not take', () => {
+			const error = thrown(() =>
+				defineMongo({
+					databases: { main: { uri, collections: { users } } },
+					transactions: { retries: 3 },
+				} as never),
+			);
+			expect(error).toHaveProperty('code', 'CONFIG');
+			expect(error).toHaveProperty(
+				'message',
+				expect.stringContaining('transactions has "retries"'),
+			);
+		});
+
+		test('a `transactions` inside one database of several', () => {
+			const error = thrown(() =>
+				defineMongo({
+					databases: {
+						a: {
+							uri,
+							collections: { users },
+							transactions: { retryTransient: false },
+						},
+					},
+				} as never),
+			);
+			expect(error).toBeInstanceOf(WiringError);
+			expect(error).toHaveProperty('code', 'CONFIG');
+			expect(error).toHaveProperty(
+				'message',
+				'defineMongo: database "a" has transactions, which belong beside databases, not in one',
+			);
+		});
+
+		test('a `retryTransient` that is not a boolean', () => {
+			const error = thrown(() =>
+				defineMongo({
+					uri,
+					collections: { users },
+					transactions: { retryTransient: 'no' },
+				} as never),
+			);
+			expect(error).toHaveProperty('code', 'CONFIG');
+			expect(error).toHaveProperty(
+				'message',
+				expect.stringContaining(
+					'transactions.retryTransient must be a boolean',
+				),
+			);
 		});
 
 		test('both a uri and a client', () => {

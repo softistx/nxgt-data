@@ -120,6 +120,8 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`defineMongo: database "main" has "session" in options, which the wiring decides: …`](#definemongo-database-main-has-session-in-options-which-the-wiring-decides-)
   - [`defineMongo: database "main" has options for "posts", which it does not wire`](#definemongo-database-main-has-options-for-posts-which-it-does-not-wire)
   - [``defineMongo: databases names none. Give it at least one, as `{ databases: { main: … } }`.``](#definemongo-databases-names-none-give-it-at-least-one-as--databases--main---)
+  - [`defineMongo: transactions must be an object`, `transactions has "…", which it does not take`, `transactions.retryTransient must be a boolean`](#definemongo-transactions-must-be-an-object-transactions-has--which-it-does-not-take-transactionsretrytransient-must-be-a-boolean)
+  - [`defineMongo: database "a" has transactions, which belong beside databases, not in one`](#definemongo-database-a-has-transactions-which-belong-beside-databases-not-in-one)
   - [`` defineMongo: database "main" has a buckets object with no bucket definition in it: pass the module, as in `import * as buckets` ``](#-definemongo-database-main-has-a-buckets-object-with-no-bucket-definition-in-it-pass-the-module-as-in-import--as-buckets-)
   - [`defineMongo: database "main" wires "users" as both a collection and a bucket: export one of them under another name`](#definemongo-database-main-wires-users-as-both-a-collection-and-a-bucket-export-one-of-them-under-another-name)
   - [`defineMongo: database "main" wires "avatars" and "pictures" to the same bucket, "avatars"`](#definemongo-database-main-wires-avatars-and-pictures-to-the-same-bucket-avatars)
@@ -943,7 +945,9 @@ transaction.
 **Why:** MongoDB has no savepoints, so the read concern, the write concern,
 the read preference and `retryTransient` are the outer transaction's; passing
 options here would suggest otherwise.
-**Fix:** pass no options, and give them to the outer transaction instead:
+**Fix:** pass no options, and give them to the outer transaction instead. A
+client default from `defineMongo`'s `transactions` is not an option of this
+call: a joined call takes none and does not throw.
 
 ```ts
 await withTransaction(session, async (s) => { /* … */ }); // no options
@@ -954,7 +958,9 @@ operation inside takes `collection.withSession(session)` — and the driver's
 own methods (`collection.aggregate(…)`) want `{ session }` in their options
 as usual. And the callback may be **retried** for up to 120 seconds, so it
 must be safe to run twice and must not swallow errors — unless the
-transaction is given `retryTransient: false`, which runs it once.
+transaction is given `retryTransient: false` (or the client default,
+`defineMongo({ …, transactions: { retryTransient: false } })`), which runs it
+once.
 
 ### A transaction hangs about two minutes, then fails with the abort or write conflict on its `cause`
 
@@ -970,9 +976,10 @@ driver reruns the callback from the start until its window closes. The
 collision is deterministic, so every run fails the same way.
 **Fix:** resolve the collision rather than waiting it out, or pass
 `{ retryTransient: false }` to the transaction (`withTransaction(host, fn, options)`
-or `mongo.transaction(fn, options)`): the callback runs once and the first
-transient error comes back at once as a `DataError`, for your own bounded
-retry. For a stray chunk, remove it:
+or `mongo.transaction(fn, options)`; for every transaction of a client at
+once, `defineMongo({ …, transactions: { retryTransient: false } })`): the
+callback runs once and the first transient error comes back at once as a
+`DataError`, for your own bounded retry. For a stray chunk, remove it:
 
 ```ts
 // a maintenance pass, on a bucket nothing is writing (see the `putOnce` entry
@@ -982,7 +989,8 @@ retry. For a stray chunk, remove it:
 
 ### A `DataError` labelled `TransientTransactionError` comes back with `retryTransient: false`
 
-**When:** a transaction given `{ retryTransient: false }` fails on a write
+**When:** a transaction given `{ retryTransient: false }`, or started by a
+Mongo whose `defineMongo` set `transactions: { retryTransient: false }`, fails on a write
 conflict or a transient commit error, and the `DataError` has
 `hasErrorLabel('TransientTransactionError')` true.
 **Why:** that is the intended outcome. `false` runs the callback once and
@@ -1916,6 +1924,40 @@ typically built from environment variables that were not set.
 
 ```ts
 defineMongo({ databases: { main: { uri, collections } } });
+```
+
+### `defineMongo: transactions must be an object`, `transactions has "…", which it does not take`, `transactions.retryTransient must be a boolean`
+
+**When:** calling `defineMongo` with a `transactions` that is not an object, that
+holds a key other than `retryTransient`, or whose `retryTransient` is not a
+boolean.
+
+**Why:** `transactions` is the Mongo's default for the transactions it starts,
+and `retryTransient` is the only default it takes. A misspelt key would
+otherwise be ignored and the transactions would keep retrying.
+
+**Fix:**
+
+```ts
+defineMongo({ uri, collections, transactions: { retryTransient: false } });
+```
+
+### `defineMongo: database "a" has transactions, which belong beside databases, not in one`
+
+**When:** calling `defineMongo` with several databases, one of which holds a
+`transactions` key. The types refuse it as well, under that key.
+
+**Why:** `transactions` is the Mongo's default, not a database's: a transaction
+may touch several databases, so no one of them can own it. Left inside one, it
+would be ignored and the transactions would keep retrying.
+
+**Fix:** move it beside `databases`:
+
+```ts
+defineMongo({
+	databases: { a: { uri, collections } },
+	transactions: { retryTransient: false },
+});
 ```
 
 ### `` defineMongo: database "main" has a buckets object with no bucket definition in it: pass the module, as in `import * as buckets` ``

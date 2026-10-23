@@ -157,3 +157,35 @@ void many.transaction(async () => undefined, {
 	// @ts-expect-error — `retryTransient` is a boolean.
 	retryTransient: 'no',
 });
+
+// The transaction default is a boolean, and nothing else is a key of it.
+void defineMongo({
+	uri,
+	collections,
+	transactions: { retryTransient: false },
+});
+
+void defineMongo({
+	uri,
+	collections,
+	// @ts-expect-error — `retryTransient` is a boolean.
+	transactions: { retryTransient: 'no' },
+});
+
+void defineMongo({
+	uri,
+	collections,
+	// @ts-expect-error — `transactions` takes `retryTransient` and nothing else.
+	transactions: { retries: 3 },
+});
+
+void defineMongo({
+	databases: {
+		a: {
+			uri,
+			collections,
+			// @ts-expect-error — `transactions` belongs beside `databases`, not in one.
+			transactions: { retryTransient: false },
+		},
+	},
+});

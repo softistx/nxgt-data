@@ -114,6 +114,7 @@ export async function openMongo<C>(config: MongoConfig<C>): Promise<Mongo<C>> {
 		databases,
 		session: undefined,
 		actor: undefined,
+		retryTransient: config.transactions?.retryTransient,
 		cache: new Map(),
 		root: true,
 	};

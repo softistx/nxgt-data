@@ -127,6 +127,34 @@ async function claim(id: ObjectId) {
 }
 ```
 
+### A default for the whole client
+
+A client with many transaction sites sets the default once, in `defineMongo`,
+instead of on every call:
+
+```ts
+export const config = defineMongo({
+	uri: process.env.MONGO_URI!,
+	collections,
+	transactions: { retryTransient: false },
+});
+```
+
+Every `mongo.transaction(fn)` this Mongo starts then runs once, and a Mongo
+derived from it (`as`, `withSession`, the one a transaction hands to `fn`)
+keeps the default. The order is **per call, then the client's default, then
+`true`**: `mongo.transaction(fn, { retryTransient: true })` retries even under
+a default of `false`.
+
+A call that **joins** an open transaction takes the default of neither: it
+runs in the outer transaction, whose behaviour it inherits, so the default
+never makes it throw. Only a `retryTransient` written on the joined call
+itself is refused, as before. Under a default of `false`, a transient failure
+inside a joined body fails the outer transaction once, with no rerun.
+
+The standalone `withTransaction(host, fn, options)` has no configuration and
+keeps its own default, `true`.
+
 ## What may not run in one
 
 Neither `collMod` nor an index build may run inside a transaction, so

@@ -408,7 +408,8 @@ What follows from that:
   `DataError` with the driver's error, the abort, on its `cause` (the driver's
   timeout error when the client was given a `timeoutMS`). Resolve the
   collision, such as by removing the stray chunks, rather than waiting it out,
-  or pass `retryTransient: false` to the transaction to have it fail at once.
+  or pass `retryTransient: false` to the transaction (or set it as the client
+  default in `defineMongo`'s `transactions`) to have it fail at once.
 - **Files stored by an earlier release keep their own ids.** They are still
   found by digest and given back, so nothing needs moving.
 

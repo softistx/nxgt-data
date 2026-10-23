@@ -63,6 +63,13 @@ export function checkDatabase(
 	if (typeof config !== 'object' || config === null) {
 		refuse(name, 'is not a configuration object');
 	}
+	if ('transactions' in config) {
+		refuse(
+			name,
+			'has transactions, which belong beside databases, not in one',
+			'transactions',
+		);
+	}
 	const hasUri = config.uri !== undefined;
 	const hasClient = config.client !== undefined;
 	if (hasUri === hasClient) {

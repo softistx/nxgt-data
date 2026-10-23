@@ -1,5 +1,6 @@
 import { WiringError } from '../../errors/wiring-error';
 import { checkDatabase } from './checks';
+import { checkTransactions, type TransactionsConfig } from './transactions';
 import type {
 	Checked,
 	DatabaseConfig,
@@ -18,7 +19,9 @@ function databasesOf(
 		);
 	}
 	if (!('databases' in config)) {
-		return { default: config as DatabaseConfig<object> };
+		// `transactions` is the Mongo's, not the database's.
+		const { transactions: _, ...database } = config;
+		return { default: database as DatabaseConfig<object> };
 	}
 	const { databases } = config;
 	if (typeof databases !== 'object' || databases === null) {
@@ -71,10 +74,13 @@ export function defineMongo<const C extends MongoConfigInput>(
 	config: C & Checked<C>,
 ): MongoConfig<C> {
 	const databases = databasesOf(config);
+	const { transactions } = config as { transactions?: TransactionsConfig };
+	checkTransactions(transactions);
 	for (const [name, database] of Object.entries(databases)) {
 		checkDatabase(name, database);
 	}
 	return Object.freeze({
 		databases: Object.freeze({ ...databases }),
+		...(transactions && { transactions: Object.freeze({ ...transactions }) }),
 	}) as MongoConfig<C>;
 }

@@ -92,6 +92,145 @@ describe('transaction', () => {
 		).toContain('retryTransient');
 	});
 
+	describe('with a client default for retryTransient', () => {
+		const transient = {
+			errorCode: 112,
+			errorLabels: ['TransientTransactionError'],
+		};
+		const withDefault = async (retryTransient: boolean | 'none') =>
+			track(
+				await openMongo(
+					defineMongo({
+						uri: server.uri,
+						collections,
+						transactions: retryTransient === 'none' ? {} : { retryTransient },
+					}),
+				),
+			);
+
+		test('false runs the body once and rejects with the transient error', async () => {
+			const mongo = await withDefault(false);
+			await server.failNext(['insert'], transient);
+			let runs = 0;
+			let error: unknown;
+			try {
+				error = await rejection(
+					mongo.transaction(async (tx) => {
+						runs += 1;
+						await tx.db.users.create({ email: 'ada@example.com' });
+					}),
+				);
+			} finally {
+				await server.clearFailures();
+			}
+			expect(runs).toBe(1);
+			expect(error).toBeInstanceOf(DataError);
+			expect(
+				(error as DataError).hasErrorLabel('TransientTransactionError'),
+			).toBe(true);
+			expect(await mongo.db.users.count()).toBe(0);
+		});
+
+		test('false gives way to a call’s own retryTransient: true', async () => {
+			const mongo = await withDefault(false);
+			await server.failNext(['insert'], transient);
+			let runs = 0;
+			try {
+				await mongo.transaction(
+					async (tx) => {
+						runs += 1;
+						await tx.db.users.create({ email: 'ada@example.com' });
+					},
+					{ retryTransient: true },
+				);
+			} finally {
+				await server.clearFailures();
+			}
+			expect(runs).toBe(2);
+			expect(await mongo.db.users.count()).toBe(1);
+		});
+
+		test('none given still retries', async () => {
+			const mongo = await withDefault('none');
+			await server.failNext(['insert'], transient);
+			let runs = 0;
+			try {
+				await mongo.transaction(async (tx) => {
+					runs += 1;
+					await tx.db.users.create({ email: 'ada@example.com' });
+				});
+			} finally {
+				await server.clearFailures();
+			}
+			expect(runs).toBe(2);
+		});
+
+		test('is kept by a derived Mongo', async () => {
+			const mongo = await withDefault(false);
+			const session = mongo.clients.default.startSession();
+			await server.failNext(['insert'], transient);
+			let runs = 0;
+			let error: unknown;
+			try {
+				error = await rejection(
+					mongo.withSession(session).transaction(async (tx) => {
+						runs += 1;
+						await tx.db.users.create({ email: 'ada@example.com' });
+					}),
+				);
+			} finally {
+				await server.clearFailures();
+				await session.endSession();
+			}
+			expect(runs).toBe(1);
+			expect(error).toBeInstanceOf(DataError);
+		});
+
+		test('a joined call takes no default and does not throw', async () => {
+			const mongo = await withDefault(false);
+			await mongo.transaction(async (outer) => {
+				await outer.transaction(async (inner) => {
+					expect(inner.session).toBe(outer.session);
+					await inner.db.users.create({ email: 'ada@example.com' });
+				});
+			});
+			expect(await mongo.db.users.count()).toBe(1);
+		});
+
+		test('a transient failure in a joined body fails the outer one, once', async () => {
+			const mongo = await withDefault(false);
+			await server.failNext(['insert'], transient);
+			let runs = 0;
+			let error: unknown;
+			try {
+				error = await rejection(
+					mongo.transaction(async (outer) => {
+						runs += 1;
+						await outer.transaction(async (inner) => {
+							await inner.db.users.create({ email: 'ada@example.com' });
+						});
+					}),
+				);
+			} finally {
+				await server.clearFailures();
+			}
+			expect(runs).toBe(1);
+			expect(error).toBeInstanceOf(DataError);
+			expect(await mongo.db.users.count()).toBe(0);
+		});
+
+		test('a per-call option on a joined call is still refused', async () => {
+			const mongo = await withDefault(false);
+			expect(
+				await rejectionMessage(
+					mongo.transaction((tx) =>
+						tx.transaction(async () => {}, { retryTransient: true }),
+					),
+				),
+			).toContain('retryTransient');
+		});
+	});
+
 	test('rolls back everything when the body throws', async () => {
 		const mongo = await plainMongo();
 		expect(

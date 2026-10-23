@@ -47,10 +47,16 @@ export function hostFor(
 	return ctx.session;
 }
 
+/** Whether the host is a session already in a transaction, which a call joins. */
+function isJoining(host: TransactionHost): boolean {
+	return 'inTransaction' in host && host.inTransaction();
+}
+
 /**
  * Runs `fn` in a transaction, with a Mongo whose collections are all in it.
  * The driver retries `fn` from the start on a transient error, so `fn` must
- * be safe to run twice, unless `retryTransient: false` — `@nxgt/mongo`'s
+ * be safe to run twice, unless `retryTransient` is false, on the call or as
+ * the config's default (the call's own outranks it) — `@nxgt/mongo`'s
  * `withTransaction` says the rest.
  */
 export async function transact<T>(
@@ -61,8 +67,17 @@ export async function transact<T>(
 ): Promise<T> {
 	const { on, ...rest } = options ?? {};
 	const host = hostFor(ctx, on);
+	// A call that joins an outer transaction has no `retryTransient` to
+	// choose, so the client default is left out; a per-call option stays, and
+	// `withTransaction` refuses it.
+	const joins = isJoining(host);
+	const retryTransient = rest.retryTransient ?? ctx.retryTransient;
+	const withDefault =
+		!joins && retryTransient !== undefined ? { ...rest, retryTransient } : rest;
 	const transactionOptions =
-		Object.keys(rest).length > 0 ? (rest as WithTransactionOptions) : undefined;
+		Object.keys(withDefault).length > 0
+			? (withDefault as WithTransactionOptions)
+			: undefined;
 	return withTransaction(
 		host,
 		(session) => fn(build(derived(ctx, { session })) as never),
