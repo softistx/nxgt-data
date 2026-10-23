@@ -1,5 +1,11 @@
 # @nxgt/mongo
 
+## 0.23.0
+
+### Minor Changes
+
+- [#244](https://github.com/softistx/nxgt-data/pull/244) [`abb0105`](https://github.com/softistx/nxgt-data/commit/abb010500c5ae4e3764d26c682fa507253ae098f) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `defineMongo` takes `transactions: { retryTransient: false }`, a client-wide default for the `retryTransient` of every transaction the Mongo starts. A call's own `retryTransient` outranks it, and with neither the body is retried as before. A call that joins an open transaction takes no default and does not throw, and a derived Mongo keeps it. A `transactions` that is not an object, an unknown key in it or a non-boolean `retryTransient` is refused with a `CONFIG` `WiringError`, and so is a `transactions` inside one database of `databases`. The types `TransactionsConfig` and `NoTransactionsInDatabase` are exported.
+
 ## 0.22.0
 
 ### Minor Changes
