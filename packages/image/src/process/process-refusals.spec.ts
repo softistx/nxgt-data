@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { chunk, concat, pattern, writePng } from '../../test/images';
+import { chunk, concat, ftyp, pattern, writePng } from '../../test/images';
 import { rejection } from '../../test/rejection';
 import { scene } from '../../test/scene';
 import { ImageError } from '../errors/image-error';
@@ -47,7 +47,7 @@ describe('process: refusals', () => {
 			'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
 			'base64',
 		);
-		const avif = await new Bun.Image(png).avif().bytes();
+		const avif = concat([ftyp('avif', ['mif1', 'miaf']), new Uint8Array(64)]);
 		const garbage = new Uint8Array(500).map((_, i) => (i * 31) & 0xff);
 		for (const input of [
 			new Uint8Array(gif),
