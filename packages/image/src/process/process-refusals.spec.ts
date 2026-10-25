@@ -103,7 +103,7 @@ describe('process: refusals', () => {
 		);
 	});
 
-	test("a crop that is the caller's bug is a RangeError, not a refusal", async () => {
+	test('a badly shaped or misplaced crop is INVALID_CROP, before TOO_SMALL', async () => {
 		for (const crop of [
 			{ x: -1, y: 0, size: 100 },
 			{ x: 0.5, y: 0, size: 100 },
@@ -111,10 +111,16 @@ describe('process: refusals', () => {
 			{ x: 350, y: 0, size: 100 },
 			{ x: 0, y: 101, size: 100 },
 			{ x: 0, y: 0, size: 201 },
+			null as never,
+			'a crop' as never,
+			42 as never,
 		]) {
-			expect(await rejection(set.process(png, { crop }))).toBeInstanceOf(
-				RangeError,
+			const error = await refused(
+				set.process(png, { crop }),
+				'INVALID_CROP',
+				'crop',
 			);
+			expect(error.message).toMatch(/^a (crop is|\d+px crop)/);
 		}
 	});
 

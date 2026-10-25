@@ -208,13 +208,13 @@ describe('bindImageStore', () => {
 		expect(
 			await rejection(store.replace({ imageId: 'a' }, new Uint8Array(8))),
 		).toBeInstanceOf(ImageError);
-		expect(
-			await rejection(
-				store.replace({ imageId: 'a' }, picture, {
-					crop: { x: 0, y: 0, size: 5000 },
-				}),
-			),
-		).toBeInstanceOf(RangeError);
+		const badCrop = await rejection(
+			store.replace({ imageId: 'a' }, picture, {
+				crop: { x: 0, y: 0, size: 5000 },
+			}),
+		);
+		expect(badCrop).toBeInstanceOf(ImageError);
+		expect((badCrop as ImageError).code).toBe('INVALID_CROP');
 		expect(puts).toBe(0);
 		expect(await exists('a')).toEqual([false, false]);
 	});

@@ -43,7 +43,7 @@ _Nothing queued._
   cap and a pixel cap refuse an oversized upload before it is decoded; the
   crop is centred unless the caller gives one; every piece of metadata (EXIF
   with its GPS, and the ICC profile) is stripped; `concurrency` bounds how
-  many uploads decode at once, and so memory. Every refusal is an `ImageError`
+  many uploads decode at once, and is not a hard memory ceiling. Every refusal is an `ImageError`
   with a `code` to switch on — 0.1.0.
 - **Storing the variants in a bucket** — `@nxgt/image/s3` `bindImageStore`
   gives `replace`, `remove`, `presignGet` and `bytes` over a `@nxgt/s3`

@@ -1,4 +1,6 @@
 // What `process` and `defineImageSet` refuse. Checked by `tsc --noEmit`, never run.
+import type { ImageInput } from '../../src';
+import { ImageError } from '../../src';
 import { defineImageSet } from '../../src/set/define-image-set';
 
 const set = defineImageSet({ sizes: [64] });
@@ -28,3 +30,17 @@ set.process(new Uint8Array(), { quality: 10 });
 // What is accepted, so a refusal above is the cause and not a broken import.
 set.process(new Uint8Array(), { crop: { x: 0, y: 0, size: 1 } });
 set.process(new Blob([]));
+
+// The input type is exported, and a Uint8Array and a Blob are inputs.
+const inputs: ImageInput[] = [new Uint8Array(), new Blob([])];
+// @ts-expect-error a number is not an image input
+const notAnInput: ImageInput = 1;
+
+// The error codes and reasons are closed lists.
+new ImageError('INVALID_CROP', 'crop');
+// @ts-expect-error a code the package does not have
+new ImageError('BAD_CROP', 'crop');
+// @ts-expect-error a reason the package does not have
+new ImageError('INVALID_CROP', 'shape');
+void inputs;
+void notAnInput;

@@ -29,7 +29,7 @@ export type ImageStore<P> = {
 	/**
 	 * Processes the upload, then stores every size at `{ ...params, size }`.
 	 *
-	 * A `RangeError` or an `ImageError` from processing comes out before
+	 * An `ImageError` from processing (a bad crop included) comes out before
 	 * anything is written. If a put fails, the keys whose put was fulfilled are
 	 * deleted (best effort) and the first put error is rethrown unchanged,
 	 * "first" meaning first in the set's size order, not first in time. The key

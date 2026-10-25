@@ -8,7 +8,7 @@ const source = pattern(16, 16, 4);
 async function encoded(
 	format: 'jpeg' | 'webp' | 'heic',
 ): Promise<Uint8Array | undefined> {
-	const image = new Bun.Image(encodePng(source));
+	const image = new Bun.Image(await encodePng(source));
 	try {
 		return await (format === 'jpeg'
 			? image.jpeg()
@@ -28,7 +28,7 @@ const heic = await encoded('heic');
 
 describe('sniffFormat', () => {
 	test('reads a PNG, a JPEG and a WebP made by Bun', async () => {
-		expect(sniffFormat(encodePng(source))).toBe('png');
+		expect(sniffFormat(await encodePng(source))).toBe('png');
 		expect(sniffFormat((await encoded('jpeg')) as Uint8Array)).toBe('jpeg');
 		expect(sniffFormat((await encoded('webp')) as Uint8Array)).toBe('webp');
 	});
@@ -67,7 +67,7 @@ describe('sniffFormat', () => {
 	});
 
 	test('returns undefined for short, truncated and garbage input', async () => {
-		const png = encodePng(source);
+		const png = await encodePng(source);
 		const webp = (await encoded('webp')) as Uint8Array;
 		expect(sniffFormat(new Uint8Array())).toBeUndefined();
 		expect(sniffFormat(new Uint8Array([0xff, 0xd8]))).toBeUndefined();

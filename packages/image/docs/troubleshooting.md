@@ -3,13 +3,13 @@
 Two kinds of failure come out of this package.
 
 - **`ImageError`** is a refusal of the upload. It has a `code`
-  (`TOO_LARGE`, `UNSUPPORTED_TYPE`, `UNDECODABLE` or `TOO_SMALL`) and a
-  `reason` (`bytes`, `pixels`, `format`, `heic-unavailable`, `decode` or
-  `dimensions`). It is raised before anything is stored, and its message never
+  (`TOO_LARGE`, `UNSUPPORTED_TYPE`, `UNDECODABLE`, `TOO_SMALL` or
+  `INVALID_CROP`) and a `reason` (`bytes`, `pixels`, `format`,
+  `heic-unavailable`, `decode`, `dimensions` or `crop`). It is raised before anything is stored, and its message never
   quotes the uploaded bytes. When Bun's own error caused it, that error is
   `error.cause`.
 - **`TypeError` and `RangeError`** are for what the caller wrote: a bad option,
-  a bad crop, an input of the wrong type, a size the set does not have. They
+  an input of the wrong type, a size the set does not have. They
   are programming errors, not upload refusals.
 
 Any other error is not this package's: it is rethrown untouched (see
@@ -35,7 +35,7 @@ Any other error is not this package's: it is rethrown untouched (see
   - [`<option> must be a whole number of <range>, got <value>`](#option-must-be-a-whole-number-of-range-got-value)
   - [`sizes must be a non-empty array of whole numbers`](#sizes-must-be-a-non-empty-array-of-whole-numbers)
   - [`sizes must be unique, got [<sizes>]`](#sizes-must-be-unique-got-sizes)
-- **Crops**
+- **Crops (`INVALID_CROP`)**
   - [`a crop is { x, y, size }, three whole numbers of 0 or more`](#a-crop-is--x-y-size--three-whole-numbers-of-0-or-more)
   - [`a <size>px crop at (<x>, <y>) does not fit the <w>x<h> image`](#a-sizepx-crop-at-x-y-does-not-fit-the-wxh-image)
   - [`a <w>x<h> region at (<x>, <y>) does not fit a <w>x<h> image`](#a-wxh-region-at-x-y-does-not-fit-a-wxh-image)
@@ -128,18 +128,25 @@ error, with its `code` (`ERR_IMAGE_FORMAT_UNSUPPORTED`).
 
 ### Memory grows under large images
 
-**When:** several large photos are processed at once, for example a burst of
-36 MP uploads, and the process grows by hundreds of megabytes or is killed for
-memory.
-**Why:** Bun's own decode and PNG encode hold about 4 bytes per pixel (RGBA).
-The crop is read out of the PNG as it inflates, so nothing else that size is
-kept. Plan on 4.5 bytes per pixel: about 225 MB per call at the default
-`maxPixels` (measured 150 MB at 36 MP, 200 MB at 49 MP), a ceiling of
-`concurrency x 4.5 x maxPixels`, 450 MB at the defaults.
-**Fix:** lower `maxPixels` to what your users really upload, and keep
-`concurrency` low. The wait queue is unbounded and each waiting call holds its
-bytes (up to `maxBytes`), so cap uploads before `process` (a body limit in your
-server). The calls beyond `concurrency` wait their turn, in order:
+**When:** large photos are processed one after another or at once, for
+example a burst of 36 MP uploads with a small crop, and the process grows by
+hundreds of megabytes, or past a gigabyte, or is killed for memory.
+**Why:** one call peaks at about Bun's decode of the source (4 bytes per pixel)
++ the intermediate PNG + the crop square, about `4 x (2 x the largest size)^2`
+bytes. Bun 1.4.3 also holds on to each `png()` output until a later
+collection, so sequential worst-case calls climb before the memory falls back.
+Measured on photo-like JPEGs: a 256 px crop grows the process by about 150 MB
+at 25 MP, 210 MB at 36 MP and 280 MB at 49 MP in one call, and 70 sequential
+calls climbed to 716 MB at 25 MP and past 1.6 GB at 36 MP. Centred crops with
+small sizes stay at about 17 MB; a small crop on a huge image, or large `sizes`
+(`[4096]` on 49 MP peaked at 0.9 to 1.3 GB), are the expensive path.
+`concurrency` limits the calls in flight, not this retention, so it is not a
+hard ceiling.
+**Fix:** lower `maxPixels` to what your users really upload (the default is
+25 million), and keep `concurrency` low. The wait queue is unbounded and each
+waiting call holds its bytes (up to `maxBytes`), so cap uploads before
+`process` (a body limit in your server). The calls beyond `concurrency` wait
+their turn, in order:
 
 ```ts
 import { defineImageSet } from '@nxgt/image';
@@ -166,7 +173,9 @@ claims: a small file can claim many pixels.
 read; a stream is cancelled at the chunk that crosses the limit.
 **Why:** the limit is a cap on what the server will read, never on what it
 stores.
-**Fix:** raise `maxBytes` if the limit is too tight, or answer the user:
+**Fix:** raise `maxBytes` if the limit is too tight, or answer the user. The
+default admits most 12 MP photos, but a 48 MP phone JPEG is about 11 MB and is
+refused here even where `maxPixels` would admit it:
 
 ```ts
 const avatars = defineImageSet({ maxBytes: 10 * 1024 * 1024 });
@@ -177,7 +186,7 @@ const avatars = defineImageSet({ maxBytes: 10 * 1024 * 1024 });
 `ImageError`, `code: 'TOO_LARGE'`, `reason: 'pixels'`.
 
 **When:** `process` on an image whose width times height is over `maxPixels`
-(default 50 million, which covers a 48 MP phone).
+(default 25 million, which covers a 24 MP phone; a 48 MP phone is over it).
 **Why:** a small file can decode to a huge image, and the decoded pixels are
 what take the memory. Bun refuses it before decoding, with
 `ERR_IMAGE_TOO_MANY_PIXELS` as `error.cause.code`.
@@ -273,8 +282,8 @@ const avatars = defineImageSet({ sizes: [128, 64] }); // minSide becomes 128
 
 **When:** `process` with a `crop` whose `size` is under `minSide`.
 **Why:** `minSide` applies to the crop's own side when one is given. The
-crop's shape and fit are checked first: a crop that does not fit the image is a
-`RangeError`, whatever its size. Only a crop that fits and is under `minSide`
+crop's shape and fit are checked first: a crop that does not fit the image is an
+`INVALID_CROP`, whatever its size. Only a crop that fits and is under `minSide`
 is `TOO_SMALL`.
 **Fix:** make the cropper UI enforce the same minimum as the `minSide` option,
 so it never offers a smaller crop. Do not raise `size` in code: a larger crop
@@ -362,13 +371,15 @@ defineImageSet({ sizes: [256, 64] });
 
 ### `a crop is { x, y, size }, three whole numbers of 0 or more`
 
-`RangeError`.
+`ImageError`, `code: 'INVALID_CROP'`, `reason: 'crop'`.
 
 **When:** `process` with a `crop` whose `x`, `y` or `size` is a fraction, a
-negative number or not a number.
+negative number or not a number, or a `crop` that is `null` or not an object.
 **Why:** a crop is pixels in the oriented image, as the user sees it.
 Cropper libraries often report fractions.
 **Fix:**
+
+Answer it with a 4xx (400): the crop comes from the request.
 
 ```ts
 const crop = {
@@ -381,7 +392,7 @@ await avatars.process(blob, { crop });
 
 ### `a <size>px crop at (<x>, <y>) does not fit the <w>x<h> image`
 
-`RangeError`.
+`ImageError`, `code: 'INVALID_CROP'`, `reason: 'crop'`.
 
 **When:** `process` with a `crop` that reaches outside the image, or has
 `size` 0.

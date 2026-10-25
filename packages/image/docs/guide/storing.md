@@ -78,7 +78,7 @@ A `size` outside the set's `sizes` is a `RangeError` that names the call:
 `presignGet: size 128 is not one of the set's sizes (256, 64)`. `ImageSet.sizes` is public,
 so a caller can list them.
 
-A refused upload (`ImageError`, or a `RangeError` from a bad crop) comes out
+A refused upload (an `ImageError`, a bad crop included) comes out
 **before anything is written**. S3 errors are rethrown unchanged.
 
 ## What the bucket must accept

@@ -21,13 +21,15 @@ async function throughBun(
 	image: typeof rgb,
 	compressionLevel: number,
 ): Promise<Uint8Array> {
-	return new Bun.Image(encodePng(image)).png({ compressionLevel }).bytes();
+	return new Bun.Image(await encodePng(image))
+		.png({ compressionLevel })
+		.bytes();
 }
 
 describe('png codec', () => {
 	test('round trips exact pixels, RGB and RGBA', async () => {
-		expect(await decodePng(encodePng(rgb))).toEqual(rgb);
-		expect(await decodePng(encodePng(rgba))).toEqual(rgba);
+		expect(await decodePng(await encodePng(rgb))).toEqual(rgb);
+		expect(await decodePng(await encodePng(rgba))).toEqual(rgba);
 	});
 
 	test('reads Bun.Image output at compression level 0 and 9', async () => {
@@ -107,7 +109,7 @@ describe('png codec', () => {
 	});
 
 	test('output of encodePng is a PNG Bun reads', async () => {
-		const metadata = await new Bun.Image(encodePng(rgba)).metadata();
+		const metadata = await new Bun.Image(await encodePng(rgba)).metadata();
 		expect(metadata).toEqual({ width: 37, height: 29, format: 'png' });
 	});
 
@@ -131,7 +133,7 @@ describe('png codec', () => {
 			'IDAT',
 			'IEND',
 		]);
-		const clean = encodePng(await decodePng(noisy));
+		const clean = await encodePng(await decodePng(noisy));
 		expect(chunkTypes(clean)).toEqual(['IHDR', 'IDAT', 'IEND']);
 		expect(await decodePng(clean)).toEqual(rgba);
 	});

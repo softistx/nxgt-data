@@ -7,7 +7,7 @@ describe('image set options', () => {
 		expect(resolveOptions()).toEqual({
 			sizes: [256, 64],
 			maxBytes: 5 * 1024 * 1024,
-			maxPixels: 50_000_000,
+			maxPixels: 25_000_000,
 			minSide: 256,
 			quality: 80,
 			concurrency: 2,

@@ -46,11 +46,14 @@ async function readDimensions(
 }
 
 /**
- * The image shrunk once, as a PNG at Bun's default level. Level 0 is about
- * 15 times faster but Bun 1.4.3 never gives its output back: a loop of
- * `png()` calls grew the process by about 140 MB each
- * (7 GB after 60), where the default level stays flat at the size of one
- * call (measured, 36 MP). Memory that is bounded beats the latency.
+ * The image shrunk once, as a PNG at Bun's default level. That level gives
+ * the smallest PNG, and Bun 1.4.3 holds each `png()` output until a later
+ * collection, so the smallest PNG is the least memory held: a 36 MP photo
+ * gave a 45 MB PNG at the default level and 146 MB at level 0 (Bun 1.4.3,
+ * photo-like JPEG), and a process
+ * grew by about the PNG's size per call (measured). Level 0 is faster, but
+ * its bigger output is what stays. Even so, sequential calls with a small
+ * crop climb before the memory falls back (see `maxPixels`).
  */
 function shrink(
 	bytes: Uint8Array,
@@ -109,7 +112,7 @@ async function cropToPng(
 		},
 		options.maxPixels,
 	);
-	return encodePng(square);
+	return await encodePng(square);
 }
 
 /** The pipeline behind `ImageSet.process`; the steps are in docs/guide/processing.md. */

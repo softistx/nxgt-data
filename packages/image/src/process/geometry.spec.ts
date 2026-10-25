@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { ImageError } from '../errors/image-error';
 import {
 	assertCropFits,
 	assertCropShape,
@@ -59,8 +60,17 @@ describe('centredCrop', () => {
 	});
 });
 
+function codeOf(run: () => void): string | undefined {
+	try {
+		run();
+	} catch (error) {
+		return (error as ImageError).code;
+	}
+	return undefined;
+}
+
 describe('crop checks', () => {
-	test('a shape that is not whole non-negative numbers is a RangeError', () => {
+	test('a shape that is not whole non-negative numbers is INVALID_CROP', () => {
 		for (const crop of [
 			{ x: -1, y: 0, size: 10 },
 			{ x: 0.5, y: 0, size: 10 },
@@ -68,7 +78,8 @@ describe('crop checks', () => {
 			{ x: 0, y: 0, size: Number.POSITIVE_INFINITY },
 			{ x: '1', y: 0, size: 10 } as never,
 		]) {
-			expect(() => assertCropShape(crop)).toThrow(RangeError);
+			expect(() => assertCropShape(crop)).toThrow(ImageError);
+			expect(codeOf(() => assertCropShape(crop))).toBe('INVALID_CROP');
 		}
 		expect(() => assertCropShape({ x: 0, y: 0, size: 0 })).not.toThrow();
 	});
@@ -84,7 +95,7 @@ describe('crop checks', () => {
 			{ x: 0, y: 0, size: 31 },
 			{ x: 0, y: 0, size: 0 },
 		]) {
-			expect(() => assertCropFits(crop, image)).toThrow(RangeError);
+			expect(codeOf(() => assertCropFits(crop, image))).toBe('INVALID_CROP');
 		}
 	});
 });
