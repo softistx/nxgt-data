@@ -50,9 +50,9 @@ async function readStream(
 
 /**
  * The upload's bytes, refused as soon as they pass `maxBytes`. A size known
- * up front (bytes, a buffer, a `Blob`) is checked before anything is read; a
- * stream is read chunk by chunk and cancelled at the chunk that crosses the
- * cap, so no more than the cap plus one chunk is ever held.
+ * up front (bytes, a buffer, a `Blob`) is checked before anything is read, and
+ * a `Blob`'s again once read; a `Blob` of no known size and a stream are
+ * read chunk by chunk and cancelled at the chunk that crosses the cap, so no more than the cap plus one chunk is ever held.
  */
 export async function readInput(
 	input: ImageInput,
@@ -67,8 +67,15 @@ export async function readInput(
 		return new Uint8Array(input);
 	}
 	if (input instanceof Blob) {
-		if (input.size > maxBytes) throw tooLarge(maxBytes);
-		return new Uint8Array(await input.arrayBuffer());
+		// Bun's `S3File` is a Blob whose size is NaN: no comparison with it is
+		// true, so a size that is not a number is read through the cap instead.
+		if (!Number.isFinite(input.size))
+			return readStream(input.stream(), maxBytes);
+		if (!(input.size <= maxBytes)) throw tooLarge(maxBytes);
+		const buffer = await input.arrayBuffer();
+		// The size was only a claim: what was read is checked again.
+		if (buffer.byteLength > maxBytes) throw tooLarge(maxBytes);
+		return new Uint8Array(buffer);
 	}
 	if (input instanceof ReadableStream) return readStream(input, maxBytes);
 	throw new TypeError(
