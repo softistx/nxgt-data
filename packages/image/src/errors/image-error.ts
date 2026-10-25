@@ -15,7 +15,13 @@ export type ImageErrorCode =
 	/** The bytes look like an accepted format but cannot be decoded. */
 	| 'UNDECODABLE'
 	/** The image is smaller than the smallest side the caller asked for. */
-	| 'TOO_SMALL';
+	| 'TOO_SMALL'
+	/**
+	 * The `crop` the caller sent is not three whole numbers of 0 or more, or
+	 * does not fit the image. It can come from a request, so it is a refusal
+	 * to answer with a 4xx, not a bug to answer with a 500.
+	 */
+	| 'INVALID_CROP';
 
 /**
  * Why a refusal happened, for a caller that answers differently per cause.
@@ -28,6 +34,7 @@ export type ImageErrorCode =
  *   (Linux; HEIC decodes on macOS and Windows only).
  * - `decode`: the format is right and the content is damaged or unsupported.
  * - `dimensions`: the image is under the smallest side asked for.
+ * - `crop`: the crop is badly shaped, or does not fit the image.
  */
 export type ImageErrorReason =
 	| 'bytes'
@@ -35,7 +42,8 @@ export type ImageErrorReason =
 	| 'format'
 	| 'heic-unavailable'
 	| 'decode'
-	| 'dimensions';
+	| 'dimensions'
+	| 'crop';
 
 /**
  * This package's error class for refusals. Every one of them is thrown

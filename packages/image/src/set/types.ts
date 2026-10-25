@@ -39,7 +39,7 @@ export type ImageSet = {
 	/**
 	 * Checks, crops, resizes and re-encodes an upload to WebP, with every
 	 * metadata stripped. Refusals are `ImageError`; a `crop` that is not
-	 * whole numbers or does not fit the image is a `RangeError`.
+	 * whole numbers or does not fit the image is an `ImageError` (`INVALID_CROP`).
 	 */
 	process(input: ImageInput, options?: ProcessOptions): Promise<ProcessedImage>;
 };
