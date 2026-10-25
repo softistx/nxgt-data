@@ -40,7 +40,11 @@ export function centredCrop({ width, height }: Dimensions): CropBox {
  * `ImageError` (`INVALID_CROP`): the crop can come from a request.
  */
 export function assertCropShape(crop: CropBox): void {
-	if (![crop.x, crop.y, crop.size].every((value) => isWhole(value))) {
+	if (
+		typeof crop !== 'object' ||
+		crop === null ||
+		![crop.x, crop.y, crop.size].every((value) => isWhole(value))
+	) {
 		throw new ImageError(
 			'INVALID_CROP',
 			'crop',

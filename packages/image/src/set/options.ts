@@ -26,7 +26,8 @@ export type ImageSetOptions = {
 	 * small caller `crop` on a big image, or large `sizes`. Measured on
 	 * Bun 1.4.3, photo-like JPEGs, one call: a 256 px crop on 25 MP grows the
 	 * process by about 150 MB (2.7 s), on 36 MP about 210 MB (4 s), on 49 MP
-	 * about 280 MB (5.4 s); `sizes: [4096]` on 49 MP about 940 MB (8 s).
+	 * about 280 MB (5.4 s); `sizes: [4096]` on 49 MP about 0.9 to 1.3 GB (9 s) and `[2048]` about
+	 * 460 to 530 MB (3 s).
 	 *
 	 * **Bun 1.4.3 holds on to each `png()` output** (about the size of that
 	 * PNG per call) until a later collection, so sequential worst-case calls

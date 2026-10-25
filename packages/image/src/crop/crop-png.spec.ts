@@ -136,19 +136,26 @@ describe('cropPng: a region', () => {
 		}
 		const good = new Uint8Array(deflateSync(raw));
 		const last = { x: 0, y: rgba.height - 1, width: 8, height: 1 };
-		expect((await cropPng(writePng(rgba, { idat: good }), last)).width).toBe(8);
+		// The zlib tail (the checksum, or what follows it) is its own IDAT chunk,
+		// so the last row is delivered before the tail is seen.
+		const withTail = (head: Uint8Array, tail: Uint8Array) =>
+			concat([
+				writePng(rgba).subarray(0, 33),
+				chunk('IDAT', head),
+				chunk('IDAT', tail),
+				chunk('IEND', new Uint8Array(0)),
+			]);
+		const cut4 = good.length - 4;
+		const adler = good.slice(cut4);
+		const head = good.subarray(0, cut4);
+		expect((await cropPng(withTail(head, adler), last)).width).toBe(8);
 
-		const badAdler = good.slice();
-		badAdler[badAdler.length - 1] =
-			(badAdler[badAdler.length - 1] as number) ^ 0xff;
-		await refused(
-			cropPng(writePng(rgba, { idat: badAdler }), last),
-			'valid zlib',
-		);
+		const badAdler = adler.slice();
+		badAdler[3] = (badAdler[3] as number) ^ 0xff;
+		await refused(cropPng(withTail(head, badAdler), last), 'valid zlib');
 
-		const trailing = concat([good, new Uint8Array([1, 2, 3, 4])]);
 		await refused(
-			cropPng(writePng(rgba, { idat: trailing }), last),
+			cropPng(withTail(head, concat([adler, new Uint8Array([1, 2, 3])])), last),
 			'valid zlib',
 		);
 	});

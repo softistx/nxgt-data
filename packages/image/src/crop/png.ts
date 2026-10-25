@@ -35,9 +35,10 @@ export function chunk(type: string, data: Uint8Array): Uint8Array {
  * with their CRCs, and nothing else, so no metadata can be in it.
  *
  * The deflate runs on zlib's thread pool, not the main thread: a large crop
- * took up to 1.8 s synchronously, during which the event loop stood still. It
- * is level 1, since this PNG only lives for one pipeline step (it is decoded
- * again at once), so speed beats size.
+ * stopped the event loop for 1.1 s synchronously (`[4096]` on 36 MP; 0.3 s
+ * after). It costs memory, though: about 250 to 300 MB more at the `[4096]`
+ * peak on 49 MP. It is level 1, since this PNG only lives for one pipeline
+ * step (it is decoded again at once), so speed beats size.
  */
 export async function encodePng(image: RawImage): Promise<Uint8Array> {
 	const { width, height, channels, pixels } = image;

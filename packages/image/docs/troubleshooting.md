@@ -139,7 +139,7 @@ Measured on photo-like JPEGs: a 256 px crop grows the process by about 150 MB
 at 25 MP, 210 MB at 36 MP and 280 MB at 49 MP in one call, and 70 sequential
 calls climbed to 716 MB at 25 MP and past 1.6 GB at 36 MP. Centred crops with
 small sizes stay at about 17 MB; a small crop on a huge image, or large `sizes`
-(`[4096]` on 49 MP peaked at 940 MB), are the expensive path.
+(`[4096]` on 49 MP peaked at 0.9 to 1.3 GB), are the expensive path.
 `concurrency` limits the calls in flight, not this retention, so it is not a
 hard ceiling.
 **Fix:** lower `maxPixels` to what your users really upload (the default is
@@ -282,7 +282,7 @@ const avatars = defineImageSet({ sizes: [128, 64] }); // minSide becomes 128
 
 **When:** `process` with a `crop` whose `size` is under `minSide`.
 **Why:** `minSide` applies to the crop's own side when one is given. The
-crop's shape and fit are checked first: a crop that does not fit the image is a
+crop's shape and fit are checked first: a crop that does not fit the image is an
 `INVALID_CROP`, whatever its size. Only a crop that fits and is under `minSide`
 is `TOO_SMALL`.
 **Fix:** make the cropper UI enforce the same minimum as the `minSide` option,

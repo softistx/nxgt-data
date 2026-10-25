@@ -219,8 +219,8 @@ growth of the process's RSS for one call, each in a fresh process:
 | 49 MP, centred crop | Peak | Time |
 | --- | --- | --- |
 | `sizes: [1024]` | 105 MB | 0.7 s |
-| `sizes: [2048]` | 469 MB | 2.6 s |
-| `sizes: [4096]` | 940 MB | 8.1 s |
+| `sizes: [2048]` | 460 to 530 MB | 3 s |
+| `sizes: [4096]` | 0.9 to 1.3 GB | 9 s |
 
 A **centred crop with small sizes is cheap**: the shrink makes a small image
 first. The **expensive path** is a small `crop` on a huge image (the shrink
@@ -253,8 +253,10 @@ const avatars = defineImageSet({ concurrency: 1, maxPixels: 16_000_000 });
 ```
 
 The crop PNG is encoded on zlib's thread pool, so a large crop does not stop the
-event loop (measured with `sizes: [2048]` on 36 MP: the longest stall fell from
-900 ms to 240 ms, and with `[4096]` from 1.1 s to 0.3 s).
+event loop: with `sizes: [4096]` on 36 MP the longest stall fell from 1.1 s to
+0.3 s. That costs memory: the async encode adds about 250 to 300 MB at the
+`[4096]` peak on 49 MP (the figures above are measured on the async build; the
+spread is run to run and between two measurers).
 
 ## Metadata and colour
 

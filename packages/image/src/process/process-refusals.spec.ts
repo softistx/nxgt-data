@@ -111,6 +111,9 @@ describe('process: refusals', () => {
 			{ x: 350, y: 0, size: 100 },
 			{ x: 0, y: 101, size: 100 },
 			{ x: 0, y: 0, size: 201 },
+			null as never,
+			'a crop' as never,
+			42 as never,
 		]) {
 			const error = await refused(
 				set.process(png, { crop }),

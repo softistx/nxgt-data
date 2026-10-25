@@ -43,7 +43,7 @@ bun add @nxgt/s3   # optional: only for @nxgt/image/s3
 is a `Uint8Array`, an `ArrayBuffer`, a `Blob` or a `ReadableStream<Uint8Array>`.
 
 ```ts
-import { defineImageSet, ImageError } from '@nxgt/image';
+import { defineImageSet, ImageError, type ImageErrorCode } from '@nxgt/image';
 import { Hono } from 'hono'; // hono is only the example router
 
 const avatars = defineImageSet({ sizes: [256, 64] });
@@ -62,9 +62,17 @@ app.post('/avatar', async (c) => {
 	} catch (error) {
 		if (error instanceof ImageError) {
 			// a 4xx for every refusal: the upload or the crop is the caller's
-			const statuses = { TOO_LARGE: 413, UNSUPPORTED_TYPE: 415, INVALID_CROP: 400 };
-			const status = statuses[error.code as keyof typeof statuses] ?? 422;
-			return c.json({ error: error.code, reason: error.reason }, status);
+			const statuses = {
+				TOO_LARGE: 413,
+				UNSUPPORTED_TYPE: 415,
+				UNDECODABLE: 422,
+				TOO_SMALL: 422,
+				INVALID_CROP: 400,
+			} as const satisfies Record<ImageErrorCode, number>;
+			return c.json(
+				{ error: error.code, reason: error.reason },
+				statuses[error.code],
+			);
 		}
 		throw error; // anything else is a 500
 	}
