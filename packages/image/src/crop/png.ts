@@ -45,8 +45,11 @@ function chunksOf(bytes: Uint8Array): { type: string; data: Uint8Array }[] {
  * to RGB and RGBA. Every other chunk (colour profile, EXIF, text) is read
  * past and dropped, which is how a re-encode strips them. A chunk's CRC is
  * not checked; the zlib stream's own checksum is.
+ *
+ * `maxPixels` refuses a PNG whose header claims more pixels, before anything
+ * is inflated: `TOO_LARGE` with the reason `pixels`.
  */
-export function decodePng(bytes: Uint8Array): RawImage {
+export function decodePng(bytes: Uint8Array, maxPixels?: number): RawImage {
 	const chunks = chunksOf(bytes);
 	const header = chunks.find((chunk) => chunk.type === 'IHDR')?.data;
 	if (header === undefined || header.length !== 13)
@@ -59,6 +62,13 @@ export function decodePng(bytes: Uint8Array): RawImage {
 	const interlace = header[12];
 	if (width < 1 || height < 1 || width > 0x7fffffff || height > 0x7fffffff) {
 		throw refuse('the size is not valid');
+	}
+	if (maxPixels !== undefined && width * height > maxPixels) {
+		throw new ImageError(
+			'TOO_LARGE',
+			'pixels',
+			`the PNG has ${width}x${height} pixels, over the ${maxPixels} limit`,
+		);
 	}
 	if (depth !== 8) throw refuse('only 8-bit samples are read');
 	if (interlace !== 0) throw refuse('an interlaced PNG is not read');
