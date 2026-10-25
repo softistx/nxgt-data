@@ -78,8 +78,9 @@ defineImageSet({ quality: 0 }); // TypeError: quality must be a whole number of 
 ```
 
 `minSide` applies to the short side of the image, or to `crop.size` when a crop
-is given. It is checked **before** the crop is fitted, so a crop that is too
-small is `TOO_SMALL`, whatever its position.
+is given. It is checked **after** the crop's shape and fit: a crop that does
+not fit the image is a `RangeError` whatever its size, and a crop that fits but
+is under `minSide` is `TOO_SMALL`.
 
 ## The crop
 
@@ -191,8 +192,7 @@ const avatars = defineImageSet({ concurrency: 1, maxPixels: 25_000_000 });
 Every variant is a fresh WebP: ICC profile, EXIF (GPS included), XMP and every
 other metadata are gone.
 
-**The pixels are not converted to sRGB.** Bun decodes without colour
-management and the intermediate PNG step drops the profile, so a Display P3 or
-Adobe RGB photo keeps its values but loses the profile that said how to read
-them. It may look a little flatter. If colour accuracy matters, convert to
+**The pixels are not converted to sRGB.** The ICC profile is dropped and this
+package does not convert the pixels to sRGB, so a Display P3 or Adobe RGB photo
+may look a little flatter. If colour accuracy matters, convert to
 sRGB before the upload reaches this package.

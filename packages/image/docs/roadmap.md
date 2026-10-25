@@ -26,7 +26,7 @@ _Nothing queued._
 ## Not planned
 
 - **A third-party image library (sharp)** — the package runs on Bun's own
-  `Bun.Image` and installs no dependency at all. That is the point of it, and
+  `Bun.Image` and has no required dependency (`@nxgt/s3` is an optional peer). That is the point of it, and
   a feature Bun lacks waits for Bun, as the entries under Later do.
 - **Public URLs** — a stored image is never public: no `acl` is ever passed,
   and a link comes from `presignGet`, which expires.

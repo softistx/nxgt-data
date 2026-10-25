@@ -18,15 +18,15 @@ const { variants } = await avatars.process(await request.blob());
 ## Install
 
 ```sh
-bun add @nxgt/image typescript @types/bun
+bun add @nxgt/image typescript @types/bun@^1.4.1
 bun add @nxgt/s3   # optional: only for @nxgt/image/s3
 ```
 
 - **Bun 1.4.1 or later, and Bun only.** `Bun.Image` landed in 1.4.1; this
   package does not run on Node. It has no required dependency: the image
-  work is Bun's own.
+  work is Bun's own. HEIC decodes on macOS and Windows and is refused on Linux.
 - `typescript` `^6.0.3 || ^7.0.0`: required peer.
-- `@types/bun`: needed to typecheck the shipped declarations.
+- `@types/bun` `^1.4.1`: needed to typecheck the shipped declarations.
 - `@nxgt/s3`: **optional** peer, needed only for the `/s3` subpath. The root
   entry never imports it.
 
@@ -44,7 +44,7 @@ is a `Uint8Array`, an `ArrayBuffer`, a `Blob` or a `ReadableStream<Uint8Array>`.
 
 ```ts
 import { defineImageSet, ImageError } from '@nxgt/image';
-import { Hono } from 'hono';
+import { Hono } from 'hono'; // hono is only the example router
 
 const avatars = defineImageSet({ sizes: [256, 64] });
 const app = new Hono();
@@ -153,7 +153,7 @@ const { variants } = await avatars.process(await request.blob(), {
 ```
 
 A crop that is not three whole numbers of 0 or more, or does not fit the image,
-is a `RangeError`. A crop under `minSide` is refused as `TOO_SMALL`.
+is a `RangeError`. A crop that fits but is under `minSide` is refused as `TOO_SMALL`.
 
 ## Output and metadata
 
@@ -169,10 +169,9 @@ await Bun.write('avatar-256.webp', large.bytes);
 await Bun.write('avatar-64.webp', small.bytes);
 ```
 
-**Colour is not converted.** Bun decodes without colour management and the
-intermediate PNG step drops the profile, so a Display P3 or Adobe RGB photo
-keeps its pixel values but loses the profile that said how to read them: it may
-look a little flatter. The pixels are not converted to sRGB.
+**Colour is not converted.** The ICC profile is dropped and this package does
+not convert the pixels to sRGB, so a Display P3 or Adobe RGB photo may look a
+little flatter.
 
 ## Errors
 
@@ -200,6 +199,15 @@ try {
 
 Other errors (a bad crop, an S3 failure, an out-of-memory) are not turned into
 an `ImageError`.
+
+The exact messages of the other errors, each explained in
+[troubleshooting](docs/troubleshooting.md):
+
+- `TypeError`: [`image input must be a Uint8Array, an ArrayBuffer, a Blob or a ReadableStream of Uint8Array`](docs/troubleshooting.md#image-input-must-be-a-uint8array-an-arraybuffer-a-blob-or-a-readablestream-of-uint8array)
+- `TypeError` from an option: [`<option> must be a whole number of <min> or more, got <value>`, `<option> must be a whole number of <min> to <max>, got <value>`, `sizes must be a non-empty array of whole numbers`, `sizes must be unique, got [<sizes>]`](docs/troubleshooting.md#input-and-options)
+- `RangeError`: [`a crop is { x, y, size }, three whole numbers of 0 or more`](docs/troubleshooting.md#a-crop-is--x-y-size--three-whole-numbers-of-0-or-more)
+- `RangeError`: [`a <size>px crop at (<x>, <y>) does not fit the <w>x<h> image`](docs/troubleshooting.md#a-sizepx-crop-at-x-y-does-not-fit-the-wxh-image)
+- `TypeError` on an old Bun: [`@nxgt/image needs Bun 1.4.1 or later, where Bun.Image exists`](docs/troubleshooting.md#nxgtimage-needs-bun-141-or-later-where-bunimage-exists)
 
 ## Documentation
 

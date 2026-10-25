@@ -268,13 +268,17 @@ const avatars = defineImageSet({ sizes: [128, 64] }); // minSide becomes 128
 `ImageError`, `code: 'TOO_SMALL'`, `reason: 'dimensions'`.
 
 **When:** `process` with a `crop` whose `size` is under `minSide`.
-**Why:** `minSide` applies to the crop's own side when one is given, and is
-checked before the shrink, so a crop that is too small is `TOO_SMALL`, not a
-`RangeError`.
-**Fix:** make the cropper's minimum equal to the set's `minSide`:
+**Why:** `minSide` applies to the crop's own side when one is given. The
+crop's shape and fit are checked first: a crop that does not fit the image is a
+`RangeError`, whatever its size. Only a crop that fits and is under `minSide`
+is `TOO_SMALL`.
+**Fix:** make the cropper UI enforce the same minimum as the `minSide` option,
+so it never offers a smaller crop. Do not raise `size` in code: a larger crop
+at the same `x` and `y` can reach outside the image.
 
 ```ts
-await avatars.process(blob, { crop: { x, y, size: Math.max(size, 256) } });
+const avatars = defineImageSet({ sizes: [256, 64] }); // minSide is 256
+// cropper: minimum crop size 256, the same number as the set's minSide
 ```
 
 ## Input and options
@@ -410,11 +414,27 @@ point at nothing.
 **Fix:** read the sizes off the set rather than writing numbers twice:
 
 ```ts
+import { defineImageSet } from '@nxgt/image';
 import { bindImageStore } from '@nxgt/image/s3';
+import { bindBucket, defineBucket } from '@nxgt/s3';
+
+const avatarBucket = defineBucket({
+	bucket: 'avatars',
+	key: (p: { imageId: string; size: number }) =>
+		`avatars/${p.imageId}/${p.size}.webp`,
+});
 
 const set = defineImageSet({ sizes: [256, 64] });
-const store = bindImageStore(set, bindBucket(avatars));
-await store.presignGet({ imageId }, set.sizes[0]);
+const store = bindImageStore(
+	set,
+	bindBucket(avatarBucket, {
+		endpoint: 'https://s3.example.com', // your own, from the environment
+		accessKeyId: 'access-key',
+		secretAccessKey: 'secret-key',
+	}),
+);
+const imageId = crypto.randomUUID();
+store.presignGet({ imageId }, set.sizes[0]);
 ```
 
 Refusals of the upload (`TOO_LARGE`, `UNSUPPORTED_TYPE`, ...) happen in
