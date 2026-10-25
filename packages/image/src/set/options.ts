@@ -56,7 +56,7 @@ export type ResolvedOptions = {
 
 const DEFAULT_SIZES: readonly number[] = [256, 64];
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
-const DEFAULT_MAX_PIXELS = 50_000_000;
+const DEFAULT_MAX_PIXELS = 25_000_000;
 const DEFAULT_QUALITY = 80;
 const DEFAULT_CONCURRENCY = 2;
 const MAX_CONCURRENCY = 64;
