@@ -108,7 +108,9 @@ const { version } = await avatars.replace({ imageId }, await request.blob());
 const url = avatars.presignGet({ imageId }, 64, { expiresIn: 300 });
 ```
 
-Objects are never public. See [storing](docs/guide/storing.md) for why the key
+Objects are never public. The bucket must accept `image/webp` and a `maxSize` of at
+least the largest variant, and must be bound **without a public default `acl`**
+(Bun would send it on every put). See [storing](docs/guide/storing.md) for why the key
 carries a fresh id, how to serve images, and what a failed put leaves behind.
 
 ## Options
@@ -120,10 +122,10 @@ set is defined.
 | --- | --- | --- | --- |
 | `sizes` | `number[]` | `[256, 64]` | the square sides to produce: unique whole numbers, 1 to 4096 |
 | `maxBytes` | `number` | 5 MiB | the upload's byte limit |
-| `maxPixels` | `number` | `50_000_000` | the most pixels (width x height) an upload may claim |
+| `maxPixels` | `number` | `50_000_000` | the most pixels (width x height) an upload may claim; the default means up to about 225 MB per decoding call |
 | `minSide` | `number` | the largest of `sizes` | the smallest side the upload, or its crop, may have, so nothing is enlarged |
 | `quality` | `number` | `80` | the WebP quality, 1 to 100 |
-| `concurrency` | `number` | `2` | how many uploads decode at once, 1 to 64; bounds memory |
+| `concurrency` | `number` | `2` | how many uploads decode at once, 1 to 64; bounds memory: about 4.5 bytes per pixel per decoding call (150 MB for a 36 MP photo) |
 
 ```ts
 import { defineImageSet } from '@nxgt/image';
@@ -154,6 +156,7 @@ const { variants } = await avatars.process(await request.blob(), {
 
 A crop that is not three whole numbers of 0 or more, or does not fit the image,
 is a `RangeError`. A crop that fits but is under `minSide` is refused as `TOO_SMALL`.
+Orientation is applied for a JPEG only; a PNG or WebP orientation tag is ignored.
 
 ## Output and metadata
 
@@ -181,7 +184,7 @@ check failed. Every one is thrown before anything is stored.
 | `code` | `reason` | When |
 | --- | --- | --- |
 | `TOO_LARGE` | `bytes`, `pixels` | the upload is over `maxBytes`, or claims more than `maxPixels` |
-| `UNSUPPORTED_TYPE` | `format`, `heic-unavailable` | the first bytes are not a JPEG, PNG, WebP or HEIC, or a HEIC on a machine that cannot decode one (Linux) |
+| `UNSUPPORTED_TYPE` | `format`, `heic-unavailable` | the first bytes are not a JPEG, PNG, WebP or HEIC, a HEIC on a machine that cannot decode one (Linux), or a format this machine cannot decode |
 | `UNDECODABLE` | `decode` | the format is right and the content is damaged or unsupported |
 | `TOO_SMALL` | `dimensions` | the short side, or the crop, is under `minSide` |
 

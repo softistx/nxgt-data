@@ -16,8 +16,9 @@ const bucket = defineBucket({
 		`avatars/${p.imageId}/${p.size}.webp`,
 });
 
+const avatarSet = defineImageSet({ sizes: [256, 64] });
 const avatars = bindImageStore(
-	defineImageSet({ sizes: [256, 64] }),
+	avatarSet,
 	bindBucket(bucket, {
 		endpoint: 'https://s3.example.com', // your own, from the environment
 		accessKeyId: 'access-key',
@@ -73,12 +74,24 @@ type StoredVariant = {
 | `bytes(params, size)` | the bytes of one size, `undefined` when missing |
 | `keyFor(params, size)` | the key of one size |
 
-A `size` outside the set's `sizes` is a `RangeError`:
-`size 128 is not one of the set's sizes (256, 64)`. `ImageSet.sizes` is public,
+A `size` outside the set's `sizes` is a `RangeError` that names the call:
+`presignGet: size 128 is not one of the set's sizes (256, 64)`. `ImageSet.sizes` is public,
 so a caller can list them.
 
 A refused upload (`ImageError`, or a `RangeError` from a bad crop) comes out
 **before anything is written**. S3 errors are rethrown unchanged.
+
+## What the bucket must accept
+
+`replace` puts `image/webp`, so the bucket's `contentType` (if the definition
+names one) must include it, and its `maxSize` must be at least the largest
+variant. Otherwise every put is refused before it is sent and `replace` throws
+that refusal; nothing is deleted, since nothing was written.
+
+Bind the bucket **without a public default `acl`**: the store passes none, so
+Bun would send the bucket's on every put. Some services (AWS buckets with ACLs
+disabled, the default) refuse an ACL header outright. A bucket policy can still
+make objects public if you want that.
 
 ## Use a fresh id per upload
 
@@ -99,25 +112,32 @@ if (former) await avatars.remove({ imageId: former });
 Why not a fixed key such as `{ userId }`? Because the replacing upload would
 land on the same keys as the image it replaces, and the cleanup that follows
 ("remove the former image") would then delete the **new** one. A fixed key
-also has a failure mode of its own: a failed put cleans up every size of those
-params, which removes the existing image too. With a fresh id, a failed
-`replace` touches only objects nobody references yet.
+also has a failure mode of its own: a failed `replace` may have overwritten
+some sizes before another failed, and the cleanup removes those. With a fresh
+id, a failed `replace` touches only objects nobody references yet.
+
+Keep this order: save the id, then remove the former image, and never inside a
+transaction that may roll back (the bytes would be gone while the row points at
+them). `remove` on a service that answers 404 to a delete of a missing object
+(for example GCS) throws `NoSuchKey`; a versioned bucket keeps the bytes behind
+delete markers, so expire old versions with a lifecycle rule.
 
 If the process dies between `replace` and `remove`, the former image stays as
 an unreferenced object: sweep for those with a lifecycle rule or a job.
 
 ## A failed put
 
-`replace` puts every size at once. If one put fails, it deletes every size of
-those params (best effort) and rethrows the first put error, first meaning
-first in the order of `sizes`, not first in time. A put that rejected on a
-client timeout may still land on the server after the delete; under a fresh id
-that leaves at worst one unreferenced object.
+`replace` puts every size at once. If one put fails, it deletes the keys whose
+put succeeded (best effort), never the key whose put was refused, and rethrows
+the first put error, first meaning first in the order of `sizes`, not first in
+time. A put that failed after sending (a network error) may still land on the
+server after the delete; under a fresh id that leaves at worst one unreferenced
+object.
 
 ## Serving
 
-Objects are **never public**: the store passes no `acl`. Serve them through a
-signed URL or through your own route.
+Objects are **never public**: the store passes no `acl` (bind the bucket without
+a public one). Serve them through a signed URL or through your own route.
 
 ```ts
 // a signed URL, valid for 5 minutes
@@ -125,10 +145,9 @@ const url = avatars.presignGet({ imageId }, 64, { expiresIn: 300 });
 
 // or stream it from a route
 app.get('/avatars/:imageId/:size', async (c) => {
-	const bytes = await avatars.bytes(
-		{ imageId: c.req.param('imageId') },
-		Number(c.req.param('size')),
-	);
+	const size = Number(c.req.param('size'));
+	if (!avatarSet.sizes.includes(size)) return c.notFound();
+	const bytes = await avatars.bytes({ imageId: c.req.param('imageId') }, size);
 	if (!bytes) return c.notFound();
 	return c.body(bytes, 200, {
 		'Content-Type': 'image/webp',
@@ -138,7 +157,9 @@ app.get('/avatars/:imageId/:size', async (c) => {
 ```
 
 A size that is not in the set throws a `RangeError` before any request is
-made, so a route that takes the size from a URL should catch it and answer 404.
+made: it is the caller's bug, so the route checks the URL parameter against
+`set.sizes` first and answers 404, as above (`avatarSet` is the set passed to
+`bindImageStore`).
 
 ## `version`
 

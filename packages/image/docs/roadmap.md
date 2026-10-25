@@ -18,6 +18,8 @@ _Nothing queued._
   `UNSUPPORTED_TYPE` and the reason `heic-unavailable`.
 - **A crop done by Bun itself** — the same square for less memory, if Bun
   adds a crop of its own.
+- **Cancel a queued call (`AbortSignal`)** — a call that waits for a free
+  decoding slot gives up when its caller does, instead of holding its bytes.
 - **Colour conversion to sRGB** — a wide-gamut photo keeps its colours instead
   of losing its profile, if Bun supports the conversion.
 - **A low-quality placeholder per image** — a tiny blurred preview to show
