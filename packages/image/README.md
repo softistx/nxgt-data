@@ -207,9 +207,11 @@ The exact messages of the other errors, each explained in
 [troubleshooting](docs/troubleshooting.md):
 
 - `TypeError`: [`image input must be a Uint8Array, an ArrayBuffer, a Blob or a ReadableStream of Uint8Array`](docs/troubleshooting.md#image-input-must-be-a-uint8array-an-arraybuffer-a-blob-or-a-readablestream-of-uint8array)
+- `TypeError`: [`a stream chunk must be a Uint8Array`](docs/troubleshooting.md#a-stream-chunk-must-be-a-uint8array)
 - `TypeError` from an option: [`<option> must be a whole number of <min> or more, got <value>`, `<option> must be a whole number of <min> to <max>, got <value>`, `sizes must be a non-empty array of whole numbers`, `sizes must be unique, got [<sizes>]`](docs/troubleshooting.md#input-and-options)
 - `RangeError`: [`a crop is { x, y, size }, three whole numbers of 0 or more`](docs/troubleshooting.md#a-crop-is--x-y-size--three-whole-numbers-of-0-or-more)
 - `RangeError`: [`a <size>px crop at (<x>, <y>) does not fit the <w>x<h> image`](docs/troubleshooting.md#a-sizepx-crop-at-x-y-does-not-fit-the-wxh-image)
+- `RangeError`: [`<call>: size <n> is not one of the set's sizes (<sizes>)`](docs/troubleshooting.md#call-size-n-is-not-one-of-the-sets-sizes-sizes)
 - `TypeError` on an old Bun: [`@nxgt/image needs Bun 1.4.1 or later, where Bun.Image exists`](docs/troubleshooting.md#nxgtimage-needs-bun-141-or-later-where-bunimage-exists)
 
 ## Documentation

@@ -38,7 +38,7 @@ Any other error is not this package's: it is rethrown untouched (see
 - **Crops**
   - [`a crop is { x, y, size }, three whole numbers of 0 or more`](#a-crop-is--x-y-size--three-whole-numbers-of-0-or-more)
   - [`a <size>px crop at (<x>, <y>) does not fit the <w>x<h> image`](#a-sizepx-crop-at-x-y-does-not-fit-the-wxh-image)
-  - [`a <size>px square at (<x>, <y>) does not fit a <w>x<h> image`](#a-sizepx-square-at-x-y-does-not-fit-a-wxh-image)
+  - [`a <w>x<h> region at (<x>, <y>) does not fit a <w>x<h> image`](#a-wxh-region-at-x-y-does-not-fit-a-wxh-image)
 - **Storage (`@nxgt/image/s3`)**
   - [`<call>: size <n> is not one of the set's sizes (<sizes>)`](#call-size-n-is-not-one-of-the-sets-sizes-sizes)
   - [An S3 error from `replace`](#an-s3-error-from-replace)
@@ -395,7 +395,7 @@ get a centred square:
 await avatars.process(blob); // centred square of the short side
 ```
 
-### `a <size>px square at (<x>, <y>) does not fit a <w>x<h> image`
+### `a <w>x<h> region at (<x>, <y>) does not fit a <w>x<h> image`
 
 `RangeError`.
 
@@ -411,7 +411,8 @@ image's size and format, and the crop given.
 
 `RangeError`, from `@nxgt/image/s3`, for example
 `presignGet: size 128 is not one of the set's sizes (256, 64)`. `<call>` is
-`presignGet`, `bytes`, `keyFor`, `replace` or `remove`.
+`presignGet`, `bytes` or `keyFor` for a caller; `replace` and `remove` use the
+same text internally.
 
 **When:** `presignGet`, `bytes` or `keyFor` of a store, with a `size` the set
 does not produce. It is the caller's bug, so it is a `RangeError`, not an
