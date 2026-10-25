@@ -1,52 +1,53 @@
 /**
- * PNG row filters (spec section 9), undone in place. `raw` holds each row as
- * one filter-type byte then `stride` bytes; the result is the rows without
- * their filter bytes, `bpp` being the bytes per pixel.
+ * Undoes one PNG row filter (spec section 9), in place. `row` holds the
+ * filtered bytes of one row, `previous` the unfiltered row above it (all zero
+ * for the first row), both `stride` bytes long from `offset`; `bpp` is the
+ * bytes per pixel.
  *
- * Returns `false` for a filter byte the spec does not define.
+ * Returns `false` for a filter type the spec does not define.
  */
-export function unfilter(
-	raw: Uint8Array,
-	width: number,
-	height: number,
+export function unfilterRow(
+	type: number,
+	row: Uint8Array,
+	previous: Uint8Array,
+	offset: number,
+	stride: number,
 	bpp: number,
-): Uint8Array | false {
-	const stride = width * bpp;
-	const out = new Uint8Array(stride * height);
-	for (let y = 0; y < height; y++) {
-		const type = raw[y * (stride + 1)];
-		const src = y * (stride + 1) + 1;
-		const row = y * stride;
-		const above = row - stride;
-		for (let i = 0; i < stride; i++) {
-			const x = raw[src + i] as number;
-			const left = i >= bpp ? (out[row + i - bpp] as number) : 0;
-			const up = y > 0 ? (out[above + i] as number) : 0;
-			const upLeft = y > 0 && i >= bpp ? (out[above + i - bpp] as number) : 0;
-			let predicted: number;
-			switch (type) {
-				case 0:
-					predicted = 0;
-					break;
-				case 1:
-					predicted = left;
-					break;
-				case 2:
-					predicted = up;
-					break;
-				case 3:
-					predicted = (left + up) >> 1;
-					break;
-				case 4:
-					predicted = paeth(left, up, upLeft);
-					break;
-				default:
-					return false;
+): boolean {
+	const end = offset + stride;
+	switch (type) {
+		case 0:
+			return true;
+		case 1:
+			for (let i = offset + bpp; i < end; i++) {
+				row[i] = ((row[i] as number) + (row[i - bpp] as number)) & 0xff;
 			}
-			out[row + i] = (x + predicted) & 0xff;
-		}
+			return true;
+		case 2:
+			for (let i = offset; i < end; i++) {
+				row[i] = ((row[i] as number) + (previous[i] as number)) & 0xff;
+			}
+			return true;
+		case 3:
+			for (let i = offset; i < end; i++) {
+				const left = i - bpp >= offset ? (row[i - bpp] as number) : 0;
+				row[i] =
+					((row[i] as number) + ((left + (previous[i] as number)) >> 1)) & 0xff;
+			}
+			return true;
+		case 4:
+			for (let i = offset; i < end; i++) {
+				const has = i - bpp >= offset;
+				const left = has ? (row[i - bpp] as number) : 0;
+				const upLeft = has ? (previous[i - bpp] as number) : 0;
+				row[i] =
+					((row[i] as number) + paeth(left, previous[i] as number, upLeft)) &
+					0xff;
+			}
+			return true;
+		default:
+			return false;
 	}
-	return out;
 }
 
 function paeth(a: number, b: number, c: number): number {

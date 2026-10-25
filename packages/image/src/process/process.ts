@@ -1,5 +1,5 @@
-import { cropPixels } from '../crop/crop-pixels';
-import { decodePng, encodePng, type RawImage } from '../crop/png';
+import { cropPng } from '../crop/crop-png';
+import { encodePng } from '../crop/png';
 import { ImageError } from '../errors/image-error';
 import { type ImageInput, readInput } from '../input/read-input';
 import { type SniffedFormat, sniffFormat } from '../input/sniff';
@@ -40,14 +40,17 @@ async function readDimensions(
 	maxPixels: number,
 ): Promise<Dimensions> {
 	const { width, height } = await guarded(format, () =>
-		new Bun.Image(bytes, { maxPixels }).metadata(),
+		new Bun.Image(bytes, { maxPixels, autoOrient: true }).metadata(),
 	);
 	return { width, height };
 }
 
 /**
- * The image shrunk once, as an uncompressed PNG: level 0 measured faster
- * overall than the default (the decode that follows is cheaper too).
+ * The image shrunk once, as a PNG at Bun's default level. Level 0 is about
+ * 15 times faster but Bun 1.4.3 never gives its output back: a loop of
+ * `png()` calls grew the process by about 140 MB each
+ * (7 GB after 60), where the default level stays flat at the size of one
+ * call (measured, 36 MP). Memory that is bounded beats the latency.
  */
 function shrink(
 	bytes: Uint8Array,
@@ -57,22 +60,22 @@ function shrink(
 	maxPixels: number,
 ): Promise<Uint8Array> {
 	return guarded(format, () => {
-		let pipeline = new Bun.Image(bytes, { maxPixels });
+		let pipeline = new Bun.Image(bytes, { maxPixels, autoOrient: true });
 		if (scale < 1) {
 			const to = scaledDimensions(image, scale);
 			pipeline = pipeline.resize(to.width, to.height, { fit: 'fill' });
 		}
-		return pipeline.png({ compressionLevel: 0 }).bytes();
+		return pipeline.png().bytes();
 	});
 }
 
 function variantOf(
-	cropPng: Uint8Array,
+	square: Uint8Array,
 	size: number,
 	quality: number,
 ): Promise<ImageVariant> {
 	return guarded('png', () =>
-		new Bun.Image(cropPng)
+		new Bun.Image(square)
 			.resize(size, size, { fit: 'fill' })
 			.webp({ quality })
 			.bytes(),
@@ -86,9 +89,9 @@ function variantOf(
 }
 
 /**
- * The crop as a PNG. Each full-size buffer is dropped as soon as the next
- * step has what it needs (the shrunk PNG once decoded, the decoded image
- * once cropped), so one of them is live at a time.
+ * The crop as a PNG. The shrunk PNG is read while it inflates, keeping two
+ * rows and the crop, so the full-size pixels are never held (see
+ * `cropPng`); only the PNG bytes and the crop are live together.
  */
 async function cropToPng(
 	bytes: Uint8Array,
@@ -98,12 +101,14 @@ async function cropToPng(
 	options: ResolvedOptions,
 ): Promise<Uint8Array> {
 	const scale = shrinkScale(box.size, Math.max(...options.sizes));
-	let shrunk: RawImage | undefined = decodePng(
+	const square = await cropPng(
 		await shrink(bytes, format, image, scale, options.maxPixels),
+		(shrunk) => {
+			const { x, y, size } = scaleCrop(box, scale, shrunk);
+			return { x, y, width: size, height: size };
+		},
 		options.maxPixels,
 	);
-	const square = cropPixels(shrunk, scaleCrop(box, scale, shrunk));
-	shrunk = undefined;
 	return encodePng(square);
 }
 
@@ -142,9 +147,9 @@ export async function processImage(
 			);
 		}
 
-		const cropPng = await cropToPng(bytes, format, image, box, options);
+		const squarePng = await cropToPng(bytes, format, image, box, options);
 		const variants = await Promise.all(
-			options.sizes.map((size) => variantOf(cropPng, size, options.quality)),
+			options.sizes.map((size) => variantOf(squarePng, size, options.quality)),
 		);
 		return { source: { format, ...image }, variants };
 	});

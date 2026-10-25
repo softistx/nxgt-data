@@ -1,4 +1,5 @@
-import { decodePng, type RawImage } from '../src/crop/png';
+import type { RawImage } from '../src/crop/png';
+import { decodePng } from './images';
 
 /**
  * A scene of flat coloured blocks, 100 px each, four columns by two rows, so

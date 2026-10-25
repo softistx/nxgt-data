@@ -1,5 +1,6 @@
 import { deflateSync } from 'node:zlib';
-import { chunk, concat } from './images';
+import { chunk } from '../src/crop/png';
+import { concat } from './images';
 
 /**
  * Builders for inputs that carry metadata, and a reader for what a WebP
@@ -33,7 +34,7 @@ export type ExifOptions = {
 };
 
 /** The body of an EXIF block: a little-endian TIFF with IFD0 and, maybe, GPS. */
-export function exifBody(options: ExifOptions = {}): Uint8Array {
+function exifBody(options: ExifOptions = {}): Uint8Array {
 	const ifd0: number[][] = [];
 	if (options.orientation !== undefined) {
 		ifd0.push(entry(0x0112, 3, 1, u16(options.orientation)));
@@ -62,7 +63,7 @@ export function exifBody(options: ExifOptions = {}): Uint8Array {
 }
 
 /** A 132-byte ICC profile: a valid header (`acsp`) and an empty tag table. */
-export function iccProfile(): Uint8Array {
+function iccProfile(): Uint8Array {
 	const profile = new Uint8Array(132);
 	const view = new DataView(profile.buffer);
 	view.setUint32(0, 132);
