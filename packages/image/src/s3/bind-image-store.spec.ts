@@ -214,7 +214,7 @@ describe('bindImageStore', () => {
 					crop: { x: 0, y: 0, size: 5000 },
 				}),
 			),
-		).toBeInstanceOf(RangeError);
+		).toBeInstanceOf(ImageError);
 		expect(puts).toBe(0);
 		expect(await exists('a')).toEqual([false, false]);
 	});
