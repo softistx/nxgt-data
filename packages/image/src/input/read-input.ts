@@ -52,7 +52,8 @@ async function readStream(
  * The upload's bytes, refused as soon as they pass `maxBytes`. A size known
  * up front (bytes, a buffer, a `Blob`) is checked before anything is read, and
  * a `Blob`'s again once read; a `Blob` of no known size and a stream are
- * read chunk by chunk and cancelled at the chunk that crosses the cap, so no more than the cap plus one chunk is ever held.
+ * read chunk by chunk and cancelled at the chunk that crosses the cap, so no
+ * more than the cap plus one chunk is ever held.
  */
 export async function readInput(
 	input: ImageInput,

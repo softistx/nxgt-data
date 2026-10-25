@@ -1,7 +1,7 @@
 import { ImageError } from '../errors/image-error';
 import type { RawImage } from './png';
 import { idatStream, type PngHeader, readHeader, refuse } from './png-chunks';
-import { unfilterRow } from './unfilter';
+import { createRowAssembler } from './row-assembler';
 
 /** A rectangle of pixels: `(x, y)` is its top-left corner. */
 export type Region = { x: number; y: number; width: number; height: number };
@@ -55,9 +55,13 @@ function copyColumns(
  * the current one) are ever held, plus the region's own pixels, and the
  * IDAT payloads are read in place, so the cost does not grow with the image.
  * Every other chunk (colour profile, EXIF, text) is read past and dropped,
- * which is how a re-encode strips them. A chunk's CRC is not checked; the
- * zlib stream's own checksum is, but only when the region reaches the last
- * row, since the rest of the stream is never read.
+ * which is how a re-encode strips them.
+ *
+ * The input is Bun's own PNG, never the user's bytes, so the rest of the file
+ * is trusted once the region is read: a cut file, a missing IEND, a bad CRC
+ * or a bad zlib checksum after the region's last row is **not seen**. Only a
+ * region that reaches the image's last row reads on to the end of the zlib
+ * stream, checking its checksum and that no data is left over.
  *
  * `region` is a rectangle, or a function of the header's size, for a caller
  * that knows the region only once it knows the size. `maxPixels` refuses a
@@ -75,15 +79,23 @@ export async function cropPng(
 	checkRegion(wanted, header);
 	const { width, height, samples } = header;
 	const channels = samples === 1 || samples === 3 ? 3 : 4;
-	const stride = width * samples;
 	const lastRow = wanted.y + wanted.height - 1;
 	const out = new Uint8Array(wanted.width * wanted.height * channels);
 
-	let previous = new Uint8Array(stride + 1);
-	let current = new Uint8Array(stride + 1);
-	let filled = 0;
-	let y = 0;
-
+	const rows = createRowAssembler(
+		width * samples,
+		height,
+		samples,
+		(row, y) => {
+			if (y >= wanted.y) {
+				const outRow = (y - wanted.y) * wanted.width * channels;
+				copyColumns(row, wanted, samples, out, outRow);
+			}
+			// Past the region's last row there is nothing left to read, unless it is
+			// the last row of the image: then the rest is checked.
+			return y < lastRow || lastRow === height - 1;
+		},
+	);
 	const inflate = new DecompressionStream('deflate') as unknown as {
 		readable: ReadableStream<Uint8Array>;
 		writable: WritableStream<Uint8Array>;
@@ -98,59 +110,21 @@ export async function cropPng(
 				if (error instanceof ImageError) throw error;
 				throw refuse('the pixel data is not valid zlib');
 			}
-			if (part.done) break;
-			let at = 0;
-			while (at < part.value.length) {
-				if (y >= height) {
-					throw refuse('the pixel data is longer than the header says');
+			if (part.done) {
+				if (rows.rows < height) {
+					throw refuse('the pixel data is shorter than the header says');
 				}
-				const take = Math.min(part.value.length - at, stride + 1 - filled);
-				current.set(part.value.subarray(at, at + take), filled);
-				filled += take;
-				at += take;
-				if (filled < stride + 1) continue;
-				if (
-					!unfilterRow(
-						current[0] as number,
-						current,
-						previous,
-						1,
-						stride,
-						samples,
-					)
-				) {
-					throw refuse('a row has an unknown filter');
-				}
-				if (y >= wanted.y) {
-					copyColumns(
-						current,
-						wanted,
-						samples,
-						out,
-						(y - wanted.y) * wanted.width * channels,
-					);
-				}
-				[previous, current] = [current, previous];
-				filled = 0;
-				y++;
-				// Past the region's last row there is nothing left to read, unless
-				// it is the last row of the image: then the rest is checked.
-				if (y > lastRow && lastRow < height - 1) return done();
+				break;
 			}
+			if (!rows.feed(part.value)) break;
 		}
-		if (y < height)
-			throw refuse('the pixel data is shorter than the header says');
-		return done();
-	} finally {
-		await reader.cancel().catch(() => undefined);
-	}
-
-	function done(): RawImage {
 		return {
 			width: wanted.width,
 			height: wanted.height,
 			channels,
 			pixels: out,
 		};
+	} finally {
+		await reader.cancel().catch(() => undefined);
 	}
 }

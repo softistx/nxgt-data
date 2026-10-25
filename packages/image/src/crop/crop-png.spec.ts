@@ -83,6 +83,27 @@ describe('cropPng: a region', () => {
 		}
 	});
 
+	test('an early stop cancels the stream and leaves no unhandled rejection', async () => {
+		const seen: unknown[] = [];
+		const listener = (reason: unknown) => seen.push(reason);
+		process.on('unhandledRejection', listener);
+		try {
+			// A large image Bun splits across many IDAT chunks, cropped at the top.
+			const big = pattern(600, 300, 4);
+			const png = await new Bun.Image(encodePng(big))
+				.png({ compressionLevel: 0 })
+				.bytes();
+			for (let i = 0; i < 20; i++) {
+				const got = await cropPng(png, { x: 0, y: 0, width: 50, height: 2 });
+				expect(got.pixels).toEqual(cut(big, 0, 0, 50, 2));
+			}
+			await Bun.sleep(50);
+			expect(seen).toEqual([]);
+		} finally {
+			process.off('unhandledRejection', listener);
+		}
+	});
+
 	test('stops after the last row it needs: what follows is never read', async () => {
 		// The zlib stream holds the right rows, then a megabyte more.
 		const rows = writePng(wide, { filters: [0] });
