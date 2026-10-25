@@ -16,7 +16,7 @@ Any other error is not this package's: it is rethrown untouched (see
 [Errors that are not an `ImageError`](#errors-that-are-not-an-imageerror)).
 
 - **Install and runtime**
-  - [`Bun.Image is not a constructor`](#bunimage-is-not-a-constructor)
+  - [`@nxgt/image needs Bun 1.4.1 or later, where Bun.Image exists`](#nxgtimage-needs-bun-141-or-later-where-bunimage-exists)
   - [`this machine cannot decode HEIC (Linux cannot)`](#this-machine-cannot-decode-heic-linux-cannot)
   - [`this machine cannot decode <format>`](#this-machine-cannot-decode-format)
   - [Memory grows under large images](#memory-grows-under-large-images)
@@ -47,21 +47,20 @@ Any other error is not this package's: it is rethrown untouched (see
 
 ## Install and runtime
 
-### `Bun.Image is not a constructor`
+### `@nxgt/image needs Bun 1.4.1 or later, where Bun.Image exists`
 
-**When:** the first `process` call, once the upload has passed the byte limit
-and the format check, on a Bun older than 1.4.1.
-**Why:** the package decodes and resizes with Bun's own `Bun.Image`, which
-Bun added in 1.4.1. On an older Bun, `Bun.Image` is `undefined`, so the
-`new Bun.Image(...)` call throws a plain `TypeError`. The package does not
-catch it: it is not an `ImageError`, because it is not the upload's fault. The
-exact wording is the JavaScript engine's, so if your message differs, the
-check below is the sure one.
+`TypeError`, thrown by `defineImageSet` before it reads any option.
+
+**When:** the set is defined on a runtime where `Bun` is missing or
+`Bun.Image` is not a function: a Bun older than 1.4.1, or Node.
+**Why:** the package decodes and resizes with Bun's own `Bun.Image`, which Bun
+added in 1.4.1. The check runs when the set is defined, so the failure shows at
+startup rather than on the first upload. It is not an `ImageError`: it is not
+the upload's fault.
 **Fix:**
 
 ```sh
 bun --version          # must be 1.4.1 or newer
-bun -e "console.log(typeof Bun.Image)"   # must print "function"
 ```
 
 ```sh
@@ -430,7 +429,7 @@ then a best-effort delete removes every size of those params, and the first
 error is rethrown **unchanged**, so `@nxgt/s3`'s own handling and messages
 apply. A put that timed out on the client may still land on the server after
 the cleanup.
-**Fix:** read the cause in [`@nxgt/s3`'s troubleshooting](../../s3/docs/troubleshooting.md)
+**Fix:** read the cause in [`@nxgt/s3`'s troubleshooting](https://github.com/softistx/nxgt-data/blob/develop/packages/s3/docs/troubleshooting.md)
 and use a fresh id per upload, so that the cleanup never deletes an image that
 is in use:
 
@@ -445,8 +444,7 @@ With fixed params, a failed `replace` removes the existing image too.
 ## Errors that are not an `ImageError`
 
 **When:** `process` throws something that is neither an `ImageError` nor one of
-the `TypeError` or `RangeError` above: an out-of-memory, a `TypeError` about
-`Bun.Image`, an unexpected Bun failure.
+the `TypeError` or `RangeError` above: an out-of-memory or an unexpected Bun failure.
 **Why:** only the Bun errors whose `code` means a refusal of the upload
 (`ERR_IMAGE_TOO_MANY_PIXELS`, `ERR_IMAGE_FORMAT_UNSUPPORTED`,
 `ERR_IMAGE_DECODE_FAILED`, `ERR_IMAGE_UNKNOWN_FORMAT`) are turned into an
