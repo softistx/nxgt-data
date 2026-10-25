@@ -43,6 +43,9 @@
 		"registry": "https://registry.npmjs.org",
 		"access": "public"
 	},
+	"engines": {
+		"bun": ">=1.4.1"
+	},
 	"scripts": {
 		"build": "bun run ../../build.ts",
 		"test": "bun run ../../scripts/seaweedfs.ts && bun test --timeout 30000 src",
@@ -56,7 +59,7 @@
 	},
 	"devDependencies": {
 		"@nxgt/s3": "workspace:^",
-		"@types/bun": "^1.4.0"
+		"@types/bun": "^1.4.1"
 	},
 	"peerDependencies": {
 		"@nxgt/s3": "workspace:^",

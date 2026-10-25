@@ -111,7 +111,7 @@
       "version": "0.0.0",
       "devDependencies": {
         "@nxgt/s3": "workspace:^",
-        "@types/bun": "^1.4.0",
+        "@types/bun": "^1.4.1",
       },
       "peerDependencies": {
         "@nxgt/s3": "workspace:^",

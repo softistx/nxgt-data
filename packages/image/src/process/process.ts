@@ -107,7 +107,7 @@ async function cropToPng(
 	return encodePng(square);
 }
 
-/** The pipeline behind `ImageSet.process`; see the README for the steps. */
+/** The pipeline behind `ImageSet.process`; the steps are in docs/guide/processing.md. */
 export async function processImage(
 	input: ImageInput,
 	{ crop }: ProcessOptions,
