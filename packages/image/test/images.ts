@@ -42,6 +42,15 @@ export function concat(parts: Uint8Array[]): Uint8Array {
 	return out;
 }
 
+/** An ISO-BMFF `ftyp` box: a major brand, a zero minor version, then the compatible brands. */
+export function ftyp(major: string, compatible: string[]): Uint8Array {
+	const brands = [major, '\0\0\0\0', ...compatible].join('');
+	const out = new Uint8Array(8 + brands.length);
+	new DataView(out.buffer).setUint32(0, out.length);
+	out.set(new TextEncoder().encode(`ftyp${brands}`), 4);
+	return out;
+}
+
 const SIGNATURE = new Uint8Array([
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 ]);

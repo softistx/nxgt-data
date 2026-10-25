@@ -57,6 +57,20 @@ describe('readInput', () => {
 		expect(state.pulled).toBeLessThanOrEqual(4);
 	});
 
+	test('a chunk that is not a Uint8Array cannot bypass the cap: cancelled, TypeError', async () => {
+		const { body, state } = stream([
+			bytes.subarray(0, 2),
+			'a string, which has no byteLength' as never,
+			bytes,
+		]);
+		const error = await rejection(readInput(body, 100));
+		expect(error).toBeInstanceOf(TypeError);
+		expect((error as Error).message).toBe(
+			'a stream chunk must be a Uint8Array',
+		);
+		expect(state.cancelled).toBe(true);
+	});
+
 	test('refuses an input of another type with a TypeError', async () => {
 		const error = await rejection(readInput('a path' as never, 8));
 		expect(error).toBeInstanceOf(TypeError);

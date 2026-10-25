@@ -168,4 +168,26 @@ describe('png codec', () => {
 		refused(() => decodePng(concat([signature, iend])));
 		refused(() => decodePng(concat([signature, png.subarray(8, 33), iend])));
 	});
+	test('refuses, before inflating, a header over maxPixels', () => {
+		const png = writePng(pattern(20, 10, 4));
+		expect(decodePng(png, 200).width).toBe(20);
+		try {
+			decodePng(png, 199);
+			throw new Error('it decoded');
+		} catch (error) {
+			expect(error).toBeInstanceOf(ImageError);
+			expect((error as ImageError).code).toBe('TOO_LARGE');
+			expect((error as ImageError).reason).toBe('pixels');
+		}
+		// A body that would not inflate: the cap is judged first.
+		const corrupt = writePng(pattern(20, 10, 4), {
+			idat: new Uint8Array([1, 2, 3]),
+		});
+		try {
+			decodePng(corrupt, 10);
+			throw new Error('it decoded');
+		} catch (error) {
+			expect((error as ImageError).reason).toBe('pixels');
+		}
+	});
 });

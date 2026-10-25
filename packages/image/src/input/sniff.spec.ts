@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { pattern } from '../../test/images';
+import { ftyp, pattern } from '../../test/images';
 import { encodePng } from '../crop/png';
 import { sniffFormat } from './sniff';
 
@@ -22,14 +22,6 @@ async function encoded(
 		}
 		throw error;
 	}
-}
-
-function ftyp(major: string, compatible: string[]): Uint8Array {
-	const brands = [major, '\0\0\0\0', ...compatible].join('');
-	const out = new Uint8Array(8 + brands.length);
-	new DataView(out.buffer).setUint32(0, out.length);
-	out.set(new TextEncoder().encode(`ftyp${brands}`), 4);
-	return out;
 }
 
 describe('sniffFormat', () => {
