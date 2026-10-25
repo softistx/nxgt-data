@@ -1,4 +1,5 @@
 import type { CropBox } from '../set/types';
+import { isWhole } from '../set/whole';
 
 /** The size of an image, in pixels. */
 export type Dimensions = { width: number; height: number };
@@ -33,15 +34,12 @@ export function centredCrop({ width, height }: Dimensions): CropBox {
 	};
 }
 
-const isWhole = (value: unknown): value is number =>
-	typeof value === 'number' && Number.isInteger(value) && value >= 0;
-
 /**
  * Refuses a crop that is not three whole non-negative numbers. The caller
  * wrote it, so it is a `RangeError`, not an upload refusal.
  */
 export function assertCropShape(crop: CropBox): void {
-	if (![crop.x, crop.y, crop.size].every(isWhole)) {
+	if (![crop.x, crop.y, crop.size].every((value) => isWhole(value))) {
 		throw new RangeError(
 			'a crop is { x, y, size }, three whole numbers of 0 or more',
 		);
