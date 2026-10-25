@@ -38,10 +38,12 @@ Any other error is not this package's: it is rethrown untouched (see
 - **Crops**
   - [`a crop is { x, y, size }, three whole numbers of 0 or more`](#a-crop-is--x-y-size--three-whole-numbers-of-0-or-more)
   - [`a <size>px crop at (<x>, <y>) does not fit the <w>x<h> image`](#a-sizepx-crop-at-x-y-does-not-fit-the-wxh-image)
-  - [`a <size>px square at (<x>, <y>) does not fit a <w>x<h> image`](#a-sizepx-square-at-x-y-does-not-fit-a-wxh-image)
+  - [`a <w>x<h> region at (<x>, <y>) does not fit a <w>x<h> image`](#a-wxh-region-at-x-y-does-not-fit-a-wxh-image)
 - **Storage (`@nxgt/image/s3`)**
-  - [`size <n> is not one of the set's sizes (<sizes>)`](#size-n-is-not-one-of-the-sets-sizes-sizes)
+  - [`<call>: size <n> is not one of the set's sizes (<sizes>)`](#call-size-n-is-not-one-of-the-sets-sizes-sizes)
   - [An S3 error from `replace`](#an-s3-error-from-replace)
+  - [`remove` throws `NoSuchKey`, or the bytes stay after `remove`](#remove-throws-nosuchkey-or-the-bytes-stay-after-remove)
+  - [The bucket is bound with a public `acl`](#the-bucket-is-bound-with-a-public-acl)
 - **Errors that are not an `ImageError`**
   - [Errors that are not an `ImageError`](#errors-that-are-not-an-imageerror)
 
@@ -129,13 +131,15 @@ error, with its `code` (`ERR_IMAGE_FORMAT_UNSUPPORTED`).
 **When:** several large photos are processed at once, for example a burst of
 36 MP uploads, and the process grows by hundreds of megabytes or is killed for
 memory.
-**Why:** a call can hold about 4 bytes per pixel of the upload at its peak, when
-the crop is small and no shrink takes place. The ceiling is about
-`concurrency x 4 x maxPixels` bytes: 200 MB per call at the default `maxPixels`
-(50 million pixels), 400 MB at the default `concurrency` of 2.
+**Why:** Bun's own decode and PNG encode hold about 4 bytes per pixel (RGBA).
+The crop is read out of the PNG as it inflates, so nothing else that size is
+kept. Plan on 4.5 bytes per pixel: about 225 MB per call at the default
+`maxPixels` (measured 150 MB at 36 MP, 200 MB at 49 MP), a ceiling of
+`concurrency x 4.5 x maxPixels`, 450 MB at the defaults.
 **Fix:** lower `maxPixels` to what your users really upload, and keep
-`concurrency` low. The calls beyond it wait their turn, in order, after their
-bytes are read:
+`concurrency` low. The wait queue is unbounded and each waiting call holds its
+bytes (up to `maxBytes`), so cap uploads before `process` (a body limit in your
+server). The calls beyond `concurrency` wait their turn, in order:
 
 ```ts
 import { defineImageSet } from '@nxgt/image';
@@ -189,9 +193,9 @@ const avatars = defineImageSet({ maxPixels: 100_000_000 });
 `ImageError`, `code: 'TOO_LARGE'`, `reason: 'pixels'`.
 
 **When:** `process` on an image that passed the first pixel check but whose
-intermediate PNG, read by this package's own decoder, is over `maxPixels`.
-**Why:** the pipeline shrinks the image to an uncompressed PNG, then decodes
-that itself, so `maxPixels` is checked twice. This second check is the
+intermediate PNG, read by this package's own reader, is over `maxPixels`.
+**Why:** the pipeline shrinks the image to a PNG, then reads it itself while it
+inflates, so `maxPixels` is checked twice. This second check is the
 safety net behind the first; it should not fire for a normal upload.
 **Fix:** the same as for the first check. If you see it with an image the
 first check lets through, report it with the image's size and format.
@@ -391,7 +395,7 @@ get a centred square:
 await avatars.process(blob); // centred square of the short side
 ```
 
-### `a <size>px square at (<x>, <y>) does not fit a <w>x<h> image`
+### `a <w>x<h> region at (<x>, <y>) does not fit a <w>x<h> image`
 
 `RangeError`.
 
@@ -403,12 +407,17 @@ image's size and format, and the crop given.
 
 ## Storage
 
-### `size <n> is not one of the set's sizes (<sizes>)`
+### `<call>: size <n> is not one of the set's sizes (<sizes>)`
 
-`RangeError`, from `@nxgt/image/s3`.
+`RangeError`, from `@nxgt/image/s3`, for example
+`presignGet: size 128 is not one of the set's sizes (256, 64)`. `<call>` is
+`presignGet`, `bytes` or `keyFor` for a caller; `replace` and `remove` use the
+same text internally.
 
 **When:** `presignGet`, `bytes` or `keyFor` of a store, with a `size` the set
-does not produce.
+does not produce. It is the caller's bug, so it is a `RangeError`, not an
+`ImageError`; a route that takes the size from a URL checks it against
+`set.sizes` first and answers 404 (see [storing](guide/storing.md#serving)).
 **Why:** the store's sizes are the set's sizes, and a key for another size would
 point at nothing.
 **Fix:** read the sizes off the set rather than writing numbers twice:
@@ -443,12 +452,13 @@ Refusals of the upload (`TOO_LARGE`, `UNSUPPORTED_TYPE`, ...) happen in
 ### An S3 error from `replace`
 
 **When:** a put to the bucket fails inside `replace`: a bad credential, a
-timeout, a missing bucket, a refused write.
+network error, a missing bucket, a refused write (a bucket that does not accept
+`image/webp`, or whose `maxSize` is under the largest variant).
 **Why:** the store does not wrap the service's errors. Every put is awaited,
-then a best-effort delete removes every size of those params, and the first
-error is rethrown **unchanged**, so `@nxgt/s3`'s own handling and messages
-apply. A put that timed out on the client may still land on the server after
-the cleanup.
+then a best-effort delete removes the keys whose put succeeded (never the
+refused one), and the first error is rethrown **unchanged**, so `@nxgt/s3`'s
+own handling and messages apply. A put that failed after sending (a network
+error) may still land on the server after the cleanup.
 **Fix:** read the cause in [`@nxgt/s3`'s troubleshooting](https://github.com/softistx/nxgt-data/blob/develop/packages/s3/docs/troubleshooting.md)
 and use a fresh id per upload, so that the cleanup never deletes an image that
 is in use:
@@ -459,7 +469,28 @@ const { version } = await store.replace({ imageId }, await request.blob());
 await store.remove({ imageId: former }); // only after the new one is stored
 ```
 
-With fixed params, a failed `replace` removes the existing image too.
+With fixed params, a failed `replace` leaves the object under the refused key
+as it was, but the keys that were written by this call are removed, so the
+image can end up with a mix of old and missing sizes: use a fresh id.
+
+### `remove` throws `NoSuchKey`, or the bytes stay after `remove`
+
+**When:** `remove` on a service that answers 404 to a delete of a missing object
+(for example GCS), or on a versioned bucket.
+**Why:** a 404 answer is thrown as `NoSuchKey`, not swallowed; and a versioned
+bucket keeps the bytes behind delete markers.
+**Fix:** save the new id first, then remove the former image, never inside a
+transaction that may roll back; catch `NoSuchKey` where the service answers it,
+and expire noncurrent versions with a lifecycle rule.
+
+### The bucket is bound with a public `acl`
+
+**When:** `bindBucket` was given `acl: 'public-read'` as a default.
+**Why:** Bun sends it on every put, and the store promises objects that are
+never public, but it does not pass an `acl` of its own, so the default wins;
+on AWS a bucket with ACLs disabled refuses it.
+**Fix:** bind the bucket without an `acl`. A bucket policy can still make
+objects public if you want that.
 
 ## Errors that are not an `ImageError`
 
