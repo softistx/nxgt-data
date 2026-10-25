@@ -90,7 +90,7 @@ describe('cropPng: a region', () => {
 		try {
 			// A large image Bun splits across many IDAT chunks, cropped at the top.
 			const big = pattern(600, 300, 4);
-			const png = await new Bun.Image(encodePng(big))
+			const png = await new Bun.Image(await encodePng(big))
 				.png({ compressionLevel: 0 })
 				.bytes();
 			for (let i = 0; i < 20; i++) {
@@ -102,6 +102,55 @@ describe('cropPng: a region', () => {
 		} finally {
 			process.off('unhandledRejection', listener);
 		}
+	});
+
+	test('an early stop releases the IDAT stream, and a full read does not need to', async () => {
+		const big = pattern(600, 300, 4);
+		const png = await new Bun.Image(await encodePng(big))
+			.png({ compressionLevel: 0 })
+			.bytes();
+		let cancelled = 0;
+		await cropPng(png, { x: 0, y: 0, width: 50, height: 2 }, undefined, () => {
+			cancelled++;
+		});
+		expect(cancelled).toBe(1);
+		await cropPng(
+			png,
+			{ x: 0, y: 298, width: 50, height: 2 },
+			undefined,
+			() => {
+				cancelled++;
+			},
+		);
+		expect(cancelled).toBe(1);
+	});
+
+	test('a region that reaches the last row checks the zlib checksum and the end', async () => {
+		const stride = rgba.width * 4;
+		const raw = new Uint8Array((stride + 1) * rgba.height);
+		for (let y = 0; y < rgba.height; y++) {
+			raw.set(
+				rgba.pixels.subarray(y * stride, (y + 1) * stride),
+				y * (stride + 1) + 1,
+			);
+		}
+		const good = new Uint8Array(deflateSync(raw));
+		const last = { x: 0, y: rgba.height - 1, width: 8, height: 1 };
+		expect((await cropPng(writePng(rgba, { idat: good }), last)).width).toBe(8);
+
+		const badAdler = good.slice();
+		badAdler[badAdler.length - 1] =
+			(badAdler[badAdler.length - 1] as number) ^ 0xff;
+		await refused(
+			cropPng(writePng(rgba, { idat: badAdler }), last),
+			'valid zlib',
+		);
+
+		const trailing = concat([good, new Uint8Array([1, 2, 3, 4])]);
+		await refused(
+			cropPng(writePng(rgba, { idat: trailing }), last),
+			'valid zlib',
+		);
 	});
 
 	test('stops after the last row it needs: what follows is never read', async () => {
@@ -152,8 +201,14 @@ describe('cropPng: refusals', () => {
 			decodePng(writePng(rgba, { idat: deflateSync(new Uint8Array(10)) })),
 			'shorter than the header says',
 		);
-		await refused(decodePng(encodePng(rgba).subarray(0, 40)), 'no IEND');
-		await refused(decodePng(encodePng(rgba).subarray(0, 60)), 'cut short');
+		await refused(
+			decodePng((await encodePng(rgba)).subarray(0, 40)),
+			'no IEND',
+		);
+		await refused(
+			decodePng((await encodePng(rgba)).subarray(0, 60)),
+			'cut short',
+		);
 		await refused(decodePng(new Uint8Array([1, 2, 3])), 'no PNG signature');
 		await refused(
 			decodePng(writePng(rgba, { filters: [9] })),
@@ -170,7 +225,7 @@ describe('cropPng: refusals', () => {
 	});
 
 	test('a missing IHDR or IDAT is refused', async () => {
-		const png = encodePng(rgba);
+		const png = await encodePng(rgba);
 		const iend = chunk('IEND', new Uint8Array(0));
 		const signature = png.subarray(0, 8);
 		await refused(decodePng(concat([signature, iend])), 'no IHDR');

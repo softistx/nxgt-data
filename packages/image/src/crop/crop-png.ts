@@ -68,11 +68,16 @@ function copyColumns(
  * PNG whose header claims more pixels, before anything is inflated:
  * `TOO_LARGE` with the reason `pixels`. Inflated data longer than the header
  * promises is refused, as far as the stream is read.
+ *
+ * `onCancel` is called when the read stops before the end of the IDAT data
+ * (the region's last row is not the image's), after the stream is cancelled;
+ * it exists so a spec can see that the stream is released.
  */
 export async function cropPng(
 	bytes: Uint8Array,
 	region: Region | ((size: { width: number; height: number }) => Region),
 	maxPixels?: number,
+	onCancel?: () => void,
 ): Promise<RawImage> {
 	const header = readHeader(bytes, maxPixels);
 	const wanted = typeof region === 'function' ? region(header) : region;
@@ -100,7 +105,7 @@ export async function cropPng(
 		readable: ReadableStream<Uint8Array>;
 		writable: WritableStream<Uint8Array>;
 	};
-	const reader = idatStream(bytes).pipeThrough(inflate).getReader();
+	const reader = idatStream(bytes, onCancel).pipeThrough(inflate).getReader();
 	try {
 		for (;;) {
 			let part: Awaited<ReturnType<typeof reader.read>>;

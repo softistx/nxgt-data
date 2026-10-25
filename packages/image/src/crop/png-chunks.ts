@@ -72,9 +72,13 @@ export function readHeader(bytes: Uint8Array, maxPixels?: number): PngHeader {
 /**
  * The zlib stream of the file as a stream of views of its IDAT payloads, read
  * lazily and never copied. A damaged chunk errors the stream with its
- * `ImageError`.
+ * `ImageError`. `onCancel` is called when the reader gives up before the end,
+ * a seam for a spec that proves an early stop releases the stream.
  */
-export function idatStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
+export function idatStream(
+	bytes: Uint8Array,
+	onCancel?: () => void,
+): ReadableStream<Uint8Array> {
 	let at = 8;
 	let sawData = false;
 	return new ReadableStream<Uint8Array>({
@@ -97,6 +101,9 @@ export function idatStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
 			} catch (error) {
 				controller.error(error);
 			}
+		},
+		cancel() {
+			onCancel?.();
 		},
 	});
 }
