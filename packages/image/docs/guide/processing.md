@@ -36,8 +36,8 @@ type ProcessedImage = {
 
 | Input | How its size is checked |
 | --- | --- |
-| `Uint8Array`, `ArrayBuffer`, `Blob` | against `maxBytes` before anything is read |
-| `ReadableStream<Uint8Array>` | chunk by chunk; the stream is cancelled at the chunk that crosses `maxBytes`, so no more than the limit plus one chunk is held |
+| `Uint8Array`, `ArrayBuffer`, `Blob` | against `maxBytes` before anything is read; a `Blob` is checked again once read, since its size is only a claim |
+| `ReadableStream<Uint8Array>`, a `Blob` whose `size` is not a number (Bun's `S3File`) | chunk by chunk; the stream is cancelled at the chunk that crosses `maxBytes`, so no more than the limit plus one chunk is held |
 
 ```ts
 const { variants } = await avatars.process(request.body as ReadableStream<Uint8Array>);
@@ -50,7 +50,13 @@ A stream chunk that is not a `Uint8Array` is a `TypeError` too
 
 The format is judged by the **first bytes**, never by a file name or a declared
 content type. JPEG, PNG, WebP and HEIC are accepted; anything else, AVIF
-included, is `UNSUPPORTED_TYPE` with reason `format`.
+included, is `UNSUPPORTED_TYPE` with reason `format`. `format` also covers a
+format this machine cannot decode, other than HEIC.
+
+An AVIF file relabelled with HEIF brands (`mif1` and no `avif` brand) passes
+the sniff as HEIC. Where the machine decodes it (macOS), it is re-encoded to
+WebP like any other image; elsewhere it is `heic-unavailable`. Known and
+harmless: nothing but the pixels leaves the pipeline.
 
 ## Options
 
@@ -88,6 +94,10 @@ Without a crop, the centred square of the short side is kept. With one, give
 `{ x, y, size }` in pixels of the **oriented** picture: the one a person sees
 after EXIF rotation. A phone photo stored sideways with an orientation tag is
 cropped as the upright picture.
+
+**Orientation is applied for a JPEG only** (measured on Bun 1.4.3): the
+orientation of a PNG (`eXIf` chunk) or of a WebP (`EXIF` chunk) is ignored, so
+for those the picture is cropped as stored.
 
 ```ts
 const { source } = await avatars.process(bytes);            // oriented size
@@ -136,7 +146,7 @@ try {
 | --- | --- | --- |
 | `TOO_LARGE` | `bytes` | `the upload is over <maxBytes> bytes` |
 | `TOO_LARGE` | `pixels` | `the image has too many pixels`, or `the PNG has <w>x<h> pixels, over the <maxPixels> limit` |
-| `UNSUPPORTED_TYPE` | `format` | `the upload is not a JPEG, PNG, WebP or HEIC` |
+| `UNSUPPORTED_TYPE` | `format` | `the upload is not a JPEG, PNG, WebP or HEIC`, or `this machine cannot decode <format>` |
 | `UNSUPPORTED_TYPE` | `heic-unavailable` | `this machine cannot decode HEIC (Linux cannot)` |
 | `UNDECODABLE` | `decode` | `the <format> image cannot be decoded`, or `the PNG cannot be read: <why>` |
 | `TOO_SMALL` | `dimensions` | `the image is <w>x<h>, under <minSide>px on its short side`, or the crop message above |
@@ -160,27 +170,45 @@ convert, or answer that refusal with a message that says so.
 2. read the oriented size with `Bun.Image(...).metadata()` under `maxPixels`
    (first check, on what the upload **claims**);
 3. check the crop and `minSide`;
-4. shrink the image once, to an uncompressed PNG, only as far as the largest
-   size needs;
-5. decode that PNG with the package's own reader, which checks `maxPixels`
-   again (second check, on what the PNG **holds**), and cut the square out;
+4. shrink the image once, to a PNG at Bun's default level, only as far as the
+   largest size needs;
+5. read that PNG with the package's own reader **while it inflates**, which
+   checks `maxPixels` again (second check, on what the PNG **holds**), keeps
+   two rows at a time and copies only the square's columns, then stops after
+   the square's last row;
 6. resize the square to each size and encode it to WebP.
 
-The second check exists because the decoder in step 5 is ours, not Bun's: it
-does not trust a header that step 4 produced.
+The second check exists because the reader in step 5 is ours, not Bun's: it
+does not trust a header that step 4 produced. It also refuses inflated data
+longer than the header promises, as far as it reads: it stops after the
+square, so data past the last row it needs is never looked at.
+
+The PNG of step 4 is **not** uncompressed. Level 0 is about 15 times faster, but
+Bun 1.4.3 never gives the memory of a level 0 (or 1) `png()` back: a loop of
+them grew the process by about 140 MB per call (7 GB after 60), where the
+default level stays flat. A 36 MP call takes about 1.7 s for that encode.
 
 ## Memory and `concurrency`
 
-A call holds about 4 bytes per pixel of the upload at its peak when the crop
-is small: no shrink happens, so the whole image is decoded. Measured, a 36 MP
-JPEG with a 256 px crop grew the process by about 150 MB for one call. The
-ceiling is about `concurrency x 4 x maxPixels` bytes: 200 MB per call at the
-default `maxPixels`, 400 MB at the default `concurrency`.
+A call holds about 4 bytes per pixel of the upload at its peak, and **all of it
+is `Bun.Image`'s own decode and PNG encode** in step 4: our reader adds two rows
+and the crop, nothing that grows with the image. Measured on Bun 1.4.3 (the
+growth of the process's RSS, one JPEG at a time):
+
+| Source | 1 call | 4 calls, `concurrency` 2 | 4 calls, `concurrency` 1 |
+| --- | --- | --- | --- |
+| 36 MP, 256 px crop | 150 MB | 300 MB | 150 MB |
+| 49 MP, 256 px crop | 200 MB | n/a | n/a |
+
+Plan on **4.5 bytes per pixel per decoding call**: about 225 MB at the default
+`maxPixels`, and a ceiling of `concurrency x 4.5 x maxPixels` bytes, 450 MB at
+the defaults. The limit is per set, so two sets double it.
 
 `concurrency` is how many calls of one set decode at once; the others wait in
-order after their bytes are read and sniffed. Measured on a 36 MP JPEG with a
-256 px crop and 4 calls at once: about 1.9 GB of growth with no bound, about
-0.9 GB with the default 2. The limit is per set, so two sets double it.
+order after their bytes are read and sniffed. **The wait queue is not
+bounded**, and each waiting call holds its upload's bytes (up to `maxBytes`):
+a server that can receive more uploads than it decodes should cap them before
+they reach `process`.
 
 ```ts
 // a small server: one decode at a time, a lower pixel ceiling
