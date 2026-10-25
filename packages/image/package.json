@@ -1,0 +1,73 @@
+{
+	"name": "@nxgt/image",
+	"version": "0.0.0",
+	"description": "Avatar and photo uploads on Bun's own Bun.Image: checked by magic bytes, cropped square, resized to WebP with every metadata stripped",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"docs",
+		"README.md",
+		"package.json",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./s3": {
+			"types": "./dist/s3/index.d.ts",
+			"import": "./dist/s3/index.js",
+			"default": "./dist/s3/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"keywords": [
+		"image",
+		"bun",
+		"typescript",
+		"avatar",
+		"upload",
+		"webp"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/softistx/nxgt-data.git",
+		"directory": "packages/image"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	},
+	"engines": {
+		"bun": ">=1.4.1"
+	},
+	"scripts": {
+		"build": "bun run ../../build.ts",
+		"test": "bun run ../../scripts/seaweedfs.ts && bun test --timeout 30000 src",
+		"typecheck": "tsc --noEmit"
+	},
+	"nxgt": {
+		"entrypoints": [
+			"src/index.ts",
+			"src/s3/index.ts"
+		]
+	},
+	"devDependencies": {
+		"@nxgt/s3": "workspace:^",
+		"@types/bun": "^1.4.1"
+	},
+	"peerDependencies": {
+		"@nxgt/s3": "workspace:^",
+		"typescript": "^6.0.3 || ^7.0.0"
+	},
+	"peerDependenciesMeta": {
+		"@nxgt/s3": {
+			"optional": true
+		}
+	}
+}

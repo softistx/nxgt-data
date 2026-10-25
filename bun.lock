@@ -106,6 +106,21 @@
         "typescript": "^6.0.3 || ^7.0.0",
       },
     },
+    "packages/image": {
+      "name": "@nxgt/image",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@nxgt/s3": "workspace:^",
+        "@types/bun": "^1.4.1",
+      },
+      "peerDependencies": {
+        "@nxgt/s3": "workspace:^",
+        "typescript": "^6.0.3 || ^7.0.0",
+      },
+      "optionalPeers": [
+        "@nxgt/s3",
+      ],
+    },
     "packages/meilisearch": {
       "name": "@nxgt/meilisearch",
       "version": "0.6.3",
@@ -291,6 +306,8 @@
     "@nxgt/drizzle": ["@nxgt/drizzle@workspace:packages/drizzle"],
 
     "@nxgt/drizzle-meilisearch": ["@nxgt/drizzle-meilisearch@workspace:packages/drizzle-meilisearch"],
+
+    "@nxgt/image": ["@nxgt/image@workspace:packages/image"],
 
     "@nxgt/meilisearch": ["@nxgt/meilisearch@workspace:packages/meilisearch"],
 
