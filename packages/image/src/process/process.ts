@@ -109,7 +109,7 @@ async function cropToPng(
 		},
 		options.maxPixels,
 	);
-	return encodePng(square);
+	return await encodePng(square);
 }
 
 /** The pipeline behind `ImageSet.process`; the steps are in docs/guide/processing.md. */
