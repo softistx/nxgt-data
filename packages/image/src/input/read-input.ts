@@ -25,6 +25,10 @@ async function readStream(
 		for (;;) {
 			const { done, value } = await reader.read();
 			if (done) break;
+			if (!(value instanceof Uint8Array)) {
+				await reader.cancel().catch(() => undefined);
+				throw new TypeError('a stream chunk must be a Uint8Array');
+			}
 			total += value.byteLength;
 			if (total > maxBytes) {
 				await reader.cancel().catch(() => undefined);

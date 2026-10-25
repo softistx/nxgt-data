@@ -82,6 +82,15 @@ describe('process: outputs', () => {
 		}
 	});
 
+	test('concurrent calls beyond the limit wait and all finish', async () => {
+		const one = defineImageSet({ sizes: [64, 32], concurrency: 1 });
+		const png = writePng(scene());
+		const results = await Promise.all(
+			Array.from({ length: 5 }, () => one.process(png)),
+		);
+		for (const result of results) expect(result.variants).toHaveLength(2);
+	});
+
 	test('keeps the order of sizes, whatever it is', async () => {
 		const result = await defineImageSet({ sizes: [16, 48, 32] }).process(
 			writePng(scene()),

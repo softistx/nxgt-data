@@ -1,4 +1,5 @@
 import { processImage } from '../process/process';
+import { createLimit } from './limit';
 import { type ImageSetOptions, resolveOptions } from './options';
 import type { ImageSet } from './types';
 
@@ -14,8 +15,9 @@ import type { ImageSet } from './types';
  */
 export function defineImageSet(options: ImageSetOptions = {}): ImageSet {
 	const resolved = resolveOptions(options);
+	const limit = createLimit(resolved.concurrency);
 	return {
 		process: (input, processOptions = {}) =>
-			processImage(input, processOptions, resolved),
+			processImage(input, processOptions, resolved, limit),
 	};
 }

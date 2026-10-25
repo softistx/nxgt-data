@@ -10,6 +10,7 @@ describe('image set options', () => {
 			maxPixels: 50_000_000,
 			minSide: 256,
 			quality: 80,
+			concurrency: 2,
 		});
 	});
 
@@ -25,6 +26,7 @@ describe('image set options', () => {
 				maxBytes: 1,
 				maxPixels: 7,
 				quality: 100,
+				concurrency: 64,
 			}),
 		).toEqual({
 			sizes: [4096, 1],
@@ -32,6 +34,7 @@ describe('image set options', () => {
 			maxPixels: 7,
 			minSide: 4096,
 			quality: 100,
+			concurrency: 64,
 		});
 	});
 
@@ -56,6 +59,9 @@ describe('image set options', () => {
 		['minSide fractional', { minSide: 2.5 }, /minSide/],
 		['quality 0', { quality: 0 }, /quality/],
 		['quality 101', { quality: 101 }, /quality/],
+		['concurrency 0', { concurrency: 0 }, /concurrency/],
+		['concurrency 65', { concurrency: 65 }, /concurrency/],
+		['concurrency fractional', { concurrency: 1.5 }, /concurrency/],
 		['quality fractional', { quality: 80.5 }, /quality/],
 	];
 	for (const [name, options, message] of invalid) {

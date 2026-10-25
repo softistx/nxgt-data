@@ -78,13 +78,15 @@ export function decodePng(bytes: Uint8Array, maxPixels?: number): RawImage {
 
 	const idat = chunks.filter((chunk) => chunk.type === 'IDAT');
 	if (idat.length === 0) throw refuse('no IDAT chunk');
-	const compressed = new Uint8Array(
-		idat.reduce((n, c) => n + c.data.length, 0),
-	);
-	let at = 0;
-	for (const chunk of idat) {
-		compressed.set(chunk.data, at);
-		at += chunk.data.length;
+	// One IDAT (what Bun writes) is read in place: no second full-size copy.
+	let compressed = idat[0]?.data as Uint8Array;
+	if (idat.length > 1) {
+		compressed = new Uint8Array(idat.reduce((n, c) => n + c.data.length, 0));
+		let at = 0;
+		for (const chunk of idat) {
+			compressed.set(chunk.data, at);
+			at += chunk.data.length;
+		}
 	}
 
 	const expected = (width * samples + 1) * height;

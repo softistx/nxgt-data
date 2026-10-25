@@ -1,10 +1,11 @@
 import { cropPixels } from '../crop/crop-pixels';
-import { decodePng, encodePng } from '../crop/png';
+import { decodePng, encodePng, type RawImage } from '../crop/png';
 import { ImageError } from '../errors/image-error';
 import { type ImageInput, readInput } from '../input/read-input';
 import { type SniffedFormat, sniffFormat } from '../input/sniff';
 import type { ResolvedOptions } from '../set/options';
 import type {
+	CropBox,
 	ImageVariant,
 	ProcessedImage,
 	ProcessOptions,
@@ -70,17 +71,40 @@ function variantOf(
 	size: number,
 	quality: number,
 ): Promise<ImageVariant> {
-	return new Bun.Image(cropPng)
-		.resize(size, size, { fit: 'fill' })
-		.webp({ quality })
-		.bytes()
-		.then((bytes) => ({
-			size,
-			width: size,
-			height: size,
-			contentType: 'image/webp' as const,
-			bytes,
-		}));
+	return guarded('png', () =>
+		new Bun.Image(cropPng)
+			.resize(size, size, { fit: 'fill' })
+			.webp({ quality })
+			.bytes(),
+	).then((bytes) => ({
+		size,
+		width: size,
+		height: size,
+		contentType: 'image/webp' as const,
+		bytes,
+	}));
+}
+
+/**
+ * The crop as a PNG. Each full-size buffer is dropped as soon as the next
+ * step has what it needs (the shrunk PNG once decoded, the decoded image
+ * once cropped), so one of them is live at a time.
+ */
+async function cropToPng(
+	bytes: Uint8Array,
+	format: SniffedFormat,
+	image: Dimensions,
+	box: CropBox,
+	options: ResolvedOptions,
+): Promise<Uint8Array> {
+	const scale = shrinkScale(box.size, Math.max(...options.sizes));
+	let shrunk: RawImage | undefined = decodePng(
+		await shrink(bytes, format, image, scale, options.maxPixels),
+		options.maxPixels,
+	);
+	const square = cropPixels(shrunk, scaleCrop(box, scale, shrunk));
+	shrunk = undefined;
+	return encodePng(square);
 }
 
 /** The pipeline behind `ImageSet.process`; see the README for the steps. */
@@ -88,6 +112,7 @@ export async function processImage(
 	input: ImageInput,
 	{ crop }: ProcessOptions,
 	options: ResolvedOptions,
+	limit: <T>(task: () => Promise<T>) => Promise<T>,
 ): Promise<ProcessedImage> {
 	const bytes = await readInput(input, options.maxBytes);
 	const format = sniffFormat(bytes);
@@ -98,36 +123,29 @@ export async function processImage(
 			'the upload is not a JPEG, PNG, WebP or HEIC',
 		);
 	}
-	const image = await readDimensions(bytes, format, options.maxPixels);
+	// From here on the call decodes pixels: `concurrency` of them at a time.
+	return limit(async () => {
+		const image = await readDimensions(bytes, format, options.maxPixels);
 
-	if (crop !== undefined) assertCropShape(crop);
-	const box = crop ?? centredCrop(image);
-	if (
-		(crop ? crop.size : Math.min(image.width, image.height)) < options.minSide
-	) {
-		throw new ImageError(
-			'TOO_SMALL',
-			'dimensions',
-			crop
-				? `the crop is ${crop.size}px, under the ${options.minSide}px minimum`
-				: `the image is ${image.width}x${image.height}, under ${options.minSide}px on its short side`,
+		if (crop !== undefined) {
+			assertCropShape(crop);
+			assertCropFits(crop, image);
+		}
+		const box = crop ?? centredCrop(image);
+		if (box.size < options.minSide) {
+			throw new ImageError(
+				'TOO_SMALL',
+				'dimensions',
+				crop
+					? `the crop is ${crop.size}px, under the ${options.minSide}px minimum`
+					: `the image is ${image.width}x${image.height}, under ${options.minSide}px on its short side`,
+			);
+		}
+
+		const cropPng = await cropToPng(bytes, format, image, box, options);
+		const variants = await Promise.all(
+			options.sizes.map((size) => variantOf(cropPng, size, options.quality)),
 		);
-	}
-	if (crop !== undefined) assertCropFits(crop, image);
-
-	const scale = shrinkScale(box.size, Math.max(...options.sizes));
-	const shrunkPng = await shrink(
-		bytes,
-		format,
-		image,
-		scale,
-		options.maxPixels,
-	);
-	const shrunk = decodePng(shrunkPng, options.maxPixels);
-	const cropPng = encodePng(cropPixels(shrunk, scaleCrop(box, scale, shrunk)));
-
-	const variants = await Promise.all(
-		options.sizes.map((size) => variantOf(cropPng, size, options.quality)),
-	);
-	return { source: { format, ...image }, variants };
+		return { source: { format, ...image }, variants };
+	});
 }
