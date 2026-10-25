@@ -30,6 +30,8 @@ export type ProcessedImage = {
 };
 
 export type ImageSet = {
+	/** The sides this set produces, in the order of `process`'s variants. */
+	readonly sizes: readonly number[];
 	/**
 	 * Checks, crops, resizes and re-encodes an upload to WebP, with every
 	 * metadata stripped. Refusals are `ImageError`; a `crop` that is not

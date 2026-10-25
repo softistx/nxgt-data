@@ -17,6 +17,7 @@ export function defineImageSet(options: ImageSetOptions = {}): ImageSet {
 	const resolved = resolveOptions(options);
 	const limit = createLimit(resolved.concurrency);
 	return {
+		sizes: resolved.sizes,
 		process: (input, processOptions = {}) =>
 			processImage(input, processOptions, resolved, limit),
 	};

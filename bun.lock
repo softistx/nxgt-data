@@ -110,11 +110,16 @@
       "name": "@nxgt/image",
       "version": "0.0.0",
       "devDependencies": {
+        "@nxgt/s3": "workspace:^",
         "@types/bun": "^1.4.0",
       },
       "peerDependencies": {
+        "@nxgt/s3": "workspace:^",
         "typescript": "^6.0.3 || ^7.0.0",
       },
+      "optionalPeers": [
+        "@nxgt/s3",
+      ],
     },
     "packages/meilisearch": {
       "name": "@nxgt/meilisearch",

@@ -19,6 +19,11 @@
 			"import": "./dist/index.js",
 			"default": "./dist/index.js"
 		},
+		"./s3": {
+			"types": "./dist/s3/index.d.ts",
+			"import": "./dist/s3/index.js",
+			"default": "./dist/s3/index.js"
+		},
 		"./package.json": "./package.json"
 	},
 	"keywords": [
@@ -40,18 +45,26 @@
 	},
 	"scripts": {
 		"build": "bun run ../../build.ts",
-		"test": "bun test src",
+		"test": "bun run ../../scripts/seaweedfs.ts && bun test --timeout 30000 src",
 		"typecheck": "tsc --noEmit"
 	},
 	"nxgt": {
 		"entrypoints": [
-			"src/index.ts"
+			"src/index.ts",
+			"src/s3/index.ts"
 		]
 	},
 	"devDependencies": {
+		"@nxgt/s3": "workspace:^",
 		"@types/bun": "^1.4.0"
 	},
 	"peerDependencies": {
+		"@nxgt/s3": "workspace:^",
 		"typescript": "^6.0.3 || ^7.0.0"
+	},
+	"peerDependenciesMeta": {
+		"@nxgt/s3": {
+			"optional": true
+		}
 	}
 }
