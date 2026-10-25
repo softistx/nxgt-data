@@ -141,6 +141,23 @@ describe('bindImageStore', () => {
 		expect(await exists('a')).toEqual([false, false]);
 	});
 
+	test('a failing cleanup does not hide the put error', async () => {
+		const boom = new S3Error('TIMEOUT', 'avatars/a/64.webp', 'put failed');
+		const failing: BoundBucket<Params> = {
+			...bucket,
+			put: (params, body, options) =>
+				params.size === 64
+					? Promise.reject(boom)
+					: bucket.put(params, body, options),
+			delete: () =>
+				Promise.reject(new S3Error('TIMEOUT', 'avatars/a', 'delete failed')),
+		};
+		const store = bindImageStore(set, failing);
+		expect(await rejection(store.replace({ imageId: 'a' }, picture))).toBe(
+			boom,
+		);
+	});
+
 	test('a processing refusal writes nothing', async () => {
 		let puts = 0;
 		const counting: BoundBucket<Params> = {

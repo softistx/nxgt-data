@@ -52,7 +52,9 @@ export function bindImageStore<P extends { size: number }>(
 			);
 			const failed = results.find((r) => r.status === 'rejected');
 			if (failed) {
-				// Every put has settled, so nothing can land after this cleanup.
+				// Best effort: every put has settled, but one that rejected on a client
+				// TIMEOUT may still land on the server after this delete. With a fresh
+				// id per upload that leaves an unreferenced object, nothing more.
 				await Promise.allSettled(
 					set.sizes.map((size) => bucket.delete(at(params, size))),
 				);

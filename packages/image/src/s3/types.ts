@@ -31,9 +31,12 @@ export type ImageStore<P> = {
 	 *
 	 * A `RangeError` or an `ImageError` from processing comes out before
 	 * anything is written. If a put fails, every size of `params` is deleted
-	 * (best effort) and the first put error is rethrown unchanged. That suits
-	 * the recommended keys, which carry a fresh id per upload: the failed
-	 * objects are the only ones under those params. With fixed params it would
+	 * (best effort: a put that rejected on a client `TIMEOUT` may still land on
+	 * the server after the delete) and the first put error is rethrown
+	 * unchanged, "first" meaning first in the set's size order, not first in
+	 * time. That suits the recommended keys, which carry a fresh id per upload:
+	 * the failed objects are the only ones under those params, so a late
+	 * landing leaves at worst an unreferenced object. With fixed params it would
 	 * also remove the image that was there.
 	 *
 	 * Recommended pattern: `const imageId = crypto.randomUUID()`, `replace`
