@@ -6,7 +6,7 @@ import {
 	expect,
 	test,
 } from 'bun:test';
-import { type BoundBucket, bindBucket, defineBucket, S3Error } from '@nxgt/s3';
+import { type BoundBucket, bindBucket, defineBucket } from '@nxgt/s3';
 import { startTestS3, type TestS3 } from '@nxgt/s3/testing';
 import { writePng } from '../../test/images';
 import { rejection } from '../../test/rejection';
@@ -101,11 +101,17 @@ describe('bindImageStore', () => {
 
 	test('a size outside the set is a RangeError', () => {
 		const store = bindImageStore(set, bucket);
-		expect(() => store.presignGet({ imageId: 'a' }, 100)).toThrow(RangeError);
-		expect(() => store.keyFor({ imageId: 'a' }, 100)).toThrow(RangeError);
-		return rejection(store.bytes({ imageId: 'a' }, 100)).then((error) =>
-			expect(error).toBeInstanceOf(RangeError),
+		const sizes = "is not one of the set's sizes (64, 32)";
+		expect(() => store.presignGet({ imageId: 'a' }, 100)).toThrow(
+			new RangeError(`presignGet: size 100 ${sizes}`),
 		);
+		expect(() => store.keyFor({ imageId: 'a' }, 100)).toThrow(
+			new RangeError(`keyFor: size 100 ${sizes}`),
+		);
+		return rejection(store.bytes({ imageId: 'a' }, 100)).then((error) => {
+			expect(error).toBeInstanceOf(RangeError);
+			expect((error as Error).message).toBe(`bytes: size 100 ${sizes}`);
+		});
 	});
 
 	test('keyFor gives the key of a size', () => {
@@ -126,36 +132,67 @@ describe('bindImageStore', () => {
 		expect(calls).toEqual([{ type: 'image/webp' }, { type: 'image/webp' }]);
 	});
 
-	test('a failed put cleans up every size and rethrows the first error', async () => {
-		const boom = new S3Error('TIMEOUT', 'avatars/a/32.webp', 'injected');
+	test('a failed put deletes only what it wrote, never the refused key', async () => {
+		// An earlier object sits under the refused key (fixed params).
+		await bucket.put({ imageId: 'a', size: 32 }, picture, {
+			type: 'image/png',
+		});
+		const boom = new Error('socket closed after sending');
+		const deleted: number[] = [];
 		const failing: BoundBucket<Params> = {
 			...bucket,
 			put: (params, body, options) =>
 				params.size === 32
 					? Promise.reject(boom)
 					: bucket.put(params, body, options),
+			delete: (params) => {
+				deleted.push(params.size);
+				return bucket.delete(params);
+			},
 		};
 		const store = bindImageStore(set, failing);
 		const error = await rejection(store.replace({ imageId: 'a' }, picture));
 		expect(error).toBe(boom);
-		expect(await exists('a')).toEqual([false, false]);
+		expect(deleted).toEqual([64]);
+		expect(await exists('a')).toEqual([false, true]);
 	});
 
 	test('a failing cleanup does not hide the put error', async () => {
-		const boom = new S3Error('TIMEOUT', 'avatars/a/64.webp', 'put failed');
+		const boom = new Error('put failed');
 		const failing: BoundBucket<Params> = {
 			...bucket,
 			put: (params, body, options) =>
 				params.size === 64
 					? Promise.reject(boom)
 					: bucket.put(params, body, options),
-			delete: () =>
-				Promise.reject(new S3Error('TIMEOUT', 'avatars/a', 'delete failed')),
+			delete: () => Promise.reject(new Error('delete failed')),
 		};
 		const store = bindImageStore(set, failing);
 		expect(await rejection(store.replace({ imageId: 'a' }, picture))).toBe(
 			boom,
 		);
+	});
+
+	test('a bucket that refuses image/webp rejects every put and deletes nothing', async () => {
+		const pngOnly = bindBucket(
+			defineBucket({
+				bucket: 'images',
+				contentType: 'image/png',
+				key: ({ imageId, size }: Params) => `avatars/${imageId}/${size}.webp`,
+			}),
+			server.options,
+		);
+		await bucket.put({ imageId: 'a', size: 64 }, picture, {
+			type: 'image/png',
+		});
+		await bucket.put({ imageId: 'a', size: 32 }, picture, {
+			type: 'image/png',
+		});
+		const error = await rejection(
+			bindImageStore(set, pngOnly).replace({ imageId: 'a' }, picture),
+		);
+		expect(error).toBeInstanceOf(Error);
+		expect(await exists('a')).toEqual([true, true]);
 	});
 
 	test('a processing refusal writes nothing', async () => {
