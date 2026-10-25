@@ -40,6 +40,17 @@ describe('centredCrop', () => {
 			y: 20,
 			size: 60,
 		});
+		// An odd margin (1 px): the first pixel is the floor, never the ceil.
+		expect(centredCrop({ width: 61, height: 60 })).toEqual({
+			x: 0,
+			y: 0,
+			size: 60,
+		});
+		expect(centredCrop({ width: 103, height: 60 })).toEqual({
+			x: 21,
+			y: 0,
+			size: 60,
+		});
 		expect(centredCrop({ width: 7, height: 7 })).toEqual({
 			x: 0,
 			y: 0,
@@ -83,6 +94,13 @@ describe('scaleCrop', () => {
 		expect(
 			scaleCrop({ x: 100, y: 50, size: 200 }, 0.5, { width: 200, height: 150 }),
 		).toEqual({ x: 50, y: 25, size: 100 });
+	});
+
+	test('rounds halves up, so no number is floored', () => {
+		// 3 x 0.5 = 1.5, 5 x 0.5 = 2.5, 7 x 0.5 = 3.5: round gives 2, 3, 4.
+		expect(
+			scaleCrop({ x: 3, y: 5, size: 7 }, 0.5, { width: 20, height: 20 }),
+		).toEqual({ x: 2, y: 3, size: 4 });
 	});
 
 	test('clamps a rounded square back inside the image', () => {

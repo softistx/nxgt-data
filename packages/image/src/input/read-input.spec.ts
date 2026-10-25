@@ -71,6 +71,54 @@ describe('readInput', () => {
 		expect(state.cancelled).toBe(true);
 	});
 
+	test('a Blob whose size is NaN (an S3File) is read through the cap, not whole', async () => {
+		const state = { pulled: 0, cancelled: false };
+		class Unsized extends Blob {
+			override get size() {
+				return Number.NaN;
+			}
+			override stream() {
+				return new ReadableStream<Uint8Array>(
+					{
+						pull(controller) {
+							state.pulled++;
+							controller.enqueue(new Uint8Array(10));
+						},
+						cancel() {
+							state.cancelled = true;
+						},
+					},
+					{ highWaterMark: 0 },
+				) as never;
+			}
+			override arrayBuffer(): Promise<ArrayBuffer> {
+				throw new Error('it must not be read whole');
+			}
+		}
+		await tooLarge(readInput(new Unsized([]), 25));
+		expect(state.cancelled).toBe(true);
+		expect(state.pulled).toBeLessThanOrEqual(4);
+		// Under the cap it still reads.
+		class Small extends Unsized {
+			override stream() {
+				return new Blob([bytes]).stream() as never;
+			}
+		}
+		expect(await readInput(new Small([]), 8)).toEqual(bytes);
+	});
+
+	test('a Blob that claims a small size but holds more is refused once read', async () => {
+		class Liar extends Blob {
+			override get size() {
+				return 1;
+			}
+			override arrayBuffer() {
+				return Promise.resolve(new ArrayBuffer(100));
+			}
+		}
+		await tooLarge(readInput(new Liar([]), 50));
+	});
+
 	test('refuses an input of another type with a TypeError', async () => {
 		const error = await rejection(readInput('a path' as never, 8));
 		expect(error).toBeInstanceOf(TypeError);

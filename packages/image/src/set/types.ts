@@ -4,6 +4,10 @@ import type { SniffedFormat } from '../input/sniff';
 /**
  * A square to keep, in pixels of the **auto-oriented** image: the picture as
  * a person sees it, after EXIF rotation. `(x, y)` is its top-left corner.
+ *
+ * Only a JPEG's EXIF orientation is applied (measured on Bun 1.4.3): the
+ * orientation of a PNG (`eXIf`) or of a WebP (`EXIF`) is ignored, so for those
+ * the frame is the stored one.
  */
 export type CropBox = { x: number; y: number; size: number };
 

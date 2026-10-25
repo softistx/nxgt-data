@@ -24,6 +24,8 @@ async function encoded(
 	}
 }
 
+const heic = await encoded('heic');
+
 describe('sniffFormat', () => {
 	test('reads a PNG, a JPEG and a WebP made by Bun', async () => {
 		expect(sniffFormat(encodePng(source))).toBe('png');
@@ -31,31 +33,23 @@ describe('sniffFormat', () => {
 		expect(sniffFormat((await encoded('webp')) as Uint8Array)).toBe('webp');
 	});
 
-	test('reads a HEIC made by Bun, where this machine can make one', async () => {
-		const heic = await encoded('heic');
-		if (!heic) {
-			console.warn(
-				'skipped: this machine cannot encode HEIC (ERR_IMAGE_FORMAT_UNSUPPORTED)',
-			);
-			return;
-		}
-		expect(sniffFormat(heic)).toBe('heic');
-	});
+	test.skipIf(heic === undefined)(
+		`reads a HEIC made by Bun, where this machine can make one${heic === undefined ? ' (skipped: this machine cannot encode HEIC)' : ''}`,
+		() => {
+			expect(sniffFormat(heic as Uint8Array)).toBe('heic');
+		},
+	);
 
 	test('reads a HEIC by its major or by a compatible brand', () => {
-		for (const brand of [
-			'heic',
-			'heix',
-			'heim',
-			'heis',
-			'hevc',
-			'hevx',
-			'mif1',
-			'msf1',
-		]) {
+		for (const brand of ['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1']) {
 			expect(sniffFormat(ftyp(brand, []))).toBe('heic');
 		}
 		expect(sniffFormat(ftyp('isom', ['iso2', 'heic']))).toBe('heic');
+	});
+
+	test('does not take heim and heis for HEIC: Bun does not recognise them', () => {
+		expect(sniffFormat(ftyp('heim', []))).toBeUndefined();
+		expect(sniffFormat(ftyp('heis', []))).toBeUndefined();
 	});
 
 	test('refuses AVIF, by its major or a compatible brand', () => {

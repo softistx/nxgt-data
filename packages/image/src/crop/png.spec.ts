@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { deflateSync } from 'node:zlib';
-import { chunk, concat, pattern, writePng } from '../../test/images';
-import { ImageError } from '../errors/image-error';
-import { decodePng, encodePng } from './png';
+import { concat, decodePng, pattern, writePng } from '../../test/images';
+import { cropPng } from './crop-png';
+import { chunk, encodePng } from './png';
 
 const rgb = pattern(37, 29, 3);
 const rgba = pattern(37, 29, 4);
@@ -24,28 +24,16 @@ async function throughBun(
 	return new Bun.Image(encodePng(image)).png({ compressionLevel }).bytes();
 }
 
-function refused(run: () => unknown) {
-	try {
-		run();
-	} catch (error) {
-		expect(error).toBeInstanceOf(ImageError);
-		expect((error as ImageError).code).toBe('UNDECODABLE');
-		expect((error as ImageError).reason).toBe('decode');
-		return;
-	}
-	throw new Error('it did not refuse');
-}
-
 describe('png codec', () => {
-	test('round trips exact pixels, RGB and RGBA', () => {
-		expect(decodePng(encodePng(rgb))).toEqual(rgb);
-		expect(decodePng(encodePng(rgba))).toEqual(rgba);
+	test('round trips exact pixels, RGB and RGBA', async () => {
+		expect(await decodePng(encodePng(rgb))).toEqual(rgb);
+		expect(await decodePng(encodePng(rgba))).toEqual(rgba);
 	});
 
-	test('decodes Bun.Image output at compression level 0 and 9', async () => {
+	test('reads Bun.Image output at compression level 0 and 9', async () => {
 		for (const source of [rgb, rgba]) {
 			for (const level of [0, 9]) {
-				const decoded = decodePng(await throughBun(source, level));
+				const decoded = await decodePng(await throughBun(source, level));
 				// Bun writes RGBA whatever the source: an RGB source gains opaque alpha.
 				expect(decoded.channels).toBe(4);
 				expect(decoded.width).toBe(source.width);
@@ -62,26 +50,30 @@ describe('png codec', () => {
 		}
 	});
 
-	test('decodes a large image Bun split across many IDAT chunks', async () => {
+	test('reads a large image Bun split across many IDAT chunks', async () => {
 		const big = pattern(600, 300, 4);
 		const out = await throughBun(big, 0);
 		expect(
 			chunkTypes(out).filter((type) => type === 'IDAT').length,
 		).toBeGreaterThan(1);
-		expect(decodePng(out)).toEqual(big);
+		expect(await decodePng(out)).toEqual(big);
 	});
 
-	test('undoes each of the five filters', () => {
+	test('undoes each of the five filters', async () => {
 		for (const filter of [0, 1, 2, 3, 4]) {
-			expect(decodePng(writePng(rgb, { filters: [filter] }))).toEqual(rgb);
-			expect(decodePng(writePng(rgba, { filters: [filter] }))).toEqual(rgba);
+			expect(await decodePng(writePng(rgb, { filters: [filter] }))).toEqual(
+				rgb,
+			);
+			expect(await decodePng(writePng(rgba, { filters: [filter] }))).toEqual(
+				rgba,
+			);
 		}
-		expect(decodePng(writePng(rgba, { filters: [0, 1, 2, 3, 4] }))).toEqual(
-			rgba,
-		);
+		expect(
+			await decodePng(writePng(rgba, { filters: [0, 1, 2, 3, 4] })),
+		).toEqual(rgba);
 	});
 
-	test('widens 8-bit grey and grey with alpha', () => {
+	test('widens 8-bit grey and grey with alpha', async () => {
 		const grey = {
 			width: 3,
 			height: 2,
@@ -96,10 +88,10 @@ describe('png codec', () => {
 			{ width: 3, height: 2, channels: 1 as never, pixels: plain },
 			{ colour: 0, filters: [1, 4] },
 		);
-		expect(decodePng(g)).toEqual(grey);
+		expect(await decodePng(g)).toEqual(grey);
 
 		const ga = new Uint8Array([10, 255, 20, 128, 30, 0, 40, 1, 50, 2, 60, 3]);
-		const decoded = decodePng(
+		const decoded = await decodePng(
 			writePng(
 				{ width: 3, height: 2, channels: 2 as never, pixels: ga },
 				{ colour: 4, filters: [2, 3] },
@@ -109,6 +101,9 @@ describe('png codec', () => {
 		expect([...decoded.pixels.subarray(0, 8)]).toEqual([
 			10, 10, 10, 255, 20, 20, 20, 128,
 		]);
+		// A region of a grey image is widened too.
+		const part = await cropPng(g, { x: 1, y: 1, width: 2, height: 1 });
+		expect([...part.pixels]).toEqual([50, 50, 50, 60, 60, 60]);
 	});
 
 	test('output of encodePng is a PNG Bun reads', async () => {
@@ -116,7 +111,7 @@ describe('png codec', () => {
 		expect(metadata).toEqual({ width: 37, height: 29, format: 'png' });
 	});
 
-	test('drops ancillary chunks on decode then encode', () => {
+	test('drops ancillary chunks on read then encode', async () => {
 		const text = new TextEncoder();
 		const noisy = writePng(rgba, {
 			extra: [
@@ -136,58 +131,8 @@ describe('png codec', () => {
 			'IDAT',
 			'IEND',
 		]);
-		const clean = encodePng(decodePng(noisy));
+		const clean = encodePng(await decodePng(noisy));
 		expect(chunkTypes(clean)).toEqual(['IHDR', 'IDAT', 'IEND']);
-		expect(decodePng(clean)).toEqual(rgba);
-	});
-
-	test('refuses what it does not read, as UNDECODABLE', () => {
-		refused(() => decodePng(writePng(rgba, { depth: 16 })));
-		refused(() => decodePng(writePng(rgba, { colour: 3 })));
-		refused(() => decodePng(writePng(rgba, { interlace: 1 })));
-		refused(() =>
-			decodePng(writePng(rgba, { idat: new Uint8Array([1, 2, 3, 4, 5, 6]) })),
-		);
-		refused(() =>
-			decodePng(writePng(rgba, { idat: deflateSync(new Uint8Array(10)) })),
-		);
-		refused(() => decodePng(encodePng(rgba).subarray(0, 40)));
-		refused(() => decodePng(new Uint8Array([1, 2, 3])));
-		refused(() => decodePng(writePng(rgba, { filters: [9] })));
-	});
-
-	test('refuses a stream that inflates past what the header promises', () => {
-		const bomb = deflateSync(new Uint8Array(1_000_000));
-		refused(() => decodePng(writePng(rgba, { idat: bomb })));
-	});
-
-	test('a missing IHDR or IDAT is refused', () => {
-		const png = encodePng(rgba);
-		const iend = chunk('IEND', new Uint8Array(0));
-		const signature = png.subarray(0, 8);
-		refused(() => decodePng(concat([signature, iend])));
-		refused(() => decodePng(concat([signature, png.subarray(8, 33), iend])));
-	});
-	test('refuses, before inflating, a header over maxPixels', () => {
-		const png = writePng(pattern(20, 10, 4));
-		expect(decodePng(png, 200).width).toBe(20);
-		try {
-			decodePng(png, 199);
-			throw new Error('it decoded');
-		} catch (error) {
-			expect(error).toBeInstanceOf(ImageError);
-			expect((error as ImageError).code).toBe('TOO_LARGE');
-			expect((error as ImageError).reason).toBe('pixels');
-		}
-		// A body that would not inflate: the cap is judged first.
-		const corrupt = writePng(pattern(20, 10, 4), {
-			idat: new Uint8Array([1, 2, 3]),
-		});
-		try {
-			decodePng(corrupt, 10);
-			throw new Error('it decoded');
-		} catch (error) {
-			expect((error as ImageError).reason).toBe('pixels');
-		}
+		expect(await decodePng(clean)).toEqual(rgba);
 	});
 });

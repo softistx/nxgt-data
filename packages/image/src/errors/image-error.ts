@@ -22,7 +22,8 @@ export type ImageErrorCode =
  *
  * - `bytes`: the upload is over the byte limit.
  * - `pixels`: the image claims more pixels than the limit.
- * - `format`: the first bytes match no accepted format.
+ * - `format`: the first bytes match no accepted format, or this machine
+ *   cannot decode the format they announce.
  * - `heic-unavailable`: a HEIC, on a machine whose Bun cannot decode one
  *   (Linux; HEIC decodes on macOS and Windows only).
  * - `decode`: the format is right and the content is damaged or unsupported.

@@ -1,23 +1,18 @@
+import { PNG_SIGNATURE } from '../crop/png';
+
 export type SniffedFormat = 'jpeg' | 'png' | 'webp' | 'heic';
 
-const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-
 /** Brands of an ISO-BMFF `ftyp` box that mean a HEIF image Bun can decode. */
-const HEIC_BRANDS = new Set([
-	'heic',
-	'heix',
-	'heim',
-	'heis',
-	'hevc',
-	'hevx',
-	'mif1',
-	'msf1',
-]);
+const HEIC_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1']);
 
 /** AVIF shares `mif1` with HEIC, so its own brands refuse the file. */
 const AVIF_BRANDS = new Set(['avif', 'avis']);
 
-function startsWith(bytes: Uint8Array, signature: number[], at = 0): boolean {
+function startsWith(
+	bytes: Uint8Array,
+	signature: readonly number[],
+	at = 0,
+): boolean {
 	return (
 		bytes.length >= at + signature.length &&
 		signature.every((value, i) => bytes[at + i] === value)
@@ -50,7 +45,7 @@ function brandsOf(bytes: Uint8Array): string[] {
  */
 export function sniffFormat(bytes: Uint8Array): SniffedFormat | undefined {
 	if (startsWith(bytes, [0xff, 0xd8, 0xff])) return 'jpeg';
-	if (startsWith(bytes, PNG)) return 'png';
+	if (startsWith(bytes, PNG_SIGNATURE)) return 'png';
 	if (
 		bytes.length >= 12 &&
 		ascii(bytes, 0, 4) === 'RIFF' &&

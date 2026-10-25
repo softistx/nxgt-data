@@ -26,10 +26,12 @@ function expectStripped(all: string[][]) {
 }
 
 describe('process: metadata is stripped', () => {
-	test('a JPEG with an EXIF segment holding GPS tags', async () => {
+	test('a JPEG with an EXIF segment holding GPS tags: a guard, Bun never writes EXIF into a WebP', async () => {
 		const jpeg = await new Bun.Image(source).jpeg().bytes();
 		const input = withExif(jpeg, { orientation: 1, gps: true });
-		// The segment is really there: Bun reads the orientation from it.
+		// The segment is really there, but Bun writes no EXIF into a WebP whatever
+		// it reads, so this guards a regression and cannot prove the stripping:
+		// the two ICC specs below, with their controls, do.
 		expect(input.length).toBeGreaterThan(jpeg.length + 60);
 		expectStripped(await chunksOfEach(input));
 	});

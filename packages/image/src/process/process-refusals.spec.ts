@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { chunk, concat, ftyp, pattern, writePng } from '../../test/images';
+import { concat, ftyp, pattern, writePng } from '../../test/images';
 import { rejection } from '../../test/rejection';
 import { scene } from '../../test/scene';
+import { chunk } from '../crop/png';
 import { ImageError } from '../errors/image-error';
 import { defineImageSet } from '../set/define-image-set';
 
@@ -118,7 +119,7 @@ describe('process: refusals', () => {
 	});
 
 	test.skipIf(heic === undefined)(
-		'a HEIC that decodes here is processed (skipped: this machine cannot encode HEIC)',
+		`a HEIC that decodes here is processed${heic === undefined ? ' (skipped: this machine cannot encode HEIC)' : ''}`,
 		async () => {
 			expect((await set.process(heic as Uint8Array)).source.format).toBe(
 				'heic',
@@ -126,23 +127,22 @@ describe('process: refusals', () => {
 		},
 	);
 
-	test.skipIf(heic === undefined)(
-		'a HEIC under the "bun" backend: UNSUPPORTED_TYPE heic-unavailable (skipped: this machine cannot encode HEIC)',
-		async () => {
-			const before = Bun.Image.backend;
-			Bun.Image.backend = 'bun';
-			try {
-				const error = await refused(
-					set.process(heic as Uint8Array),
-					'UNSUPPORTED_TYPE',
-					'heic-unavailable',
-				);
-				expect((error.cause as { code?: string }).code).toBe(
-					'ERR_IMAGE_FORMAT_UNSUPPORTED',
-				);
-			} finally {
-				Bun.Image.backend = before;
-			}
-		},
-	);
+	test('a HEIC under the "bun" backend: UNSUPPORTED_TYPE heic-unavailable, on every machine', async () => {
+		// Built by hand: it needs no HEIC encoder, so it runs on Linux CI too.
+		const input = concat([ftyp('heic', ['mif1']), new Uint8Array(64)]);
+		const before = Bun.Image.backend;
+		Bun.Image.backend = 'bun';
+		try {
+			const error = await refused(
+				set.process(input),
+				'UNSUPPORTED_TYPE',
+				'heic-unavailable',
+			);
+			expect((error.cause as { code?: string }).code).toBe(
+				'ERR_IMAGE_FORMAT_UNSUPPORTED',
+			);
+		} finally {
+			Bun.Image.backend = before;
+		}
+	});
 });

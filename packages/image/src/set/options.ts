@@ -1,3 +1,5 @@
+import { isWhole } from './whole';
+
 /** What `defineImageSet` takes; every field has a default. */
 export type ImageSetOptions = {
 	/**
@@ -11,12 +13,14 @@ export type ImageSetOptions = {
 	 * The most pixels (width × height) an upload may claim, a whole number of
 	 * 1 or more. Default 50 000 000, which covers a 48 MP phone.
 	 *
-	 * **Memory:** a call holds about 4 bytes per pixel of the upload at its
-	 * peak when the crop is small, so no shrink happens and the whole image
-	 * is decoded. Measured: a 36 MP JPEG with a 256 px crop grew the process
-	 * by about 150 MB for one call. The ceiling is therefore about
-	 * `concurrency × 4 × maxPixels` bytes: 200 MB per call at the default
-	 * `maxPixels`, 400 MB at the default `concurrency`.
+	 * **Memory:** a call decodes the whole image once, in `Bun.Image`, which
+	 * holds about 4 bytes per pixel (RGBA) while it re-encodes; the crop is then
+	 * read out of that PNG as it inflates, two rows at a time, so nothing else
+	 * of that size is kept. Measured on Bun 1.4.3, one call grows the process by
+	 * about 150 MB for a 36 MP JPEG and about 200 MB for a 49 MP one. Plan on
+	 * 4.5 bytes per pixel: about 225 MB per call at the default `maxPixels`, and
+	 * a ceiling of `concurrency × 4.5 × maxPixels` bytes (450 MB at the defaults),
+	 * the bytes of the uploads waiting apart (see `concurrency`).
 	 */
 	maxPixels?: number;
 	/**
@@ -30,9 +34,12 @@ export type ImageSetOptions = {
 	 * How many `process` calls of this set decode at once, a whole number from
 	 * 1 to 64. Default 2. The others wait their turn, in order, after their
 	 * bytes are read and their format sniffed; this bounds the memory (see
-	 * `maxPixels`). Measured on a 36 MP JPEG with a 256 px
-	 * crop, 4 calls at once: about 1.9 GB of growth with no bound, about
-	 * 0.9 GB with the default 2.
+	 * `maxPixels`). Measured on a 36 MP JPEG, 4 calls at once grew the process
+	 * by about 300 MB with the default 2 and about 150 MB with 1.
+	 *
+	 * **The wait queue is not bounded**, and each waiting call holds its
+	 * upload's bytes (up to `maxBytes`). A server that can receive more uploads
+	 * than it decodes should cap them before they reach `process`.
 	 */
 	concurrency?: number;
 };
@@ -47,21 +54,16 @@ export type ResolvedOptions = {
 	readonly concurrency: number;
 };
 
-export const DEFAULT_SIZES: readonly number[] = [256, 64];
-export const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
-export const DEFAULT_MAX_PIXELS = 50_000_000;
-export const DEFAULT_QUALITY = 80;
-export const DEFAULT_CONCURRENCY = 2;
-export const MAX_CONCURRENCY = 64;
-export const MAX_SIZE = 4096;
+const DEFAULT_SIZES: readonly number[] = [256, 64];
+const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
+const DEFAULT_MAX_PIXELS = 50_000_000;
+const DEFAULT_QUALITY = 80;
+const DEFAULT_CONCURRENCY = 2;
+const MAX_CONCURRENCY = 64;
+const MAX_SIZE = 4096;
 
 function whole(name: string, value: unknown, min: number, max?: number) {
-	if (
-		typeof value !== 'number' ||
-		!Number.isInteger(value) ||
-		value < min ||
-		(max !== undefined && value > max)
-	) {
+	if (!isWhole(value, min, max)) {
 		const range = max === undefined ? `${min} or more` : `${min} to ${max}`;
 		throw new TypeError(
 			`${name} must be a whole number of ${range}, got ${String(value)}`,

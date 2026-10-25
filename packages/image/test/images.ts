@@ -1,5 +1,6 @@
 import { deflateSync } from 'node:zlib';
-import type { RawImage } from '../src/crop/png';
+import { cropPng } from '../src/crop/crop-png';
+import { chunk, PNG_SIGNATURE, type RawImage } from '../src/crop/png';
 
 /** A deterministic image whose rows and columns differ, so filters matter. */
 export function pattern(
@@ -17,19 +18,6 @@ export function pattern(
 		}
 	}
 	return { width, height, channels, pixels };
-}
-
-export function chunk(type: string, data: Uint8Array): Uint8Array {
-	const out = new Uint8Array(12 + data.length);
-	const view = new DataView(out.buffer);
-	view.setUint32(0, data.length);
-	for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
-	out.set(data, 8);
-	view.setUint32(
-		8 + data.length,
-		Bun.hash.crc32(out.subarray(4, 8 + data.length)) >>> 0,
-	);
-	return out;
 }
 
 export function concat(parts: Uint8Array[]): Uint8Array {
@@ -50,10 +38,6 @@ export function ftyp(major: string, compatible: string[]): Uint8Array {
 	out.set(new TextEncoder().encode(`ftyp${brands}`), 4);
 	return out;
 }
-
-const SIGNATURE = new Uint8Array([
-	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-]);
 
 /** Forward PNG filters, written independently of the decoder under test. */
 function filterRow(
@@ -115,7 +99,7 @@ export function writePng(
 	header[9] = options.colour ?? (channels === 4 ? 6 : 2);
 	header[12] = options.interlace ?? 0;
 	const file = concat([
-		SIGNATURE,
+		new Uint8Array(PNG_SIGNATURE),
 		chunk('IHDR', header),
 		...(options.extra ?? []),
 		chunk('IDAT', options.idat ?? deflateSync(concat(rows))),
@@ -124,4 +108,19 @@ export function writePng(
 	return options.truncate === undefined
 		? file
 		: file.subarray(0, options.truncate);
+}
+
+/**
+ * Every pixel of a PNG, through the streaming crop reader (the reader the
+ * package ships, which keeps only a region). Grey is widened, as it is there.
+ */
+export function decodePng(
+	bytes: Uint8Array,
+	maxPixels?: number,
+): Promise<RawImage> {
+	return cropPng(
+		bytes,
+		({ width, height }) => ({ x: 0, y: 0, width, height }),
+		maxPixels,
+	);
 }
