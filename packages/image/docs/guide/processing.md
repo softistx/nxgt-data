@@ -63,11 +63,17 @@ harmless: nothing but the pixels leaves the pipeline.
 | Option | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `sizes` | `readonly number[]` | `[256, 64]` | the square sides to produce, unique whole numbers from 1 to 4096 |
-| `maxBytes` | `number` | `5 * 1024 * 1024` | byte limit; over it is `TOO_LARGE` (`bytes`) |
-| `maxPixels` | `number` | `50_000_000` | width x height limit, which covers a 48 MP phone; over it is `TOO_LARGE` (`pixels`) |
+| `maxBytes` | `number` | `5 * 1024 * 1024` | byte limit; over it is `TOO_LARGE` (`bytes`). Admits most 12 MP photos; a 48 MP phone JPEG (about 11 MB) is refused until you raise it |
+| `maxPixels` | `number` | `25_000_000` | width x height limit, which covers a 24 MP phone; over it is `TOO_LARGE` (`pixels`). It sets the worst-case memory (see below) |
 | `minSide` | `number` | the largest of `sizes` | the smallest side of the image, or of the crop; under it is `TOO_SMALL` |
 | `quality` | `number` | `80` | WebP quality, 1 to 100 |
-| `concurrency` | `number` | `2` | uploads that decode at once, 1 to 64 |
+| `concurrency` | `number` | `2` | uploads that decode at once, 1 to 64; not a hard memory ceiling (see below) |
+
+To accept 48 MP phones, raise both limits, and plan the memory below:
+
+```ts
+defineImageSet({ maxPixels: 50_000_000, maxBytes: 16 * 1024 * 1024 });
+```
 
 A bad option throws a `TypeError` when the set is defined:
 
@@ -85,7 +91,7 @@ defineImageSet({ quality: 0 }); // TypeError: quality must be a whole number of 
 
 `minSide` applies to the short side of the image, or to `crop.size` when a crop
 is given. It is checked **after** the crop's shape and fit: a crop that does
-not fit the image is a `RangeError` whatever its size, and a crop that fits but
+not fit the image is `INVALID_CROP` whatever its size, and a crop that fits but
 is under `minSide` is `TOO_SMALL`.
 
 ## The crop
@@ -112,12 +118,15 @@ type CropBox = { x: number; y: number; size: number };
 
 | Crop | Result |
 | --- | --- |
-| not three whole numbers of 0 or more | `RangeError`: `a crop is { x, y, size }, three whole numbers of 0 or more` |
-| outside the image | `RangeError`: `a <size>px crop at (<x>, <y>) does not fit the <w>x<h> image` |
+| not three whole numbers of 0 or more | `ImageError` `INVALID_CROP`: `a crop is { x, y, size }, three whole numbers of 0 or more` |
+| outside the image | `ImageError` `INVALID_CROP`: `a <size>px crop at (<x>, <y>) does not fit the <w>x<h> image` |
 | `size` under `minSide` | `ImageError` `TOO_SMALL`: `the crop is <size>px, under the <minSide>px minimum` |
 
-A `RangeError` is the caller's mistake, not an upload refusal, so it is not an
-`ImageError`.
+`INVALID_CROP` (reason `crop`) is an `ImageError` because the crop usually comes
+from a request: a handler answers a 4xx for it, like any other refusal. The
+internal check on the pixels the package crops (see
+[troubleshooting](../troubleshooting.md#a-wxh-region-at-x-y-does-not-fit-a-wxh-image))
+stays a `RangeError`: it is a bug guard, not a request value.
 
 ## Refusals
 
@@ -138,6 +147,8 @@ try {
 		case 'decode':
 		case 'dimensions':
 			return respond(422);
+		case 'crop':
+			return respond(400);
 	}
 }
 ```
@@ -149,6 +160,7 @@ try {
 | `UNSUPPORTED_TYPE` | `format` | `the upload is not a JPEG, PNG, WebP or HEIC`, or `this machine cannot decode <format>` |
 | `UNSUPPORTED_TYPE` | `heic-unavailable` | `this machine cannot decode HEIC (Linux cannot)` |
 | `UNDECODABLE` | `decode` | `the <format> image cannot be decoded`, or `the PNG cannot be read: <why>` |
+| `INVALID_CROP` | `crop` | `a crop is { x, y, size }, three whole numbers of 0 or more`, or `a <size>px crop at (<x>, <y>) does not fit the <w>x<h> image` |
 | `TOO_SMALL` | `dimensions` | `the image is <w>x<h>, under <minSide>px on its short side`, or the crop message above |
 
 When Bun refuses the image, its own error is `error.cause`. An error that
@@ -183,28 +195,53 @@ does not trust a header that step 4 produced. It also refuses inflated data
 longer than the header promises, as far as it reads: it stops after the
 square, so data past the last row it needs is never looked at.
 
-The PNG of step 4 is **not** uncompressed. Level 0 is about 15 times faster, but
-Bun 1.4.3 never gives the memory of a level 0 (or 1) `png()` back: a loop of
-them grew the process by about 140 MB per call (7 GB after 60), where the
-default level stays flat. A 36 MP call takes about 1.7 s for that encode.
+The PNG of step 4 is **not** uncompressed: it is at Bun's default level, which
+gives the smallest PNG, and so the least memory held (see below). On a 36 MP
+photo the default level gave a 45 MB PNG and level 0 a 146 MB one, and the
+process grew by about that much per call.
 
 ## Memory and `concurrency`
 
-A call holds about 4 bytes per pixel of the upload at its peak, and **all of it
-is `Bun.Image`'s own decode and PNG encode** in step 4: our reader adds two rows
-and the crop, nothing that grows with the image. Measured on Bun 1.4.3 (the
-growth of the process's RSS, one JPEG at a time):
+**One call peaks at about** Bun's decode of the source (4 bytes per pixel) +
+the intermediate PNG of step 4 + the crop square, about
+`4 x (2 x the largest size)^2` bytes. Our reader adds two rows and the crop
+and nothing that grows with the image. Measured on Bun 1.4.3, on photo-like
+JPEGs (a gradient with sensor-like noise, never a flat test pattern), the
+growth of the process's RSS for one call, each in a fresh process:
 
-| Source | 1 call | 4 calls, `concurrency` 2 | 4 calls, `concurrency` 1 |
+| Source | Centred crop, `[256, 64]` | 256 px crop, `[256, 64]` | Time of the 256 px crop |
 | --- | --- | --- | --- |
-| 36 MP, 256 px crop | 150 MB | 300 MB | 150 MB |
-| 49 MP, 256 px crop | 200 MB | n/a | n/a |
+| 12 MP (4000x3000) | 17 MB | 78 MB | 1.3 s |
+| 25 MP | 17 MB | 148 MB | 2.7 s |
+| 36 MP | 17 MB | 207 MB | 4.0 s |
+| 49 MP | 18 MB | 276 MB | 5.4 s |
 
-Plan on **4.5 bytes per pixel per decoding call**: about 225 MB at the default
-`maxPixels`, and a ceiling of `concurrency x 4.5 x maxPixels` bytes, 450 MB at
-the defaults. The limit is per set, so two sets double it.
+| 49 MP, centred crop | Peak | Time |
+| --- | --- | --- |
+| `sizes: [1024]` | 105 MB | 0.7 s |
+| `sizes: [2048]` | 469 MB | 2.6 s |
+| `sizes: [4096]` | 940 MB | 8.1 s |
 
-`concurrency` is how many calls of one set decode at once; the others wait in
+A **centred crop with small sizes is cheap**: the shrink makes a small image
+first. The **expensive path** is a small `crop` on a huge image (the shrink
+cannot go below the source) or large `sizes` (the crop square is
+`(2 x the largest size)^2` pixels).
+
+**Bun 1.4.3 holds on to every `png()` output** until a later collection, about
+the PNG's size per call, and gives it back only in bursts. Sequential calls
+with a small crop therefore climb before the memory falls: 70 calls on 25 MP
+photos climbed to 716 MB (falling back to about 140 MB several times); 70 calls
+on 36 MP photos climbed past 1.6 GB. JPEG encoding does not do this, and the
+default centred crop stays flat. That is why the default `maxPixels` is
+25 million, and why the default PNG level is kept: it makes the smallest PNG.
+
+**`concurrency` is not a hard ceiling** for the same reason. It limits how many
+calls decode at once, and four 36 MP calls with a 256 px crop grew the process by
+330 MB at `concurrency` 1, 510 MB at 2 and 770 MB at 4 (the last two in 4.3 to
+8.2 s, against 16 s at 1). Budget about the one-call peak per slot, plus what
+Bun still holds from earlier calls.
+
+The limit is per set, so two sets add up. The calls beyond `concurrency` wait in
 order after their bytes are read and sniffed. **The wait queue is not
 bounded**, and each waiting call holds its upload's bytes (up to `maxBytes`):
 a server that can receive more uploads than it decodes should cap them before
@@ -212,8 +249,12 @@ they reach `process`.
 
 ```ts
 // a small server: one decode at a time, a lower pixel ceiling
-const avatars = defineImageSet({ concurrency: 1, maxPixels: 25_000_000 });
+const avatars = defineImageSet({ concurrency: 1, maxPixels: 16_000_000 });
 ```
+
+The crop PNG is encoded on zlib's thread pool, so a large crop does not stop the
+event loop (measured with `sizes: [2048]` on 36 MP: the longest stall fell from
+900 ms to 240 ms, and with `[4096]` from 1.1 s to 0.3 s).
 
 ## Metadata and colour
 
