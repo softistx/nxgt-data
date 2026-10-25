@@ -197,7 +197,7 @@ square, so data past the last row it needs is never looked at.
 
 The PNG of step 4 is **not** uncompressed: it is at Bun's default level, which
 gives the smallest PNG, and so the least memory held (see below). On a 36 MP
-photo the default level gave a 45 MB PNG and level 0 a 146 MB one, and the
+photo (Bun 1.4.3, photo-like JPEG) the default level gave a 45 MB PNG and level 0 a 146 MB one, and the
 process grew by about that much per call.
 
 ## Memory and `concurrency`
@@ -236,7 +236,7 @@ default centred crop stays flat. That is why the default `maxPixels` is
 25 million, and why the default PNG level is kept: it makes the smallest PNG.
 
 **`concurrency` is not a hard ceiling** for the same reason. It limits how many
-calls decode at once, and four 36 MP calls with a 256 px crop grew the process by
+calls decode at once, and four 36 MP calls with a 256 px crop (Bun 1.4.3, photo-like JPEG) grew the process by
 330 MB at `concurrency` 1, 510 MB at 2 and 770 MB at 4 (the last two in 4.3 to
 8.2 s, against 16 s at 1). Budget about the one-call peak per slot, plus what
 Bun still holds from earlier calls.
@@ -254,9 +254,9 @@ const avatars = defineImageSet({ concurrency: 1, maxPixels: 16_000_000 });
 
 The crop PNG is encoded on zlib's thread pool, so a large crop does not stop the
 event loop: with `sizes: [4096]` on 36 MP the longest stall fell from 1.1 s to
-0.3 s. That costs memory: the async encode adds about 250 to 300 MB at the
-`[4096]` peak on 49 MP (the figures above are measured on the async build; the
-spread is run to run and between two measurers).
+0.3 s. That costs memory: the async encode adds memory at the peak, because the
+deflate input and output are held together; the figures above, measured on the
+async build, include it. The spread is run to run.
 
 ## Metadata and colour
 

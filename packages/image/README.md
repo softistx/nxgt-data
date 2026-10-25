@@ -165,7 +165,7 @@ const { variants } = await avatars.process(await request.blob(), {
 });
 ```
 
-A crop that is not three whole numbers of 0 or more, or does not fit the image,
+A crop that is not three whole numbers of 0 or more, or is not an object, or does not fit the image,
 is an `ImageError` with the code `INVALID_CROP`, so a handler answers a 4xx. A crop that fits but is under `minSide` is refused as `TOO_SMALL`.
 Orientation is applied for a JPEG only; a PNG or WebP orientation tag is ignored.
 

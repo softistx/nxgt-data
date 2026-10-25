@@ -22,7 +22,7 @@ export type ImageSetOptions = {
 	 * **Memory.** One call peaks at about Bun's decode of the source (4 bytes
 	 * per pixel) + the intermediate PNG + the crop square, about
 	 * 4 × (2 × the largest size)² bytes. A centred crop with the default sizes
-	 * is cheap (about 17 MB measured, at 12 to 49 MP). The expensive path is a
+	 * is cheap (17 to 18 MB measured, at 12 to 49 MP). The expensive path is a
 	 * small caller `crop` on a big image, or large `sizes`. Measured on
 	 * Bun 1.4.3, photo-like JPEGs, one call: a 256 px crop on 25 MP grows the
 	 * process by about 150 MB (2.7 s), on 36 MP about 210 MB (4 s), on 49 MP
@@ -49,9 +49,9 @@ export type ImageSetOptions = {
 	 * bytes are read and their format sniffed. It limits the calls in flight,
 	 * **not the memory**: Bun holds each `png()` output until a later
 	 * collection (see `maxPixels`), so memory can pass `concurrency` × one
-	 * call's peak. Measured on a 36 MP JPEG with a small crop, 4 calls at once
-	 * grew the process by about 770 MB with `concurrency` 4, 510 MB with 2 and
-	 * 330 MB with 1.
+	 * call's peak. Measured on Bun 1.4.3, photo-like JPEG, 36 MP with a 256 px
+	 * crop, 4 calls at once grew the process by about 770 MB with `concurrency`
+	 * 4, 510 MB with 2 and 330 MB with 1.
 	 *
 	 * **The wait queue is not bounded**, and each waiting call holds its
 	 * upload's bytes (up to `maxBytes`). A server that can receive more uploads

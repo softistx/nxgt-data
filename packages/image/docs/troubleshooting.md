@@ -374,7 +374,7 @@ defineImageSet({ sizes: [256, 64] });
 `ImageError`, `code: 'INVALID_CROP'`, `reason: 'crop'`.
 
 **When:** `process` with a `crop` whose `x`, `y` or `size` is a fraction, a
-negative number or not a number.
+negative number or not a number, or a `crop` that is `null` or not an object.
 **Why:** a crop is pixels in the oriented image, as the user sees it.
 Cropper libraries often report fractions.
 **Fix:**

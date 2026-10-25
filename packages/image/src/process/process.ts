@@ -49,7 +49,8 @@ async function readDimensions(
  * The image shrunk once, as a PNG at Bun's default level. That level gives
  * the smallest PNG, and Bun 1.4.3 holds each `png()` output until a later
  * collection, so the smallest PNG is the least memory held: a 36 MP photo
- * gave a 45 MB PNG at the default level and 146 MB at level 0, and a process
+ * gave a 45 MB PNG at the default level and 146 MB at level 0 (Bun 1.4.3,
+ * photo-like JPEG), and a process
  * grew by about the PNG's size per call (measured). Level 0 is faster, but
  * its bigger output is what stays. Even so, sequential calls with a small
  * crop climb before the memory falls back (see `maxPixels`).
