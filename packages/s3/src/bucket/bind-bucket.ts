@@ -31,8 +31,9 @@ import type {
 
 /**
  * Bun's own `S3Options` without `bucket`, plus the bucket's default
- * `timeoutMs` for `bytes`, `text`, `exists`, `stat` and `delete`. A call's
- * own `timeoutMs` wins. It never reaches the `S3Client`.
+ * `timeoutMs` for `put`, `bytes`, `text`, `exists`, `stat`, `delete` and
+ * `list`. A call's own `timeoutMs` wins. It never reaches the `S3Client`.
+ * It bounds a whole `put`, an upload included: give a large one its own.
  */
 export type BindOptions = Omit<S3Options, 'bucket'> & CallOptions;
 
@@ -58,8 +59,19 @@ export interface BoundBucket<P> {
 	 * served back (`contentDisposition`, `contentEncoding`), who may read it
 	 * (`acl`), what it costs to keep (`storageClass`) — or how a large body is
 	 * uploaded (`partSize`, `queueSize`, `retry`).
+	 *
+	 * With a deadline (`timeoutMs`, or the bucket's) it goes over `fetch` on a
+	 * URL Bun signs, so no answer in time aborts the request and rejects with
+	 * `TIMEOUT`. **The deadline covers the whole upload**, so a large `put`
+	 * wants its own `timeoutMs`; and a body that is not a string, bytes or a
+	 * `Blob` of known size (a stream) is **read into memory** first, inside
+	 * the deadline.
 	 */
-	put(params: P, body: PutBody, options?: PutOptions): Promise<void>;
+	put(
+		params: P,
+		body: PutBody,
+		options?: PutOptions & CallOptions,
+	): Promise<void>;
 	/** The bytes, or `undefined` when there is no such object. */
 	bytes(params: P, options?: CallOptions): Promise<Uint8Array | undefined>;
 	/** The body as text, or `undefined` when there is no such object. */
@@ -70,11 +82,13 @@ export interface BoundBucket<P> {
 	/** Removes it. S3 does not say whether anything was there, and nor does this. */
 	delete(params: P, options?: CallOptions): Promise<void>;
 	/** One page of the bucket, in this repository's cursor shape. */
-	list(options?: {
-		prefix?: string;
-		limit?: number;
-		cursor?: string | null;
-	}): Promise<ObjectPage>;
+	list(
+		options?: {
+			prefix?: string;
+			limit?: number;
+			cursor?: string | null;
+		} & CallOptions,
+	): Promise<ObjectPage>;
 	/**
 	 * A URL that reads this object, signed. `contentDisposition` signs the
 	 * header the download is served with, for a link that saves under a name.

@@ -6,10 +6,10 @@ the object `key` it was about — never the body. Every one of them but
 `TIMEOUT` is raised **before** anything is sent, so a refused write stored
 nothing; `TIMEOUT` is raised after, when a deadline passes. It throws two other
 kinds, for what is not the caller's input: a `TypeError` from `defineBucket`
-for a definition that could never work, and from `presignPost` when its
-secret is not the one Bun signs with (changed or deleted since the process
-started); and a plain `Error` from `presignPost` when the URL Bun signed
-cannot be read. Each has its entry below. The service's own
+for a definition that could never work, and from `presignPost` — or a `list`
+under a deadline — when its secret is not the one Bun signs with (changed or
+deleted since the process started); and a plain `Error` from `presignPost`, or
+a `list` under a deadline, when the URL Bun signed cannot be read. Each has its entry below. The service's own
 failures come back as Bun raises them; the entries below say which is which.
 A wrong `acl` is this package's own refusal on a `put` **and** on the
 presigned calls, so one class and one code cover them all. A message reports what was
@@ -417,6 +417,11 @@ const form = avatars.presignPost({ userId }, { type: 'image/jpeg' });
 
 ### `presignPost on "avatars": the secret access key this package would sign with is not the one Bun signs with, so the service would refuse the form. …`
 
+The three entries on the signer — this one and the two after it — are also
+raised by a `list` under a deadline, which signs its own request with the same
+signer: the message then starts `list on "avatars": …` and says `request` where
+it says `form`.
+
 The whole line:
 
 ```text
@@ -426,8 +431,7 @@ S3_SECRET_ACCESS_KEY and AWS_SECRET_ACCESS_KEY when the process starts; one
 changed since is not the one Bun uses. Pass `secretAccessKey` to bindBucket
 ```
 
-**When:** `presignPost` on a bucket bound **without** a `secretAccessKey`
-option, after `S3_SECRET_ACCESS_KEY` (or `AWS_SECRET_ACCESS_KEY`) was changed
+**When:** `presignPost` on a bucket bound **without** a `secretAccessKey` option, after `S3_SECRET_ACCESS_KEY` (or `AWS_SECRET_ACCESS_KEY`) was changed
 while the process was running. A `TypeError`, not an `S3Error`: nothing a
 request sent is wrong.
 **Why:** Bun reads those variables **once, when the process starts**, and
@@ -575,12 +579,18 @@ mistake is wiring, not a request: a bare `TypeError` reading `bindBucket on
 ### `stat on "avatars": no answer in 5000ms`
 
 **When:** a call with a `timeoutMs` — its own or the bucket's — got no answer
-in time. `code: 'TIMEOUT'`; the message names the call and the bucket, and the
-`key` is on the error.
+in time. The message starts with the call: `put`, `stat`, `exists`, `bytes`,
+`text`, `delete` or `list` (`put on "avatars": no answer in 5000ms`).
+`code: 'TIMEOUT'`; the message names the call and the bucket, and the `key` is
+on the error (empty for a `list`, which is about no one key).
 **Why:** the service is down, unreachable, or accepts the connection and never
 answers. The request was **aborted**, but it had been **sent**: a `delete`
-may have happened all the same.
-**Fix:** retry if the call is safe to repeat, or raise the deadline. Without a
+may have happened, and a `put` may have stored the object, all the same. A
+`put` is also cut when the bucket's default, sized for reads, is shorter than
+the upload: the deadline covers the whole body, and a stream is first read into
+memory inside it.
+**Fix:** retry if the call is safe to repeat, or raise the deadline — a large
+`put` wants its own, `store.put(params, body, { type, timeoutMs: 120_000 })`. Without a
 `timeoutMs`, Bun waits 360 s and fails with its own error, named `S3Error`
 too, with `code: 'Timeout'` — test `error instanceof S3Error`, then `code`.
 

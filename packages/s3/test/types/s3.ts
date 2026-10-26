@@ -209,5 +209,14 @@ store.exists({ userId: 'u1' }, { signal: new AbortController().signal });
 bindBucket(avatars, { timeoutMs: 5000 });
 // @ts-expect-error the bucket's default is a number too
 bindBucket(avatars, { timeoutMs: '5000' });
-// @ts-expect-error a write has no deadline of its own
-store.put({ userId: 'u1' }, 'body', { timeoutMs: 5000 });
+// A write and a listing wait on the service too.
+store.put({ userId: 'u1' }, 'body', { type: 'image/png', timeoutMs: 5000 });
+void store.list({ prefix: 'u', limit: 10, timeoutMs: 5000 });
+// @ts-expect-error `timeoutMs` is a number on a write
+store.put({ userId: 'u1' }, 'body', { timeoutMs: '5000' });
+// @ts-expect-error and on a listing
+void store.list({ timeoutMs: '5000' });
+// @ts-expect-error a write takes no caller signal either
+store.put({ userId: 'u1' }, 'body', { signal: new AbortController().signal });
+// @ts-expect-error nor does a listing
+void store.list({ signal: new AbortController().signal });

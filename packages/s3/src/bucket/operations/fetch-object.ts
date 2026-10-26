@@ -1,7 +1,8 @@
 import type { S3Stats } from 'bun';
 import type { BucketContext } from '../context';
+import type { PutOptions } from '../types';
 
-type Verb = 'HEAD' | 'GET' | 'DELETE';
+type Verb = 'HEAD' | 'GET' | 'DELETE' | 'PUT';
 
 /** What Bun names a failed connection, by what `fetch` calls it. */
 const BUN_CODES: Record<string, string> = {
@@ -16,13 +17,28 @@ const BUN_CODES: Record<string, string> = {
 };
 
 /** An `Error` named `S3Error`, as Bun throws for a failed S3 request. */
-function s3Error(code: string, key: string, message: string): Error {
+export function s3Error(code: string, key: string, message: string): Error {
 	const error = new Error(message) as Error & { code: string; path: string };
 	error.name = 'S3Error';
 	error.code = code;
 	error.path = key;
 	return error;
 }
+
+/**
+ * What a call adds to the bare verb: a URL already signed (a listing's), or
+ * the options Bun must **sign** into the query (a PUT's `acl` and
+ * `storageClass`), a body and plain request headers.
+ */
+type Request = {
+	url?: string;
+	signed?: {
+		acl?: NonNullable<PutOptions['acl']>;
+		storageClass?: NonNullable<PutOptions['storageClass']>;
+	};
+	body?: BodyInit;
+	headers?: Record<string, string>;
+};
 
 type Exchange = {
 	status: number;
@@ -47,10 +63,18 @@ async function send<P>(
 	key: string,
 	method: Verb,
 	signal: AbortSignal,
+	request: Request = {},
 ): Promise<Exchange> {
-	const url = context.client.presign(key, { method, expiresIn: 60 });
+	const url =
+		request.url ??
+		context.client.presign(key, { method, expiresIn: 60, ...request.signed });
 	try {
-		const response = await fetch(url, { method, signal });
+		const response = await fetch(url, {
+			method,
+			signal,
+			...(request.body === undefined ? {} : { body: request.body }),
+			...(request.headers ? { headers: request.headers } : {}),
+		});
 		const body =
 			method === 'HEAD'
 				? new Uint8Array()
@@ -129,5 +153,38 @@ export async function removeObject<P>(
 	signal: AbortSignal,
 ): Promise<void> {
 	const response = await send(context, key, 'DELETE', signal);
+	if (!response.ok) throw failure(response, key);
+}
+
+/** What a listing sends: the request is signed as a whole, as a URL. */
+export async function getListing<P>(
+	context: BucketContext<P>,
+	url: string,
+	signal: AbortSignal,
+): Promise<string> {
+	const response = await send(context, '', 'GET', signal, { url });
+	if (!response.ok) throw failure(response, '');
+	return new TextDecoder().decode(response.body);
+}
+
+/** What a PUT carries beyond the key: the body and the headers it is served with. */
+export type PutRequest = {
+	body: BodyInit;
+	headers: Record<string, string>;
+	signed: NonNullable<Request['signed']>;
+};
+
+/**
+ * PUT: stores the body. `acl` and `storageClass` are signed into the URL by
+ * Bun; the type, disposition and encoding are plain headers, which SeaweedFS
+ * stores although they are not signed (measured on 4.47, see the spec).
+ */
+export async function storeObject<P>(
+	context: BucketContext<P>,
+	key: string,
+	request: PutRequest,
+	signal: AbortSignal,
+): Promise<void> {
+	const response = await send(context, key, 'PUT', signal, request);
 	if (!response.ok) throw failure(response, key);
 }

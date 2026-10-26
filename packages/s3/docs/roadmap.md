@@ -15,9 +15,6 @@ _Nothing queued._
 
 - **Copy and move** — once Bun's own `S3Client` has them. Until then
   `store.client` is where they live.
-- **A deadline on `put` and `list`** — they stay on Bun's own call, which
-  ignores an abort, until they are moved onto a signed `fetch` the way the
-  reads and `delete` are.
 - **A caller's `signal`** — an `AbortSignal` of the caller's own, beside or
   instead of `timeoutMs`.
 
@@ -44,6 +41,11 @@ _Nothing queued._
 
 ## Shipped
 
+- **A deadline on `put` and `list`** — `timeoutMs` on both, and the bucket's
+  default now bounds them too: no answer in time rejects with `S3Error`
+  `TIMEOUT` and aborts the request. A listing signs its own ListObjectsV2 GET
+  and a put goes over `fetch` on a URL Bun signs; under a deadline a stream is
+  read into memory first, and the deadline covers a whole upload — 0.6.0.
 - **A download with a filename** — `presignGet(params, { contentDisposition })`
   signs `response-content-disposition`, so a link saves the object under a
   name you choose; `presignPost` can pin a `Content-Disposition` field in its

@@ -37,11 +37,13 @@ stat(params: P, options?: CallOptions): Promise<S3Stats | undefined>;
 exists(params: P, options?: CallOptions): Promise<boolean>;
 file(params: P): S3File;
 
-list(options?: {
-	prefix?: string;
-	limit?: number;
-	cursor?: string | null;
-}): Promise<ObjectPage>;
+list(
+	options?: {
+		prefix?: string;
+		limit?: number;
+		cursor?: string | null;
+	} & CallOptions,
+): Promise<ObjectPage>;
 
 interface ObjectPage {
 	items: StoredObject[];
@@ -108,8 +110,8 @@ try {
 }
 ```
 
-`stat`, `exists`, `bytes`, `text` and `delete` take `{ timeoutMs }`: whole
-milliseconds, 1 or more. No answer in time rejects with an `S3Error` coded
+`stat`, `exists`, `bytes`, `text`, `delete`, `list` and `put` take
+`{ timeoutMs }`: whole milliseconds, 1 or more. No answer in time rejects with an `S3Error` coded
 `TIMEOUT`, and the request is aborted. Bind a default for the whole bucket
 with `bindBucket(definition, { ...credentials, timeoutMs })`; a call's own
 value wins. A bad per-call value is a `WRONG_OPTION`, before anything is sent;
@@ -132,7 +134,32 @@ path sends a plain request there, without the signed query, and Bun's sends no
 `Authorization` either.
 `TIMEOUT` is raised **after** the request was sent.
 
-`put` and `list` take no deadline yet.
+### `list` and `put` under a deadline
+
+`list({ prefix, limit, cursor, timeoutMs })` rejects with `list on "reports":
+no answer in 5000ms`. Bun cannot presign a bucket-level request, so the
+listing signs its own ListObjectsV2 GET (SigV4, in the query, with the
+credentials Bun's signer holds) and sends it with `fetch`; the XML answer is
+read into the same `ObjectPage`, field for field, as Bun's `list` gives
+(measured against SeaweedFS on a prefix with a space, a `+`, a `/` and a
+non-ASCII letter, and across pages).
+
+`put(params, body, { type, timeoutMs })` goes over `fetch` on a URL Bun signs
+for a PUT, with `acl` and `storageClass` signed into it and the type,
+`contentDisposition` and `contentEncoding` sent as plain headers (SeaweedFS
+4.47 stores them although they are not signed). Every guard (`type`, `maxSize`,
+the options) still answers before anything is sent.
+
+- **The deadline covers the whole upload.** A bucket default sized for reads
+  can cut a large `put`: give it its own `timeoutMs`. A timed-out `put` was
+  sent, and the object may be stored all the same.
+- **A body that is not bytes is read into memory**, inside the deadline: a
+  string, an `ArrayBuffer`, a typed array and a `Blob` of known size go as
+  they are; a stream, a `Response` or an `S3File` is read whole first, since
+  S3 refuses a chunked PUT. A bucket with `maxSize` refuses those before.
+- **A put under a deadline is one PUT.** The bucket's `retry` does not apply
+  (the deadline path sends one `fetch`), there is no multipart, and S3's 5 GiB
+  ceiling on a single PUT holds.
 
 ## Big bodies, and everything else
 

@@ -464,13 +464,17 @@ Refusals of the upload (`TOO_LARGE`, `UNSUPPORTED_TYPE`, ...) happen in
 
 **When:** a put to the bucket fails inside `replace`: a bad credential, a
 network error, a missing bucket, a refused write (a bucket that does not accept
-`image/webp`, or whose `maxSize` is under the largest variant).
+`image/webp`, or whose `maxSize` is under the largest variant) — or, since
+`@nxgt/s3` 0.6.0, a `TIMEOUT`: the bucket's `timeoutMs` bounds each variant's
+put, so a default sized for reads can cut an upload (`replace` takes no
+per-call timeout).
 **Why:** the store does not wrap the service's errors. Every put is awaited,
 then a best-effort delete removes the keys whose put succeeded (never the
 refused one), and the first error is rethrown **unchanged**, so `@nxgt/s3`'s
 own handling and messages apply. A put that failed after sending (a network
 error) may still land on the server after the cleanup.
-**Fix:** read the cause in [`@nxgt/s3`'s troubleshooting](https://github.com/softistx/nxgt-data/blob/develop/packages/s3/docs/troubleshooting.md)
+**Fix:** for a `TIMEOUT`, raise the bucket's `timeoutMs` default. Otherwise
+read the cause in [`@nxgt/s3`'s troubleshooting](https://github.com/softistx/nxgt-data/blob/develop/packages/s3/docs/troubleshooting.md)
 and use a fresh id per upload, so that the cleanup never deletes an image that
 is in use:
 

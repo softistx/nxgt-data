@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { avatars } from '../../../test/fixtures';
 import { rejection } from '../../../test/rejection';
 import { bindBucket } from '../bind-bucket';
@@ -140,6 +140,18 @@ describe('an answer that is not S3’s, with or without a deadline', () => {
 		);
 	});
 
+	test('a 200 that is not a listing is InvalidResponse, not an empty bucket', async () => {
+		const port = answering(
+			() =>
+				'HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: 7\r\nconnection: close\r\n\r\n<html/>',
+		);
+		const error = await rejection(bucketAt(port, 5000).list());
+		expect(shape(error).code).toBe('InvalidResponse');
+		expect((error as Error).message).toBe(
+			'ListObjectsV2 response is not a well-formed <ListBucketResult> document',
+		);
+	});
+
 	test('a redirect is followed on both paths', async () => {
 		const target = answering(
 			() =>
@@ -152,4 +164,54 @@ describe('an answer that is not S3’s, with or without a deadline', () => {
 		expect(await bucketAt(port).text(key)).toBe('hi');
 		expect(await bucketAt(port, 5000).text(key)).toBe('hi');
 	});
+});
+
+describe('a put and a list that fail under a deadline leak no credential', () => {
+	/** Reads the request, answers nothing and ends the socket: a reset. */
+	function resetting(): number {
+		const listener = Bun.listen({
+			hostname: '127.0.0.1',
+			port: 0,
+			socket: {
+				data(socket) {
+					socket.end();
+				},
+			},
+		});
+		listeners.push(listener);
+		return listener.port;
+	}
+
+	for (const [what, port, code] of [
+		['reset', resetting, 'ConnectionClosed'],
+		['refused', closedPort, 'ConnectionRefused'],
+	] as const) {
+		test(`${what}: Bun’s name and code, and no signed URL anywhere`, async () => {
+			const bucket = bucketAt(port(), 5000);
+			const calls = [
+				() => bucket.put(key, new Uint8Array(8), { type: 'image/png' }),
+				() => bucket.list(),
+			];
+			for (const call of calls) {
+				const spy = spyOn(globalThis, 'fetch');
+				const error = (await rejection(call())) as Error;
+				// The deadline's path is the one that failed, not Bun's own.
+				expect(spy.mock.calls.length).toBe(1);
+				spy.mockRestore();
+				expect(shape(error).name).toBe('S3Error');
+				expect(shape(error).code).toBe(code);
+				expect(error.cause).toBeUndefined();
+				const seen = [
+					error.message,
+					Bun.inspect(error),
+					...Object.getOwnPropertyNames(error).map((name) =>
+						String((error as unknown as Record<string, unknown>)[name]),
+					),
+				].join('\n');
+				expect(seen).not.toContain('X-Amz-Signature');
+				expect(seen).not.toContain('X-Amz-Credential');
+				expect(seen).not.toContain('127.0.0.1:');
+			}
+		});
+	}
 });

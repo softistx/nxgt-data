@@ -37,7 +37,11 @@ type PutOptions = Pick<
 	'type' | 'acl' | 'storageClass' | 'contentDisposition' | 'contentEncoding'
 >;
 
-put(params: P, body: PutBody, options?: PutOptions): Promise<void>;
+put(
+	params: P,
+	body: PutBody,
+	options?: PutOptions & { timeoutMs?: number | undefined },
+): Promise<void>;
 delete(params: P, options?: { timeoutMs?: number | undefined }): Promise<void>;
 ```
 
@@ -179,7 +183,7 @@ try {
 | `TOO_LARGE` | the body is bigger than `maxSize`. The limit is inclusive: with `maxSize: 1024`, 1024 bytes passes and 1025 does not |
 | `UNMEASURABLE` | `maxSize` is set and the body's size cannot be known before sending |
 | `WRONG_OPTION` | the write's `acl` or `storageClass` is not a value the service accepts, or its `contentDisposition` is not a non-empty string of printable ASCII — see [above](#an-options-value-is-checked-here-too) — or a `timeoutMs` that is not a whole number of milliseconds, 1 or more |
-| `TIMEOUT` | `delete` with a `timeoutMs` got no answer in time. The request was sent and aborted; see [Deadlines](reads.md#deadlines) |
+| `TIMEOUT` | `put` or `delete` with a `timeoutMs` (its own or the bucket's) got no answer in time. The request was sent and aborted, so the object may be stored or gone all the same; see [Deadlines](reads.md#deadlines) |
 
 A content type is compared on its **essence**: parameters and case are
 ignored, and nothing else is. A bucket that accepts `text/csv` accepts
@@ -231,7 +235,13 @@ first when it matters — see [Reading](reads.md).
 `delete` takes a deadline: `store.delete(params, { timeoutMs: 5000 })` rejects
 with `S3Error` `TIMEOUT` when the service does not answer, and aborts the
 request. The request was sent, so the object may be gone all the same. See
-[Deadlines](reads.md#deadlines). `put` has none yet.
+[Deadlines](reads.md#deadlines).
+
+`put` takes one too, in its options beside `type`: `store.put(params, body, {
+type, timeoutMs: 120_000 })`. It covers the **whole upload**, so a bucket's
+default sized for reads can cut a large `put` — give that one its own. Under a
+deadline a stream is read into memory first; see
+[`list` and `put` under a deadline](reads.md#list-and-put-under-a-deadline).
 
 ## A real one: an upload route
 
