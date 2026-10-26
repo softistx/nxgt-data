@@ -1,5 +1,13 @@
 # @nxgt/image
 
+## 0.1.1
+
+### Patch Changes
+
+- [#259](https://github.com/softistx/nxgt-data/pull/259) [`ec54cbb`](https://github.com/softistx/nxgt-data/commit/ec54cbbf2ade7a181a6331ecc875e99da6991c00) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Troubleshooting: since `@nxgt/s3` 0.6.0 a bucket's `timeoutMs` bounds each variant `put` that `replace` makes, so a default sized for reads can end a `replace` with `S3Error` `TIMEOUT`. Raise the bucket's default; `replace` takes no per-call deadline.
+- Updated dependencies [[`cb2efa4`](https://github.com/softistx/nxgt-data/commit/cb2efa45c73f4be7bc7bcf655f5797aa90c837b4)]:
+  - @nxgt/s3@0.6.0
+
 ## 0.1.0
 
 ### Minor Changes
