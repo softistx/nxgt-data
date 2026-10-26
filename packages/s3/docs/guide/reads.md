@@ -110,8 +110,8 @@ try {
 }
 ```
 
-`stat`, `exists`, `bytes`, `text`, `delete`, `list` and `put` take `{ timeoutMs }`: whole
-milliseconds, 1 or more. No answer in time rejects with an `S3Error` coded
+`stat`, `exists`, `bytes`, `text`, `delete`, `list` and `put` take
+`{ timeoutMs }`: whole milliseconds, 1 or more. No answer in time rejects with an `S3Error` coded
 `TIMEOUT`, and the request is aborted. Bind a default for the whole bucket
 with `bindBucket(definition, { ...credentials, timeoutMs })`; a call's own
 value wins. A bad per-call value is a `WRONG_OPTION`, before anything is sent;
@@ -157,8 +157,9 @@ the options) still answers before anything is sent.
   string, an `ArrayBuffer`, a typed array and a `Blob` of known size go as
   they are; a stream, a `Response` or an `S3File` is read whole first, since
   S3 refuses a chunked PUT. A bucket with `maxSize` refuses those before.
-- **A text type is stored as named.** Bun's `write` stores `text/plain` as
-  `text/plain;charset=utf-8`; this path stores exactly what `type` says.
+- **A put under a deadline is one PUT.** The bucket's `retry` does not apply
+  (the deadline path sends one `fetch`), there is no multipart, and S3's 5 GiB
+  ceiling on a single PUT holds.
 
 ## Big bodies, and everything else
 

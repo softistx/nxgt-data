@@ -99,7 +99,7 @@ describe('the signer a listing uses', () => {
 			MARKER,
 		);
 		expect(() => signerOf(unreadable, 'list')).toThrow(
-			'list on "avatars": the URL Bun signed has no credential scope',
+			'list on "avatars": the URL Bun signed has no credential scope, or not the key at the end of its path, so there is nowhere to send the request.',
 		);
 	});
 });

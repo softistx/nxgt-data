@@ -6,10 +6,10 @@ the object `key` it was about — never the body. Every one of them but
 `TIMEOUT` is raised **before** anything is sent, so a refused write stored
 nothing; `TIMEOUT` is raised after, when a deadline passes. It throws two other
 kinds, for what is not the caller's input: a `TypeError` from `defineBucket`
-for a definition that could never work, and from `presignPost` when its
-secret is not the one Bun signs with (changed or deleted since the process
-started); and a plain `Error` from `presignPost` when the URL Bun signed
-cannot be read. Each has its entry below. The service's own
+for a definition that could never work, and from `presignPost` — or a `list`
+under a deadline — when its secret is not the one Bun signs with (changed or
+deleted since the process started); and a plain `Error` from `presignPost`, or
+a `list` under a deadline, when the URL Bun signed cannot be read. Each has its entry below. The service's own
 failures come back as Bun raises them; the entries below say which is which.
 A wrong `acl` is this package's own refusal on a `put` **and** on the
 presigned calls, so one class and one code cover them all. A message reports what was
@@ -417,6 +417,11 @@ const form = avatars.presignPost({ userId }, { type: 'image/jpeg' });
 
 ### `presignPost on "avatars": the secret access key this package would sign with is not the one Bun signs with, so the service would refuse the form. …`
 
+The three entries on the signer — this one and the two after it — are also
+raised by a `list` under a deadline, which signs its own request with the same
+signer: the message then starts `list on "avatars": …` and says `request` where
+it says `form`.
+
 The whole line:
 
 ```text
@@ -426,9 +431,7 @@ S3_SECRET_ACCESS_KEY and AWS_SECRET_ACCESS_KEY when the process starts; one
 changed since is not the one Bun uses. Pass `secretAccessKey` to bindBucket
 ```
 
-**When:** `presignPost` — or a `list` under a deadline, which signs its own
-request and says `list on "avatars": …` and `request` where this says `form` —
-on a bucket bound **without** a `secretAccessKey` option, after `S3_SECRET_ACCESS_KEY` (or `AWS_SECRET_ACCESS_KEY`) was changed
+**When:** `presignPost` on a bucket bound **without** a `secretAccessKey` option, after `S3_SECRET_ACCESS_KEY` (or `AWS_SECRET_ACCESS_KEY`) was changed
 while the process was running. A `TypeError`, not an `S3Error`: nothing a
 request sent is wrong.
 **Why:** Bun reads those variables **once, when the process starts**, and
@@ -452,7 +455,7 @@ const store = bindBucket(avatars, {
 
 ### `presignPost on "avatars": no secret access key to sign with, while Bun has one. …`
 
-**When:** as above (and from a `list` under a deadline, as `list on "avatars": …`), when the variable was **deleted** after the process
+**When:** as above, when the variable was **deleted** after the process
 started: Bun still signs with the secret it read then, and this package has
 none. A `TypeError`, measured the same way.
 **Why:** a POST policy is signed with the secret, and Bun's client never hands
@@ -465,7 +468,7 @@ Bun's own `ERR_S3_MISSING_CREDENTIALS` comes first (next section).
 
 ### `presignPost on "avatars": the URL Bun signed has no credential scope, or not the key at the end of its path, so there is nowhere to post the form. …`
 
-**When:** (a `list` under a deadline says `list on "avatars": …` here) only with a Bun that signs a presigned URL differently from the
+**When:** only with a Bun that signs a presigned URL differently from the
 1.4.2 this package was measured on, or with an access key id holding a `%`
 that is not an escape (`AK%zz`): Bun writes the id into the URL unencoded, so
 it cannot be read back. A plain `Error`, not an `S3Error`. An access key id

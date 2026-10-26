@@ -17,7 +17,7 @@ const BUN_CODES: Record<string, string> = {
 };
 
 /** An `Error` named `S3Error`, as Bun throws for a failed S3 request. */
-function s3Error(code: string, key: string, message: string): Error {
+export function s3Error(code: string, key: string, message: string): Error {
 	const error = new Error(message) as Error & { code: string; path: string };
 	error.name = 'S3Error';
 	error.code = code;

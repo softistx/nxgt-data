@@ -315,9 +315,10 @@ the one code raised after a request went out. It carries a `code`
 and the object `key` — never the body, never a credential. The package throws
 two other kinds, both below the table: a `TypeError` from `defineBucket` for a
 definition that could never work, from `bindBucket` for a `timeoutMs` default
-that is not whole milliseconds, and from `presignPost` when its secret is
-not Bun's; and a plain `Error` from `presignPost` when the URL Bun signed
-cannot be read.
+that is not whole milliseconds, and from `presignPost` — or a `list` under a
+deadline — when its secret is not Bun's; and a plain `Error` from
+`presignPost`, or a `list` under a deadline, when the URL Bun signed cannot be
+read.
 
 ```ts
 if (error instanceof S3Error && error.code === 'TOO_LARGE') {
@@ -370,9 +371,9 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   with an `expiresIn` that is not a number.
 - A `presignPut` given a `contentDisposition`: only `presignGet`, `presignPost`
   and `put` take one.
-- A `timeoutMs` that is a string, and any option other than `timeoutMs` on
-  `stat`, `exists`, `bytes`, `text`, `delete` or `list` (a `put` takes its
-  `PutOptions` beside it).
+- A `timeoutMs` that is a string, a `signal` on `put` or `list`, and any
+  option other than `timeoutMs` on `stat`, `exists`, `bytes`, `text` or
+  `delete`.
 - A listing asked for by page number, or a page read for a `total` — it pages
   by cursor, and S3 does not count.
 
@@ -399,10 +400,9 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   (it refuses a chunked PUT), so it is read whole first, inside the deadline:
   its size costs memory. A bucket with a `maxSize` refuses these before
   anything is read (`UNMEASURABLE`).
-- **A put under a deadline stores the type as named.** Bun's own `write` adds
-  `;charset=utf-8` to a `text/*` type (measured: `text/plain` is served back
-  as `text/plain;charset=utf-8` on SeaweedFS 4.47); the deadline path stores
-  exactly the `type` given, and `application/octet-stream` when none is.
+- **A put under a deadline is one PUT.** The bucket's `retry` does not apply
+  (the deadline path sends one `fetch` and reports what it got), there is no
+  multipart, and S3's 5 GiB ceiling on a single PUT holds.
 - **The guards are `put`'s, not the bucket's.** `contentType` and `maxSize`
   are checked here, in `put`, before the request goes out. They cost nothing
   and they catch the honest mistake, but nothing else on the object goes

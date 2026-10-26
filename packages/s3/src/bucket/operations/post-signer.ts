@@ -71,6 +71,7 @@ export function signerOf<P>(
 	call = 'presignPost',
 ): PostSigner {
 	const where = callOf(context, call);
+	const thing = call === 'presignPost' ? 'form' : 'request';
 	// Bun's own `ERR_S3_MISSING_CREDENTIALS` comes out of here when Bun has no
 	// credentials at all, as it does for `presignPut`.
 	const probe = new URL(
@@ -85,8 +86,8 @@ export function signerOf<P>(
 		throw new Error(
 			`${where}: the URL Bun signed has no ` +
 				'credential scope, or not the key at the end of its path, so there ' +
-				'is nowhere to post the form. This Bun signs differently from the ' +
-				'one this package was measured on',
+				`is nowhere to ${thing === 'form' ? 'post the form' : 'send the request'}. ` +
+				'This Bun signs differently from the one this package was measured on',
 		);
 	}
 	return {
@@ -94,12 +95,7 @@ export function signerOf<P>(
 		bucket: context.definition.bucket,
 		accessKeyId: scope.slice(0, -4).join('/'),
 		region: scope.at(-3) as string,
-		secretAccessKey: checkedSecret(
-			context,
-			probe,
-			where,
-			call === 'presignPost' ? 'form' : 'request',
-		),
+		secretAccessKey: checkedSecret(context, probe, where, thing),
 		sessionToken: query.get('X-Amz-Security-Token'),
 	};
 }

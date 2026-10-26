@@ -68,7 +68,7 @@ describe('a put under a deadline stores what a put without one stores', () => {
 			...limit,
 		});
 		const stat = await bucket.stat(where);
-		expect(stat?.type).toBe('text/plain');
+		expect(stat?.type).toBe('text/plain;charset=utf-8');
 		expect(stat?.size).toBe(Buffer.byteLength('héllo'));
 		expect(await bucket.text(where)).toBe('héllo');
 		const served = await headersOf('uploads', 'a/timed.txt');
@@ -84,11 +84,8 @@ describe('a put under a deadline stores what a put without one stores', () => {
 			storageClass: 'STANDARD_IA',
 		});
 		const plain = await headersOf('uploads', 'a/plain.txt');
-		// The one difference measured: for `text/plain` Bun's own `write` stores
-		// `text/plain;charset=utf-8`, and this path stores the type as named.
-		expect(plain.get('content-type')).toBe('text/plain;charset=utf-8');
-		expect(served.get('content-type')).toBe('text/plain');
 		for (const name of [
+			'content-type',
 			'content-disposition',
 			'content-encoding',
 			'content-length',
@@ -118,6 +115,28 @@ describe('a put under a deadline stores what a put without one stores', () => {
 			);
 			expect(await bucket.bytes(timed)).toEqual(
 				(await bucket.bytes(plain)) as Uint8Array,
+			);
+		}
+	});
+
+	test('the stored type is Bun’s, over several types', async () => {
+		// Bun stores the type as `new Blob([], { type }).type` gives it: lower
+		// case, and `;charset=utf-8` on a text type.
+		const bucket = bindBucket(uploads, servers.s3.options);
+		for (const type of [
+			'text/plain',
+			'application/json',
+			'application/javascript',
+			'TEXT/PLAIN',
+			'image/webp',
+			'text/html; charset=iso-8859-1',
+		]) {
+			const timed = { folder: 't', name: 'x' };
+			const plain = { folder: 'p', name: 'x' };
+			await bucket.put(timed, 'abc', { type, ...limit });
+			await bucket.put(plain, 'abc', { type });
+			expect((await bucket.stat(timed))?.type).toBe(
+				(await bucket.stat(plain))?.type as string,
 			);
 		}
 	});

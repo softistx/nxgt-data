@@ -65,4 +65,82 @@ describe('a listing answer, read without a parser', () => {
 			nextContinuationToken: undefined,
 		});
 	});
+
+	test('an XML declaration and a byte order mark may come first', () => {
+		for (const head of [
+			'<?xml version="1.0" encoding="UTF-8"?>\n',
+			'\uFEFF',
+			'',
+		]) {
+			expect(
+				parseListing(`${head}<ListBucketResult xmlns="x"></ListBucketResult>`)
+					.contents,
+			).toEqual([]);
+		}
+	});
+
+	test('an answer that is not a ListBucketResult is refused, not an empty bucket', () => {
+		for (const body of [
+			'<Error><Code>AccessDenied</Code><Message>no</Message></Error>',
+			'<!doctype html><html><body>502 Bad Gateway</body></html>',
+			'',
+			'<?xml version="1.0"?><ListAllMyBucketsResult></ListAllMyBucketsResult>',
+			'<ListBucketResultX></ListBucketResultX>',
+		]) {
+			let thrown: unknown;
+			try {
+				parseListing(body);
+			} catch (error) {
+				thrown = error;
+			}
+			const error = thrown as Error & { code: string; path: string };
+			expect(error.name).toBe('S3Error');
+			expect(error.code).toBe('InvalidResponse');
+			expect(error.path).toBe('');
+			expect(error.message).toBe(
+				'ListObjectsV2 response is not a well-formed <ListBucketResult> document',
+			);
+		}
+	});
+
+	test('CDATA is its text, as it is, and not unescaped again', () => {
+		const answer = parseListing(
+			'<ListBucketResult><Contents><Key><![CDATA[a&amp;b <c>]]>&amp;</Key>' +
+				'</Contents></ListBucketResult>',
+		);
+		expect(answer.contents[0]?.key).toBe('a&amp;b <c>&');
+	});
+
+	test('a numeric reference XML forbids is a malformed answer', () => {
+		for (const ref of [
+			'&#0;',
+			'&#x0;',
+			'&#1;',
+			'&#xB;',
+			'&#xD800;',
+			'&#xFFFE;',
+			'&#x110000;',
+		]) {
+			expect(() =>
+				parseListing(
+					`<ListBucketResult><Contents><Key>a${ref}</Key></Contents></ListBucketResult>`,
+				),
+			).toThrow('not a well-formed <ListBucketResult> document');
+		}
+		const ok = parseListing(
+			'<ListBucketResult><Contents><Key>a&#9;&#xA;&#xD;&#x20;&#xFFFD;&#x10000;</Key></Contents></ListBucketResult>',
+		);
+		expect(ok.contents[0]?.key).toBe('a\t\n\r \uFFFD\u{10000}');
+	});
+
+	test('a Size that is not a finite number is unknown', () => {
+		const answer = parseListing(
+			'<ListBucketResult><Contents><Key>a</Key><Size>abc</Size></Contents>' +
+				'<Contents><Key>b</Key><Size>Infinity</Size></Contents></ListBucketResult>',
+		);
+		expect(answer.contents.map((found) => found.size)).toEqual([
+			undefined,
+			undefined,
+		]);
+	});
 });

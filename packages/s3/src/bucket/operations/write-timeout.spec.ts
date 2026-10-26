@@ -88,19 +88,56 @@ describe('put and list with no answer in time', () => {
 		);
 	});
 
-	test('a stream that never ends is cut inside the same deadline', async () => {
+	test('a stream that never ends is cancelled, and nothing more is pulled', async () => {
 		const { state, options } = silentEndpoint();
 		const bucket = bindBucket(uploads, options);
-		const stalled = new Response(
+		const source = { pulls: 0, cancelled: undefined as unknown };
+		const endless = () =>
 			new ReadableStream<Uint8Array>({
-				pull: () => new Promise(() => {}),
+				async pull(controller) {
+					source.pulls++;
+					await Bun.sleep(1);
+					controller.enqueue(new Uint8Array(1024));
+				},
+				cancel(reason) {
+					source.cancelled = reason;
+				},
+			});
+		for (const body of [endless(), new Response(endless())]) {
+			source.pulls = 0;
+			source.cancelled = undefined;
+			expect(
+				await rejectionMessage(
+					bucket.put({ folder: 'a', name: 'b' }, body as never, {
+						timeoutMs: 150,
+					}),
+				),
+			).toBe('put on "uploads": no answer in 150ms');
+			await Bun.sleep(30);
+			const at = source.pulls;
+			expect(source.cancelled).toBeInstanceOf(Error);
+			await Bun.sleep(150);
+			expect(source.pulls).toBe(at);
+		}
+		expect(state.opened).toBe(0);
+	});
+
+	test('a Bun.file that is not there is Bun’s ENOENT, with its path and no URL', async () => {
+		const { state, options } = silentEndpoint();
+		const bucket = bindBucket(uploads, options);
+		const path = `${import.meta.dir}/no-such-file.bin`;
+		const error = (await rejection(
+			bucket.put({ folder: 'a', name: 'b' }, Bun.file(path), {
+				timeoutMs: 5000,
 			}),
+		)) as Error & { code: string; path: string };
+		expect(error.name).toBe('Error');
+		expect(error.code).toBe('ENOENT');
+		expect(error.path).toBe(path);
+		expect(error.message).toBe(
+			`ENOENT: no such file or directory, open '${path}'`,
 		);
-		expect(
-			await rejectionMessage(
-				bucket.put({ folder: 'a', name: 'b' }, stalled, { timeoutMs: 150 }),
-			),
-		).toBe('put on "uploads": no answer in 150ms');
+		expect(Bun.inspect(error)).not.toContain('X-Amz');
 		await settle();
 		expect(state.opened).toBe(0);
 	});

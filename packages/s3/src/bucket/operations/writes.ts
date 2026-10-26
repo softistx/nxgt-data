@@ -60,8 +60,11 @@ async function requestOf(
 	options: PutOptions,
 	signal: AbortSignal,
 ): Promise<PutRequest> {
+	// Bun's own rule for the type it stores, measured: the type as a `Blob`
+	// normalises it (lower case, `;charset=utf-8` on a text type).
 	const headers: Record<string, string> = {
-		'Content-Type': type ?? 'application/octet-stream',
+		'Content-Type': new Blob([], { type: type ?? 'application/octet-stream' })
+			.type,
 	};
 	if (options.contentDisposition) {
 		headers['Content-Disposition'] = options.contentDisposition;

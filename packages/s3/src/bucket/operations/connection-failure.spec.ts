@@ -140,6 +140,18 @@ describe('an answer that is not S3’s, with or without a deadline', () => {
 		);
 	});
 
+	test('a 200 that is not a listing is InvalidResponse, not an empty bucket', async () => {
+		const port = answering(
+			() =>
+				'HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: 7\r\nconnection: close\r\n\r\n<html/>',
+		);
+		const error = await rejection(bucketAt(port, 5000).list());
+		expect(shape(error).code).toBe('InvalidResponse');
+		expect((error as Error).message).toBe(
+			'ListObjectsV2 response is not a well-formed <ListBucketResult> document',
+		);
+	});
+
 	test('a redirect is followed on both paths', async () => {
 		const target = answering(
 			() =>
