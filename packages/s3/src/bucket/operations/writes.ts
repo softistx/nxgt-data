@@ -2,7 +2,8 @@ import { type BucketContext, callOf, keyOf } from '../context';
 import { checkOption, checkSize, checkType, effectiveType } from '../guards';
 import type { CallOptions, PutBody, PutOptions } from '../types';
 import { deadlineOf, withDeadline } from './deadline';
-import { removeObject } from './fetch-object';
+import { type PutRequest, removeObject, storeObject } from './fetch-object';
+import { fetchBody } from './put-body';
 
 /**
  * Writes it, once the bucket's content type and size have accepted it. Both
@@ -12,7 +13,7 @@ export async function putObject<P>(
 	context: BucketContext<P>,
 	params: P,
 	body: PutBody,
-	options: PutOptions = {},
+	options: PutOptions & CallOptions = {},
 ): Promise<void> {
 	const key = keyOf(context, params);
 	const type = effectiveType(body, options.type);
@@ -22,6 +23,18 @@ export async function putObject<P>(
 	// Refused here with the other two, so every guard on this call answers
 	// before anything is sent, and every one of them is an `S3Error`.
 	const forwarded = passed(key, options, where);
+	const timeoutMs = deadlineOf(context, key, 'put', options);
+	if (timeoutMs !== undefined) {
+		await withDeadline(context, key, 'put', timeoutMs, async (signal) =>
+			storeObject(
+				context,
+				key,
+				await requestOf(body, type, forwarded, signal),
+				signal,
+			),
+		);
+		return;
+	}
 	// The very type `checkType` approved, and nothing else: `type` is not one
 	// of the keys `passed` forwards, so no option can carry a second one in
 	// beside it.
@@ -29,6 +42,37 @@ export async function putObject<P>(
 		...forwarded,
 		...(type ? { type } : {}),
 	});
+}
+
+/**
+ * What a PUT under a deadline sends: `acl` and `storageClass` signed into
+ * the URL (Bun signs both into the query), and the rest as plain headers —
+ * measured on SeaweedFS 4.47, a presigned PUT stores an unsigned
+ * `Content-Type`, `Content-Disposition` and `Content-Encoding`. Never given
+ * to `presign`, which would write the type and disposition as GET response
+ * overrides. A type is always named: `fetch` would otherwise guess one from a
+ * string or a `Blob`, where Bun's own `write` stores `application/octet-stream`.
+ * The body is read here, inside the deadline, when it has to be.
+ */
+async function requestOf(
+	body: PutBody,
+	type: string | undefined,
+	options: PutOptions,
+	signal: AbortSignal,
+): Promise<PutRequest> {
+	const headers: Record<string, string> = {
+		'Content-Type': type ?? 'application/octet-stream',
+	};
+	if (options.contentDisposition) {
+		headers['Content-Disposition'] = options.contentDisposition;
+	}
+	if (options.contentEncoding) {
+		headers['Content-Encoding'] = options.contentEncoding;
+	}
+	const signed: PutRequest['signed'] = {};
+	if (options.acl) signed.acl = options.acl;
+	if (options.storageClass) signed.storageClass = options.storageClass;
+	return { body: await fetchBody(body, signal), headers, signed };
 }
 
 /**

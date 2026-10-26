@@ -32,12 +32,16 @@ const queryOf = (url: URL) => rawQueryOf(url.search.slice(1).split('&'));
  * signed with one and refused by the service only when a browser posts it.
  * So the secret is checked against the signature Bun put on the probe.
  */
-function checkedSecret<P>(context: BucketContext<P>, probe: URL): string {
-	const call = callOf(context, 'presignPost');
+function checkedSecret<P>(
+	context: BucketContext<P>,
+	probe: URL,
+	where: string,
+	thing: string,
+): string {
 	const secret = secretOf(context);
 	if (!secret) {
 		throw new TypeError(
-			`${call}: no secret access key to sign with, while Bun has one. ` +
+			`${where}: no secret access key to sign with, while Bun has one. ` +
 				'Bun reads S3_SECRET_ACCESS_KEY and AWS_SECRET_ACCESS_KEY when the ' +
 				'process starts; one removed since is still Bun’s, and no longer ' +
 				'this package’s. Pass `secretAccessKey` to bindBucket',
@@ -46,8 +50,9 @@ function checkedSecret<P>(context: BucketContext<P>, probe: URL): string {
 	const signed = queryOf(probe)?.get('X-Amz-Signature');
 	if (presignedSignature(probe, 'PUT', secret) !== signed) {
 		throw new TypeError(
-			`${call}: the secret access key this package would sign with is not ` +
-				'the one Bun signs with, so the service would refuse the form. Bun ' +
+			`${where}: the secret access key this package would sign with is not ` +
+				'the one Bun signs with, so the service would refuse the ' +
+				`${thing}. Bun ` +
 				'reads S3_SECRET_ACCESS_KEY and AWS_SECRET_ACCESS_KEY when the ' +
 				'process starts; one changed since is not the one Bun uses. Pass ' +
 				'`secretAccessKey` to bindBucket',
@@ -56,7 +61,16 @@ function checkedSecret<P>(context: BucketContext<P>, probe: URL): string {
 	return secret;
 }
 
-export function signerOf<P>(context: BucketContext<P>): PostSigner {
+/**
+ * Who signs and where, for the call named `call` (`presignPost` or `list`):
+ * the refusals below name it, so a failed listing does not read as a failed
+ * form. The listing signs its own GET with the same signer.
+ */
+export function signerOf<P>(
+	context: BucketContext<P>,
+	call = 'presignPost',
+): PostSigner {
+	const where = callOf(context, call);
 	// Bun's own `ERR_S3_MISSING_CREDENTIALS` comes out of here when Bun has no
 	// credentials at all, as it does for `presignPut`.
 	const probe = new URL(
@@ -69,7 +83,7 @@ export function signerOf<P>(context: BucketContext<P>): PostSigner {
 		// access key id with a `%` Bun left unescaped: better a refusal than a
 		// form posted to the wrong place or signed as nobody.
 		throw new Error(
-			`${callOf(context, 'presignPost')}: the URL Bun signed has no ` +
+			`${where}: the URL Bun signed has no ` +
 				'credential scope, or not the key at the end of its path, so there ' +
 				'is nowhere to post the form. This Bun signs differently from the ' +
 				'one this package was measured on',
@@ -80,7 +94,12 @@ export function signerOf<P>(context: BucketContext<P>): PostSigner {
 		bucket: context.definition.bucket,
 		accessKeyId: scope.slice(0, -4).join('/'),
 		region: scope.at(-3) as string,
-		secretAccessKey: checkedSecret(context, probe),
+		secretAccessKey: checkedSecret(
+			context,
+			probe,
+			where,
+			call === 'presignPost' ? 'form' : 'request',
+		),
 		sessionToken: query.get('X-Amz-Security-Token'),
 	};
 }

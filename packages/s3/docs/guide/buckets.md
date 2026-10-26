@@ -131,7 +131,7 @@ this package's own. It is optional: given none, Bun reads its own `S3_*` /
 
 | option | |
 | --- | --- |
-| `timeoutMs` | `number`, whole milliseconds, 1 or more. Default: none, so Bun's own limit of 360 s (measured). The deadline of `stat`, `exists`, `bytes`, `text` and `delete`: no answer in time is an `S3Error` coded `TIMEOUT`, and the request is aborted. A call's own `{ timeoutMs }` wins. It never reaches the `S3Client`. A bad value is a bare `TypeError` from `bindBucket` (wiring), and a `WRONG_OPTION` on a call — see [Deadlines](reads.md#deadlines) |
+| `timeoutMs` | `number`, whole milliseconds, 1 or more. Default: none, so Bun's own limit of 360 s (measured). The deadline of `put`, `stat`, `exists`, `bytes`, `text`, `delete` and `list`: no answer in time is an `S3Error` coded `TIMEOUT`, and the request is aborted. It covers a whole `put`, an upload included, so a default sized for reads can cut a large one: give that `put` its own `timeoutMs`. A call's own `{ timeoutMs }` wins. It never reaches the `S3Client`. A bad value is a bare `TypeError` from `bindBucket` (wiring), and a `WRONG_OPTION` on a call — see [Deadlines](reads.md#deadlines) |
 
 ```ts
 const store = bindBucket(avatars); // credentials from the environment

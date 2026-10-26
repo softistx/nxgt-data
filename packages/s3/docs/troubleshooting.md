@@ -426,8 +426,9 @@ S3_SECRET_ACCESS_KEY and AWS_SECRET_ACCESS_KEY when the process starts; one
 changed since is not the one Bun uses. Pass `secretAccessKey` to bindBucket
 ```
 
-**When:** `presignPost` on a bucket bound **without** a `secretAccessKey`
-option, after `S3_SECRET_ACCESS_KEY` (or `AWS_SECRET_ACCESS_KEY`) was changed
+**When:** `presignPost` — or a `list` under a deadline, which signs its own
+request and says `list on "avatars": …` and `request` where this says `form` —
+on a bucket bound **without** a `secretAccessKey` option, after `S3_SECRET_ACCESS_KEY` (or `AWS_SECRET_ACCESS_KEY`) was changed
 while the process was running. A `TypeError`, not an `S3Error`: nothing a
 request sent is wrong.
 **Why:** Bun reads those variables **once, when the process starts**, and
@@ -451,7 +452,7 @@ const store = bindBucket(avatars, {
 
 ### `presignPost on "avatars": no secret access key to sign with, while Bun has one. …`
 
-**When:** as above, when the variable was **deleted** after the process
+**When:** as above (and from a `list` under a deadline, as `list on "avatars": …`), when the variable was **deleted** after the process
 started: Bun still signs with the secret it read then, and this package has
 none. A `TypeError`, measured the same way.
 **Why:** a POST policy is signed with the secret, and Bun's client never hands
@@ -464,7 +465,7 @@ Bun's own `ERR_S3_MISSING_CREDENTIALS` comes first (next section).
 
 ### `presignPost on "avatars": the URL Bun signed has no credential scope, or not the key at the end of its path, so there is nowhere to post the form. …`
 
-**When:** only with a Bun that signs a presigned URL differently from the
+**When:** (a `list` under a deadline says `list on "avatars": …` here) only with a Bun that signs a presigned URL differently from the
 1.4.2 this package was measured on, or with an access key id holding a `%`
 that is not an escape (`AK%zz`): Bun writes the id into the URL unencoded, so
 it cannot be read back. A plain `Error`, not an `S3Error`. An access key id
@@ -575,12 +576,18 @@ mistake is wiring, not a request: a bare `TypeError` reading `bindBucket on
 ### `stat on "avatars": no answer in 5000ms`
 
 **When:** a call with a `timeoutMs` — its own or the bucket's — got no answer
-in time. `code: 'TIMEOUT'`; the message names the call and the bucket, and the
-`key` is on the error.
+in time. The message starts with the call: `put`, `stat`, `exists`, `bytes`,
+`text`, `delete` or `list` (`put on "avatars": no answer in 5000ms`).
+`code: 'TIMEOUT'`; the message names the call and the bucket, and the `key` is
+on the error (empty for a `list`, which is about no one key).
 **Why:** the service is down, unreachable, or accepts the connection and never
 answers. The request was **aborted**, but it had been **sent**: a `delete`
-may have happened all the same.
-**Fix:** retry if the call is safe to repeat, or raise the deadline. Without a
+may have happened, and a `put` may have stored the object, all the same. A
+`put` is also cut when the bucket's default, sized for reads, is shorter than
+the upload: the deadline covers the whole body, and a stream is first read into
+memory inside it.
+**Fix:** retry if the call is safe to repeat, or raise the deadline — a large
+`put` wants its own, `store.put(params, body, { type, timeoutMs: 120_000 })`. Without a
 `timeoutMs`, Bun waits 360 s and fails with its own error, named `S3Error`
 too, with `code: 'Timeout'` — test `error instanceof S3Error`, then `code`.
 
