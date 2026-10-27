@@ -10,7 +10,7 @@ for a definition that could never work, and from `presignPost` — or a `list`
 under a deadline — when its secret is not the one Bun signs with (changed or
 deleted since the process started); and a plain `Error` from `presignPost`, or
 a `list` under a deadline, when the URL Bun signed cannot be read. Each has its entry below. The service's own
-failures come back as Bun raises them; the entries below say which is which.
+failures are not this package's `S3Error`: they come back as Bun raises them (an `Error` that Bun also names `S3Error`, with S3's `code`); the entries below say which is which.
 A wrong `acl` is this package's own refusal on a `put` **and** on the
 presigned calls, so one class and one code cover them all. A message reports what was
 wrong by its **shape** — `another string`, `a fraction`, `the type given` —
@@ -78,6 +78,28 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [A listing came back short with a cursor still set](#a-listing-came-back-short-with-a-cursor-still-set)
 
 ## Install and import
+
+### The bucket cannot be reached
+
+A call fails with a network code (`ConnectionRefused`, `ECONNREFUSED`,
+`ETIMEDOUT`, `DNSResolveFailed`, …), with this package's `TIMEOUT`, or with an
+S3 service code that means the deployment cannot use the bucket
+(`AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`,
+`NoSuchBucket`, `ExpiredToken`, `InternalError`, `ServiceUnavailable`,
+`SlowDown`). Test for it with `isBucketUnavailable(error)` and answer 503;
+let every other error through. A refusal of the caller's input (`TOO_LARGE`,
+`WRONG_TYPE`, …) and a per-request code such as `NoSuchKey` are `false`.
+
+```ts
+import { isBucketUnavailable } from '@nxgt/s3';
+
+try {
+	await avatars.put(key, body);
+} catch (error) {
+	if (isBucketUnavailable(error)) return new Response(null, { status: 503 });
+	throw error;
+}
+```
 
 ### `Cannot find package 'bun'`
 

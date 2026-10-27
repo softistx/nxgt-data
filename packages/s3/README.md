@@ -353,12 +353,20 @@ with `error.name`.
 ### Is the bucket unavailable?
 
 `isBucketUnavailable(error)` tells a failure that means the bucket cannot be
-used from any other. It is `true` for an `S3Error` of this package and for an
-`Error` whose `code` is a Bun or Node network code (`ConnectionRefused`,
-`ConnectionClosed`, `DNSResolveFailed`, `ECONNREFUSED`, `ECONNRESET`,
-`ECONNABORTED`, `ETIMEDOUT`, `EHOSTUNREACH`, `ENETUNREACH`, `ENOTFOUND`,
-`EAI_AGAIN`, `EPIPE`), and `false` for anything else. It reads the `code`
-only, never the message.
+used from here from one that is the caller's. It reads the `code` of an
+`Error` only, never its name or message.
+
+- **`true`**: this package's `S3Error` with code `TIMEOUT`; a Bun or Node
+  network code (`ConnectionRefused`, `ConnectionClosed`, `DNSResolveFailed`,
+  `ECONNREFUSED`, `ECONNRESET`, `ECONNABORTED`, `ETIMEDOUT`, `EHOSTUNREACH`,
+  `ENETUNREACH`, `ENOTFOUND`, `EAI_AGAIN`, `EPIPE`); and an S3 service code
+  from Bun's client that means the deployment cannot use the bucket
+  (`AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`,
+  `NoSuchBucket`, `ExpiredToken`, `InternalError`, `ServiceUnavailable`,
+  `SlowDown`).
+- **`false`**: this package's refusals of the caller's input (`WRONG_TYPE`,
+  `TOO_LARGE`, `UNMEASURABLE`, `WRONG_OPTION`), which stay the caller's
+  (4xx); per-request codes such as `NoSuchKey`; anything else.
 
 ```ts
 import { isBucketUnavailable } from '@nxgt/s3';

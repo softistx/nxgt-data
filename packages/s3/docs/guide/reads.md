@@ -122,10 +122,10 @@ Why it is not just Bun's call: measured on Bun 1.4.3, Bun's S3 calls ignore an
 a URL with Bun's client and sends it with `fetch`, which does abort — the
 socket is closed. A call without one is Bun's, unchanged. The results are the
 same either way: `undefined` or `false` for a missing object, the same
-`S3Stats` fields, and a service failure comes back as an `Error` named
-`S3Error` with S3's `code` (for a `stat` or `exists`, `UnknownError`, as Bun's
+`S3Stats` fields, and a service failure comes back as Bun's own `Error` (named
+`S3Error` too, but not this package's class) with S3's `code` (for a `stat` or `exists`, `UnknownError`, as Bun's
 own HEAD does). A refused or dropped connection, even in the middle of the body, is the same
-`S3Error` Bun gives without a deadline (`ConnectionRefused` or
+Bun error given without a deadline (`ConnectionRefused` or
 `ConnectionClosed`, `DNSResolveFailed` for a host that does not resolve, `path`
 the key; any other failure nobody mapped is reported as `ConnectionClosed`) and never carries the signed URL. The
 deadline path does not retry; Bun's client does, per `retry`. A redirect is

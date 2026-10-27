@@ -6,9 +6,38 @@ const withCode = (code: unknown, message = 'boom') =>
 	Object.assign(new Error(message), { code });
 
 describe('isBucketUnavailable', () => {
-	test('is true for an S3Error of this package', () => {
+	test("is true for this package's TIMEOUT", () => {
 		expect(isBucketUnavailable(new S3Error('TIMEOUT', 'k', 'late'))).toBe(true);
 	});
+
+	test.each([
+		'WRONG_TYPE',
+		'TOO_LARGE',
+		'UNMEASURABLE',
+		'WRONG_OPTION',
+	] as const)("is false for the caller's refusal %s", (code) => {
+		expect(isBucketUnavailable(new S3Error(code, 'k', 'refused'))).toBe(false);
+	});
+
+	test.each([
+		'AccessDenied',
+		'InvalidAccessKeyId',
+		'SignatureDoesNotMatch',
+		'NoSuchBucket',
+		'ExpiredToken',
+		'InternalError',
+		'ServiceUnavailable',
+		'SlowDown',
+	])('is true for the service code %s on a native error', (code) => {
+		expect(isBucketUnavailable(withCode(code))).toBe(true);
+	});
+
+	test.each(['NoSuchKey', 'UnknownError', 'NotFound'])(
+		'is false for the per-request code %s',
+		(code) => {
+			expect(isBucketUnavailable(withCode(code))).toBe(false);
+		},
+	);
 
 	test.each([
 		'ConnectionRefused',
