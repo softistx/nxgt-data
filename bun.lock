@@ -8,7 +8,7 @@
         "@biomejs/biome": "^2.5.9",
         "@changesets/changelog-github": "^1.0.1",
         "@changesets/cli": "^3.0.1",
-        "@types/bun": "^1.4.0",
+        "@types/bun": "^1.4.4",
         "typescript": "~6.0.3",
         "zod": "4.6.5",
       },
@@ -27,7 +27,7 @@
       "devDependencies": {
         "@nxgt/openapi-codegen": "^0.4.1",
         "@redocly/openapi-core": "^2.52.1",
-        "@types/bun": "^1.4.0",
+        "@types/bun": "^1.4.4",
         "mongodb-memory-server-core": "11.2.0",
         "redis-memory-server": "0.17.1",
         "typescript": "~6.0.3",
@@ -42,7 +42,7 @@
         "mongodb": "7.6.0",
       },
       "devDependencies": {
-        "@types/bun": "^1.4.0",
+        "@types/bun": "^1.4.4",
         "mongodb-memory-server-core": "11.2.0",
         "typescript": "~6.0.3",
       },
@@ -55,7 +55,7 @@
         "zod": "4.6.5",
       },
       "devDependencies": {
-        "@types/bun": "^1.4.0",
+        "@types/bun": "^1.4.4",
         "redis-memory-server": "0.17.1",
         "typescript": "~6.0.3",
       },
@@ -68,7 +68,7 @@
       },
       "devDependencies": {
         "@nxgt/s3": "workspace:^",
-        "@types/bun": "^1.4.0",
+        "@types/bun": "^1.4.4",
       },
       "peerDependencies": {
         "typescript": "^6.0.3 || ^7.0.0",
@@ -79,7 +79,7 @@
       "version": "0.6.5",
       "devDependencies": {
         "@electric-sql/pglite": "0.5.8",
-        "@types/bun": "^1.4.0",
+        "@types/bun": "^1.4.4",
         "drizzle-orm": "1.0.0-rc.4",
       },
       "peerDependencies": {
@@ -94,7 +94,7 @@
         "@electric-sql/pglite": "0.5.8",
         "@nxgt/drizzle": "workspace:^",
         "@nxgt/meilisearch": "workspace:^",
-        "@types/bun": "^1.4.0",
+        "@types/bun": "^1.4.4",
         "drizzle-orm": "1.0.0-rc.4",
         "meilisearch": "0.62.0",
       },
@@ -111,7 +111,7 @@
       "version": "0.2.0",
       "devDependencies": {
         "@nxgt/s3": "workspace:^",
-        "@types/bun": "^1.4.1",
+        "@types/bun": "^1.4.4",
       },
       "peerDependencies": {
         "@nxgt/s3": "workspace:^",
@@ -125,7 +125,7 @@
       "name": "@nxgt/meilisearch",
       "version": "0.6.3",
       "devDependencies": {
-        "@types/bun": "^1.4.0",
+        "@types/bun": "^1.4.4",
         "meilisearch": "0.62.0",
       },
       "peerDependencies": {
@@ -137,7 +137,7 @@
       "name": "@nxgt/mongo",
       "version": "0.24.0",
       "devDependencies": {
-        "@types/bun": "^1.4.0",
+        "@types/bun": "^1.4.4",
         "mongodb": "7.6.0",
         "mongodb-memory-server-core": "11.2.0",
         "zod": "4.6.5",
@@ -159,7 +159,7 @@
       },
       "devDependencies": {
         "@nxgt/backup": "workspace:^",
-        "@types/bun": "^1.4.0",
+        "@types/bun": "^1.4.4",
         "mongodb": "7.6.0",
         "mongodb-memory-server-core": "11.2.0",
       },
@@ -175,7 +175,7 @@
       "devDependencies": {
         "@nxgt/meilisearch": "workspace:^",
         "@nxgt/mongo": "workspace:^",
-        "@types/bun": "^1.4.0",
+        "@types/bun": "^1.4.4",
         "meilisearch": "0.62.0",
         "mongodb": "7.6.0",
         "mongodb-memory-server-core": "11.2.0",
@@ -193,7 +193,7 @@
       "name": "@nxgt/redis",
       "version": "0.11.0",
       "devDependencies": {
-        "@types/bun": "^1.4.0",
+        "@types/bun": "^1.4.4",
         "redis-memory-server": "0.17.1",
         "zod": "4.6.5",
       },
@@ -210,7 +210,7 @@
       "name": "@nxgt/s3",
       "version": "0.7.1",
       "devDependencies": {
-        "@types/bun": "^1.4.0",
+        "@types/bun": "^1.4.4",
       },
       "peerDependencies": {
         "typescript": "^6.0.3 || ^7.0.0",
@@ -337,7 +337,7 @@
 
     "@scure/base": ["@scure/base@2.4.0", "", {}, "sha512-thZ1TuJwFwBblOhgsjDKvvGirBxNp+wSvY/DR6tJBJOTDhdAAcHJ8Vbr2eFnqaxeca4+t0i9KBf+uHYGWwZORg=="],
 
-    "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+    "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 
     "@types/json-schema": ["@types/json-schema@7.0.15", "", {}, "sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA=="],
 
@@ -381,7 +381,7 @@
 
     "bson": ["bson@7.3.3", "", {}, "sha512-oz3LwE3qGEhTCSyhzQRLY3Bj1NLOsjFMf6tcmY5J8M+3R7EVcmoBfSHWvjUK3yXCLDUsGpIuB3aQL4nDZ1EV/g=="],
 
-    "bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
+    "bun-types": ["bun-types@1.4.4", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
 
     "cac": ["cac@7.0.0", "", {}, "sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ=="],
 
