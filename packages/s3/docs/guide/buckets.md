@@ -127,7 +127,10 @@ if (params) await store.delete(params);
 The bound `parseKey` also rebuilds the key from what the definition parsed and
 answers `undefined` when it differs, so a parser looser than `key` cannot
 accept a foreign key. Without a `parseKey` on the definition it throws a
-`TypeError`.
+`TypeError`, and a throw inside the definition's own `parseKey` propagates.
+
+If `P` itself includes `undefined`, a miss and a valid key cannot be told
+apart: the answer `undefined` is both. Keep `undefined` out of `P`.
 
 What `contentType` and `maxSize` do is [Writing](writes.md); they are guards
 on `put`, and nothing else on the object goes through them.

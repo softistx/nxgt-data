@@ -8,7 +8,8 @@ nothing; `TIMEOUT` is raised after, when a deadline passes. It throws two other
 kinds, for what is not the caller's input: a `TypeError` from `defineBucket`
 for a definition that could never work, and from `presignPost` — or a `list`
 under a deadline — when its secret is not the one Bun signs with (changed or
-deleted since the process started); and a plain `Error` from `presignPost`, or
+deleted since the process started), and from the bound `parseKey` when the
+definition has none; and a plain `Error` from `presignPost`, or
 a `list` under a deadline, when the URL Bun signed cannot be read. Each has
 its entry below. The service's own failures are not this package's `S3Error`:
 they come back as Bun raises them (an `Error` that Bun also names `S3Error`,
@@ -142,6 +143,26 @@ accepts anything, and `[]` is never what was meant.
 
 ```ts
 defineBucket({ bucket: 'avatars', key, contentType: ['image/png', 'image/jpeg'] });
+```
+
+### ``parseKey on "files": the definition has no `parseKey`; add one next to `key` ``
+
+**When:** at `store.parseKey(key)`, on a bucket whose `defineBucket` gave no
+`parseKey`. A `TypeError`, thrown on the call, not at `bindBucket`.
+**Why:** the package cannot invert a `key` function it cannot read, so it does
+not guess.
+**Fix:** write the inverse beside `key`; return `undefined` for a key that is
+not the bucket's:
+
+```ts
+defineBucket({
+	bucket: 'files',
+	key: (p: { id: string }) => `items/${p.id}`,
+	parseKey: (key) => {
+		const id = /^items\/([0-9a-f-]+)$/.exec(key)?.[1];
+		return id === undefined ? undefined : { id };
+	},
+});
 ```
 
 ## Service and network failures

@@ -23,6 +23,24 @@ store.keyFor({ userId: 1 });
 // @ts-expect-error this bucket's key needs both parts
 anything.keyFor({ folder: 'a' });
 
+// `parseKey` answers the definition's params, or undefined.
+const parsed: { userId: string } | undefined = store.parseKey('u1.png');
+void parsed;
+
+// @ts-expect-error a miss is possible, so the answer is not always params
+const sure: { userId: string } = store.parseKey('u1.png');
+void sure;
+
+// @ts-expect-error a key is a string
+store.parseKey(1);
+
+defineBucket({
+	bucket: 'b',
+	key: (p: { id: string }) => p.id,
+	// @ts-expect-error the parse must give the params `key` takes
+	parseKey: (key) => ({ nope: key }),
+});
+
 // The same parameters guard every operation, not only `keyFor`.
 
 // @ts-expect-error a write is for an object this bucket can name

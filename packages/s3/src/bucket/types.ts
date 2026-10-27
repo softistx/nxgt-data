@@ -16,6 +16,10 @@ export interface BucketDefinition<P> {
 	 * the bound bucket's `parseKey` refuses to answer. Write it as the inverse
 	 * of `key`, next to it; the bound `parseKey` also checks that
 	 * `key(parseKey(k)) === k`, so a parser that drifts answers `undefined`.
+	 *
+	 * A throw inside this function propagates to the caller of the bound
+	 * `parseKey`; return `undefined` for a key that is not yours. When `P`
+	 * itself includes `undefined`, a miss and a valid key cannot be told apart.
 	 */
 	readonly parseKey?: ((key: string) => P | undefined) | undefined;
 	/**

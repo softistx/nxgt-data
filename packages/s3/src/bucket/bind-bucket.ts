@@ -54,7 +54,9 @@ export interface BoundBucket<P> {
 	 * The parameters a stored key was built from, or `undefined` when the key
 	 * does not belong to this bucket's `key` function (the definition's
 	 * `parseKey` found no match, or what it found does not rebuild the same
-	 * key). Throws a `TypeError` when the definition has no `parseKey`.
+	 * key). Throws a `TypeError` when the definition has no `parseKey`, and a
+	 * throw inside the definition's own `parseKey` propagates. When `P` itself
+	 * includes `undefined`, a miss and a valid key cannot be told apart.
 	 */
 	parseKey(key: string): P | undefined;
 	/** Bun's own lazy handle: `.stream()`, `.slice()`, `.writer()` and the rest. */
