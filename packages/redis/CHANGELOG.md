@@ -1,5 +1,11 @@
 # @nxgt/redis
 
+## 0.10.1
+
+### Patch Changes
+
+- [#276](https://github.com/softistx/nxgt-data/pull/276) [`1c11442`](https://github.com/softistx/nxgt-data/commit/1c1144287b8c5cdb1b022bc9f2a321ddd02a0e1d) Thanks [@SteveGT96](https://github.com/SteveGT96)! - A keyed stream's first `next()` no longer waits for the subscribe attempt: with `fallback: 'local'` and Redis unreachable, a message published locally reaches the reader at once instead of after about 31 s. The subscription opens in the background.
+
 ## 0.10.0
 
 ### Minor Changes
