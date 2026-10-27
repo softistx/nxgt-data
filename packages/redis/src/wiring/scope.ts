@@ -3,7 +3,7 @@ import { bindIdempotency } from '../idempotency/bind-idempotency';
 import { bindQueueWith } from '../queue/binding/bind-queue';
 import { bindRateLimit } from '../rate-limit/bind-rate-limit';
 import { channelOf } from './channel-of';
-import type { Wired, WiringContext } from './context';
+import type { InstanceContext, Wired, WiringContext } from './context';
 import type {
 	AnyCache,
 	AnyChannel,

@@ -401,12 +401,10 @@ const viewGroup: string | undefined = (null as unknown as JobView<z.ZodString>)
 	.group;
 void viewGroup;
 
+const keyedChannel = defineChannel({
+	name: 'k',
+	schema: z.object({ id: z.string() }),
+	key: (message) => message.id,
+});
 // @ts-expect-error a keyed channel is not a queue
-bindQueue(
-	client,
-	defineChannel({
-		name: 'k',
-		schema: z.object({ id: z.string() }),
-		key: (m) => m.id,
-	}),
-);
+bindQueue(client, keyedChannel);
