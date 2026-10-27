@@ -11,6 +11,18 @@ export interface BucketDefinition<P> {
 	/** The object's key, from whatever identifies it. */
 	readonly key: (params: P) => string;
 	/**
+	 * The way back from `key`: the parameters a stored key was built from, or
+	 * `undefined` when the key is not one this bucket's `key` builds. Left out,
+	 * the bound bucket's `parseKey` refuses to answer. Write it as the inverse
+	 * of `key`, next to it; the bound `parseKey` also checks that
+	 * `key(parseKey(k)) === k`, so a parser that drifts answers `undefined`.
+	 *
+	 * A throw inside this function propagates to the caller of the bound
+	 * `parseKey`; return `undefined` for a key that is not yours. When `P`
+	 * itself includes `undefined`, a miss and a valid key cannot be told apart.
+	 */
+	readonly parseKey?: ((key: string) => P | undefined) | undefined;
+	/**
 	 * The content types this bucket accepts. A write of anything else is
 	 * refused **before it is sent**. Left out, anything goes.
 	 */

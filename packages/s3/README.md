@@ -118,7 +118,7 @@ The [testing guide](docs/guide/testing.md) has the details.
 
 ## API
 
-### `defineBucket({ bucket, key, contentType, maxSize })`
+### `defineBucket({ bucket, key, parseKey, contentType, maxSize })`
 
 Describes a bucket; it talks to nothing, so the definition is what a server
 and a worker share. The key is a **function**, so nothing is spelled by hand
@@ -128,8 +128,25 @@ at a call site and a renamed parameter is a compile error.
 | --- | --- |
 | `bucket` | the bucket's name on the service |
 | `key` | `(params) => string`, the object's key |
+| `parseKey` | `(key) => params \| undefined`, the inverse of `key`: the params a stored key was built from, `undefined` when it is not this bucket's. Optional |
 | `contentType` | a type, or a list of them, that this bucket accepts. Left out, anything goes |
 | `maxSize` | the biggest body in **bytes**. Left out, anything goes |
+
+```ts
+const items = defineBucket({
+	bucket: 'files',
+	key: (p: { id: string }) => `items/${p.id}`,
+	parseKey: (key) => {
+		const id = /^items\/([0-9a-f-]+)$/.exec(key)?.[1];
+		return id === undefined ? undefined : { id };
+	},
+});
+
+const params = bindBucket(items).parseKey(storedKey); // { id } or undefined
+```
+
+If `P` itself includes `undefined`, a miss and a valid key cannot be told
+apart. A throw inside your `parseKey` propagates.
 
 ### `bindBucket(definition, options?)`
 
@@ -159,6 +176,7 @@ await store.stat({ userId: 'u1' }, { timeoutMs: 500 }); // 500 ms
 | --- | --- |
 | `client` | the `S3Client` this holds |
 | `keyFor(params)` | the key it would use |
+| `parseKey(key)` | the params a stored key was built from, or `undefined` when it is not this bucket's. Needs `parseKey` on the definition |
 | `file(params)` | Bun's lazy `S3File`: `.stream()`, `.slice()`, `.writer()` |
 | `put(params, body, options?)` | writes it, once the content type and size have accepted it. See `PutOptions` below; `options` also takes `timeoutMs` |
 | `bytes(params, { timeoutMs }?)` | the bytes, or `undefined` when there is no such object |
@@ -316,7 +334,8 @@ and the object `key` — never the body, never a credential. The package throws
 two other kinds, both below the table: a `TypeError` from `defineBucket` for a
 definition that could never work, from `bindBucket` for a `timeoutMs` default
 that is not whole milliseconds, and from `presignPost` — or a `list` under a
-deadline — when its secret is not Bun's; and a plain `Error` from
+deadline — when its secret is not Bun's, and from the bound `parseKey` when the
+definition has none; and a plain `Error` from
 `presignPost`, or a `list` under a deadline, when the URL Bun signed cannot be
 read.
 
@@ -504,7 +523,8 @@ Each is a `@ts-expect-error` case in `test/types/s3.ts`.
   back is one the service will accept.
 - **A key is built, never guessed.** `keyFor` is there so a caller that needs
   the string gets *the* string; building one by hand somewhere else is how a
-  bucket ends up with two spellings of the same object.
+  bucket ends up with two spellings of the same object. The way back from a
+  stored key is `parseKey`, never a regex at the call site.
 - **`delete` does not say whether anything was there.** S3 answers the same
   either way, and this package does not pretend otherwise. Call `exists`
   first when it matters.

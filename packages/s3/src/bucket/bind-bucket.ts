@@ -1,5 +1,5 @@
 import { S3Client, type S3File, type S3Options, type S3Stats } from 'bun';
-import { bucketContext, keyOf } from './context';
+import { bucketContext, keyOf, parseKeyOf } from './context';
 import { isWholeMs } from './operations/deadline';
 import { listObjects } from './operations/list';
 import {
@@ -50,6 +50,15 @@ export interface BoundBucket<P> {
 	readonly client: S3Client;
 	/** The key this would use, for a caller that needs the string itself. */
 	keyFor(params: P): string;
+	/**
+	 * The parameters a stored key was built from, or `undefined` when the key
+	 * does not belong to this bucket's `key` function (the definition's
+	 * `parseKey` found no match, or what it found does not rebuild the same
+	 * key). Throws a `TypeError` when the definition has no `parseKey`, and a
+	 * throw inside the definition's own `parseKey` propagates. When `P` itself
+	 * includes `undefined`, a miss and a valid key cannot be told apart.
+	 */
+	parseKey(key: string): P | undefined;
 	/** Bun's own lazy handle: `.stream()`, `.slice()`, `.writer()` and the rest. */
 	file(params: P): S3File;
 	/**
@@ -149,6 +158,7 @@ export function bindBucket<P>(
 	return {
 		client,
 		keyFor: (params) => keyOf(context, params),
+		parseKey: (key) => parseKeyOf(context, key),
 		file: (params) => client.file(keyOf(context, params)),
 		put: (params, body, putOptions) =>
 			putObject(context, params, body, putOptions),
