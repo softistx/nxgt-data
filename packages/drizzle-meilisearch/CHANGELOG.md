@@ -1,5 +1,12 @@
 # @nxgt/drizzle-meilisearch
 
+## 0.2.9
+
+### Patch Changes
+
+- Updated dependencies [[`bbb5eaa`](https://github.com/softistx/nxgt-data/commit/bbb5eaa24cdd2107d6acd3d7494eb4653388a710)]:
+  - @nxgt/drizzle@0.7.0
+
 ## 0.2.8
 
 ### Patch Changes

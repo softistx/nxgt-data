@@ -1,5 +1,11 @@
 # @nxgt/drizzle
 
+## 0.7.0
+
+### Minor Changes
+
+- [#290](https://github.com/softistx/nxgt-data/pull/290) [`bbb5eaa`](https://github.com/softistx/nxgt-data/commit/bbb5eaa24cdd2107d6acd3d7494eb4653388a710) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Add silent updates: `update(id, patch, { audit: false })` and `updateMany(where, patch, { audit: false })` leave `version`, `updatedAt` and `updatedBy` as they were, and every column declared with `$onUpdate` keeps its stored value, while still running in the repository's transaction and keeping the table's checks. An option other than a boolean `audit` is an `ArgumentError`. Same option name as `@nxgt/mongo` 0.24.
+
 ## 0.6.5
 
 ### Patch Changes
