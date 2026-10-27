@@ -1,5 +1,11 @@
 # @nxgt/redis
 
+## 0.11.0
+
+### Minor Changes
+
+- [#285](https://github.com/softistx/nxgt-data/pull/285) [`ca9a60b`](https://github.com/softistx/nxgt-data/commit/ca9a60bb0e3ccb66b435c310327748590fd950f2) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Add `localChannels({ channels })`: binds channel definitions to an in-process transport with the wiring's `publish`, `subscribe`, `stream(key)` and `close()` surface, schema-checked both ways, with no Redis client. For development runs, specs and single-process apps without `REDIS_URL`.
+
 ## 0.10.2
 
 ### Patch Changes
