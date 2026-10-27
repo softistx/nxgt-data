@@ -301,4 +301,76 @@ describe('keyed streams', () => {
 		expect(await it.next()).toEqual({ value: undefined, done: true });
 		expect(streams.listeners).toBe(0);
 	});
+
+	describe('a subscribe that hangs', () => {
+		/** A broker whose subscribe stays pending until `settle` is called. */
+		function hangingBroker() {
+			const broker = fakeBroker();
+			let settle: (fail: boolean) => void = () => {};
+			const real = broker.source.subscribe;
+			const source: StreamSource<Change> = {
+				...broker.source,
+				publish: async () => {
+					throw new Error('ECONNREFUSED');
+				},
+				subscribe(handler, options) {
+					return new Promise((resolve, reject) => {
+						settle = (fail) => {
+							if (fail) reject(new Error('ECONNREFUSED'));
+							else resolve(real(handler, options));
+						};
+					});
+				},
+			};
+			return { source, settle: (fail: boolean) => settle(fail), broker };
+		}
+
+		test('a locally delivered message reaches next() without waiting for the subscribe', async () => {
+			const hanging = hangingBroker();
+			const streams = createKeyedStreams(hanging.source, keyOf, {
+				fallback: true,
+			});
+			const it = streams.stream('a');
+			const pending = it.next();
+			expect(await streams.publish(room('a', 3))).toBe(0);
+			const started = performance.now();
+			expect(await pending).toEqual({ value: room('a', 30), done: false });
+			expect(performance.now() - started).toBeLessThan(500);
+			hanging.settle(true);
+			await streams.close();
+		});
+
+		test('the subscription still opens in the background once the server answers', async () => {
+			const hanging = hangingBroker();
+			const streams = createKeyedStreams(hanging.source, keyOf);
+			const it = streams.stream('a');
+			const pending = it.next();
+			await Bun.sleep(5);
+			hanging.settle(false);
+			await Bun.sleep(5);
+			expect(hanging.broker.state.subscribes).toBe(1);
+			hanging.broker.source.publish(room('a', 4));
+			expect(await pending).toEqual({ value: room('a', 4), done: false });
+			await streams.close();
+			expect(hanging.broker.state.closes).toBe(1);
+		});
+
+		test('return() while the subscribe is pending frees the listener and the late subscription', async () => {
+			const hanging = hangingBroker();
+			const streams = createKeyedStreams(hanging.source, keyOf);
+			const it = streams.stream('a');
+			const pending = it.next();
+			await Bun.sleep(5);
+			expect(await it.return(undefined)).toEqual({
+				value: undefined,
+				done: true,
+			});
+			expect(await pending).toEqual({ value: undefined, done: true });
+			expect(streams.listeners).toBe(0);
+			hanging.settle(false);
+			await Bun.sleep(5);
+			expect(hanging.broker.state.closes).toBe(1);
+			expect(hanging.broker.listeners()).toBe(0);
+		});
+	});
 });

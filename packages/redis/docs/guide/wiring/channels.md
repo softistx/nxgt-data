@@ -117,12 +117,17 @@ for await (const change of redis.channels.roomChanged.stream('r1')) {
 - **Leaving is immediate.** `return()`, `throw()` and `await using` release the
   iterator's listener even while it waits for a message, and a pending
   `next()` completes with `done: true`. A client that disconnects frees its
-  resources without waiting for the next message.
+  resources without waiting for the next message. Messages already queued
+  and unread at that moment are dropped.
 - **A bounded buffer.** `stream(key, { bufferSize })` (default 256, at least
   1) keeps that many unread messages; a reader slower than the publishers
   loses the oldest.
-- **Redis down.** A failed subscribe is forgotten, the iterator is not
-  refused, and the next iterator tries again. `publish` throws as it always
+- **Redis down.** The first `next()` starts the subscribe but never waits for
+  it (against an unreachable server it takes about 30 s to fail): a message
+  delivered locally, or already queued, is returned at once. A failed
+  subscribe is forgotten, the iterator is not refused, and the next iterator
+  tries again. A message another process publishes through Redis before the
+  subscribe has completed is not seen. `publish` throws as it always
   did, unless the definition says `fallback: 'local'`: then a `publish` that
   fails on the transport hands the parsed message to this process's open
   iterators of its key and resolves with `0`. A message the schema refuses, or
