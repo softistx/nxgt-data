@@ -99,6 +99,18 @@ export type UpdatePatch<
 		}
 	: Omit<Patch<TTable>, TKey> & { [K in TKey]?: undefined };
 
+/** What `update` and `updateMany` take beside the patch. */
+export interface UpdateOptions {
+	/**
+	 * `false` makes the update silent: `updatedAt` (including a column with
+	 * `$onUpdate`), `updatedBy` and the version are left as they were. A
+	 * version the patch gives is still checked, and a stamp the patch sets
+	 * itself is still written. The write runs in the repository's
+	 * transaction (`with(tx)`) and is checked like any other. Default `true`.
+	 */
+	audit?: boolean | undefined;
+}
+
 /**
  * The values `updateMany` takes: no primary key, as for `update`, and on a
  * repository that locks, no `version` — one version cannot stand for many
@@ -298,11 +310,12 @@ export interface BaseRepository<
 	/**
 	 * Updates the row with this id and returns it. Throws `NotFoundError`, and
 	 * `OptimisticLockError` when the patch gives a `version` the row is no
-	 * longer at.
+	 * longer at. `{ audit: false }` is a silent update.
 	 */
 	update(
 		id: Row<TTable>[TKey],
 		patch: UpdatePatch<TTable, TLock, TKey>,
+		options?: UpdateOptions,
 	): Promise<Row<TTable>>;
 	/**
 	 * Updates every row that matches and returns them. `where` is required:
@@ -311,6 +324,7 @@ export interface BaseRepository<
 	updateMany(
 		where: Where<TTable>,
 		patch: ManyPatch<TTable, TLock, TKey>,
+		options?: UpdateOptions,
 	): Promise<Row<TTable>[]>;
 	/**
 	 * Inserts the row the `where` identifies, or updates the live one that is

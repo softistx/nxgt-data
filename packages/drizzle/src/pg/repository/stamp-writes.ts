@@ -30,12 +30,25 @@ export function created(ctx: RepositoryContext, values: AnyRow): AnyRow {
  * alone. And a column Drizzle stamps through `$onUpdate` is left to Drizzle,
  * which would otherwise write it twice.
  */
-export function touched(ctx: RepositoryContext, patch: AnyRow): AnyRow {
+export function touched(
+	ctx: RepositoryContext,
+	patch: AnyRow,
+	audit = true,
+): AnyRow {
 	const set: AnyRow = {};
 	for (const [key, value] of Object.entries(patch)) {
 		if (value !== undefined) set[key] = value;
 	}
 	if (Object.keys(set).length === 0) return set;
+	if (!audit) {
+		// A silent update stamps nothing. A column Drizzle stamps through
+		// `$onUpdate` is set to its own value, which Drizzle would otherwise
+		// overwrite: a write that must leave no mark cannot move `updatedAt`.
+		for (const [key, column] of Object.entries(ctx.info.columns)) {
+			if (column.onUpdateFn && !(key in set)) set[key] = sql`${column}`;
+		}
+		return set;
+	}
 	const { updatedAt, updatedBy, version } = ctx.info;
 	if (updatedAt && !(updatedAt.key in set) && !updatedAt.column.onUpdateFn) {
 		set[updatedAt.key] = sql`now()`;
@@ -45,6 +58,27 @@ export function touched(ctx: RepositoryContext, patch: AnyRow): AnyRow {
 	}
 	if (version) set[version.key] = sql`${version.column} + 1`;
 	return set;
+}
+
+/**
+ * What `update` and `updateMany` take beside the patch: `audit` must be a
+ * boolean when given. Returns it, `true` by default.
+ */
+export function auditOf(
+	ctx: RepositoryContext,
+	method: 'update' | 'updateMany',
+	options: { audit?: unknown } | undefined,
+): boolean {
+	const audit = options?.audit;
+	if (audit === undefined) return true;
+	if (typeof audit !== 'boolean') {
+		throw new ArgumentError(
+			'options',
+			`${method} on "${ctx.info.name}": "audit" must be a boolean, not ${shapeOf(audit)}`,
+			{ key: 'audit' },
+		);
+	}
+	return audit;
 }
 
 /**

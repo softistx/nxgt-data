@@ -36,6 +36,7 @@ export type {
 	RepositoryOptions,
 	Row,
 	SoftDeleteMethods,
+	UpdateOptions,
 	UpdatePatch,
 	UpsertValues,
 	UpsertWhere,

@@ -289,7 +289,7 @@ filled in over a minute. They compose: an `update` inside
 | Write | Stamps |
 | --- | --- |
 | `create`, `createMany`, the insert half of `upsert` | `createdBy`, `updatedBy` |
-| `update`, `updateMany`, the update half of `upsert`, `restore` | `updatedBy` |
+| `update`, `updateMany`, the update half of `upsert`, `restore` | `updatedBy` (not on a [silent update](#silent-updates)) |
 | a soft `delete`, `deleteMany` | `deletedBy`, `updatedBy` |
 | `restore` | clears `deletedBy` |
 
@@ -324,6 +324,46 @@ app.use(async (c, next) => {
 });
 ```
 
+## Silent updates
+
+Every `update` raises the version, sets `updatedAt` and, through `as(actor)`,
+sets `updatedBy`, which marks exactly the rows that were written. When the
+fact that *these* rows changed must not show, pass `{ audit: false }` as the
+last argument:
+
+```ts
+const silent = await cardRepository.update(cardId, { linkedTo: otherId }, { audit: false });
+silent.version;     // unchanged
+silent.updatedAt;   // unchanged
+silent.updatedBy;   // unchanged
+
+await cardRepository.updateMany({ deckId }, { archived: true }, { audit: false });
+```
+
+What a silent update does:
+
+- leaves `version`, `updatedAt` and `updatedBy` as they were, an `updatedAt`
+  declared with `$onUpdate` included: the statement sets it to its own stored
+  value, so Drizzle does not stamp it;
+- keeps a stamp the patch sets itself: `{ updatedAt: at }` is written;
+- checks an expected `version` in the patch, as `update` does, and raises
+  nothing;
+- runs in the transaction the repository is bound to (`with(tx)`), so it
+  commits and rolls back with it, and the table's checks and coercion apply
+  as for any write;
+- still refuses a primary-key column in the patch, and an `audit` that is not
+  a boolean is an `ArgumentError`.
+
+What to know:
+
+- The optimistic lock does not see a silent write, which raises no version.
+  Two silent updates at the same version both succeed, and a normal update at
+  the version read before them still does. Do not read-modify-write the same
+  field through both.
+- PostgreSQL still logs the write (WAL, logical replication) and a database
+  trigger still fires. Only what this package stamps is left alone.
+- `soft delete`, `restore` and `upsert` have no silent form.
+
 ## How this differs from `@nxgt/mongo`
 
 The names and the shapes are the same — `upsert(where, values)`, a `version`
@@ -345,7 +385,7 @@ purpose:
 | A primary key in an update's patch | refused before anything is sent: an `ArgumentError`, and the addressed key is out of `UpdatePatch`/`ManyPatch`; every other key column is refused at run time only | `_id` refused before anything is sent (since 0.18.0): a bare `TypeError`, and `_id` is out of every patch type, operators included — only a top-level `_id: undefined` compiles, without `exactOptionalPropertyTypes` | the same rule; the class is each package's own, and there `_id` is the only key and always known to the types |
 | A key given as `undefined` in a patch | dropped like any undefined value | refused | there `_id: undefined` in a patch is a mistake a body carried, and refusing it costs nothing; here it predates the rule and still works |
 | A key in an upsert's values | the id an insert gets, never written on the update half | refused: the `_id` an insert gets goes in the filter, which seeds it | the values there are one pipeline for both halves; here the insert and the update are two clauses, so the key can be kept out of one |
-| A silent update (`{ audit: false }`: no stamps, no `after` hook) | not yet — [#266](https://github.com/softistx/nxgt-data/issues/266) | `update` and `updateMany` take `{ audit: false }`, since 0.24.0 | writing a field without marking which documents changed was asked of `@nxgt/mongo` first |
+| A silent update (`{ audit: false }`: no stamps) | `update` and `updateMany` take it, since 0.7.0 (`$onUpdate` columns included) | `update` and `updateMany` take it, since 0.24.0, and no `after` hook runs | there are no hooks here yet, so a silent update has none to skip or to tell |
 | Which half ran | not reported | told to the hooks | there are no hooks here yet |
 | Hooks | none | `beforeCreate`, `afterUpdate`… | not built yet — see the [roadmap](../roadmap.md) |
 
@@ -354,13 +394,17 @@ purpose:
 ```ts
 interface BaseRepository<TTable, TKey, TSoft, TLock> {
 	as(actor: ActorOf<TTable>): Repository<TTable, TKey, TSoft, TLock>;
-	update(id: Row[TKey], patch: UpdatePatch<TTable, TLock, TKey>): Promise<Row>;
-	updateMany(where: Where<TTable>, patch: ManyPatch<TTable, TLock, TKey>): Promise<Row[]>;
+	update(id: Row[TKey], patch: UpdatePatch<TTable, TLock, TKey>, options?: UpdateOptions): Promise<Row>;
+	updateMany(where: Where<TTable>, patch: ManyPatch<TTable, TLock, TKey>, options?: UpdateOptions): Promise<Row[]>;
 	upsert<const W extends UpsertWhere<TTable, TLock>>(
 		where: UpsertWhereOf<TTable, TLock, W>,   // W, with no other key, and at least one
 		values: UpsertValues<TTable, keyof W, TLock>,
 	): Promise<Row>;
 	// …and the rest of guide/repository.md
+}
+
+interface UpdateOptions {
+	audit?: boolean;   // default true; false leaves version, updatedAt and updatedBy as they were
 }
 
 interface RepositoryOptions<TTable, TKey, TSoft, TLock> {
