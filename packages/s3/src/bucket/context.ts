@@ -90,3 +90,28 @@ export function callOf<P>(context: BucketContext<P>, call: string): string {
 export function keyOf<P>(context: BucketContext<P>, params: P): string {
 	return context.definition.key(params);
 }
+
+/**
+ * The parameters this definition built `key` from, or `undefined` when it did
+ * not build it. A parse that does not rebuild the same key is a miss, so a
+ * parser that drifted from `key` cannot hand out a key it would not produce.
+ */
+export function parseKeyOf<P>(
+	context: BucketContext<P>,
+	key: string,
+): P | undefined {
+	const { definition } = context;
+	if (definition.parseKey === undefined) {
+		throw new TypeError(
+			`parseKey on "${definition.bucket}": the definition has no ` +
+				'`parseKey`; add one next to `key`',
+		);
+	}
+	const params = definition.parseKey(key);
+	if (params === undefined) return undefined;
+	try {
+		return definition.key(params) === key ? params : undefined;
+	} catch {
+		return undefined;
+	}
+}

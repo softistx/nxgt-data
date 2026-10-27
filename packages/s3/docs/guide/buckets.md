@@ -59,6 +59,7 @@ function bindBucket<P>(
 interface BoundBucket<P> {
 	readonly client: S3Client;
 	keyFor(params: P): string;
+	parseKey(key: string): P | undefined;
 	file(params: P): S3File;
 	put(params: P, body: PutBody, options?: PutOptions): Promise<void>;
 	bytes(params: P, options?: CallOptions): Promise<Uint8Array | undefined>;
@@ -83,6 +84,7 @@ interface BoundBucket<P> {
 | --- | --- | --- | --- |
 | `bucket` | `string` | required | the bucket's name on the service |
 | `key` | `(params: P) => string` | required | the object's key, from whatever identifies it |
+| `parseKey` | `(key: string) => P \| undefined` | none | the inverse of `key`: the params a stored key was built from, `undefined` when it is not one of this bucket's. Optional; `BoundBucket.parseKey` needs it |
 | `contentType` | `string \| readonly string[]` | anything goes | the content types this bucket accepts; a write of anything else is refused **before it is sent**. A single type is also `presignPost`'s default `type` |
 | `maxSize` | `number` | anything goes | the biggest body, in **bytes**, refused before it is sent. Also `presignPost`'s default `maxSize`, and its ceiling |
 
@@ -102,6 +104,30 @@ bindBucket(uploads).keyFor({ folder: 'a', name: 'b.txt' }); // 'a/b.txt'
 `keyFor` exists so a caller that needs the string gets *the* string. Building
 one by hand somewhere else is how a bucket ends up with two spellings of the
 same object.
+
+A caller that stored the key (a database column) and later needs to `stat`,
+`delete` or `presignGet` it goes back to the params with `parseKey`, written
+beside `key` so the two cannot drift apart:
+
+```ts
+const items = defineBucket({
+	bucket: 'files',
+	key: (p: { id: string }) => `items/${p.id}`,
+	parseKey: (key) => {
+		const id = /^items\/([0-9a-f-]+)$/.exec(key)?.[1];
+		return id === undefined ? undefined : { id };
+	},
+});
+
+const store = bindBucket(items);
+const params = store.parseKey(storedKey); // { id } or undefined
+if (params) await store.delete(params);
+```
+
+The bound `parseKey` also rebuilds the key from what the definition parsed and
+answers `undefined` when it differs, so a parser looser than `key` cannot
+accept a foreign key. Without a `parseKey` on the definition it throws a
+`TypeError`.
 
 What `contentType` and `maxSize` do is [Writing](writes.md); they are guards
 on `put`, and nothing else on the object goes through them.

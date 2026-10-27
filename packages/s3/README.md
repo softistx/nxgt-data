@@ -159,6 +159,7 @@ await store.stat({ userId: 'u1' }, { timeoutMs: 500 }); // 500 ms
 | --- | --- |
 | `client` | the `S3Client` this holds |
 | `keyFor(params)` | the key it would use |
+| `parseKey(key)` | the params a stored key was built from, or `undefined` when it is not this bucket's. Needs `parseKey` on the definition |
 | `file(params)` | Bun's lazy `S3File`: `.stream()`, `.slice()`, `.writer()` |
 | `put(params, body, options?)` | writes it, once the content type and size have accepted it. See `PutOptions` below; `options` also takes `timeoutMs` |
 | `bytes(params, { timeoutMs }?)` | the bytes, or `undefined` when there is no such object |
