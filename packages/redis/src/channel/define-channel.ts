@@ -26,6 +26,14 @@ export interface ChannelDefinition<S extends z.ZodType> {
 	 * schema stays assignable to the schema-less `AnyChannel`.
 	 */
 	key?(message: z.output<S>): string;
+	/**
+	 * `'local'`: when Redis cannot be reached, `publish` hands the (parsed)
+	 * message to this process's open `stream()` iterators of its key and
+	 * resolves with `0` instead of throwing. Other processes do not hear it,
+	 * and it can arrive twice here if Redis applied the publish but the reply
+	 * was lost. A message the schema refuses still throws. Off by default.
+	 */
+	fallback?: 'local';
 }
 
 /**

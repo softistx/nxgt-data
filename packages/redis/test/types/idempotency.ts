@@ -7,6 +7,7 @@ import {
 	bindCache,
 	bindIdempotency,
 	bindRateLimit,
+	defineChannel,
 	defineIdempotency,
 	type GuardErrorCode,
 	type Idempotent,
@@ -171,7 +172,7 @@ void publish(client, loginLimit, {});
 // @ts-expect-error nor is an idempotency: `ttl` is `never` on a channel
 void publish(client, createOrder, {});
 
-// @ts-expect-error a channel is not an idempotency: it has no `ttl` or `key`
+// @ts-expect-error a channel is not an idempotency: it has no `ttl` (a `key` selector does not make it one)
 bindIdempotency(client, userCreated);
 
 // @ts-expect-error a channel is not a rate limit
@@ -187,3 +188,19 @@ const ttl: number = cached.definition.ttl;
 void ttl;
 // @ts-expect-error definition is readonly
 cached.definition = userCache;
+
+// A keyed channel is still a channel, and only a channel.
+const roomChanged = defineChannel({
+	name: 'room.changed',
+	schema: z.object({ roomId: z.string() }),
+	key: (change) => change.roomId,
+});
+void publish(client, roomChanged, { roomId: 'r1' });
+// @ts-expect-error a keyed channel is not an idempotency
+bindIdempotency(client, roomChanged);
+// @ts-expect-error a keyed channel is not a rate limit
+bindRateLimit(client, roomChanged);
+// @ts-expect-error a keyed channel is not a cache
+bindCache(client, roomChanged);
+// @ts-expect-error an idempotency is not a keyed channel
+void publish(client, createOrder, {});

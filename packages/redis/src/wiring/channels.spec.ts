@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { eventually, useRedis } from '../../test/fixtures';
+import { rejection } from '../../test/rejection';
 import * as caches from '../../test/wiring/caches';
 import * as channels from '../../test/wiring/channels';
 import * as keyed from '../../test/wiring/keyed-channels';
 import { connectRedis } from '../connection/connect';
+import { RedisError } from '../errors/redis-error';
 import { defineRedis } from './config/define-redis';
 import { openRedis } from './open-redis';
 
@@ -228,5 +230,40 @@ describe('the subscriptions the Redis keeps', () => {
 		await Bun.sleep(100);
 		await redis.close();
 		expect(await idle).toEqual({ value: undefined, done: true });
+	});
+
+	test('a stream asked for after redis.close() is already finished', async () => {
+		const redis = await keyedOn();
+		await redis.close();
+		const it = redis.channels.changed.stream('a');
+		expect(await it.next()).toEqual({ value: undefined, done: true });
+	});
+
+	test('channel.close() ends its streams, and a later stream() works again', async () => {
+		const redis = await keyedOn();
+		const old = redis.channels.changed.stream('a');
+		const idle = old.next();
+		await Bun.sleep(100);
+		await redis.channels.changed.close();
+		expect(await idle).toEqual({ value: undefined, done: true });
+		const fresh = redis.channels.changed.stream('a');
+		const read = fresh.next();
+		await Bun.sleep(100);
+		await redis.channels.changed.publish({ id: 'a', n: 1 });
+		expect((await read).value).toEqual({ id: 'a', n: 1 });
+		await fresh.return(undefined);
+	});
+
+	test('with the fallback on, an invalid payload still throws INVALID', async () => {
+		const redis = await keyedOn();
+		const it = redis.channels.resilient.stream('a');
+		void it.next();
+		await Bun.sleep(100);
+		const error = await rejection(
+			redis.channels.resilient.publish({ id: 'a' } as never),
+		);
+		expect(error).toBeInstanceOf(RedisError);
+		expect((error as RedisError).code).toBe('INVALID');
+		await it.return(undefined);
 	});
 });

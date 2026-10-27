@@ -627,8 +627,11 @@ with. Each subscription is one more connection.
 messages with that key, usable as a GraphQL subscription's `subscribe` result.
 One Redis subscription per process, opened by the first read and closed with
 the last iterator; `return()` frees an idle iterator at once; a slow reader
-loses its oldest messages; a `publish` Redis refuses reaches the local
-iterators.
+loses its oldest messages (`bufferSize`, default 256, a whole number of at
+least 1). `channel.close()` ends every stream; `stream()` on a channel defined
+without a `key` throws a `TypeError`. With `fallback: 'local'` on the
+definition, a `publish` that fails on the transport reaches this process's
+iterators instead of throwing (see Traps).
 
 ```ts
 const roomChanged = defineChannel({
@@ -754,6 +757,14 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
 
 ## Traps
 
+- **The local fallback of a keyed channel is opt-in and local.** With
+  `fallback: 'local'`, a `publish` that fails on the transport hands the parsed
+  message to this process's open `stream()` iterators of its key and resolves
+  with `0`; without the option, or for a message the schema refuses or a key
+  nobody here reads, it throws as before. Other processes do not hear such a
+  message, and if Redis applied the publish but the reply was lost, the local
+  iterators hear it twice (once through the subscription, once through the
+  fallback).
 - **A write is typed by what the schema accepts.** `set` and a `remember`
   loader take `z.input`, so a `.default()` field may be left out. Where a
   field's input type is `unknown` — `z.coerce.number()` — the compiler accepts

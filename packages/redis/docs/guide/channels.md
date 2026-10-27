@@ -214,17 +214,18 @@ process.on('SIGTERM', () => {
 `error.key` is the channel's name. `defineChannel` refuses an empty name with
 a `TypeError`, at definition time.
 
+## Keyed streams
+
+A definition may carry a `key(message)` selector. Through the wiring it gives
+`redis.channels.<name>.stream(key)`, an async iterator of the messages of one
+room, user or document over a single shared subscription, with an immediate
+`return()`, a bounded buffer and an opt-in in-process fallback (`fallback: 'local'`)
+when Redis is down.
+See [Keyed streams](wiring/channels.md#keyed-streams).
+
 ## Next
 
 - [Connections](connections.md) — one client per URI, and what `close()`
   means for a subscription.
 - [Caches](cache.md) — the same `define`/`bind` shape for stored values.
 - [Troubleshooting](../troubleshooting.md) — a message nobody received.
-
-## Keyed streams
-
-A definition may carry a `key(message)` selector. Through the wiring it gives
-`redis.channels.<name>.stream(key)`, an async iterator of the messages of one
-room, user or document over a single shared subscription, with an immediate
-`return()`, a bounded buffer and an in-process fallback when Redis is down.
-See [Keyed streams](wiring/channels.md#keyed-streams).

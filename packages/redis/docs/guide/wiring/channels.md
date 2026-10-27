@@ -122,14 +122,21 @@ for await (const change of redis.channels.roomChanged.stream('r1')) {
   1) keeps that many unread messages; a reader slower than the publishers
   loses the oldest.
 - **Redis down.** A failed subscribe is forgotten, the iterator is not
-  refused, and the next iterator tries again. While iterators are open in
-  the process, a `publish` that Redis refuses delivers to them directly and
-  resolves with `0` instead of throwing (with none open, it throws as
-  before). Other processes do not hear such a message.
+  refused, and the next iterator tries again. `publish` throws as it always
+  did, unless the definition says `fallback: 'local'`: then a `publish` that
+  fails on the transport hands the parsed message to this process's open
+  iterators of its key and resolves with `0`. A message the schema refuses, or
+  a key nobody here reads, still throws. See
+  [the trap](../../../README.md#traps).
+- **bufferSize.** A whole number of at least 1, else a `TypeError`.
 - **Closing.** `redis.channels.roomChanged.close()` ends every stream of the
-  channel, idle or not; `redis.close()` does the same for all channels.
+  channel, idle or not (a later `stream()` starts afresh); `redis.close()` does
+  the same for all channels, and a `stream()` asked for afterwards ends at
+  once.
+- **Registering.** An iterator takes its listener, and opens the subscription,
+  on its first read; one returned before then holds nothing.
 - **No `key`, no stream.** `stream()` on a channel defined without a `key`
-  throws a `TypeError`.
+  throws a `TypeError` ([troubleshooting](../../troubleshooting.md)).
 
 ## The name a message actually lands on
 

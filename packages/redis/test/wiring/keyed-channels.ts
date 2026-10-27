@@ -7,3 +7,11 @@ export const changed = defineChannel({
 	schema: z.object({ id: z.string(), n: z.number() }),
 	key: (change) => change.id,
 });
+
+/** The same, with the local fallback on. */
+export const resilient = defineChannel({
+	name: 'user.resilient',
+	schema: z.object({ id: z.string(), n: z.number() }),
+	key: (change) => change.id,
+	fallback: 'local',
+});

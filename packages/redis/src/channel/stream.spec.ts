@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { rejection } from '../../test/rejection';
 import { createKeyedStreams, type StreamSource } from './stream';
 
 type Change = { roomId: string; n: number };
@@ -13,7 +14,13 @@ function fakeBroker() {
 		failNextSubscribe: false,
 	};
 	const source: StreamSource<Change> = {
+		parse(message) {
+			if (message.n < 0) throw new Error('INVALID');
+			return { ...message, n: message.n * 10 }; // a transform
+		},
+		refuses: (error) => error instanceof Error && error.message === 'INVALID',
 		async publish(message) {
+			if (message.n < 0) throw new Error('INVALID');
 			if (state.down) throw new Error('ECONNREFUSED');
 			for (const handler of handlers) handler(message);
 			return handlers.size;
@@ -141,7 +148,9 @@ describe('keyed streams', () => {
 		const it = streams.stream('a');
 		void it.next();
 		await Bun.sleep(5);
-		await expect(it.throw(new Error('boom'))).rejects.toThrow('boom');
+		expect(await rejection(it.throw(new Error('boom')))).toEqual(
+			new Error('boom'),
+		);
 		expect(streams.listeners).toBe(0);
 	});
 
@@ -162,15 +171,17 @@ describe('keyed streams', () => {
 		expect(streams.listeners).toBe(0);
 	});
 
-	test('falls back to this process when Redis is down', async () => {
+	test('falls back to this process when Redis is down, with the parsed message', async () => {
 		const broker = fakeBroker();
-		const streams = createKeyedStreams(broker.source, keyOf);
+		const streams = createKeyedStreams(broker.source, keyOf, {
+			fallback: true,
+		});
 		broker.state.down = true;
 		const it = streams.stream('a');
 		const read = it.next(); // the subscribe fails: the iterator is not refused
 		await Bun.sleep(5);
 		expect(await streams.publish(room('a', 4))).toBe(0); // does not throw
-		expect(await read).toEqual({ value: room('a', 4), done: false });
+		expect(await read).toEqual({ value: room('a', 40), done: false });
 		await streams.close();
 	});
 
@@ -191,11 +202,61 @@ describe('keyed streams', () => {
 		await streams.close();
 	});
 
-	test('a publish that fails with nobody listening here still throws', async () => {
+	test('a publish that fails with nobody listening to its key still throws', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf, {
+			fallback: true,
+		});
+		const it = streams.stream('b');
+		void it.next();
+		await Bun.sleep(5);
+		broker.state.down = true;
+		const error = await rejection(streams.publish(room('a')));
+		expect((error as Error).message).toBe('ECONNREFUSED');
+		await streams.close();
+	});
+
+	test('without the fallback option a failed publish throws, listeners or not', async () => {
 		const broker = fakeBroker();
 		const streams = createKeyedStreams(broker.source, keyOf);
+		const it = streams.stream('a');
+		void it.next();
+		await Bun.sleep(5);
 		broker.state.down = true;
-		await expect(streams.publish(room('a'))).rejects.toThrow('ECONNREFUSED');
+		const error = await rejection(streams.publish(room('a')));
+		expect((error as Error).message).toBe('ECONNREFUSED');
+		await streams.close();
+	});
+
+	test('an invalid message throws even with the fallback and a listener', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf, {
+			fallback: true,
+		});
+		const it = streams.stream('a');
+		void it.next();
+		await Bun.sleep(5);
+		broker.state.down = true;
+		const error = await rejection(streams.publish(room('a', -1)));
+		expect((error as Error).message).toBe('INVALID');
+		await streams.close();
+	});
+
+	test('bufferSize must be a whole number of at least 1', () => {
+		const streams = createKeyedStreams(fakeBroker().source, keyOf);
+		for (const bufferSize of [0, -1, 1.5, Number.NaN]) {
+			expect(() => streams.stream('a', { bufferSize })).toThrow(TypeError);
+		}
+	});
+
+	test('an iterator returned before its first read holds nothing', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const it = streams.stream('a');
+		expect(streams.listeners).toBe(0);
+		await it.return(undefined);
+		expect(await it.next()).toEqual({ value: undefined, done: true });
+		expect(broker.state.subscribes).toBe(0);
 	});
 
 	test('a slow reader loses its oldest messages past the buffer size', async () => {

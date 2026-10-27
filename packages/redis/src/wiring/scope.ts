@@ -6,6 +6,7 @@ import {
 	subscribe,
 } from '../channel/pubsub';
 import { createKeyedStreams } from '../channel/stream';
+import { RedisError } from '../errors/redis-error';
 import { bindIdempotency } from '../idempotency/bind-idempotency';
 import { bindQueueWith } from '../queue/binding/bind-queue';
 import { bindRateLimit } from '../rate-limit/bind-rate-limit';
@@ -80,6 +81,7 @@ function channelOf(
 	// Built on the first `stream()`; `redis.close()` stops it through
 	// `ctx.subscriptions`, like any subscription nobody closed.
 	let streams: ReturnType<typeof createKeyedStreams<unknown>> | undefined;
+	let closeStreams: (() => Promise<void>) | undefined;
 	const streamsOf = () => {
 		const select = prefixedDefinition.key;
 		if (select === undefined) {
@@ -87,24 +89,39 @@ function channelOf(
 				`channel "${prefixedDefinition.name}": stream() needs a \`key\` in its defineChannel`,
 			);
 		}
-		if (streams === undefined) {
-			streams = createKeyedStreams<unknown>(
-				{ publish: bound, subscribe: subscribeBound },
-				(message) => select.call(prefixedDefinition, message),
-			);
-			const hub = streams;
-			const closeHub = () => {
-				ctx.subscriptions.delete(registered);
-				return hub.close();
-			};
-			const registered: Subscription = {
-				channel: prefixedDefinition.name,
-				close: closeHub,
-				[Symbol.asyncDispose]: closeHub,
-			};
-			ctx.subscriptions.add(registered);
-		}
-		return streams;
+		if (streams !== undefined) return streams;
+		const hub = createKeyedStreams<unknown>(
+			{
+				publish: bound,
+				subscribe: subscribeBound,
+				parse: (message) => {
+					const result = prefixedDefinition.schema.safeParse(message);
+					if (!result.success) throw result.error;
+					return result.data;
+				},
+				refuses: (error) =>
+					error instanceof RedisError && error.code === 'INVALID',
+			},
+			(message) => select.call(prefixedDefinition, message),
+			{ fallback: prefixedDefinition.fallback === 'local' },
+		);
+		streams = hub;
+		const closeHub = () => {
+			ctx.subscriptions.delete(registered);
+			if (streams === hub) streams = undefined;
+			return hub.close();
+		};
+		closeStreams = closeHub;
+		const registered: Subscription = {
+			channel: prefixedDefinition.name,
+			close: closeHub,
+			[Symbol.asyncDispose]: closeHub,
+		};
+		// A Redis already closing ends its streams at once: they would wait
+		// for a close that has come and gone.
+		if (ctx.closing !== undefined) void closeHub();
+		else ctx.subscriptions.add(registered);
+		return hub;
 	};
 	return {
 		definition: prefixedDefinition,
@@ -115,7 +132,7 @@ function channelOf(
 			streams === undefined ? bound(payload) : streams.publish(payload),
 		stream: (key, options) => streamsOf().stream(key, options) as never,
 		close: async () => {
-			await streams?.close();
+			await closeStreams?.();
 		},
 		subscribe: subscribeBound,
 	};

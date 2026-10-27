@@ -618,6 +618,31 @@ const delivered = await publish(client, orders, payload);
 if (delivered === 0) await queue.add(payload); // a stream or a queue, where it must not be lost
 ```
 
+### `channel "room.changed": stream() needs a `key` in its defineChannel`
+
+**When:** `redis.channels.roomChanged.stream('r1')` throws a `TypeError`.
+**Why:** a stream filters the channel's messages by key, and the definition
+has no `key` selector to give them one.
+**Fix:**
+
+```ts
+export const roomChanged = defineChannel({
+	name: 'room.changed',
+	schema: z.object({ roomId: z.string() }),
+	key: (change) => change.roomId,
+});
+```
+
+### A keyed stream hears nothing from another process while Redis is down
+
+**When:** with `fallback: 'local'`, `publish` resolves with `0` and only this
+process's iterators receive the message.
+**Why:** the fallback is local by design. If Redis had applied the publish and
+only the reply was lost, the same message also arrives through the
+subscription, so a local iterator can see it twice.
+**Fix:** treat a keyed message as idempotent (carry a version or an id), or
+leave `fallback` off and let `publish` throw.
+
 ## Queues
 
 A queue throws a `QueueError` and a bare `TypeError`. `QueueError` has a `code`
