@@ -52,7 +52,7 @@
 		"@electric-sql/pglite": "0.5.8",
 		"@nxgt/drizzle": "workspace:^",
 		"@nxgt/meilisearch": "workspace:^",
-		"@types/bun": "^1.4.0",
+		"@types/bun": "^1.4.4",
 		"drizzle-orm": "1.0.0-rc.4",
 		"meilisearch": "0.62.0"
 	},
