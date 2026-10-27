@@ -6,9 +6,9 @@ item shipped in is the only number on this page.
 ## Now
 
 - **Silent updates** — `update` and `updateMany` take `{ audit: false }`: the
-  version, `updatedAt` and `updatedBy` stay as they were and no `after` hook runs (the `before` hooks still do), in
-  the transaction and with the same coercion, for writing a field without
-  marking which documents changed.
+  version, `updatedAt` and `updatedBy` stay as they were and no `after` hook
+  runs (the `before` hooks still do), in the transaction and with the same
+  coercion, for writing a field without marking which documents changed.
 
 ## Next
 

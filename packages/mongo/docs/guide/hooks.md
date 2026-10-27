@@ -102,6 +102,7 @@ const collection = getCollection(db, users, {
 | `collection` | `TypedCollection<Def>` | the collection the write runs on, session and actor included |
 | `session` | `ClientSession \| undefined` | the transaction, if there is one |
 | `actor` | `ActorOf<Def> \| undefined` | who is writing, as `as(actor)` set it |
+| `audit` | `boolean` | `false` for a silent update (`{ audit: false }`), `true` otherwise |
 | `hard` | `boolean` | delete hooks only: `true` for a hard delete, and for a `delete` on a collection that does not soft delete |
 
 The write has already happened when an `after` hook runs: throwing rejects

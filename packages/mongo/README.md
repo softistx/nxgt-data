@@ -358,30 +358,21 @@ whatsoever, including a typo.
 
 ### Silent updates
 
-`update` and `updateMany` take `{ audit: false }` as a last argument: the write
-leaves `version`, `updatedAt` and `updatedBy` as they were and runs no `after`
-hook, so nothing in this process hears of it. The `before` hooks still run, so
-a guard such as tenant scoping still applies, and they see
-`context.audit === false`: a hook that stamps the patch itself should step
-aside. It still runs in the collection's session and is checked and coerced
-like any other write. Use it for a field whose change must not show which
-documents were written.
+`update` and `updateMany` take `{ audit: false }` as a last argument: the
+version, `updatedAt` and `updatedBy` stay as they were and no `after` hook
+runs; the `before` hooks still do, with `context.audit === false`. It still
+runs in the collection's session and is coerced like any write.
 
 ```ts
-await withTransaction(client, async (session) => {
-	await cards.withSession(session).update(
-		cardId,                       // a string id is coerced
-		{ $set: { linkedTo: otherId } },
-		{ audit: false },             // version, updatedAt, updatedBy untouched
-	);
-});
+await cards
+	.withSession(session)
+	.update(cardId, { $set: { linkedTo: otherId } }, { audit: false });
 ```
 
-MongoDB's own change stream still carries the write: `onChange` and any
-change-stream consumer see it. The lock does not see a silent write, which
-raises no version. `session` is not an option (see Traps). See
-[Documents](docs/guide/documents.md#silent-updates). `UpdateOptions` is this
-package's, not the driver's `UpdateOptions`, which `raw.updateOne` takes.
+MongoDB's change stream still carries the write, and the lock does not see it.
+The details are in [Documents](docs/guide/documents.md#silent-updates); the
+Traps below list what to watch. `UpdateOptions` is this package's, not the
+driver's.
 
 ### `_id` never changes
 
