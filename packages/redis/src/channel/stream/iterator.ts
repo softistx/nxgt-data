@@ -61,6 +61,8 @@ export function createIterator<T>(
 	};
 	const iterator: StreamIterator<T> = {
 		async next() {
+			// Closed since the iterator was made: nothing will wake it.
+			if (ctx.closed) stopped = true;
 			if (!stopped) {
 				started ??= (() => {
 					add(ctx, listener);

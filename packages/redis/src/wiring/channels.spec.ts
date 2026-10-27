@@ -266,4 +266,11 @@ describe('the subscriptions the Redis keeps', () => {
 		expect((error as RedisError).code).toBe('INVALID');
 		await it.return(undefined);
 	});
+
+	test('a stream made before redis.close() and read after it is finished', async () => {
+		const redis = await keyedOn();
+		const it = redis.channels.changed.stream('a');
+		await redis.close();
+		expect(await it.next()).toEqual({ value: undefined, done: true });
+	});
 });

@@ -293,4 +293,12 @@ describe('keyed streams', () => {
 			done: true,
 		});
 	});
+
+	test('an iterator made before close() and read after it is finished', async () => {
+		const streams = createKeyedStreams(fakeBroker().source, keyOf);
+		const it = streams.stream('a');
+		await streams.close();
+		expect(await it.next()).toEqual({ value: undefined, done: true });
+		expect(streams.listeners).toBe(0);
+	});
 });
