@@ -209,6 +209,25 @@ safety net behind the first; it should not fire for a normal upload.
 **Fix:** the same as for the first check. If you see it with an image the
 first check lets through, report it with the image's size and format.
 
+### `the request is not an image: its content-type must be image/*`
+
+`ImageError`, `code: 'UNSUPPORTED_TYPE'`, `reason: 'format'`.
+
+**When:** `uploadImage` on a request whose `content-type` header is missing or
+is not `image/*`, such as `text/plain` or `application/octet-stream`.
+**Why:** the helper refuses before reading the body. (The bytes are still judged
+by their first bytes afterwards.)
+**Fix:** have the client send the file's own type, and answer the refusal with a
+4xx (415):
+
+```ts
+await fetch('/images/item', {
+	method: 'PUT',
+	headers: { 'content-type': file.type }, // image/png, image/jpeg, ...
+	body: file,
+});
+```
+
 ### `the upload is not a JPEG, PNG, WebP or HEIC`
 
 `ImageError`, `code: 'UNSUPPORTED_TYPE'`, `reason: 'format'`.
@@ -388,6 +407,23 @@ const crop = {
 	size: Math.round(area.width),
 };
 await avatars.process(blob, { crop });
+```
+
+### A blank or non-numeric `?x=&y=&size=` is refused
+
+`ImageError`, `code: 'INVALID_CROP'`, `reason: 'crop'`, with the message of
+the crop entry above.
+
+**When:** `uploadImage` or `cropFromQuery` on a query such as `?x=&y=2&size=3`
+or `?x=abc&y=2&size=3`, or with only some of the three present.
+**Why:** `cropFromQuery` turns a missing, blank or non-numeric value into `NaN`
+instead of guessing, and the set refuses `NaN` as an invalid crop. Only a query
+with none of the three gives the default centred crop.
+**Fix:** send all three whole numbers, or none. Answer the error with a 4xx
+(400): the crop comes from the request.
+
+```ts
+// PUT /images/item?x=0&y=0&size=300
 ```
 
 ### `a <size>px crop at (<x>, <y>) does not fit the <w>x<h> image`

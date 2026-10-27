@@ -105,6 +105,11 @@ cropped as the upright picture.
 orientation of a PNG (`eXIf` chunk) or of a WebP (`EXIF` chunk) is ignored, so
 for those the picture is cropped as stored.
 
+In an HTTP route, `cropFromQuery(new URL(request.url).searchParams)` reads the
+crop from `?x=&y=&size=`: `undefined` when none is present, otherwise a crop
+whose missing, blank or non-numeric values are `NaN`, refused here as
+`INVALID_CROP`.
+
 ```ts
 const { source } = await avatars.process(bytes);            // oriented size
 const side = Math.min(source.width, source.height);

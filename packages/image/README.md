@@ -270,7 +270,7 @@ byte limit is `TOO_LARGE`; a bad crop is `INVALID_CROP`. Save `id` and
 import { uploadImage } from '@nxgt/image/s3';
 
 // PUT /images/item?x=0&y=0&size=300
-const { id, version } = await uploadImage(avatars, {}, request);
+const { id, version } = await uploadImage(avatars, { userId }, request);
 ```
 
 ### `bindImageStore(set, bucket)` (`@nxgt/image/s3`)

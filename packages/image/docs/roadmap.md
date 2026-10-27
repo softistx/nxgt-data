@@ -49,6 +49,9 @@ _Nothing queued._
   gives `replace`, `remove`, `presignGet` and `bytes` over a `@nxgt/s3`
   bucket. `replace` returns a `version` that changes with the content, a
   refused upload writes nothing, and objects are never public — 0.1.0.
+- **Upload route helpers** — `cropFromQuery` reads an optional crop from
+  `?x=&y=&size=`, and `@nxgt/image/s3` `uploadImage` turns an `image/*` request
+  into a stored image under a fresh id, returning `{ id, version, variants }`.
 
 Everything released is in [`CHANGELOG.md`](https://github.com/softistx/nxgt-data/blob/develop/packages/image/CHANGELOG.md) — it is not in
 the published package, only in the repository.
