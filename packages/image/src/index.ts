@@ -1,3 +1,4 @@
+export { cropFromQuery } from './crop/from-query';
 export type { ImageErrorCode, ImageErrorReason } from './errors/image-error';
 export { ImageError } from './errors/image-error';
 export type { ImageInput } from './input/read-input';
