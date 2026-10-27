@@ -1,5 +1,11 @@
 # @nxgt/redis
 
+## 0.10.2
+
+### Patch Changes
+
+- [#281](https://github.com/softistx/nxgt-data/pull/281) [`4ee02e4`](https://github.com/softistx/nxgt-data/commit/4ee02e49db0a951f714879ef579ff2303accdd7f) Thanks [@SteveGT96](https://github.com/SteveGT96)! - A keyed stream channel's `close()` (and `redis.close()`) no longer waits for a subscribe attempt still in flight against an unreachable Redis, which took about 31 s. The iterators end at once, and a subscription that resolves late is closed in the background.
+
 ## 0.10.1
 
 ### Patch Changes
