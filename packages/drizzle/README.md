@@ -137,6 +137,8 @@ const rows = await users.createMany([{ email: 'a@example.com' }, { email: 'b@exa
 await users.update(ada.id, { name: 'Ada' }); // the row, or throws NotFoundError
 await users.update(ada.id, { loginCount: sql`${usersTable.loginCount} + 1` });
 await users.updateMany({ teamId: 1 }, { teamId: 2 }); // the rows
+// a silent update: version, updatedAt and updatedBy are left as they were
+await users.update(ada.id, { name: 'Ada' }, { audit: false });
 
 await users.delete(ada.id); // the row, or throws NotFoundError
 await users.deleteMany({ teamId: 2 }); // the rows

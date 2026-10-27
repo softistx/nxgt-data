@@ -5,7 +5,10 @@ item shipped in is the only number on this page.
 
 ## Now
 
-_Nothing in progress._
+- **Silent updates** — `update` and `updateMany` take `{ audit: false }`, as
+  `@nxgt/mongo` does since 0.24: `version`, `updatedAt` (a `$onUpdate` column
+  too) and `updatedBy` are left as they were, in the repository's
+  transaction, with the table's checks and coercion.
 
 ## Next
 

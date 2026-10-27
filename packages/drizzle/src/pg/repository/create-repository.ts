@@ -41,6 +41,7 @@ import type {
 	ReadOptions,
 	Repository,
 	RepositoryOptions,
+	UpdateOptions,
 } from './types';
 
 /**
@@ -90,9 +91,10 @@ function build(ctx: RepositoryContext) {
 
 		create: (values: AnyRow) => create(ctx, values),
 		createMany: (values: readonly AnyRow[]) => createMany(ctx, values),
-		update: (id: unknown, patch: AnyRow) => update(ctx, id, patch),
-		updateMany: (where: unknown, patch: AnyRow) =>
-			updateMany(ctx, where, patch),
+		update: (id: unknown, patch: AnyRow, options?: UpdateOptions) =>
+			update(ctx, id, patch, options),
+		updateMany: (where: unknown, patch: AnyRow, options?: UpdateOptions) =>
+			updateMany(ctx, where, patch, options),
 		upsert: (where: unknown, values: unknown) => upsert(ctx, where, values),
 
 		delete: (id: unknown) => deleteOne(ctx, id),

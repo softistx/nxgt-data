@@ -9,13 +9,14 @@ import {
 } from '../context';
 import { byId, live, requireWhere, scoped } from '../filters';
 import {
+	auditOf,
 	created,
 	expecting,
 	lockError,
 	touched,
 	unmoved,
 } from '../stamp-writes';
-import type { FindManyOptions } from '../types';
+import type { FindManyOptions, UpdateOptions } from '../types';
 import { findById, findMany, getById } from './reads';
 
 export async function create(
@@ -47,10 +48,12 @@ export async function update(
 	ctx: RepositoryContext,
 	id: unknown,
 	given: AnyRow,
+	options?: UpdateOptions,
 ): Promise<AnyRow> {
+	const audit = auditOf(ctx, 'update', options);
 	const { patch, expected } = expecting(ctx, 'update', given);
 	unmoved(ctx, 'update', patch);
-	const set = touched(ctx, patch);
+	const set = touched(ctx, patch, audit);
 	// Nothing to write, so nothing is written — and the row comes back as it
 	// stands, rather than an `UPDATE` that only raises the stamps. An expected
 	// version is still checked: the caller asked whether the row moved.
@@ -100,10 +103,12 @@ export async function updateMany(
 	ctx: RepositoryContext,
 	where: unknown,
 	patch: AnyRow,
+	options?: UpdateOptions,
 ): Promise<AnyRow[]> {
 	requireWhere(ctx, 'updateMany', where);
+	const audit = auditOf(ctx, 'updateMany', options);
 	unmoved(ctx, 'updateMany', patch);
-	const set = touched(ctx, expecting(ctx, 'updateMany', patch).patch);
+	const set = touched(ctx, expecting(ctx, 'updateMany', patch).patch, audit);
 	if (Object.keys(set).length === 0) {
 		return findMany(ctx, { where: where as FindManyOptions<any>['where'] });
 	}

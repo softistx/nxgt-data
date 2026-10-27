@@ -68,6 +68,13 @@ await ticketRepo.update('x', { title: 'b', version: 3 });
 await ticketRepo.update('x', { title: 'b', version: '3' });
 // @ts-expect-error the expected version is a condition, not SQL to write
 await ticketRepo.update('x', { version: sql`${tickets.version} + 1` });
+// A silent update takes `{ audit: false }`, on both, and nothing else.
+await ticketRepo.update('id', { title: 'b' }, { audit: false });
+await ticketRepo.updateMany({ slug: 'a' }, { title: 'b' }, { audit: false });
+// @ts-expect-error audit is a boolean
+await ticketRepo.update('id', { title: 'b' }, { audit: 'no' });
+// @ts-expect-error session is not an option: bind with with(tx)
+await ticketRepo.update('id', { title: 'b' }, { session: 1 });
 // updateMany takes none: one version cannot stand for many rows.
 await ticketRepo.updateMany({ slug: 'a' }, { title: 'b' });
 // @ts-expect-error updateMany refuses a version
