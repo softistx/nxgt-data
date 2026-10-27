@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { isBucketUnavailable } from './is-bucket-unavailable';
-import { S3Error } from './s3-error';
+import { S3Error, type S3ErrorCode } from './s3-error';
 
 const withCode = (code: unknown, message = 'boom') =>
 	Object.assign(new Error(message), { code });
@@ -17,6 +17,21 @@ describe('isBucketUnavailable', () => {
 		'WRONG_OPTION',
 	] as const)("is false for the caller's refusal %s", (code) => {
 		expect(isBucketUnavailable(new S3Error(code, 'k', 'refused'))).toBe(false);
+	});
+
+	test('is false for every S3ErrorCode except TIMEOUT', () => {
+		const codes: Record<S3ErrorCode, true> = {
+			WRONG_TYPE: true,
+			TOO_LARGE: true,
+			UNMEASURABLE: true,
+			WRONG_OPTION: true,
+			TIMEOUT: true,
+		};
+		for (const code of Object.keys(codes) as S3ErrorCode[]) {
+			expect(isBucketUnavailable(new S3Error(code, 'k', 'x'))).toBe(
+				code === 'TIMEOUT',
+			);
+		}
 	});
 
 	test.each([
