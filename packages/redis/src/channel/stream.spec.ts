@@ -372,5 +372,41 @@ describe('keyed streams', () => {
 			expect(hanging.broker.state.closes).toBe(1);
 			expect(hanging.broker.listeners()).toBe(0);
 		});
+
+		test('close() resolves while the subscribe is pending, and closes the late subscription', async () => {
+			const hanging = hangingBroker();
+			const streams = createKeyedStreams(hanging.source, keyOf);
+			const it = streams.stream('a');
+			const pending = it.next();
+			await Bun.sleep(5);
+			const started = performance.now();
+			await streams.close();
+			expect(performance.now() - started).toBeLessThan(500);
+			expect(await pending).toEqual({ value: undefined, done: true });
+			hanging.settle(false);
+			await Bun.sleep(5);
+			expect(hanging.broker.state.closes).toBe(1);
+			expect(hanging.broker.listeners()).toBe(0);
+		});
+
+		test('close() with a subscribe that later fails raises nothing', async () => {
+			const unhandled: unknown[] = [];
+			const note = (reason: unknown) => unhandled.push(reason);
+			process.on('unhandledRejection', note);
+			try {
+				const hanging = hangingBroker();
+				const streams = createKeyedStreams(hanging.source, keyOf);
+				const it = streams.stream('a');
+				void it.next();
+				await Bun.sleep(5);
+				await streams.close();
+				hanging.settle(true);
+				await Bun.sleep(10);
+				expect(unhandled).toEqual([]);
+				expect(hanging.broker.state.closes).toBe(0);
+			} finally {
+				process.off('unhandledRejection', note);
+			}
+		});
 	});
 });

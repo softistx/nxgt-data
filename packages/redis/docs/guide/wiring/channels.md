@@ -131,7 +131,10 @@ for await (const change of redis.channels.roomChanged.stream('r1')) {
   did, unless the definition says `fallback: 'local'`: then a `publish` that
   fails on the transport hands the parsed message to this process's open
   iterators of its key and resolves with `0`. A message the schema refuses, or
-  a key nobody here reads, still throws. See
+  a key nobody here reads, still throws. `close()` (the channel's, and
+  `redis.close()`) does not wait for a subscribe still in flight either: the
+  iterators end at once and a subscription that resolves late is closed in the
+  background. See
   [the trap](../../../README.md#traps).
 - **bufferSize.** A whole number of at least 1, else a `TypeError`.
 - **Closing.** `redis.channels.roomChanged.close()` ends every stream of the

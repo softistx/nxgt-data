@@ -7,20 +7,33 @@ export async function open<T>(ctx: StreamContext<T>): Promise<void> {
 	const attempt = ctx.source.subscribe((message) => deliver(ctx, message));
 	ctx.opened = attempt;
 	try {
-		await attempt;
+		const subscription = await attempt;
+		if (ctx.opened === attempt) ctx.live = subscription;
 	} catch {
 		if (ctx.opened === attempt) ctx.opened = undefined;
 	}
 }
 
-/** Forgets the subscription and closes it, once it has finished opening. */
+/**
+ * Forgets the subscription and closes it. An open one is awaited; one still
+ * in flight is not: against an unreachable server the attempt takes ~31 s to
+ * fail, so the late subscription is closed in the background if and when it
+ * resolves.
+ */
 export async function release<T>(ctx: StreamContext<T>): Promise<void> {
 	const pending = ctx.opened;
+	const live = ctx.live;
 	ctx.opened = undefined;
+	ctx.live = undefined;
 	if (pending === undefined) return;
-	try {
-		await (await pending).close();
-	} catch {
-		// It failed to open (nothing to close) or to close (nothing to do).
+	if (live !== undefined) {
+		await live.close().catch(() => {});
+		return;
 	}
+	pending.then(
+		(subscription) => subscription.close().catch(() => {}),
+		() => {
+			// It failed to open: nothing to close.
+		},
+	);
 }

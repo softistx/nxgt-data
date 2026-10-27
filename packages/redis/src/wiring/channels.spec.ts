@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { RedisClient } from 'bun';
 import { eventually, useRedis } from '../../test/fixtures';
 import { rejection } from '../../test/rejection';
 import * as caches from '../../test/wiring/caches';
@@ -272,5 +273,41 @@ describe('the subscriptions the Redis keeps', () => {
 		const it = redis.channels.changed.stream('a');
 		await redis.close();
 		expect(await it.next()).toEqual({ value: undefined, done: true });
+	});
+
+	describe('on an unreachable server', () => {
+		// A subscribe takes ~31 s to fail here; close must not wait for it.
+		const unreachable = async () =>
+			openRedis(
+				defineRedis({
+					client: new RedisClient('redis://127.0.0.1:1', {
+						enableOfflineQueue: false,
+						connectionTimeout: 200,
+					}),
+					channels: { ...keyed },
+				}),
+			);
+
+		test('channel.close() does not wait for a subscribe in flight', async () => {
+			const redis = await unreachable();
+			const it = redis.channels.resilient.stream('a');
+			const idle = it.next();
+			await Bun.sleep(50);
+			const started = performance.now();
+			await redis.channels.resilient.close();
+			expect(performance.now() - started).toBeLessThan(2000);
+			expect(await idle).toEqual({ value: undefined, done: true });
+		});
+
+		test('redis.close() does not wait for a subscribe in flight', async () => {
+			const redis = await unreachable();
+			const it = redis.channels.resilient.stream('a');
+			const idle = it.next();
+			await Bun.sleep(50);
+			const started = performance.now();
+			await redis.close();
+			expect(performance.now() - started).toBeLessThan(2000);
+			expect(await idle).toEqual({ value: undefined, done: true });
+		});
 	});
 });
