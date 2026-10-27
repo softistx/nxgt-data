@@ -18,6 +18,7 @@ import {
 	memoryTarget,
 } from '../../test/fixtures';
 import { rejection } from '../../test/rejection';
+import { recordingWrites } from '../../test/writers';
 import { bindBackup } from '../backups/bind-backup';
 import { generateSigningKeys } from '../crypto/signing';
 import { defineBackup } from '../definition/define-backup';
@@ -288,11 +289,12 @@ describe('a backup on S3, beside a local folder', () => {
 });
 
 describe('the lock on S3', () => {
-	test('two writers at once: never both', async () => {
+	test('two writers at once: never both writing', async () => {
 		const keys = await keyPair();
 		for (let round = 0; round < 5; round++) {
+			const recording = recordingWrites(s3Repository({ client }));
 			const backups = bindBackup(defineBackup({ name: `race${round}` }), {
-				repositories: [s3Repository({ client })],
+				repositories: [recording.repository],
 				recipients: [keys.recipient],
 				tmpDir: tmp.path,
 			});
@@ -300,8 +302,9 @@ describe('the lock on S3', () => {
 				backups.create(memorySource({ a: 'alpha' })),
 				backups.create(memorySource({ b: 'beta' })),
 			]);
+			// Both may store, one after the other; never at once.
+			expect(recording.overlapping()).toEqual([]);
 			const stored = results.filter((r) => r.status === 'fulfilled').length;
-			expect(stored).toBeLessThanOrEqual(1);
 			expect((await backups.list()).backups).toHaveLength(stored);
 			expect(
 				(await client.list({ prefix: `race${round}/locks/` })).contents ?? [],

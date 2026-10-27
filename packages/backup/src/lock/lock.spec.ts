@@ -9,6 +9,7 @@ import {
 	streamOf,
 } from '../../test/fixtures';
 import { rejection } from '../../test/rejection';
+import { recordingWrites } from '../../test/writers';
 import { bindBackup } from '../backups/bind-backup';
 import { defineBackup } from '../definition/define-backup';
 import { BackupError } from '../errors/backup-error';
@@ -160,23 +161,83 @@ describe('the lock', () => {
 		expect(error).toHaveProperty('code', 'NOT_STORED');
 	});
 
-	test('two writers at once: never both', async () => {
+	test('two writers at once: never both writing', async () => {
 		for (let round = 0; round < 10; round++) {
-			const repository = local(`race-${round}`);
-			const backups = bound([repository]);
+			const recording = recordingWrites(local(`race-${round}`));
+			const backups = bound([recording.repository]);
 			const results = await Promise.allSettled([
 				backups.create(memorySource({ a: 'alpha' })),
 				backups.create(memorySource({ b: 'beta' })),
 			]);
-			const stored = results.filter((r) => r.status === 'fulfilled').length;
-			expect(stored).toBeLessThanOrEqual(1);
+			// Both may store, one after the other; never at once.
+			expect(recording.overlapping()).toEqual([]);
 			for (const result of results) {
 				if (result.status === 'rejected') {
 					expect(result.reason).toHaveProperty('code', 'NOT_STORED');
 				}
 			}
+			const stored = results.filter((r) => r.status === 'fulfilled').length;
 			expect((await backups.list()).backups).toHaveLength(stored);
 		}
+	});
+
+	test('two writers whose locks both landed: both refused', async () => {
+		const inner = local();
+		let landed = 0;
+		let bothLanded: () => void = () => undefined;
+		const barrier = new Promise<void>((resolve) => {
+			bothLanded = resolve;
+		});
+		const gated: Repository = {
+			...inner,
+			put: async (key, file) => {
+				await inner.put(key, file);
+				if (!key.includes('/locks/')) return;
+				if (++landed === 2) bothLanded();
+				await barrier;
+			},
+		};
+		const backups = bound([gated]);
+		const results = await Promise.allSettled([
+			backups.create(memorySource({ a: 'alpha' })),
+			backups.create(memorySource({ b: 'beta' })),
+		]);
+		for (const result of results) {
+			expect(result.status).toBe('rejected');
+			const error = (result as PromiseRejectedResult).reason as BackupError;
+			expect(error).toHaveProperty('code', 'NOT_STORED');
+			expect(errorOf(error.outcomes[0])).toHaveProperty('code', 'LOCKED');
+		}
+		expect(await locksIn('local')).toEqual([]);
+	});
+
+	test('a writer whose lock lands after another finished goes on: the lock serialises, it does not deduplicate', async () => {
+		// What CI once met: one writer's lock put was slow enough for the
+		// other's whole run to fit before it landed.
+		const recording = recordingWrites(local());
+		let firstLock = true;
+		let otherDone: () => void = () => undefined;
+		const done = new Promise<void>((resolve) => {
+			otherDone = resolve;
+		});
+		const slow: Repository = {
+			...recording.repository,
+			put: async (key, file) => {
+				if (key.includes('/locks/') && firstLock) {
+					firstLock = false;
+					await done;
+				}
+				return recording.repository.put(key, file);
+			},
+		};
+		const backups = bound([slow]);
+		const first = backups.create(memorySource({ a: 'alpha' }));
+		const second = backups.create(memorySource({ b: 'beta' }));
+		await Promise.race([first, second]).finally(otherDone);
+		const results = await Promise.allSettled([first, second]);
+		expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+		expect(recording.overlapping()).toEqual([]);
+		expect((await backups.list()).backups).toHaveLength(2);
 	});
 
 	test('is renewed while the run lasts longer than the lease', async () => {

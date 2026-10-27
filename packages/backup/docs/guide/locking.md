@@ -157,6 +157,14 @@ promise — [the contract](repositories.md#writing-a-repository).
 
 Both giving up is rare and harmless: run again.
 
+**The lock serialises; it does not deduplicate.** Two runs started together
+are not sure to refuse each other: when one run's lock is slow to land —
+a loaded machine, a slow disk — the other may take the lock, store its
+backup and release it before the first one looks, and the first then goes
+on too. Both store a backup, one after the other, never at once. To run a
+job at most once per slot, decide that before calling `create`; the lock
+only keeps two writers from overlapping.
+
 ## The lease
 
 | Option | Type | Default | Effect |
