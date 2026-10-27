@@ -1,5 +1,11 @@
 # @nxgt/mongo
 
+## 0.24.0
+
+### Minor Changes
+
+- [#264](https://github.com/softistx/nxgt-data/pull/264) [`73f0552`](https://github.com/softistx/nxgt-data/commit/73f05527bbfba76b13d559fce19e02df7db43e4a) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Add silent updates: `update(id, patch, { audit: false })` and `updateMany(filter, patch, { audit: false })` leave `version`, `updatedAt` and `updatedBy` as they were and run no `after` hook (the `before` hooks still run, with `context.audit === false`), while still running in the collection's session and coercing the patch. MongoDB's change stream still reports the write.
+
 ## 0.23.1
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @nxgt/redis
 
+## 0.10.0
+
+### Minor Changes
+
+- [#262](https://github.com/softistx/nxgt-data/pull/262) [`1edb23c`](https://github.com/softistx/nxgt-data/commit/1edb23c11db98bb9ca54868afeedfe9296af8140) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Add keyed async-iterator streams to wired channels. A `defineChannel` takes an optional `key(message)` selector, and `redis.channels.<name>.stream(key, { bufferSize? })` returns an `AsyncGenerator` of the messages with that key, usable directly as a GraphQL subscription `subscribe` result. The process opens one Redis subscription per channel, on the first read, fans it out in memory and closes it when the last iterator leaves. `return()`, `throw()` and `Symbol.asyncDispose` release an iterator at once, even while it is waiting. A slow reader loses its oldest messages past `bufferSize` (256, a whole number of at least 1). A failed subscribe is retried by the next iterator. With `fallback: 'local'` on the definition (off by default), a `publish` that fails on the transport reaches this process's iterators of its key instead of throwing; a message the schema refuses still throws. `channel.close()` stops every stream; `redis.close()` does too. `isChannel` now accepts a definition that carries a `key` function.
+
 ## 0.9.3
 
 ### Patch Changes

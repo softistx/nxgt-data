@@ -1,5 +1,12 @@
 # @nxgt/mongo-meilisearch
 
+## 0.5.7
+
+### Patch Changes
+
+- Updated dependencies [[`73f0552`](https://github.com/softistx/nxgt-data/commit/73f05527bbfba76b13d559fce19e02df7db43e4a)]:
+  - @nxgt/mongo@0.24.0
+
 ## 0.5.6
 
 ### Patch Changes
