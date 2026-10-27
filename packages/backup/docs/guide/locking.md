@@ -141,11 +141,11 @@ For each repository, at the start of `create` — and of `prune`, `hold` or
 5. At the end, success or failure, lease held or lost, **delete** the lock.
    A repository whose `delete` throws does not stop the run from ending.
 
-**Why two writers never both go on.** Each one looks for others only after
-its own lock is stored, and a repository's `list` shows a key as soon as its
-`put` has resolved. So of two writers that start together, the later to
-list sees the earlier's lock; at worst both see each other's and both give
-up — never both go on. No conditional write is needed, so the same protocol
+**Why two writers never write at once.** Each one looks for others only
+after its own lock is stored, and a repository's `list` shows a key as soon
+as its `put` has resolved. So of two writers whose locks are both stored,
+the later to list sees the earlier's lock; at worst both see each other's
+and both give up — never both writing at once. No conditional write is needed, so the same protocol
 runs on any store that keeps the one promise it needs.
 
 **The store must list a key as soon as its `put` resolved.** A local folder
@@ -156,6 +156,14 @@ before relying on the lock; a repository you write yourself must keep that
 promise — [the contract](repositories.md#writing-a-repository).
 
 Both giving up is rare and harmless: run again.
+
+**The lock serialises; it does not deduplicate.** Two runs started together
+are not sure to refuse each other: when one run's lock is slow to land —
+a loaded machine, a slow disk — the other may take the lock, store its
+backup and release it before the first one looks, and the first then goes
+on too. Both store a backup, one after the other, never at once. To run a
+job at most once per slot, decide that before calling `create`; the lock
+only keeps two writers from overlapping.
 
 ## The lease
 

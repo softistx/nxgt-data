@@ -630,7 +630,11 @@ is there. That lock is one of:
   until removed by hand;
 - **a second run started at the same moment** — each writes its own lock
   before looking for others, so both can see the other's and both give up.
-  Never both go on.
+  Never both go on at once. If you see the opposite — two runs started
+  together that **both** stored a backup — they ran one after the other: the
+  first one's lock landed only once the second had finished. The lock keeps
+  writers from overlapping, it does not make a run happen once
+  ([the lock serialises](guide/locking.md#how-it-works)).
 
 **Fix:** space the schedule so a run ends before the next starts, and treat
 `LOCKED` as "skipped, try later" rather than as a failure:
