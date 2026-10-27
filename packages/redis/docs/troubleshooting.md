@@ -485,8 +485,10 @@ path, not a mode.
 
 ```ts
 import { localChannels } from '@nxgt/redis';
+import * as channels from './channels';
 
-const { channels: scope, close } = localChannels({ channels });
+const local = localChannels({ channels });
+// use local.channels.<name>.publish / stream(key); local.close() on shutdown
 ```
 
 ### `ping: no answer in 2000ms`

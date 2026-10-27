@@ -170,6 +170,13 @@ await local.close(); // ends every stream and subscription
   Redis, and a handler's error goes to `onError`.
 - **One process.** Another process never hears a message, and a message
   nobody is subscribed to is dropped; `publish` resolves with `0`.
+- **Local or Redis.** Pick local when one process is all there is (development,
+  specs, a single instance); pick Redis as soon as a message must reach another
+  process or survive a restart of the reader. Delivery across processes needs
+  Redis.
+- **After `close()`.** A `stream()` asked for ends at once and a `subscribe`
+  rejects with a `CONNECTION` `RedisError`, as on a closed Redis. A channel's own
+  `close()` ends its streams, and a later `stream()` starts afresh.
 - **No prefix, no `fallback`.** Names are as defined; `fallback: 'local'` has
   nothing to fall back from and is ignored.
 - **Choosing at startup.** Pick one scope from the environment, for example

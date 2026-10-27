@@ -18,8 +18,9 @@ type Handler = (message: unknown) => void;
 /** One channel on an in-process transport: no client, no connection. */
 function localChannel(
 	definition: AnyChannel,
-	closers: Set<() => Promise<void>>,
+	closer: { readonly set: Set<() => Promise<void>>; closed: boolean },
 ) {
+	const closers = closer.set;
 	const handlers = new Set<Handler>();
 	const publish = async (payload: unknown): Promise<number> => {
 		const result = definition.schema.safeParse(payload);
@@ -86,6 +87,14 @@ function localChannel(
 		deliver: (message: never) => void | Promise<void>,
 		options?: SubscribeOptions,
 	): Promise<Subscription> => {
+		// What a closed Redis does: its client refuses a new subscribe.
+		if (closer.closed) {
+			throw new RedisError(
+				'CONNECTION',
+				definition.name,
+				`subscribe("${definition.name}"): these local channels were closed`,
+			);
+		}
 		const detach = attach(deliver as (message: unknown) => void, options);
 		const close = async () => {
 			closers.delete(close);
@@ -99,6 +108,7 @@ function localChannel(
 		};
 	};
 	let streams: KeyedStreams<unknown> | undefined;
+	let closeStreams: (() => Promise<void>) | undefined;
 	const streamsOf = () => {
 		const select = definition.key;
 		if (select === undefined) {
@@ -107,6 +117,9 @@ function localChannel(
 			);
 		}
 		if (streams !== undefined) return streams;
+		// No `parse`, `refuses` or `fallback`: nothing here can fail on a
+		// transport, so `publish` never needs the local fallback, and
+		// `fallback: 'local'` streams the same as without it.
 		const hub = createKeyedStreams<unknown>(
 			{
 				publish,
@@ -115,12 +128,15 @@ function localChannel(
 			(message) => select.call(definition, message),
 		);
 		streams = hub;
-		const close = () => {
-			closers.delete(close);
+		const closeHub = () => {
+			closers.delete(closeHub);
 			if (streams === hub) streams = undefined;
 			return hub.close();
 		};
-		closers.add(close);
+		closeStreams = closeHub;
+		closers.add(closeHub);
+		// Closed already: the stream ends at once, as with a closing Redis.
+		if (closer.closed) void closeHub();
 		return hub;
 	};
 	return {
@@ -131,7 +147,8 @@ function localChannel(
 		stream: (key: string, options?: { bufferSize?: number }) =>
 			streamsOf().stream(key, options),
 		close: async () => {
-			await streams?.close();
+			// Forgets the hub, so a later `stream()` builds a fresh one.
+			await closeStreams?.();
 		},
 	};
 }
@@ -158,17 +175,18 @@ function localChannel(
 export function localChannels<Ch extends object>(options: {
 	channels: Ch;
 }): LocalChannels<Ch> {
-	const closers = new Set<() => Promise<void>>();
+	const closer = { set: new Set<() => Promise<void>>(), closed: false };
 	const bound: Record<string, unknown> = {};
 	const entries = Object.entries(options.channels);
 	for (const [name, value] of entries) {
 		if (!isChannel(value)) continue;
-		bound[name] = localChannel(value, closers);
+		bound[name] = localChannel(value, closer);
 	}
 	return {
 		channels: Object.freeze(bound) as ChannelScope<Ch>,
 		async close() {
-			await Promise.all([...closers].map((close) => close()));
+			closer.closed = true;
+			await Promise.all([...closer.set].map((close) => close()));
 		},
 	};
 }
