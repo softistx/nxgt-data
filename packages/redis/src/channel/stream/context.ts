@@ -42,6 +42,8 @@ export interface StreamContext<T> {
 	count: number;
 	closed: boolean;
 	opened: Promise<{ close(): Promise<void> }> | undefined;
+	/** The subscription once `opened` has resolved; `undefined` while in flight. */
+	live: { close(): Promise<void> } | undefined;
 }
 
 export function newContext<T>(
@@ -57,5 +59,6 @@ export function newContext<T>(
 		count: 0,
 		closed: false,
 		opened: undefined,
+		live: undefined,
 	};
 }
