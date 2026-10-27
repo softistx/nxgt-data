@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/image",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"description": "Avatar and photo uploads on Bun's own Bun.Image: checked by magic bytes, cropped square, resized to WebP with every metadata stripped",
 	"license": "MIT",
 	"type": "module",
