@@ -1,5 +1,11 @@
 # @nxgt/s3
 
+## 0.7.1
+
+### Patch Changes
+
+- [#279](https://github.com/softistx/nxgt-data/pull/279) [`2220970`](https://github.com/softistx/nxgt-data/commit/2220970eb99151f643bba59409569dc236991ed6) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `startTestS3`: two servers started at the same time could be handed overlapping port blocks, so one died with `bind: address already in use` on a gRPC port. A block is now claimed before it is probed and given back on `stop()`.
+
 ## 0.7.0
 
 ### Minor Changes
