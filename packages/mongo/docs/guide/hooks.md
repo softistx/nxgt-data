@@ -51,8 +51,8 @@ tenant filter above, that must hold for every write. They are told through
 a hook that stamps the patch itself can step aside:
 
 ```ts
-beforeUpdate: ({ patch }, { audit, actor }) =>
-	audit ? { patch: { ...patch, lastEditor: actor } } : undefined,
+beforeUpdate: ({ id, patch }, { audit, actor }) =>
+	audit ? { id, patch: { ...patch, lastEditor: actor } } : undefined,
 ```
 
 Nothing runs after the write, so nothing built on an `after` hook (an outbox,

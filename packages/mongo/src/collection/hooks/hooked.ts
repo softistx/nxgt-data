@@ -171,10 +171,14 @@ export async function hookedUpsert(
  * run. A `session` is refused: the session is the collection's, set by
  * `withSession`, and one given here would be silently ignored.
  */
-function auditOf(method: string, options: UpdateOptions | undefined): boolean {
+function auditOf(
+	ctx: CollectionContext,
+	method: string,
+	options: UpdateOptions | undefined,
+): boolean {
 	if (options && 'session' in options) {
 		throw new TypeError(
-			`${method}: a session is not an option here. Bind the collection to it: ` +
+			`${method} on "${ctx.name}": a session is not an option here. Bind the collection to it: ` +
 				'`collection.withSession(session)`.',
 		);
 	}
@@ -189,7 +193,7 @@ export async function hookedUpdate(
 	options?: UpdateOptions,
 ): Promise<Fields> {
 	refuseId(ctx, 'update', patch);
-	const audit = auditOf('update', options);
+	const audit = auditOf(ctx, 'update', options);
 	const context = contextOf(ctx, self, 'update', { audit });
 	const args = await before(
 		ctx,
@@ -214,7 +218,7 @@ export async function hookedUpdateMany(
 	// then let an update of every document through.
 	requireFilter(ctx, 'updateMany', filter);
 	refuseId(ctx, 'updateMany', patch);
-	const audit = auditOf('updateMany', options);
+	const audit = auditOf(ctx, 'updateMany', options);
 	const context = contextOf(ctx, self, 'updateMany', { audit });
 	const args = await before(
 		ctx,

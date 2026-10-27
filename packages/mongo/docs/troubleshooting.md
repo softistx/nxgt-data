@@ -33,8 +33,8 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`sync: "users" already exists with options MongoDB cannot change:`](#sync-users-already-exists-with-options-mongodb-cannot-change)
 - **Writes**
   - [A silent update still shows up in `onChange`](#a-silent-update-still-shows-up-in-onchange)
-  - [`update: a session is not an option here.`](#update-a-session-is-not-an-option-here)
-  - [`updateMany: a session is not an option here.`](#updatemany-a-session-is-not-an-option-here)
+  - [`update on "users": a session is not an option here.`](#update-on-users-a-session-is-not-an-option-here)
+  - [`updateMany on "users": a session is not an option here.`](#updatemany-on-users-a-session-is-not-an-option-here)
   - [`Duplicate key on email in "users"`](#duplicate-key-on-email-in-users)
   - [`Document failed validation in "users": email bsonType`](#document-failed-validation-in-users-email-bsontype)
   - [`Document 6721… of "users" is at version 4, not 3: it changed since it was read`](#document-6721-of-users-is-at-version-4-not-3-it-changed-since-it-was-read)
@@ -407,20 +407,20 @@ await cards.update(id, { linkedTo }, { audit: false });
 // onChange on `cards` still reports an update with fields.set.linkedTo
 ```
 
-### `update: a session is not an option here.`
+### `update on "users": a session is not an option here.`
 
 **When:** `update` is given `{ session }` in its options, such as
 `{ audit: false, session }`.
 **Why:** the session belongs to the collection, which would ignore one passed
 here, so it is refused (a compile error too). The full message ends with
-"Bind the collection: `collection.withSession(session)`."
+"Bind the collection to it: `collection.withSession(session)`."
 **Fix:**
 
 ```ts
 await collection.withSession(session).update(id, patch, { audit: false });
 ```
 
-### `updateMany: a session is not an option here.`
+### `updateMany on "users": a session is not an option here.`
 
 **When:** `updateMany` is given `{ session }` in its options, such as
 `{ audit: false, session }`.

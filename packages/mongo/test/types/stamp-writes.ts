@@ -201,8 +201,9 @@ await people.updateMany({ name: null }, { name: 'x' }, { audit: false });
 await people.update(id, { name: 'Ada' }, { audit: 'no' });
 // @ts-expect-error audit is a boolean, 0 is not false
 await people.updateMany({ name: null }, { name: 'x' }, { audit: 0 });
+const opts = { session: clientSession, audit: false };
 // @ts-expect-error a session is the collection's, bound with `withSession`
-await people.update(id, { name: 'Ada' }, { session: clientSession });
+await people.update(id, { name: 'Ada' }, opts);
 await people.updateMany(
 	{ name: null },
 	{ name: 'x' },

@@ -461,11 +461,7 @@ describe('a silent update, { audit: false }', () => {
 	test('refuses a session, pointing to withSession', async () => {
 		const { collection, ada } = await seed();
 		const message = await rejectionMessage(
-			collection.update(
-				ada._id,
-				{ name: 'x' },
-				loose({ session: t.client.startSession() }),
-			),
+			collection.update(ada._id, { name: 'x' }, loose({ session: {} })),
 		);
 		expect(message).toContain('withSession(session)');
 		expect(
