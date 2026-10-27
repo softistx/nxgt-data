@@ -2,7 +2,7 @@
 // The collection keeps them: `createdAt` and `updatedAt` may be given on
 // create, `updatedAt` on update, and the version only as the one expected.
 
-import type { Db, ObjectId } from 'mongodb';
+import type { ClientSession, Db, ObjectId } from 'mongodb';
 import { getCollection, type NewDocumentOf } from '../../src';
 import { type Post, posts, tickets, users } from '../schema';
 
@@ -189,3 +189,32 @@ await board.update(id, fields);
 // The driver's own `updateOne` is the driver's: this package types nothing
 // of its own there.
 await people.updateOne({ _id: id }, { $set: { name: 'Ada' } });
+
+// --- a silent update ----------------------------------------------------
+declare const clientSession: ClientSession;
+await people.update(id, { name: 'Ada' }, { audit: false });
+await people.update(id, { name: 'Ada' }, { audit: true });
+// `undefined` is the default.
+await people.update(id, { name: 'Ada' }, { audit: undefined });
+await people.updateMany({ name: null }, { name: 'x' }, { audit: false });
+// @ts-expect-error audit is a boolean
+await people.update(id, { name: 'Ada' }, { audit: 'no' });
+// @ts-expect-error audit is a boolean, 0 is not false
+await people.updateMany({ name: null }, { name: 'x' }, { audit: 0 });
+// @ts-expect-error a session is the collection's, bound with `withSession`
+await people.update(id, { name: 'Ada' }, { session: clientSession });
+await people.updateMany(
+	{ name: null },
+	{ name: 'x' },
+	// @ts-expect-error the same on `updateMany`
+	{ session: clientSession },
+);
+// @ts-expect-error `upsert` takes no such option, and is not an option
+await people.update(id, { name: 'Ada' }, { upsert: true });
+// A version stays refused in a silent `updateMany`, as in a loud one.
+await people.updateMany(
+	{ name: null },
+	// @ts-expect-error one version cannot stand for many documents
+	{ name: 'x', version: 1 },
+	{ audit: false },
+);

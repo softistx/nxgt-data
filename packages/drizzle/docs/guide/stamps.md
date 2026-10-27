@@ -345,6 +345,7 @@ purpose:
 | A primary key in an update's patch | refused before anything is sent: an `ArgumentError`, and the addressed key is out of `UpdatePatch`/`ManyPatch`; every other key column is refused at run time only | `_id` refused before anything is sent (since 0.18.0): a bare `TypeError`, and `_id` is out of every patch type, operators included — only a top-level `_id: undefined` compiles, without `exactOptionalPropertyTypes` | the same rule; the class is each package's own, and there `_id` is the only key and always known to the types |
 | A key given as `undefined` in a patch | dropped like any undefined value | refused | there `_id: undefined` in a patch is a mistake a body carried, and refusing it costs nothing; here it predates the rule and still works |
 | A key in an upsert's values | the id an insert gets, never written on the update half | refused: the `_id` an insert gets goes in the filter, which seeds it | the values there are one pipeline for both halves; here the insert and the update are two clauses, so the key can be kept out of one |
+| A silent update (`{ audit: false }`: no stamps, no `after` hook) | not yet — [#266](https://github.com/softistx/nxgt-data/issues/266) | `update` and `updateMany` take `{ audit: false }`, since 0.24.0 | writing a field without marking which documents changed was asked of `@nxgt/mongo` first |
 | Which half ran | not reported | told to the hooks | there are no hooks here yet |
 | Hooks | none | `beforeCreate`, `afterUpdate`… | not built yet — see the [roadmap](../roadmap.md) |
 

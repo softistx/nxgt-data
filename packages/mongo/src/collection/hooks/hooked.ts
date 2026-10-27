@@ -32,6 +32,7 @@ function contextOf(
 ): Fields {
 	return {
 		operation,
+		audit: true,
 		collection: self(),
 		session: ctx.session,
 		actor: ctx.actor,
@@ -165,6 +166,21 @@ export async function hookedUpsert(
 	return document;
 }
 
+/**
+ * Whether a write is audited: the stamps are written and the `after` hooks
+ * run. A `session` is refused: the session is the collection's, set by
+ * `withSession`, and one given here would be silently ignored.
+ */
+function auditOf(method: string, options: UpdateOptions | undefined): boolean {
+	if (options && 'session' in options) {
+		throw new TypeError(
+			`${method}: a session is not an option here. Bind the collection to it: ` +
+				'`collection.withSession(session)`.',
+		);
+	}
+	return options?.audit !== false;
+}
+
 export async function hookedUpdate(
 	ctx: CollectionContext,
 	self: Self,
@@ -173,17 +189,16 @@ export async function hookedUpdate(
 	options?: UpdateOptions,
 ): Promise<Fields> {
 	refuseId(ctx, 'update', patch);
-	// A silent update tells nobody: no hook, before or after, runs.
-	if (options?.audit === false) return update(ctx, id, patch, false);
-	const context = contextOf(ctx, self, 'update');
+	const audit = auditOf('update', options);
+	const context = contextOf(ctx, self, 'update', { audit });
 	const args = await before(
 		ctx,
 		'beforeUpdate',
 		{ id: coerceId(ctx, id), patch },
 		context,
 	);
-	const document = await update(ctx, args.id, args.patch);
-	await after(ctx, 'afterUpdate', document, context, args);
+	const document = await update(ctx, args.id, args.patch, audit);
+	if (audit) await after(ctx, 'afterUpdate', document, context, args);
 	return document;
 }
 
@@ -199,19 +214,16 @@ export async function hookedUpdateMany(
 	// then let an update of every document through.
 	requireFilter(ctx, 'updateMany', filter);
 	refuseId(ctx, 'updateMany', patch);
-	// A silent update tells nobody: no hook, before or after, runs.
-	if (options?.audit === false) {
-		return updateMany(ctx, coerced(ctx, filter), patch, false);
-	}
-	const context = contextOf(ctx, self, 'updateMany');
+	const audit = auditOf('updateMany', options);
+	const context = contextOf(ctx, self, 'updateMany', { audit });
 	const args = await before(
 		ctx,
 		'beforeUpdateMany',
 		{ filter: coerced(ctx, filter), patch },
 		context,
 	);
-	const count = await updateMany(ctx, args.filter, args.patch);
-	await after(ctx, 'afterUpdateMany', count, context, args);
+	const count = await updateMany(ctx, args.filter, args.patch, audit);
+	if (audit) await after(ctx, 'afterUpdateMany', count, context, args);
 	return count;
 }
 

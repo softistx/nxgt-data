@@ -250,16 +250,22 @@ export type ManyPatch<Def> = Patch<Def> & {
 	[K in VersionNameOf<Def>]?: never;
 };
 
-/** What `update` and `updateMany` take beside the patch. */
+/**
+ * What `update` and `updateMany` take beside the patch. Not the driver's
+ * `UpdateOptions`, which `raw.updateOne` takes.
+ */
 export interface UpdateOptions {
 	/**
 	 * `false` makes the update silent: the audit stamps (the version,
-	 * `updatedAt`, `updatedBy`) are left as they were, and no hook runs, so
-	 * nothing in this process is told. The write still runs in the
+	 * `updatedAt`, `updatedBy`) are left as they were, and no `after` hook
+	 * runs, so nothing in this process is told. The `before` hooks still run,
+	 * with `context.audit === false`. The write still runs in the
 	 * collection's session and is coerced like any other. MongoDB's own change
 	 * stream still sees the write. Default `true`.
 	 */
 	audit?: boolean | undefined;
+	/** Not an option: bind the collection with `withSession(session)`. */
+	session?: never;
 }
 
 export interface ReadOptions {
