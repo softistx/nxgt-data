@@ -1,0 +1,46 @@
+import { describe, expect, test } from 'bun:test';
+import { isBucketUnavailable } from './is-bucket-unavailable';
+import { S3Error } from './s3-error';
+
+const withCode = (code: unknown, message = 'boom') =>
+	Object.assign(new Error(message), { code });
+
+describe('isBucketUnavailable', () => {
+	test('is true for an S3Error of this package', () => {
+		expect(isBucketUnavailable(new S3Error('TIMEOUT', 'k', 'late'))).toBe(true);
+	});
+
+	test.each([
+		'ConnectionRefused',
+		'ConnectionClosed',
+		'DNSResolveFailed',
+		'ECONNREFUSED',
+		'ECONNRESET',
+		'ECONNABORTED',
+		'ETIMEDOUT',
+		'EHOSTUNREACH',
+		'ENETUNREACH',
+		'ENOTFOUND',
+		'EAI_AGAIN',
+		'EPIPE',
+	])('is true for an Error with code %s', (code) => {
+		expect(isBucketUnavailable(withCode(code))).toBe(true);
+	});
+
+	test('reads the code only, never the message', () => {
+		expect(isBucketUnavailable(new Error('ECONNREFUSED at 127.0.0.1'))).toBe(
+			false,
+		);
+		expect(isBucketUnavailable(withCode('EACCES', 'ECONNREFUSED'))).toBe(false);
+	});
+
+	test('is false for other errors and non-errors', () => {
+		expect(isBucketUnavailable(new TypeError('x'))).toBe(false);
+		expect(isBucketUnavailable(withCode(undefined))).toBe(false);
+		expect(isBucketUnavailable(withCode(42))).toBe(false);
+		expect(isBucketUnavailable('ECONNREFUSED')).toBe(false);
+		expect(isBucketUnavailable({ code: 'ECONNREFUSED' })).toBe(false);
+		expect(isBucketUnavailable(null)).toBe(false);
+		expect(isBucketUnavailable(undefined)).toBe(false);
+	});
+});

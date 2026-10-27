@@ -17,5 +17,6 @@ export type {
 	PutOptions,
 	StoredObject,
 } from './bucket/types';
+export { isBucketUnavailable } from './errors/is-bucket-unavailable';
 export type { S3ErrorCode } from './errors/s3-error';
 export { S3Error } from './errors/s3-error';
