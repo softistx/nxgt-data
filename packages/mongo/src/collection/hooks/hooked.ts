@@ -14,6 +14,7 @@ import {
 	updateMany,
 } from '../operations/writes';
 import { keptByCollection, refuseId } from '../stamp-writes';
+import type { UpdateOptions } from '../types';
 import type { WriteOperation } from './types';
 
 /**
@@ -169,8 +170,11 @@ export async function hookedUpdate(
 	self: Self,
 	id: unknown,
 	patch: unknown,
+	options?: UpdateOptions,
 ): Promise<Fields> {
 	refuseId(ctx, 'update', patch);
+	// A silent update tells nobody: no hook, before or after, runs.
+	if (options?.audit === false) return update(ctx, id, patch, false);
 	const context = contextOf(ctx, self, 'update');
 	const args = await before(
 		ctx,
@@ -188,12 +192,17 @@ export async function hookedUpdateMany(
 	self: Self,
 	filter: unknown,
 	patch: unknown,
+	options?: UpdateOptions,
 ): Promise<number> {
 	// The caller's filter is checked before any hook runs: a hook that narrows
 	// it turns `{}` into a filter that is no longer empty, and the guard would
 	// then let an update of every document through.
 	requireFilter(ctx, 'updateMany', filter);
 	refuseId(ctx, 'updateMany', patch);
+	// A silent update tells nobody: no hook, before or after, runs.
+	if (options?.audit === false) {
+		return updateMany(ctx, coerced(ctx, filter), patch, false);
+	}
 	const context = contextOf(ctx, self, 'updateMany');
 	const args = await before(
 		ctx,

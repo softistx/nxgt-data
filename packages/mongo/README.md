@@ -356,6 +356,27 @@ also what fills its defaults. `update` checks each field of a patch — the
 driver's own `UpdateFilter` is intersected with `Document` and accepts any key
 whatsoever, including a typo.
 
+### Silent updates
+
+`update` and `updateMany` take `{ audit: false }`: the write leaves `version`,
+`updatedAt` and `updatedBy` as they were and runs no hook, so nothing in this
+process hears of it. It still runs in the collection's session and is checked
+and coerced like any other write. Use it for a field whose change must not
+show which documents were written.
+
+```ts
+await withTransaction(client, async (session) => {
+	await cards.withSession(session).update(
+		cardId,                       // a string id is coerced
+		{ $set: { linkedTo: otherId } },
+		{ audit: false },             // version, updatedAt, updatedBy untouched
+	);
+});
+```
+
+MongoDB's own change stream still carries the write: `onChange` and any
+change-stream consumer see it. See [Documents](docs/guide/documents.md#silent-updates).
+
 ### `_id` never changes
 
 MongoDB never changes an `_id`, so `update`, `updateMany` and `upsert` never
@@ -1573,6 +1594,10 @@ operator, and getting it subtly wrong is worse than being honest about it.
   used to go through as no change to `_id`; it throws now. (A spread of this package's
   own `getById` result already threw in 0.17, on `id`.) Take `_id` out
   first: `const { _id, ...patch } = doc`.
+- **`{ audit: false }` is silent in this process, not on the server.**
+  The stamps stay as they were and no hook runs, but MongoDB's change stream
+  still carries the write, so `onChange` hears it and its `fields.set` names
+  what was written.
 - **A version in an update is a condition, not a value.** `{ version: 3 }`
   never sets the version to 3: it makes the update fail unless the document is
   at 3, and the update then leaves it at 4.

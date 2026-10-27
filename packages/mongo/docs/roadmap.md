@@ -5,7 +5,10 @@ item shipped in is the only number on this page.
 
 ## Now
 
-_Nothing in progress._
+- **Silent updates** — `update` and `updateMany` take `{ audit: false }`: the
+  version, `updatedAt` and `updatedBy` stay as they were and no hook runs, in
+  the transaction and with the same coercion, for writing a field without
+  marking which documents changed.
 
 ## Next
 

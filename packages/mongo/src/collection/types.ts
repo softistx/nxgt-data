@@ -250,6 +250,18 @@ export type ManyPatch<Def> = Patch<Def> & {
 	[K in VersionNameOf<Def>]?: never;
 };
 
+/** What `update` and `updateMany` take beside the patch. */
+export interface UpdateOptions {
+	/**
+	 * `false` makes the update silent: the audit stamps (the version,
+	 * `updatedAt`, `updatedBy`) are left as they were, and no hook runs, so
+	 * nothing in this process is told. The write still runs in the
+	 * collection's session and is coerced like any other. MongoDB's own change
+	 * stream still sees the write. Default `true`.
+	 */
+	audit?: boolean | undefined;
+}
+
 export interface ReadOptions {
 	/** Include soft-deleted documents. Ignored without a `deletedAt` field. */
 	withDeleted?: boolean | undefined;
@@ -475,17 +487,22 @@ export interface CollectionApi<Def> {
 	): Promise<ReadDocumentOf<Def>>;
 	/** The same, in one insert. `[]` sends nothing. */
 	createMany(values: readonly NewOf<Def>[]): Promise<ReadDocumentOf<Def>[]>;
-	/** Updates the document with this `_id` and returns it. Throws `NotFoundError`. */
+	/** Updates the document with this `_id` and returns it. Throws `NotFoundError`. `{ audit: false }` is a silent update. */
 	update(
 		id: IdOf<Def> | string,
 		patch: Patch<Def>,
+		options?: UpdateOptions,
 	): Promise<ReadDocumentOf<Def>>;
 	/**
 	 * Updates every document that matches, and returns how many changed. The
 	 * driver's own `updateMany`, which returns an `UpdateResult` and takes no
 	 * filter for granted, is `raw.updateMany`.
 	 */
-	updateMany(filter: FilterOf<Def>, patch: ManyPatch<Def>): Promise<number>;
+	updateMany(
+		filter: FilterOf<Def>,
+		patch: ManyPatch<Def>,
+		options?: UpdateOptions,
+	): Promise<number>;
 	/**
 	 * Deletes the document with this `_id` and returns it: a soft delete on a
 	 * collection with `deletedAt`. Throws `NotFoundError`.

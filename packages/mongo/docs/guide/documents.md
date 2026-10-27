@@ -194,6 +194,44 @@ The driver's own methods are not this package's: `updateOne`,
 given, and the server refuses a changed `_id` there as it always did (see
 [below](#the-driver-is-on-the-same-object)).
 
+### Silent updates
+
+Every `update` stamps the document: it raises the version, sets `updatedAt`
+and, through `as(actor)`, `updatedBy`. Those stamps are visible to anyone who
+reads the document, and they mark exactly the documents that were written. When
+the fact that *these* documents changed is itself a secret, pass
+`{ audit: false }`:
+
+```ts
+const silent = await cards.update(
+	cardId,
+	{ linkedTo: otherId },
+	{ audit: false },
+);
+silent.version;   // unchanged
+silent.updatedAt; // unchanged
+```
+
+`updateMany` takes the same option as its third argument.
+
+What a silent update does:
+
+- leaves `version`, `updatedAt` and `updatedBy` as they were. A version given
+  in the patch is still the version expected, and is checked, but nothing is
+  raised;
+- runs no hook: neither `beforeUpdate` nor `afterUpdate` (nor the `Many`
+  pair), so no in-process listener, outbox or log built on them is told;
+- runs in the session the collection is bound to (`withSession`), so it
+  commits and rolls back with the transaction;
+- is still checked and coerced: a string `_id` or reference becomes an
+  `ObjectId`, and a patch that writes a stamp the collection keeps is still
+  refused.
+
+What it cannot do: MongoDB writes every change to its oplog, so a
+[change stream](changes.md) (`onChange`, or the driver's `watch`) still
+receives the event, with the fields written. Keep a secret field out of
+anything that streams the collection, or out of the document altogether.
+
 ### Who is writing
 
 `as(actor)` gives back a collection that stamps `createdBy`, `updatedBy` and

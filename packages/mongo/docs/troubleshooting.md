@@ -389,6 +389,21 @@ definition back to what the collection is.
 
 ## Writes
 
+### A silent update still shows up in `onChange`
+
+**When:** a collection is updated with `{ audit: false }` and a change
+subscription (or the driver's `watch`) still reports the write.
+**Why:** `audit: false` leaves the version, `updatedAt` and `updatedBy` alone
+and runs no hook, but MongoDB's change stream reports every write, and an
+`update` event names the fields it set.
+**Fix:** do not stream the collection that holds the secret field, or keep that
+field on a document no subscriber reads:
+
+```ts
+await cards.update(id, { linkedTo }, { audit: false });
+// onChange on `cards` still reports an update with fields.set.linkedTo
+```
+
 ### `Duplicate key on email in "users"`
 
 **When:** `create`, `createMany`, `update` or `upsert` against a unique

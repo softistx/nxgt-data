@@ -116,6 +116,7 @@ export function toUpdate(
 	ctx: CollectionContext,
 	given: unknown,
 	method: 'update' | 'updateMany' = 'update',
+	audit = true,
 ): PreparedUpdate {
 	if (!isRecord(given)) {
 		throw new TypeError(
@@ -148,15 +149,18 @@ export function toUpdate(
 	const { updatedAt, updatedBy, version } = ctx.stamps;
 	// A stamp the patch writes itself, `$currentDate` included, is left to
 	// it: setting it a second time is a conflict the server refuses.
-	if (ctx.touches && updatedAt && !written.has(updatedAt)) {
+	// A silent update (`audit: false`) stamps nothing: no timestamp, no actor,
+	// no version bump — an update that left a mark on exactly its documents
+	// would say which ones it wrote.
+	if (audit && ctx.touches && updatedAt && !written.has(updatedAt)) {
 		set[updatedAt] = new Date();
 	}
-	if (ctx.actor !== undefined && updatedBy) {
+	if (audit && ctx.actor !== undefined && updatedBy) {
 		set[updatedBy] = ctx.actor;
 	}
 	if (Object.keys(set).length > 0) update['$set'] = set;
 
-	if (ctx.locks && version) {
+	if (audit && ctx.locks && version) {
 		const inc = isRecord(update['$inc']) ? { ...update['$inc'] } : {};
 		inc[version] = 1;
 		update['$inc'] = inc;

@@ -70,6 +70,7 @@ export type {
 	SortOf,
 	TypedCollection,
 	UpdateOperators,
+	UpdateOptions,
 	UpsertOf,
 	WritableDocumentOf,
 	WritableFieldOf,

@@ -34,7 +34,11 @@ import {
 	findMany,
 	getById,
 } from './operations/reads';
-import type { CollectionOptions, TypedCollection } from './types';
+import type {
+	CollectionOptions,
+	TypedCollection,
+	UpdateOptions,
+} from './types';
 
 /** What a collection can be reached through: a database, or a client. */
 export type CollectionSource = Db | MongoClient;
@@ -120,11 +124,12 @@ function apiOf(ctx: CollectionContext, rebuild: Rebuild, self: Self) {
 		create: (values: unknown) => hookedCreate(ctx, self, values),
 		createMany: (values: readonly unknown[]) =>
 			hookedCreateMany(ctx, self, values),
-		update: (id: unknown, patch: unknown) => hookedUpdate(ctx, self, id, patch),
+		update: (id: unknown, patch: unknown, opts?: UpdateOptions) =>
+			hookedUpdate(ctx, self, id, patch, opts),
 		upsert: (filter: unknown, values: unknown) =>
 			hookedUpsert(ctx, self, filter, values),
-		updateMany: (filter: unknown, patch: unknown) =>
-			hookedUpdateMany(ctx, self, filter, patch),
+		updateMany: (filter: unknown, patch: unknown, opts?: UpdateOptions) =>
+			hookedUpdateMany(ctx, self, filter, patch, opts),
 
 		delete: (id: unknown) => hookedDelete(ctx, self, id, false),
 		deleteMany: (filter: unknown) => hookedDeleteMany(ctx, self, filter, false),
