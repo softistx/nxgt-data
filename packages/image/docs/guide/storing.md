@@ -109,6 +109,22 @@ await user.save();
 if (former) await avatars.remove({ imageId: former });
 ```
 
+In an HTTP route, `uploadImage(store, owner, request)` does the first step for
+you: it checks the request is `image/*` (`UNSUPPORTED_TYPE` otherwise),
+generates the fresh id, reads the optional `?x=&y=&size=` crop with
+`cropFromQuery`, streams the body into `replace` (so the byte limit is
+`TOO_LARGE` mid-stream) and returns `{ id, version, variants }`:
+
+```ts
+import { uploadImage } from '@nxgt/image/s3';
+
+const { id, version } = await uploadImage(avatars, { userId }, request);
+```
+
+`owner` is the store's params without `imageId`, so the key must take an
+`imageId` string. A blank or non-numeric crop value is refused as
+`INVALID_CROP`, an error to answer with a 4xx.
+
 Why not a fixed key such as `{ userId }`? Because the replacing upload would
 land on the same keys as the image it replaces, and the cleanup that follows
 ("remove the former image") would then delete the **new** one. A fixed key

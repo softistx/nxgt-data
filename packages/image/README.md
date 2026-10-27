@@ -243,6 +243,36 @@ type ImageErrorReason =
 	| 'crop';
 ```
 
+### `cropFromQuery(params)`
+
+`(params: URLSearchParams) => CropBox | undefined`. Reads the optional square
+crop of an upload route from `?x=&y=&size=`: `undefined` when none of the three
+is present, otherwise a crop where a missing, blank or non-numeric value is
+`NaN`. Nothing is validated here: the set refuses it as `INVALID_CROP`.
+
+```ts
+import { cropFromQuery } from '@nxgt/image';
+
+const crop = cropFromQuery(new URL(request.url).searchParams);
+const processed = await set.process(await request.blob(), { crop });
+```
+
+### `uploadImage(store, owner, request)` (`@nxgt/image/s3`)
+
+`<P extends { imageId: string }>(store, owner: Omit<P, 'imageId'>, request: Request) => Promise<{ id, version, variants }>`.
+Refuses a request whose `content-type` is not `image/*` with
+`UNSUPPORTED_TYPE`, then streams the body into `store.replace` under a fresh
+`crypto.randomUUID()` id, with the crop of `cropFromQuery`. A body over the
+byte limit is `TOO_LARGE`; a bad crop is `INVALID_CROP`. Save `id` and
+`version`, then remove the former image.
+
+```ts
+import { uploadImage } from '@nxgt/image/s3';
+
+// PUT /images/item?x=0&y=0&size=300
+const { id, version } = await uploadImage(avatars, { userId }, request);
+```
+
 ### `bindImageStore(set, bucket)` (`@nxgt/image/s3`)
 
 `<P extends { size: number }>(set: ImageSet, bucket: BoundBucket<P>) => ImageStore<Omit<P, 'size'>>`.
