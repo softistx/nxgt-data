@@ -22,13 +22,18 @@ import type { CollectionHooks } from './hooks/types';
 
 let t: TestServer;
 
+// The collections are synced once: the validator and the indexes are the same
+// for every test, and syncing them per test (after dropping the database) took
+// about 0.33 s of each of its 48 tests (19 s the file), which a slower CI runner stretched to the 5 s
+// timeout. A test only needs them empty, so `deleteMany` is the reset.
 beforeAll(async () => {
 	t = await startMongo();
-}, 120_000);
-beforeEach(async () => {
-	await t.reset();
 	await getCollection(t.db, users).sync();
 	await getCollection(t.db, tickets).sync();
+}, 120_000);
+beforeEach(async () => {
+	await t.db.collection('users').deleteMany({});
+	await t.db.collection('tickets').deleteMany({});
 });
 afterAll(() => t.stop());
 
