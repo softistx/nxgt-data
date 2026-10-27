@@ -177,6 +177,7 @@ describe('the lock', () => {
 				}
 			}
 			const stored = results.filter((r) => r.status === 'fulfilled').length;
+			expect(recording.spans()).toBe(stored);
 			expect((await backups.list()).backups).toHaveLength(stored);
 		}
 	});
@@ -236,6 +237,7 @@ describe('the lock', () => {
 		await Promise.race([first, second]).finally(otherDone);
 		const results = await Promise.allSettled([first, second]);
 		expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+		expect(recording.spans()).toBe(2);
 		expect(recording.overlapping()).toEqual([]);
 		expect((await backups.list()).backups).toHaveLength(2);
 	});

@@ -12,6 +12,8 @@ import type { Repository } from '../src/repository/types';
  */
 export function recordingWrites(repository: Repository): {
 	repository: Repository;
+	/** How many backups were seen written: guards a vacuous `overlapping()`. */
+	spans(): number;
 	/** The pairs of backup ids whose writes interleaved. */
 	overlapping(): [string, string][];
 } {
@@ -29,6 +31,7 @@ export function recordingWrites(repository: Repository): {
 				spans.set(id, { from: span?.from ?? from, to: clock++ });
 			},
 		},
+		spans: () => spans.size,
 		overlapping() {
 			const all = [...spans.entries()];
 			const pairs: [string, string][] = [];

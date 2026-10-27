@@ -305,6 +305,7 @@ describe('the lock on S3', () => {
 			// Both may store, one after the other; never at once.
 			expect(recording.overlapping()).toEqual([]);
 			const stored = results.filter((r) => r.status === 'fulfilled').length;
+			expect(recording.spans()).toBe(stored);
 			expect((await backups.list()).backups).toHaveLength(stored);
 			expect(
 				(await client.list({ prefix: `race${round}/locks/` })).contents ?? [],

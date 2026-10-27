@@ -141,11 +141,11 @@ For each repository, at the start of `create` — and of `prune`, `hold` or
 5. At the end, success or failure, lease held or lost, **delete** the lock.
    A repository whose `delete` throws does not stop the run from ending.
 
-**Why two writers never both go on.** Each one looks for others only after
-its own lock is stored, and a repository's `list` shows a key as soon as its
-`put` has resolved. So of two writers that start together, the later to
-list sees the earlier's lock; at worst both see each other's and both give
-up — never both go on. No conditional write is needed, so the same protocol
+**Why two writers never write at once.** Each one looks for others only
+after its own lock is stored, and a repository's `list` shows a key as soon
+as its `put` has resolved. So of two writers whose locks are both stored,
+the later to list sees the earlier's lock; at worst both see each other's
+and both give up — never both writing at once. No conditional write is needed, so the same protocol
 runs on any store that keeps the one promise it needs.
 
 **The store must list a key as soon as its `put` resolved.** A local folder
