@@ -27,7 +27,7 @@ function checkBufferSize(bufferSize: number | undefined): number {
  * `return()` queues behind a pending `next()`, so a client that left while the
  * stream was idle would keep its listener until the next message. It
  * registers on its first read, so one that is returned before then holds
- * nothing.
+ * nothing. The first read starts the subscribe but does not wait for it.
  */
 export function createIterator<T>(
 	ctx: StreamContext<T>,
@@ -41,7 +41,7 @@ export function createIterator<T>(
 		for (const resolve of waiters.splice(0)) resolve();
 	};
 	let stopped = ctx.closed;
-	let started: Promise<void> | undefined;
+	let started = false;
 	const listener: Listener<T> = {
 		key,
 		push: (message) => {
@@ -63,12 +63,14 @@ export function createIterator<T>(
 		async next() {
 			// Closed since the iterator was made: nothing will wake it.
 			if (ctx.closed) stopped = true;
-			if (!stopped) {
-				started ??= (() => {
-					add(ctx, listener);
-					return open(ctx);
-				})();
-				await started;
+			if (!stopped && !started) {
+				started = true;
+				add(ctx, listener);
+				// In the background: a read never waits for the subscribe, which
+				// takes as long as the connection attempt to fail, while a message
+				// delivered locally is already in the queue. `open` forgets its
+				// own failure.
+				void open(ctx);
 			}
 			while (!stopped) {
 				const next = queue.shift();
