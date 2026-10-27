@@ -46,19 +46,26 @@ export async function startTestS3(
 	const dir = await mkdtemp(join(tmpdir(), 'nxgt-s3-'));
 	const ports = await freePorts();
 
-	// `weed` refuses to start when `-dir` is not there — it does not create
-	// it, and says so only on stderr, which is why that is captured below.
-	const data = join(dir, 'data');
-	await mkdir(data, { recursive: true });
-	const config = join(dir, 's3.json');
-	await Bun.write(config, identities());
-
-	// Its log goes to a file, not a pipe: SeaweedFS is chatty enough to fill
-	// the 64 KB pipe buffer in well under a minute, and a pipe nobody drains
-	// blocks the process that writes to it — measured, that is a server that
-	// starts, serves briefly and then hangs.
 	const logPath = join(dir, 'weed.log');
-	const child = spawnWeed(binary, data, dir, config, ports, Bun.file(logPath));
+	let child: Subprocess;
+	try {
+		// `weed` refuses to start when `-dir` is not there — it does not create
+		// it, and says so only on stderr, which is why that is captured below.
+		const data = join(dir, 'data');
+		await mkdir(data, { recursive: true });
+		const config = join(dir, 's3.json');
+		await Bun.write(config, identities());
+
+		// Its log goes to a file, not a pipe: SeaweedFS is chatty enough to fill
+		// the 64 KB pipe buffer in well under a minute, and a pipe nobody drains
+		// blocks the process that writes to it — measured, that is a server that
+		// starts, serves briefly and then hangs.
+		child = spawnWeed(binary, data, dir, config, ports, Bun.file(logPath));
+	} catch (error) {
+		releasePorts(ports);
+		await rm(dir, { recursive: true, force: true });
+		throw error;
+	}
 	const stop = makeStop(child, dir, ports);
 
 	const address: ServerAddress = {
@@ -113,8 +120,7 @@ function makeStop(
 			await Promise.all(
 				socketsOf(ports).map((socket) => rm(socket, { force: true })),
 			);
-			releasePorts(ports);
-		})();
+		})().finally(() => releasePorts(ports));
 		return stopped;
 	};
 }
