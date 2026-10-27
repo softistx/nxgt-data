@@ -1,8 +1,8 @@
 // What an app exports, defined and bound, behind exported values whose types
 // are inferred: a declaration build must be able to name each one through
 // `@nxgt/image` and `@nxgt/image/s3` alone (TS2883 otherwise).
-import { defineImageSet, type ImageSet } from '@nxgt/image';
-import { bindImageStore } from '@nxgt/image/s3';
+import { cropFromQuery, defineImageSet, type ImageSet } from '@nxgt/image';
+import { bindImageStore, uploadImage } from '@nxgt/image/s3';
 import { bindBucket, defineBucket } from '@nxgt/s3';
 
 export const avatars: ImageSet = defineImageSet({ sizes: [256, 64] });
@@ -28,3 +28,8 @@ export const upload = (imageId: string, file: Blob) =>
 	avatarStore.replace({ imageId }, file);
 
 export const url = (imageId: string) => avatarStore.presignGet({ imageId }, 64);
+
+export const uploadAvatar = (request: Request) =>
+	uploadImage(avatarStore, {}, request);
+
+export const crop = cropFromQuery(new URLSearchParams());

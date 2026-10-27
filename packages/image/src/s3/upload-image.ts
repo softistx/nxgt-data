@@ -32,6 +32,7 @@ export async function uploadImage<P extends { imageId: string }>(
 	}
 	const id = crypto.randomUUID();
 	const crop = cropFromQuery(new URL(request.url).searchParams);
+	// TypeScript cannot see that `Omit<P, 'imageId'>` plus `imageId` is a `P`.
 	const stored = await store.replace(
 		{ ...owner, imageId: id } as P,
 		request.body ?? new Uint8Array(0),

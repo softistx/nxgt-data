@@ -1,6 +1,6 @@
 // What `bindImageStore` refuses. Checked by `tsc --noEmit`, never run.
 import { bindBucket, defineBucket } from '@nxgt/s3';
-import { bindImageStore } from '../../src/s3';
+import { bindImageStore, uploadImage } from '../../src/s3';
 import { defineImageSet } from '../../src/set/define-image-set';
 
 const set = defineImageSet();
@@ -62,3 +62,36 @@ store.remove({});
 
 // @ts-expect-error `imageId` is a string
 store.remove({ imageId: 1 });
+
+// uploadImage takes the store's params minus `imageId` as the owner.
+declare const request: Request;
+void uploadImage(store, {}, request);
+
+const owned = bindImageStore(
+	set,
+	bindBucket(
+		defineBucket({
+			bucket: 'x',
+			key: (p: { imageId: string; ownerId: string; size: number }) =>
+				`${p.ownerId}/${p.imageId}/${p.size}.webp`,
+		}),
+	),
+);
+void uploadImage(owned, { ownerId: 'u' }, request);
+
+// @ts-expect-error `ownerId` is missing
+uploadImage(owned, {}, request);
+
+const noImageId = bindImageStore(
+	set,
+	bindBucket(
+		defineBucket({
+			bucket: 'x',
+			key: (p: { ownerId: string; size: number }) =>
+				`${p.ownerId}/${p.size}.webp`,
+		}),
+	),
+);
+
+// @ts-expect-error the store's params have no `imageId`
+uploadImage(noImageId, { ownerId: 'u' }, request);
