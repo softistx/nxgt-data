@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Subprocess } from 'bun';
-import { freePorts } from './ports';
+import { freePorts, releasePorts } from './ports';
 import { createBucketOn, emptyBucket, type ServerAddress } from './ready';
 import { reapOnExit } from './reaper';
 import { type SeaweedfsOptions, seaweedfsBinary } from './seaweedfs';
@@ -113,6 +113,7 @@ function makeStop(
 			await Promise.all(
 				socketsOf(ports).map((socket) => rm(socket, { force: true })),
 			);
+			releasePorts(ports);
 		})();
 		return stopped;
 	};
