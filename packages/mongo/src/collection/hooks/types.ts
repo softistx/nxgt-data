@@ -40,6 +40,12 @@ export interface HookContext<Def> {
 	 */
 	readonly collection: TypedCollection<Def>;
 	readonly session: ClientSession | undefined;
+	/**
+	 * `false` for a silent update (`{ audit: false }`): the stamps are not
+	 * written and no `after` hook runs. A hook that stamps the patch itself
+	 * should step aside; a guard, such as a tenant filter, should still apply.
+	 */
+	readonly audit: boolean;
 	/** Who is writing, as `as(actor)` set it. */
 	readonly actor: ActorOf<Def> | undefined;
 }

@@ -31,8 +31,8 @@ Reads run no hooks, and neither do the driver's own methods or `raw`.
 | Hooks | Around | `before` gets and may return | `after` gets |
 | --- | --- | --- | --- |
 | `beforeCreate`, `afterCreate` | `create`, each document of `createMany`, and an `upsert` that inserted | `{ values }` | the document |
-| `beforeUpdate`, `afterUpdate` | `update`, and an `upsert` that matched | `{ id, patch }` | the document |
-| `beforeUpdateMany`, `afterUpdateMany` | `updateMany` | `{ filter, patch }` | the count |
+| `beforeUpdate`, `afterUpdate` | `update`, and an `upsert` that matched; a silent `update` runs `beforeUpdate` only | `{ id, patch }` | the document |
+| `beforeUpdateMany`, `afterUpdateMany` | `updateMany`; a silent one runs `beforeUpdateMany` only | `{ filter, patch }` | the count |
 | `beforeDelete`, `afterDelete` | `delete`, `hardDelete` | `{ id }` | the document |
 | `beforeDeleteMany`, `afterDeleteMany` | `deleteMany`, `hardDeleteMany` | `{ filter }` | the count |
 | `beforeRestore`, `afterRestore` | `restore`, where the collection soft deletes | `{ id }` | the document |
@@ -40,6 +40,23 @@ Reads run no hooks, and neither do the driver's own methods or `raw`.
 
 `createMany` runs the create hooks once per document, so a rule written for
 one document holds for a batch.
+
+## Silent updates and hooks
+
+An update called with `{ audit: false }` (see
+[Documents](documents.md#silent-updates)) runs the `before` hooks and skips the
+`after` hooks. The `before` hooks stay because they carry guards, such as the
+tenant filter above, that must hold for every write. They are told through
+`context.audit`, which is `false` for a silent update and `true` otherwise, so
+a hook that stamps the patch itself can step aside:
+
+```ts
+beforeUpdate: ({ id, patch }, { audit, actor }) =>
+	audit ? { id, patch: { ...patch, lastEditor: actor } } : undefined,
+```
+
+Nothing runs after the write, so nothing built on an `after` hook (an outbox,
+a log, a cache purge) hears of it.
 
 ## A `before` hook replaces what is written
 
@@ -85,6 +102,7 @@ const collection = getCollection(db, users, {
 | `collection` | `TypedCollection<Def>` | the collection the write runs on, session and actor included |
 | `session` | `ClientSession \| undefined` | the transaction, if there is one |
 | `actor` | `ActorOf<Def> \| undefined` | who is writing, as `as(actor)` set it |
+| `audit` | `boolean` | `false` for a silent update (`{ audit: false }`), `true` otherwise |
 | `hard` | `boolean` | delete hooks only: `true` for a hard delete, and for a `delete` on a collection that does not soft delete |
 
 The write has already happened when an `after` hook runs: throwing rejects

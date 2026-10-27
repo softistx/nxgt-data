@@ -91,10 +91,10 @@ Four options add fields **and** the behaviour that reads them.
 
 | Option | Fields it adds | What the collection does with them |
 | --- | --- | --- |
-| `timestamps` | `createdAt`, `updatedAt` | sets `updatedAt` on every update |
+| `timestamps` | `createdAt`, `updatedAt` | sets `updatedAt` on every update, but a [silent one](documents.md#silent-updates) |
 | `softDelete` | `deletedAt` | `delete` sets it; every read leaves those documents out |
-| `optimisticLock` | `version` | raised on every update; one given in a patch is checked |
-| `actors` | `createdBy`, `updatedBy`, `deletedBy` | stamped from `collection.as(actor)` |
+| `optimisticLock` | `version` | raised on every update, but a silent one; one given in a patch is checked |
+| `actors` | `createdBy`, `updatedBy`, `deletedBy` | stamped from `collection.as(actor)`, `updatedBy` not by a silent update |
 
 Each reads the same way: `true` for its fields under their default names,
 `false` or absent for none, or an object naming them one by one. **Inside

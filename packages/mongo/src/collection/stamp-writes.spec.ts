@@ -7,10 +7,13 @@ import {
 	test,
 } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { rejectionMessage } from '../../test/rejection';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { tickets, users } from '../../test/schema';
 import { startMongo, type TestServer } from '../../test/server';
+import { NotFoundError, OptimisticLockError } from '../errors/data-error';
+import { withTransaction } from '../transaction/with-transaction';
 import { getCollection } from './get-collection';
+import type { CollectionHooks } from './hooks/types';
 
 // The stamps are the collection's: a write may give the timestamps it is
 // allowed to, and nothing else. The compile-time half is in
@@ -263,5 +266,251 @@ describe('update', () => {
 			{ $set: { createdAt: at } },
 		);
 		expect((await collection.getById(ada._id)).createdAt).toEqual(at);
+	});
+});
+
+describe('a silent update, { audit: false }', () => {
+	const silently = { audit: false } as const;
+
+	async function seed(hooks?: CollectionHooks<typeof users>) {
+		const collection = getCollection(t.db, users, hooks ? { hooks } : {}).as(
+			new ObjectId(),
+		);
+		const ada = await collection.create({ email: 'ada@example.com' });
+		// Let the clock move, so a stamped `updatedAt` could not equal the old one.
+		await Bun.sleep(5);
+		return { collection, ada };
+	}
+
+	test('leaves the version, updatedAt and updatedBy as they were', async () => {
+		const { collection, ada } = await seed();
+		const updated = await collection
+			.as(new ObjectId())
+			.update(ada._id, { name: 'Ada' }, silently);
+		expect(updated.name).toBe('Ada');
+		expect(updated.version).toBe(ada.version);
+		expect(updated.updatedAt).toEqual(ada.updatedAt);
+		expect(updated.updatedBy).toEqual(ada.updatedBy);
+		const [row] = await stored('users');
+		expect(row?.['version']).toBe(ada.version);
+		expect(row?.['updatedBy']).toEqual(ada.updatedBy);
+	});
+
+	test('an update without it still stamps', async () => {
+		const { collection, ada } = await seed();
+		const updated = await collection.update(ada._id, { name: 'Ada' });
+		expect(updated.version).toBe(ada.version + 1);
+		expect(updated.updatedAt.getTime()).toBeGreaterThan(
+			ada.updatedAt.getTime(),
+		);
+		const same = await collection.update(
+			ada._id,
+			{ name: 'A' },
+			{
+				audit: undefined,
+			},
+		);
+		expect(same.version).toBe(ada.version + 2);
+	});
+
+	test('runs the before hooks, which see audit false, and no after hook', async () => {
+		const seen: unknown[] = [];
+		const after: string[] = [];
+		const { collection, ada } = await seed({
+			beforeUpdate: (_args, context) => {
+				seen.push(context.audit);
+			},
+			afterUpdate: () => {
+				after.push('afterUpdate');
+			},
+			beforeUpdateMany: (_args, context) => {
+				seen.push(context.audit);
+			},
+			afterUpdateMany: () => {
+				after.push('afterUpdateMany');
+			},
+		});
+		await collection.update(ada._id, { name: 'A' }, silently);
+		await collection.updateMany({ _id: ada._id }, { name: 'B' }, silently);
+		expect(seen).toEqual([false, false]);
+		expect(after).toEqual([]);
+		await collection.update(ada._id, { name: 'C' });
+		expect(seen).toEqual([false, false, true]);
+		expect(after).toEqual(['afterUpdate']);
+	});
+
+	test('a before-hook guard still applies to a silent updateMany', async () => {
+		const { collection } = await seed({
+			beforeUpdateMany: ({ filter, patch }) => ({
+				filter: { $and: [filter, { email: 'ada@example.com' }] },
+				patch,
+			}),
+		});
+		await collection.create({ email: 'bob@example.com' });
+		const count = await collection.updateMany(
+			{ _id: { $exists: true } },
+			{ name: 'Scoped' },
+			silently,
+		);
+		expect(count).toBe(1);
+		const names = Object.fromEntries(
+			(await stored('users')).map((u) => [u['email'], u['name']]),
+		);
+		expect(names).toEqual({
+			'ada@example.com': 'Scoped',
+			'bob@example.com': null,
+		});
+	});
+
+	test('runs in the transaction and rolls back with it', async () => {
+		const { collection, ada } = await seed();
+		const failure = await rejectionMessage(
+			withTransaction(t.client, async (session) => {
+				const bound = collection.withSession(session);
+				await bound.update(ada._id, { name: 'Hidden' }, silently);
+				expect((await bound.getById(ada._id)).name).toBe('Hidden');
+				throw new Error('abandon');
+			}),
+		);
+		expect(failure).toContain('abandon');
+		expect((await collection.getById(ada._id)).name).toBeNull();
+
+		await withTransaction(t.client, async (session) => {
+			await collection
+				.withSession(session)
+				.update(ada._id, { name: 'Kept' }, silently);
+		});
+		const kept = await collection.getById(ada._id);
+		expect(kept.name).toBe('Kept');
+		expect(kept.version).toBe(ada.version);
+	});
+
+	test('still coerces ids and references', async () => {
+		const { collection, ada } = await seed();
+		const team = new ObjectId();
+		await collection.update(
+			ada._id.toHexString(),
+			loose({ teamId: team.toHexString() }),
+			silently,
+		);
+		expect((await stored('users'))[0]?.['teamId']).toEqual(team);
+		await collection.update(
+			ada._id,
+			loose({ $set: { teamId: new ObjectId().toHexString() } }),
+			silently,
+		);
+		expect((await stored('users'))[0]?.['teamId']).toBeInstanceOf(ObjectId);
+	});
+
+	test('updateMany is silent, and still checks its patch and filter', async () => {
+		const { collection, ada } = await seed();
+		const count = await collection.updateMany(
+			{ email: 'ada@example.com' },
+			{ name: 'Many' },
+			silently,
+		);
+		expect(count).toBe(1);
+		const after = await collection.getById(ada._id);
+		expect(after.name).toBe('Many');
+		expect(after.version).toBe(ada.version);
+		expect(after.updatedAt).toEqual(ada.updatedAt);
+
+		expect(
+			await rejectionMessage(
+				collection.updateMany(
+					{ email: 'ada@example.com' },
+					loose({ createdAt: new Date() }),
+					silently,
+				),
+			),
+		).toContain(kept('createdAt'));
+		expect(
+			await rejectionMessage(
+				collection.updateMany({}, { name: 'x' }, silently),
+			),
+		).toContain('updateMany needs a filter');
+		expect(
+			await rejectionMessage(
+				collection.updateMany(
+					{ email: 'ada@example.com' },
+					loose({ version: 0 }),
+					silently,
+				),
+			),
+		).toContain('version');
+	});
+
+	test('refuses _id, as a loud update does', async () => {
+		const { collection, ada } = await seed();
+		expect(
+			await rejectionMessage(
+				collection.update(ada._id, loose({ _id: new ObjectId() }), silently),
+			),
+		).toContain('"_id" is immutable');
+		expect(
+			await rejectionMessage(
+				collection.updateMany(
+					{ _id: ada._id },
+					loose({ $set: { _id: new ObjectId() } }),
+					silently,
+				),
+			),
+		).toContain('"_id" is immutable');
+	});
+
+	test('refuses a session, pointing to withSession', async () => {
+		const { collection, ada } = await seed();
+		const message = await rejectionMessage(
+			collection.update(ada._id, { name: 'x' }, loose({ session: {} })),
+		);
+		expect(message).toContain('withSession(session)');
+		expect(
+			await rejectionMessage(
+				collection.updateMany(
+					{ _id: ada._id },
+					{ name: 'x' },
+					loose({ session: null }),
+				),
+			),
+		).toContain('withSession(session)');
+	});
+
+	test('writes a soft-deleted document no more than a loud update does', async () => {
+		const { collection, ada } = await seed();
+		await collection.delete(ada._id);
+		expect(
+			await rejection(collection.update(ada._id, { name: 'x' }, silently)),
+		).toBeInstanceOf(NotFoundError);
+		expect(
+			await collection.updateMany({ _id: ada._id }, { name: 'x' }, silently),
+		).toBe(0);
+	});
+
+	test('the lock does not see a silent write', async () => {
+		const { collection, ada } = await seed();
+		// Two silent updates at the same version both succeed…
+		await collection.update(
+			ada._id,
+			{ name: 'one', version: ada.version },
+			silently,
+		);
+		await collection.update(
+			ada._id,
+			{ name: 'two', version: ada.version },
+			silently,
+		);
+		expect((await collection.getById(ada._id)).name).toBe('two');
+		// …and a normal one at the version read before them still does.
+		const updated = await collection.update(ada._id, {
+			name: 'loud',
+			version: ada.version,
+		});
+		expect(updated.version).toBe(ada.version + 1);
+		expect(updated.name).toBe('loud');
+		// A stale expected version is still refused, silent or not.
+		const error = await rejection(
+			collection.update(ada._id, { name: 'x', version: ada.version }, silently),
+		);
+		expect(error).toBeInstanceOf(OptimisticLockError);
 	});
 });

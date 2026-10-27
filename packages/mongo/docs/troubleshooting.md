@@ -32,6 +32,9 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`sync: not allowed to run collMod on "users".`](#sync-not-allowed-to-run-collmod-on-users)
   - [`sync: "users" already exists with options MongoDB cannot change:`](#sync-users-already-exists-with-options-mongodb-cannot-change)
 - **Writes**
+  - [A silent update still shows up in `onChange`](#a-silent-update-still-shows-up-in-onchange)
+  - [`update on "users": a session is not an option here.`](#update-on-users-a-session-is-not-an-option-here)
+  - [`updateMany on "users": a session is not an option here.`](#updatemany-on-users-a-session-is-not-an-option-here)
   - [`Duplicate key on email in "users"`](#duplicate-key-on-email-in-users)
   - [`Document failed validation in "users": email bsonType`](#document-failed-validation-in-users-email-bsontype)
   - [`Document 6721… of "users" is at version 4, not 3: it changed since it was read`](#document-6721-of-users-is-at-version-4-not-3-it-changed-since-it-was-read)
@@ -388,6 +391,47 @@ Then decide: recreate the collection with the options it needs, or put the
 definition back to what the collection is.
 
 ## Writes
+
+### A silent update still shows up in `onChange`
+
+**When:** a collection is updated with `{ audit: false }` and a change
+subscription (or the driver's `watch`) still reports the write.
+**Why:** `audit: false` leaves the version, `updatedAt` and `updatedBy` alone
+and runs no `after` hook, but MongoDB's change stream reports every write, and an
+`update` event names the fields it set.
+**Fix:** do not stream the collection that holds the secret field, or keep that
+field on a document no subscriber reads:
+
+```ts
+await cards.update(id, { linkedTo }, { audit: false });
+// onChange on `cards` still reports an update with fields.set.linkedTo
+```
+
+### `update on "users": a session is not an option here.`
+
+**When:** `update` is given `{ session }` in its options, such as
+`{ audit: false, session }`.
+**Why:** the session belongs to the collection, which would ignore one passed
+here, so it is refused (a compile error too). The full message ends with
+"Bind the collection to it: `collection.withSession(session)`."
+**Fix:**
+
+```ts
+await collection.withSession(session).update(id, patch, { audit: false });
+```
+
+### `updateMany on "users": a session is not an option here.`
+
+**When:** `updateMany` is given `{ session }` in its options, such as
+`{ audit: false, session }`.
+**Why:** the session belongs to the collection, which would ignore one passed
+here, so it is refused (a compile error too). The full message ends with
+"Bind the collection: `collection.withSession(session)`."
+**Fix:**
+
+```ts
+await collection.withSession(session).updateMany(filter, patch, { audit: false });
+```
 
 ### `Duplicate key on email in "users"`
 

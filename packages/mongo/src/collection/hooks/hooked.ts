@@ -14,6 +14,7 @@ import {
 	updateMany,
 } from '../operations/writes';
 import { keptByCollection, refuseId } from '../stamp-writes';
+import type { UpdateOptions } from '../types';
 import type { WriteOperation } from './types';
 
 /**
@@ -31,6 +32,7 @@ function contextOf(
 ): Fields {
 	return {
 		operation,
+		audit: true,
 		collection: self(),
 		session: ctx.session,
 		actor: ctx.actor,
@@ -164,22 +166,43 @@ export async function hookedUpsert(
 	return document;
 }
 
+/**
+ * Whether a write is audited: the stamps are written and the `after` hooks
+ * run. A `session` is refused: the session is the collection's, set by
+ * `withSession`, and one given here would be silently ignored.
+ */
+function auditOf(
+	ctx: CollectionContext,
+	method: string,
+	options: UpdateOptions | undefined,
+): boolean {
+	if (options && 'session' in options) {
+		throw new TypeError(
+			`${method} on "${ctx.name}": a session is not an option here. Bind the collection to it: ` +
+				'`collection.withSession(session)`.',
+		);
+	}
+	return options?.audit !== false;
+}
+
 export async function hookedUpdate(
 	ctx: CollectionContext,
 	self: Self,
 	id: unknown,
 	patch: unknown,
+	options?: UpdateOptions,
 ): Promise<Fields> {
 	refuseId(ctx, 'update', patch);
-	const context = contextOf(ctx, self, 'update');
+	const audit = auditOf(ctx, 'update', options);
+	const context = contextOf(ctx, self, 'update', { audit });
 	const args = await before(
 		ctx,
 		'beforeUpdate',
 		{ id: coerceId(ctx, id), patch },
 		context,
 	);
-	const document = await update(ctx, args.id, args.patch);
-	await after(ctx, 'afterUpdate', document, context, args);
+	const document = await update(ctx, args.id, args.patch, audit);
+	if (audit) await after(ctx, 'afterUpdate', document, context, args);
 	return document;
 }
 
@@ -188,21 +211,23 @@ export async function hookedUpdateMany(
 	self: Self,
 	filter: unknown,
 	patch: unknown,
+	options?: UpdateOptions,
 ): Promise<number> {
 	// The caller's filter is checked before any hook runs: a hook that narrows
 	// it turns `{}` into a filter that is no longer empty, and the guard would
 	// then let an update of every document through.
 	requireFilter(ctx, 'updateMany', filter);
 	refuseId(ctx, 'updateMany', patch);
-	const context = contextOf(ctx, self, 'updateMany');
+	const audit = auditOf(ctx, 'updateMany', options);
+	const context = contextOf(ctx, self, 'updateMany', { audit });
 	const args = await before(
 		ctx,
 		'beforeUpdateMany',
 		{ filter: coerced(ctx, filter), patch },
 		context,
 	);
-	const count = await updateMany(ctx, args.filter, args.patch);
-	await after(ctx, 'afterUpdateMany', count, context, args);
+	const count = await updateMany(ctx, args.filter, args.patch, audit);
+	if (audit) await after(ctx, 'afterUpdateMany', count, context, args);
 	return count;
 }
 

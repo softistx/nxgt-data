@@ -102,7 +102,8 @@ know. Each refusal is a compile error, through an operator too, and a
 
 A timestamp left out is `new Date()`; one given — an import, a backfill — is
 kept. The version in a patch is not written: it is the version the document
-must still be at, and the update raises it as every update does. See
+must still be at, and the update raises it as every update does, except a
+[silent one](#silent-updates). See
 [Transactions and locking](transactions.md#optimistic-locking).
 
 ```ts
@@ -193,6 +194,57 @@ The driver's own methods are not this package's: `updateOne`,
 `findOneAndUpdate`, `replaceOne`, `bulkWrite` and `raw` send what they are
 given, and the server refuses a changed `_id` there as it always did (see
 [below](#the-driver-is-on-the-same-object)).
+
+### Silent updates
+
+Every `update` stamps the document: it raises the version, sets `updatedAt`
+and, through `as(actor)`, `updatedBy`. Those stamps are visible to anyone who
+reads the document, and they mark exactly the documents that were written. When
+the fact that *these* documents changed is itself a secret, pass
+`{ audit: false }`:
+
+```ts
+const silent = await cards.update(
+	cardId,
+	{ linkedTo: otherId },
+	{ audit: false },
+);
+silent.version;   // unchanged
+silent.updatedAt; // unchanged
+```
+
+`updateMany` takes the same option as its third argument.
+
+What a silent update does:
+
+- leaves `version`, `updatedAt` and `updatedBy` as they were. A version given
+  in the patch is still the version expected, and is checked, but nothing is
+  raised;
+- runs the `before` hooks, which carry guards such as tenant scoping, with
+  `context.audit === false` so a hook that stamps can step aside, and skips
+  the `after` hooks (`afterUpdate`, `afterUpdateMany`), so no in-process
+  listener, outbox or log built on them is told. See [Hooks](hooks.md);
+- runs in the session the collection is bound to (`withSession`), so it
+  commits and rolls back with the transaction;
+- is still checked and coerced: a string `_id` or reference becomes an
+  `ObjectId`, and a patch that writes a stamp the collection keeps is still
+  refused.
+
+What to know:
+
+- The optimistic lock does not see a silent write, which raises no version.
+  Two silent updates at the same version both succeed, and a normal update at
+  the version read before them still does. Do not read-modify-write the same
+  field through both.
+- `session` is not an option: it is refused (a compile error, a `TypeError`
+  at run time). Bind the collection with `withSession(session)`.
+- `UpdateOptions` is this package's; the driver's own `UpdateOptions`, the one
+  `raw.updateOne` takes, is a different type.
+
+What it cannot do: MongoDB writes every change to its oplog, so a
+[change stream](changes.md) (`onChange`, or the driver's `watch`) still
+receives the event, with the fields written. Keep a secret field out of
+anything that streams the collection, or out of the document altogether.
 
 ### Who is writing
 
@@ -409,8 +461,8 @@ interface CollectionApi<Def> {
 
 	create(values: NewOf<Def>): Promise<ReadDocumentOf<Def>>;
 	createMany(values: readonly NewOf<Def>[]): Promise<ReadDocumentOf<Def>[]>;
-	update(id: IdOf<Def> | string, patch: Patch<Def>): Promise<ReadDocumentOf<Def>>;
-	updateMany(filter: FilterOf<Def>, patch: ManyPatch<Def>): Promise<number>;
+	update(id: IdOf<Def> | string, patch: Patch<Def>, options?: UpdateOptions): Promise<ReadDocumentOf<Def>>;
+	updateMany(filter: FilterOf<Def>, patch: ManyPatch<Def>, options?: UpdateOptions): Promise<number>;
 	upsert(filter: FilterOf<Def>, values: UpsertOf<Def>): Promise<ReadDocumentOf<Def>>;
 
 	delete(id: IdOf<Def> | string): Promise<ReadDocumentOf<Def>>;

@@ -35,6 +35,9 @@ single-node one is enough.
 | `delete` | `hard`, `document` after a soft delete, `before` |
 | `restore` | `document`, `before` — only on a collection that soft deletes |
 
+A [silent update](documents.md#silent-updates) (`{ audit: false }`) still
+produces an `update` change, with `fields.set`: a change stream sees every write.
+
 Every change also has `id`, `at` and `resumeToken`. The document is a read
 document, so it carries `id` like any other.
 

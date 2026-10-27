@@ -114,10 +114,10 @@ own is only a field: adding `deletedAt` by hand never made `delete` soft.
 
 | option | fields | what the collection does with them |
 | --- | --- | --- |
-| `timestamps` | `createdAt`, `updatedAt` | sets `updatedAt` on every update |
+| `timestamps` | `createdAt`, `updatedAt` | sets `updatedAt` on every update, but a [silent one](#silent-updates) |
 | `softDelete` | `deletedAt` | `delete` sets it, reads leave those documents out |
-| `optimisticLock` | `version` | raised on every update; one given in the patch is checked |
-| `actors` | `createdBy`, `updatedBy`, `deletedBy` | stamped from `collection.as(actor)` |
+| `optimisticLock` | `version` | raised on every update, but a silent one; one given in the patch is checked |
+| `actors` | `createdBy`, `updatedBy`, `deletedBy` | stamped from `collection.as(actor)`, `updatedBy` not by a silent update |
 
 Each one reads the same way: `true` for its fields under their default names,
 `false` or absent for none, or an object naming them one by one. **Inside that
@@ -167,7 +167,7 @@ run. An import or a backfill that has to carry its own `createdAt` wants
 A timestamp left out is `new Date()`; one given — an import, a backfill — is
 kept. The version in an update's patch is **not written**: it is the version
 the document must still be at, under the name the collection gives it, and the
-update raises it as every update does. `delete` and `restore` write
+update raises it as every update does — except a [silent one](#silent-updates). `delete` and `restore` write
 `deletedAt`, and `collection.as(actor)` the actors.
 
 ```ts
@@ -355,6 +355,24 @@ await collection.raw.updateMany({}, { $set: { name: 'x' } });    // → UpdateRe
 also what fills its defaults. `update` checks each field of a patch — the
 driver's own `UpdateFilter` is intersected with `Document` and accepts any key
 whatsoever, including a typo.
+
+### Silent updates
+
+`update` and `updateMany` take `{ audit: false }` as a last argument: the
+version, `updatedAt` and `updatedBy` stay as they were and no `after` hook
+runs; the `before` hooks still do, with `context.audit === false`. It still
+runs in the collection's session and is coerced like any write.
+
+```ts
+await cards
+	.withSession(session)
+	.update(cardId, { $set: { linkedTo: otherId } }, { audit: false });
+```
+
+MongoDB's change stream still carries the write, and the lock does not see it.
+The details are in [Documents](docs/guide/documents.md#silent-updates); the
+Traps below list what to watch. `UpdateOptions` is this package's, not the
+driver's.
 
 ### `_id` never changes
 
@@ -622,8 +640,8 @@ const collection = getCollection(db, users, {
 | hooks | around | `before` gets and may return | `after` gets |
 | --- | --- | --- | --- |
 | `beforeCreate`, `afterCreate` | `create`, each document of `createMany`, and an `upsert` that inserted | `{ values }` | the document |
-| `beforeUpdate`, `afterUpdate` | `update`, and an `upsert` that matched | `{ id, patch }` | the document |
-| `beforeUpdateMany`, `afterUpdateMany` | `updateMany` | `{ filter, patch }` | the count |
+| `beforeUpdate`, `afterUpdate` | `update`, and an `upsert` that matched; a silent `update` runs `beforeUpdate` only | `{ id, patch }` | the document |
+| `beforeUpdateMany`, `afterUpdateMany` | `updateMany`; a silent one runs `beforeUpdateMany` only | `{ filter, patch }` | the count |
 | `beforeDelete`, `afterDelete` | `delete`, `hardDelete` | `{ id }` | the document |
 | `beforeDeleteMany`, `afterDeleteMany` | `deleteMany`, `hardDeleteMany` | `{ filter }` | the count |
 | `beforeRestore`, `afterRestore` | `restore`, on a collection that soft deletes | `{ id }` | the document |
@@ -828,6 +846,11 @@ It must be a whole number, and it needs the lock: a collection opened with
 `optimisticLock: false` refuses it rather than ignore it — at runtime only, as
 the types do not see that option. `updateMany` takes
 none — one version cannot stand for many documents.
+
+The lock does not see a [silent update](#silent-updates), which raises no
+version: two silent writes at the same version both succeed, and a normal
+update at the version read before them still does. Do not read-modify-write
+the same field through both.
 
 ## Errors
 
@@ -1474,6 +1497,7 @@ each: [configuration](docs/guide/wiring/configuration.md), the
 | `isValidObjectId`, `isObjectIdString`, `isObjectId` | the checks behind them |
 | `connectMongo(uri, options?)`, `closeMongo()`, `MongoConnection`, `PingResult` | a shared client, closed with its last holder |
 | `FilterOf`, `NewOf` | a filter and a create, with the strings the collection reads allowed in them |
+| `UpdateOptions` | what `update` and `updateMany` take after the patch: `{ audit: false }` for a silent update. Not the driver's `UpdateOptions` |
 | `NewDocumentOf`, `Patch`, `ManyPatch`, `ExpectedVersion`, `WritableDocumentOf`, `WritableFieldOf`, `WritablePath`, `RemovablePath`, `StampNameOf`, `VersionNameOf`, `SetByCollection`, `FixedOnUpdate` | what a write may say |
 | `DistinctOf`, `Group`, `GroupKeyOf`, `GroupByOptions`, `Measure`, `Measures`, `NumericFieldOf`, `Populated`, `Relations`, `ByRelation`, `OnRelation`, `ReferenceFieldOf`, `RelatedCollection` | what `distinct`, `groupBy` and `populate` take and give |
 | `getCollection(dbOrClient, definition, options?)` | the typed collection, driver methods included |
@@ -1516,6 +1540,8 @@ await collection.findMany({ sort: { email: 'up' } });    // not a direction
 await collection.findMany({ projection: { nope: 1 } });  // no such field
 await collection.findMany({ projection: { email: 2 } }); // 0, 1 or an operator
 await collection.update(id, { $set: { nope: 1 } });      // no such field
+await collection.update(id, patch, { session });          // not an option: withSession(session)
+await collection.update(id, patch, { audit: 'no' });       // a boolean
 await collection.update(id, { $set: { email: 1 } });     // email is a string
 await collection.update(id, { $inc: { email: 1 } });     // not a numeric field
 await collection.update(id, { $push: { title: 'x' } });  // not an array field
@@ -1573,6 +1599,17 @@ operator, and getting it subtly wrong is worse than being honest about it.
   used to go through as no change to `_id`; it throws now. (A spread of this package's
   own `getById` result already threw in 0.17, on `id`.) Take `_id` out
   first: `const { _id, ...patch } = doc`.
+- **`{ audit: false }` is silent in this process, not on the server.**
+  The stamps stay as they were and no `after` hook runs, but MongoDB's change
+  stream still carries the write, so `onChange` hears it and its `fields.set`
+  names what was written.
+- **The lock does not see a silent write.** It raises no version, so an update
+  that read the document before a silent write still succeeds at its old
+  version, and two silent updates never conflict. Do not read-modify-write
+  the same field through both.
+- **A `session` is not an update option.** `update(id, patch, { session })`
+  is a compile error and a `TypeError` at run time. Bind the collection:
+  `collection.withSession(session).update(id, patch, { audit: false })`.
 - **A version in an update is a condition, not a value.** `{ version: 3 }`
   never sets the version to 3: it makes the update fail unless the document is
   at 3, and the update then leaves it at 4.

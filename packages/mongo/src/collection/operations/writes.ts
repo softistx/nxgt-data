@@ -106,10 +106,16 @@ export async function update(
 	ctx: CollectionContext,
 	id: unknown,
 	patch: unknown,
+	audit = true,
 ): Promise<Fields> {
 	id = coerceId(ctx, id);
 	const versionField = ctx.stamps.version;
-	const { update: patched, expectedVersion } = toUpdate(ctx, patch);
+	const { update: patched, expectedVersion } = toUpdate(
+		ctx,
+		patch,
+		'update',
+		audit,
+	);
 	const filter = mergeFilters(
 		{
 			_id: id,
@@ -126,9 +132,10 @@ export async function updateMany(
 	ctx: CollectionContext,
 	filter: unknown,
 	patch: unknown,
+	audit = true,
 ): Promise<number> {
 	requireFilter(ctx, 'updateMany', filter);
-	const { update: patched } = toUpdate(ctx, patch, 'updateMany');
+	const { update: patched } = toUpdate(ctx, patch, 'updateMany', audit);
 	return run(ctx, async () => {
 		const result = await ctx.collection.updateMany(
 			scoped(ctx, filter),
