@@ -239,6 +239,11 @@ interface BoundChannel<D> {
 		handler: (payload: PayloadOf<D>) => void | Promise<void>,
 		options?: SubscribeOptions,
 	): Promise<Subscription>;
+	stream(
+		key: string,
+		options?: StreamOptions, // { bufferSize?: number }
+	): AsyncGenerator<PayloadOf<D>, undefined, undefined> & AsyncDisposable;
+	close(): Promise<void>;
 }
 
 /** What a channel carries, read from the schema it was defined with. */

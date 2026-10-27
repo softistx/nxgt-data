@@ -39,6 +39,9 @@ interface ChannelDefinition<S extends z.ZodType> {
 	readonly name: string;
 	readonly schema: S;
 	readonly ttl?: never;
+	readonly lease?: never;
+	key?(message: z.output<S>): string; // the selector of keyed streams
+	fallback?: 'local'; // see Keyed streams
 }
 
 function defineChannel<S extends z.ZodType>(
