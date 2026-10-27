@@ -645,6 +645,26 @@ for await (const change of redis.channels.roomChanged.stream('r1')) {
 }
 ```
 
+**Local channels, no Redis.** `localChannels({ channels })` binds the same
+definitions to a transport inside the process: no client, no connection, no
+retry. For a development run, a spec or a single-process app without
+`REDIS_URL`. It gives `{ channels, close() }`; each `channels.<name>` has the
+`publish`, `subscribe`, `stream(key)` and `close()` of the wiring's channels,
+and a message is checked against the schema when it is published and again
+when it is delivered, as with Redis. `publish` resolves with the number of
+subscriptions it reached. Only this process hears a message, and nothing is
+kept. Entries that are not channel definitions are ignored.
+
+```ts
+import { localChannels } from '@nxgt/redis';
+import * as channels from './channels';
+
+const local = localChannels({ channels });
+const hears = local.channels.roomChanged.stream('r1');
+await local.channels.roomChanged.publish({ roomId: 'r1', text: 'hi' });
+await local.close();
+```
+
 ### Queues
 
 | | |

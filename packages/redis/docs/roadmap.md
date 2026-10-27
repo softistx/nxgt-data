@@ -5,6 +5,9 @@ item shipped in is the only number on this page.
 
 ## Now
 
+- **Local channels** — `localChannels({ channels })` binds channel definitions
+  to an in-process transport: `publish`, `subscribe` and `stream(key)` with no
+  client, for development, specs and single-process apps.
 - **Keyed channel streams** — `channel.stream(key)`, an async iterator per
   room, user or document over one shared subscription, in the next minor.
 

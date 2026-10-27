@@ -473,6 +473,24 @@ after roughly 31 seconds.
 await connectRedis(url, { autoReconnect: false }); // fails fast, for a health check
 ```
 
+### Nothing listens on the Redis a development run points at
+
+**When:** no Redis is configured (a development run, a spec), and a channel's
+`stream(key)` is bound to a client of an address nothing serves: the subscribe
+retries for about 30 s, and `publish` only reaches this process through
+`fallback: 'local'`.
+**Why:** a Redis client needs a server; the in-process fallback is a recovery
+path, not a mode.
+**Fix:** bind the definitions to the in-process transport instead:
+
+```ts
+import { localChannels } from '@nxgt/redis';
+import * as channels from './channels';
+
+const local = localChannels({ channels });
+// use local.channels.<name>.publish / stream(key); local.close() on shutdown
+```
+
 ### `ping: no answer in 2000ms`
 
 **When:** `connection.ping()`, when `PING` did not come back within the

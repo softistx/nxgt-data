@@ -8,6 +8,7 @@ import {
 	defineCache,
 	defineChannel,
 	type InputOf,
+	localChannels,
 	type ParamsOf,
 	publish,
 	subscribe,
@@ -275,3 +276,20 @@ function streamDefinition() {
 	});
 }
 void streamTypes;
+
+// `localChannels` binds the definitions it is given, typed by their schemas.
+function localTypes() {
+	const local = localChannels({ channels: { room: streamDefinition() } });
+	void local.channels.room.publish({ roomId: 'r1' });
+	// @ts-expect-error the payload has no `nope`
+	void local.channels.room.publish({ roomId: 'r1', nope: 1 });
+	// @ts-expect-error the payload's roomId is a string
+	void local.channels.room.publish({ roomId: 1 });
+	// @ts-expect-error that channel is not bound
+	void local.channels.other;
+	// @ts-expect-error the key is a string
+	local.channels.room.stream(1);
+	// @ts-expect-error the definitions are given as `channels`
+	localChannels({ room: streamDefinition() });
+}
+void localTypes;

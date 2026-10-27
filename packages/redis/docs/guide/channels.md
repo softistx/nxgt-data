@@ -224,7 +224,9 @@ A definition may carry a `key(message)` selector. Through the wiring it gives
 room, user or document over a single shared subscription, with an immediate
 `return()`, a bounded buffer and an opt-in in-process fallback (`fallback: 'local'`)
 when Redis is down.
-See [Keyed streams](wiring/channels.md#keyed-streams).
+See [Keyed streams](wiring/channels.md#keyed-streams). With no Redis at all,
+[`localChannels`](wiring/channels.md#local-channels-without-redis) runs the same
+definitions in process.
 
 ## Next
 

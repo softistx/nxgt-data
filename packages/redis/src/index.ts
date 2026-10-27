@@ -9,6 +9,8 @@ export type {
 } from './cache/types';
 export type { ChannelDefinition } from './channel/define-channel';
 export { defineChannel } from './channel/define-channel';
+export type { LocalChannels } from './channel/local';
+export { localChannels } from './channel/local';
 export type { SubscribeOptions, Subscription } from './channel/pubsub';
 export { publish, subscribe } from './channel/pubsub';
 export type { PingResult, RedisConnection } from './connection/connect';

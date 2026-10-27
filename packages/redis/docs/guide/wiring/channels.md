@@ -146,6 +146,46 @@ for await (const change of redis.channels.roomChanged.stream('r1')) {
 - **No `key`, no stream.** `stream()` on a channel defined without a `key`
   throws a `TypeError` ([troubleshooting](../../troubleshooting.md)).
 
+## Local channels, without Redis
+
+`localChannels({ channels })` runs the same channel definitions on an
+in-process transport, so an application with no Redis configured (a
+development run, a spec, a single process) keeps its `publish` and
+`stream(key)` code unchanged. There is no client to build and nothing to
+connect: no `duplicate()` subscribe retrying in the background.
+
+```ts
+import { localChannels } from '@nxgt/redis';
+import * as channels from './channels';
+
+const local = localChannels({ channels });
+
+const hears = local.channels.roomChanged.stream('r1');
+await local.channels.roomChanged.publish({ roomId: 'r1', text: 'hi' });
+await local.close(); // ends every stream and subscription
+```
+
+- **Same surface.** `publish`, `subscribe`, `stream(key, options?)` and
+  `close()` per channel, typed by the schemas, plus one `close()` for all.
+- **Schema both ways.** `publish` throws `RedisError` `INVALID` for a payload
+  the schema refuses; the message is then serialised and parsed again before a
+  subscriber gets it, so a transform or a stripped key looks as it does with
+  Redis, and a handler's error goes to `onError`.
+- **One process.** Another process never hears a message, and a message
+  nobody is subscribed to is dropped; `publish` resolves with `0`.
+- **Local or Redis.** Pick local when one process is all there is (development,
+  specs, a single instance); pick Redis as soon as a message must reach another
+  process or survive a restart of the reader. Delivery across processes needs
+  Redis.
+- **After `close()`.** A `stream()` asked for ends at once and a `subscribe`
+  rejects with a `CONNECTION` `RedisError`, as on a closed Redis. A channel's own
+  `close()` ends its streams, and a later `stream()` starts afresh.
+- **No prefix, no `fallback`.** Names are as defined; `fallback: 'local'` has
+  nothing to fall back from and is ignored.
+- **Choosing at startup.** Pick one scope from the environment, for example
+  `const channels = url ? redis.channels : localChannels({ channels }).channels`.
+  Call `local.close()` on shutdown, as you would `redis.close()`.
+
 ## The name a message actually lands on
 
 ```ts
