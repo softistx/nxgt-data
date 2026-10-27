@@ -62,7 +62,10 @@ export function isIdempotency(
 	);
 }
 
-/** Whether a module export is a channel definition. */
+/**
+ * Whether a module export is a channel definition. A `key` function does not
+ * rule it out: that is the selector of its keyed streams.
+ */
 export function isChannel(
 	value: unknown,
 ): value is ChannelDefinition<z.ZodType> {
@@ -73,7 +76,7 @@ export function isChannel(
 		it['schema'] !== undefined &&
 		it['ttl'] === undefined &&
 		it['lease'] === undefined &&
-		typeof it['key'] !== 'function'
+		it['limit'] === undefined
 	);
 }
 

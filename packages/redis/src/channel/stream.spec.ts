@@ -1,0 +1,235 @@
+import { describe, expect, test } from 'bun:test';
+import { createKeyedStreams, type StreamSource } from './stream';
+
+type Change = { roomId: string; n: number };
+
+/** A broker in memory: what Redis does for `subscribe` and `publish`. */
+function fakeBroker() {
+	const handlers = new Set<(message: Change) => void>();
+	const state = {
+		down: false,
+		subscribes: 0,
+		closes: 0,
+		failNextSubscribe: false,
+	};
+	const source: StreamSource<Change> = {
+		async publish(message) {
+			if (state.down) throw new Error('ECONNREFUSED');
+			for (const handler of handlers) handler(message);
+			return handlers.size;
+		},
+		async subscribe(handler) {
+			if (state.down || state.failNextSubscribe) {
+				state.failNextSubscribe = false;
+				throw new Error('ECONNREFUSED');
+			}
+			state.subscribes += 1;
+			handlers.add(handler);
+			return {
+				async close() {
+					state.closes += 1;
+					handlers.delete(handler);
+				},
+			};
+		},
+	};
+	return { source, state, listeners: () => handlers.size };
+}
+
+const room = (roomId: string, n = 0): Change => ({ roomId, n });
+const keyOf = (message: Change) => message.roomId;
+
+describe('keyed streams', () => {
+	test('two keys fan out to their own iterators only', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const a = streams.stream('a');
+		const b = streams.stream('b');
+		const first = a.next();
+		const second = b.next();
+		await Promise.resolve();
+		await streams.publish(room('b', 2));
+		await streams.publish(room('a', 1));
+		expect(await first).toEqual({ value: room('a', 1), done: false });
+		expect(await second).toEqual({ value: room('b', 2), done: false });
+		await streams.close();
+	});
+
+	test('one subscription per process, opened by the first read', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const a = streams.stream('a');
+		const b = streams.stream('b');
+		expect(broker.state.subscribes).toBe(0);
+		const pending = [a.next(), b.next()];
+		await streams.publish(room('a'));
+		await streams.publish(room('b'));
+		await Promise.all(pending);
+		expect(broker.state.subscribes).toBe(1);
+		await streams.close();
+	});
+
+	test('two iterators on one key both get the message', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const one = streams.stream('a');
+		const two = streams.stream('a');
+		const reads = [one.next(), two.next()];
+		await streams.publish(room('a', 7));
+		expect((await Promise.all(reads)).map((r) => r.value)).toEqual([
+			room('a', 7),
+			room('a', 7),
+		]);
+		await streams.close();
+	});
+
+	test('return() while idle ends the pending read and leaves no listener', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const it = streams.stream('a');
+		const pending = it.next();
+		await Promise.resolve();
+		await Bun.sleep(5);
+		expect(streams.listeners).toBe(1);
+		// No message is ever published: both must settle on their own.
+		expect(await it.return(undefined)).toEqual({
+			value: undefined,
+			done: true,
+		});
+		expect(await pending).toEqual({ value: undefined, done: true });
+		expect(streams.listeners).toBe(0);
+		expect(broker.state.closes).toBe(1);
+		expect(broker.listeners()).toBe(0);
+	});
+
+	test('the last listener closes the shared subscription, the next one reopens it', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const one = streams.stream('a');
+		const two = streams.stream('b');
+		void one.next();
+		void two.next();
+		await Bun.sleep(5);
+		await one.return(undefined);
+		expect(broker.state.closes).toBe(0);
+		await two.return(undefined);
+		expect(broker.state.closes).toBe(1);
+		const again = streams.stream('a');
+		const read = again.next();
+		await Bun.sleep(5);
+		await streams.publish(room('a', 3));
+		expect((await read).value).toEqual(room('a', 3));
+		expect(broker.state.subscribes).toBe(2);
+		await streams.close();
+	});
+
+	test('Symbol.asyncDispose releases the listener, even while idle', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		{
+			await using it = streams.stream('a');
+			void it.next();
+			await Bun.sleep(5);
+			expect(streams.listeners).toBe(1);
+		}
+		expect(streams.listeners).toBe(0);
+	});
+
+	test('throw() releases the listener and rethrows', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const it = streams.stream('a');
+		void it.next();
+		await Bun.sleep(5);
+		await expect(it.throw(new Error('boom'))).rejects.toThrow('boom');
+		expect(streams.listeners).toBe(0);
+	});
+
+	test('a for await loop ends when the consumer breaks', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const seen: Change[] = [];
+		const loop = (async () => {
+			for await (const change of streams.stream('a')) {
+				seen.push(change);
+				break;
+			}
+		})();
+		await Bun.sleep(5);
+		await streams.publish(room('a', 1));
+		await loop;
+		expect(seen).toEqual([room('a', 1)]);
+		expect(streams.listeners).toBe(0);
+	});
+
+	test('falls back to this process when Redis is down', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		broker.state.down = true;
+		const it = streams.stream('a');
+		const read = it.next(); // the subscribe fails: the iterator is not refused
+		await Bun.sleep(5);
+		expect(await streams.publish(room('a', 4))).toBe(0); // does not throw
+		expect(await read).toEqual({ value: room('a', 4), done: false });
+		await streams.close();
+	});
+
+	test('a failed subscribe is forgotten and retried by the next iterator', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		broker.state.failNextSubscribe = true;
+		const first = streams.stream('a');
+		void first.next();
+		await Bun.sleep(5);
+		expect(broker.state.subscribes).toBe(0);
+		const second = streams.stream('a');
+		const read = second.next();
+		await Bun.sleep(5);
+		expect(broker.state.subscribes).toBe(1);
+		await streams.publish(room('a', 5));
+		expect((await read).value).toEqual(room('a', 5));
+		await streams.close();
+	});
+
+	test('a publish that fails with nobody listening here still throws', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		broker.state.down = true;
+		await expect(streams.publish(room('a'))).rejects.toThrow('ECONNREFUSED');
+	});
+
+	test('a slow reader loses its oldest messages past the buffer size', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const it = streams.stream('a', { bufferSize: 2 });
+		const first = it.next();
+		await Bun.sleep(5);
+		for (const n of [1, 2, 3, 4]) await streams.publish(room('a', n));
+		expect((await first).value).toEqual(room('a', 1));
+		// 1 went to the waiting read; 2, 3 and 4 arrived after: 2 is dropped.
+		expect((await it.next()).value).toEqual(room('a', 3));
+		expect((await it.next()).value).toEqual(room('a', 4));
+		await streams.close();
+	});
+
+	test('close() stops every iterator, idle or not, and closes the subscription', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const one = streams.stream('a');
+		const two = streams.stream('b');
+		const reads = [one.next(), two.next()];
+		await Bun.sleep(5);
+		await streams.close();
+		expect(await Promise.all(reads)).toEqual([
+			{ value: undefined, done: true },
+			{ value: undefined, done: true },
+		]);
+		expect(broker.state.closes).toBe(1);
+		expect(streams.listeners).toBe(0);
+		// A stream asked for after close() is already finished.
+		expect(await streams.stream('a').next()).toEqual({
+			value: undefined,
+			done: true,
+		});
+	});
+});

@@ -19,6 +19,13 @@ export interface ChannelDefinition<S extends z.ZodType> {
 	 * compile and publish on a channel named after the queue.
 	 */
 	readonly lease?: never;
+	/**
+	 * The key a message belongs to (a room, a user, a document), which
+	 * `channel.stream(key)` filters on. Without it the channel has no keyed
+	 * streams. A method, not a property, so that a channel defined for one
+	 * schema stays assignable to the schema-less `AnyChannel`.
+	 */
+	key?(message: z.output<S>): string;
 }
 
 /**
@@ -28,6 +35,16 @@ export interface ChannelDefinition<S extends z.ZodType> {
  * export const userCreated = defineChannel({
  * 	name: 'user.created',
  * 	schema: z.object({ id: z.string(), email: z.string() }),
+ * });
+ * ```
+ *
+ * `key` names what a message is about, for `channel.stream(key)`:
+ *
+ * ```ts
+ * export const roomChanged = defineChannel({
+ * 	name: 'room.changed',
+ * 	schema: z.object({ roomId: z.string() }),
+ * 	key: (change) => change.roomId,
  * });
  * ```
  */

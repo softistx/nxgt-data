@@ -3,6 +3,7 @@ import type { BoundCache } from '../cache/bind-cache';
 import type { InputOf, ParamsOf, ValueOf } from '../cache/types';
 import type { ChannelDefinition } from '../channel/define-channel';
 import type { SubscribeOptions, Subscription } from '../channel/pubsub';
+import type { StreamOptions } from '../channel/stream';
 import type {
 	BoundIdempotency,
 	IdempotencyDefinition,
@@ -45,6 +46,22 @@ export interface BoundChannel<D> {
 		handler: (payload: PayloadOf<D>) => void | Promise<void>,
 		options?: SubscribeOptions,
 	): Promise<Subscription>;
+	/**
+	 * The messages whose `key` the definition's selector gives `key`, as an
+	 * async iterator (a GraphQL subscription's `subscribe` result as it is).
+	 * The process holds ONE Redis subscription for the channel, opened by the
+	 * first read and closed when the last iterator leaves; `return()`,
+	 * `throw()` and `Symbol.asyncDispose` release an iterator at once, even
+	 * while it waits. A reader slower than the publishers loses its oldest
+	 * messages past `bufferSize`. Throws a `TypeError` when the definition has
+	 * no `key`.
+	 */
+	stream(
+		key: string,
+		options?: StreamOptions,
+	): AsyncGenerator<PayloadOf<D>, undefined, undefined> & AsyncDisposable;
+	/** Stops every stream of this channel and closes their shared subscription. */
+	close(): Promise<void>;
 }
 
 export type CacheScope<Ca> = {

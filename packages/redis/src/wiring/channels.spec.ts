@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { eventually, useRedis } from '../../test/fixtures';
 import * as caches from '../../test/wiring/caches';
 import * as channels from '../../test/wiring/channels';
+import * as keyed from '../../test/wiring/keyed-channels';
 import { connectRedis } from '../connection/connect';
 import { defineRedis } from './config/define-redis';
 import { openRedis } from './open-redis';
@@ -13,6 +14,16 @@ const redisOn = async (prefix?: string) =>
 	track(
 		await openRedis(
 			defineRedis({ uri: servers.redis.uri, prefix, caches, channels }),
+		),
+	);
+
+const keyedOn = async () =>
+	track(
+		await openRedis(
+			defineRedis({
+				uri: servers.redis.uri,
+				channels: { ...channels, ...keyed },
+			}),
 		),
 	);
 
@@ -185,5 +196,37 @@ describe('the subscriptions the Redis keeps', () => {
 		await redis.channels.created.publish(ada);
 		await eventually(() => errors.length, 1);
 		expect((errors[0] as Error).message).toBe('the handler broke');
+	});
+
+	test('stream(key) carries one key through Redis, and return() releases it at once', async () => {
+		const redis = await keyedOn();
+		const a = redis.channels.changed.stream('a');
+		const b = redis.channels.changed.stream('b');
+		const first = a.next();
+		const other = b.next();
+		await Bun.sleep(100); // the shared subscription opens on the first read
+		await redis.channels.changed.publish({ id: 'b', n: 2 });
+		await redis.channels.changed.publish({ id: 'a', n: 1 });
+		expect(await first).toEqual({ value: { id: 'a', n: 1 }, done: false });
+		expect(await other).toEqual({ value: { id: 'b', n: 2 }, done: false });
+		const idle = a.next();
+		expect(await a.return(undefined)).toEqual({ value: undefined, done: true });
+		expect(await idle).toEqual({ value: undefined, done: true });
+		await b.return(undefined);
+		await redis.channels.changed.close();
+	});
+
+	test('stream() on a channel defined without a key is a TypeError', async () => {
+		const redis = await redisOn();
+		expect(() => redis.channels.created.stream('a')).toThrow(TypeError);
+	});
+
+	test('redis.close() ends a stream still waiting', async () => {
+		const redis = await keyedOn();
+		const it = redis.channels.changed.stream('a');
+		const idle = it.next();
+		await Bun.sleep(100);
+		await redis.close();
+		expect(await idle).toEqual({ value: undefined, done: true });
 	});
 });

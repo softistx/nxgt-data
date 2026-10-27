@@ -622,6 +622,26 @@ most other commands no longer — Redis's own rule. `close()` gives that copy
 back; the client passed in is untouched and is still the one to `publish`
 with. Each subscription is one more connection.
 
+**Keyed streams.** A channel defined with a `key(message)` selector gives
+`redis.channels.<name>.stream(key, { bufferSize? })`, an `AsyncGenerator` of the
+messages with that key, usable as a GraphQL subscription's `subscribe` result.
+One Redis subscription per process, opened by the first read and closed with
+the last iterator; `return()` frees an idle iterator at once; a slow reader
+loses its oldest messages; a `publish` Redis refuses reaches the local
+iterators.
+
+```ts
+const roomChanged = defineChannel({
+	name: 'room.changed',
+	schema: z.object({ roomId: z.string(), text: z.string() }),
+	key: (change) => change.roomId,
+});
+
+for await (const change of redis.channels.roomChanged.stream('r1')) {
+	console.log(change.text);
+}
+```
+
 ### Queues
 
 | | |
