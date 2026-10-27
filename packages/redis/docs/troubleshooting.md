@@ -38,6 +38,8 @@ application can handle.
   - [`This message does not match the schema "orders" carries:`](#this-message-does-not-match-the-schema-orders-carries)
   - [`A message on "orders" does not match its schema:`](#a-message-on-orders-does-not-match-its-schema)
   - [A published message never arrives](#a-published-message-never-arrives)
+  - [``channel "room.changed": stream() needs a `key` in its defineChannel``](#channel-roomchanged-stream-needs-a-key-in-its-definechannel)
+  - [A keyed stream hears nothing from another process while Redis is down](#a-keyed-stream-hears-nothing-from-another-process-while-redis-is-down)
 - **Queues** (`QueueError`, and the `TypeError`s of `defineQueue`, `add`, `work` and `list`)
   - [`defineQueue: a queue needs a name, for its keys`](#definequeue-a-queue-needs-a-name-for-its-keys)
   - [`defineQueue: "my{queue}" has braces; the name is the keys' hash tag, so it cannot hold any`](#definequeue-myqueue-has-braces-the-name-is-the-keys-hash-tag-so-it-cannot-hold-any)
@@ -618,7 +620,7 @@ const delivered = await publish(client, orders, payload);
 if (delivered === 0) await queue.add(payload); // a stream or a queue, where it must not be lost
 ```
 
-### `channel "room.changed": stream() needs a `key` in its defineChannel`
+### ``channel "room.changed": stream() needs a `key` in its defineChannel``
 
 **When:** `redis.channels.roomChanged.stream('r1')` throws a `TypeError`.
 **Why:** a stream filters the channel's messages by key, and the definition
