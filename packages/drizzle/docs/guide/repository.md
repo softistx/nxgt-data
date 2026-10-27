@@ -323,8 +323,8 @@ that.
 | `findMany(options?)` | `Row[]` | |
 | `create(values)` | `Row` | `ConflictError`, `ForeignKeyError`… |
 | `createMany(values)` | `Row[]` | the same |
-| `update(id, patch)` | `Row` | `NotFoundError`, `OptimisticLockError` for a `version` the row is no longer at, `ArgumentError` for a primary-key column, and the above |
-| `updateMany(where, patch)` | `Row[]` | `ArgumentError` without a `where`, with a primary-key column, or with a `version` on a table that locks |
+| `update(id, patch, options?)` | `Row` | `NotFoundError`, `OptimisticLockError` for a `version` the row is no longer at, `ArgumentError` for a primary-key column or an option other than a boolean `audit`, and the above. `{ audit: false }` is a [silent update](stamps.md#silent-updates) |
+| `updateMany(where, patch, options?)` | `Row[]` | `ArgumentError` without a `where`, with a primary-key column, with a `version` on a table that locks, or with an option other than a boolean `audit`. `{ audit: false }` is a [silent update](stamps.md#silent-updates) |
 | `upsert(where, values)` | `Row` | `ConflictError` on a soft-deleted row; `ArgumentError` for a `where` that cannot be inserted; see [guide/stamps.md](stamps.md#upsert) |
 | `delete(id)` | `Row` | `NotFoundError` |
 | `deleteMany(where)` | `Row[]` | `ArgumentError` without a `where` |

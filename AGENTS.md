@@ -907,7 +907,7 @@ the file.
 - **Specs are split by subject, not one per source file.** `@nxgt/drizzle`'s
   `pg/repository/` has seven — `create-repository` for what the factory
   decides, `operations/reads`, `operations/writes`, `operations/upsert`,
-  `soft-delete`, `optimistic-lock` and `actors` — and a spec file is not
+  `soft-delete`, `optimistic-lock` and `actors` (which also holds the silent-update specs, as `@nxgt/mongo` keeps them in `stamp-writes`) — and a spec file is not
   free: it opens a database of its own. Measured, `createTestDb` costs
   0.8-2.0 s cold and far less warm, so two more files cost **+0.5 s**; the
   three the parity with `@nxgt/mongo` added, with their 33 tests (and one

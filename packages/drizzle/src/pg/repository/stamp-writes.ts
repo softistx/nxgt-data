@@ -61,15 +61,31 @@ export function touched(
 }
 
 /**
- * What `update` and `updateMany` take beside the patch: `audit` must be a
- * boolean when given. Returns it, `true` by default.
+ * What `update` and `updateMany` take beside the patch: `audit`, a boolean,
+ * and nothing else. Returns `audit`, `true` by default. Any other key is
+ * refused rather than ignored: `{ session }` or `{ tx }` would run the write
+ * outside the transaction the caller meant, and the way to bind one is
+ * `with(tx)`.
  */
 export function auditOf(
 	ctx: RepositoryContext,
 	method: 'update' | 'updateMany',
 	options: { audit?: unknown } | undefined,
 ): boolean {
-	const audit = options?.audit;
+	if (options === undefined) return true;
+	for (const key of Object.keys(options)) {
+		if (key === 'audit') continue;
+		const binding = key === 'session' || key === 'tx';
+		throw new ArgumentError(
+			'options',
+			`${method} on "${ctx.info.name}": "${key}" is not an option. ` +
+				(binding
+					? 'Bind a transaction with with(tx)'
+					: 'The only option is audit'),
+			{ key },
+		);
+	}
+	const audit = options.audit;
 	if (audit === undefined) return true;
 	if (typeof audit !== 'boolean') {
 		throw new ArgumentError(

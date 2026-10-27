@@ -48,6 +48,8 @@ one.
 - **Upsert, locking and actors**
   - [`update on "tickets": the row is no longer at the version the patch expected: it changed since it was read`](#update-on-tickets-the-row-is-no-longer-at-the-version-the-patch-expected-it-changed-since-it-was-read)
   - [`update on "tickets": the expected "version" must be a whole number, not a string`](#update-on-tickets-the-expected-version-must-be-a-whole-number-not-a-string)
+  - [`update on "tickets": "audit" must be a boolean, not a string`](#update-on-tickets-audit-must-be-a-boolean-not-a-string)
+  - [`updateMany on "tickets": "session" is not an option. Bind a transaction with with(tx)`](#updatemany-on-tickets-session-is-not-an-option-bind-a-transaction-with-withtx)
   - [`updateMany on "tickets": "version" is the optimistic lock, which only update checks. Leave it out; every write raises it`](#updatemany-on-tickets-version-is-the-optimistic-lock-which-only-update-checks-leave-it-out-every-write-raises-it)
   - [`as on "tickets": the actor is undefined. Pass who is writing, or use the repository without as()`](#as-on-tickets-the-actor-is-undefined-pass-who-is-writing-or-use-the-repository-without-as)
   - [`upsert on "tickets": the row with this (slug) is soft-deleted. Restore it, or hard-delete it, before writing over its key`](#upsert-on-tickets-the-row-with-this-slug-is-soft-deleted-restore-it-or-hard-delete-it-before-writing-over-its-key)
@@ -597,6 +599,36 @@ await tickets.update(id, { title: body.title, version: body.version });
 ```
 
 To write a version by hand, use a repository with `optimisticLock: false`.
+
+### `update on "tickets": "audit" must be a boolean, not a string`
+
+**When:** `update` or `updateMany` with an `audit` option that is not `true` or
+`false`: `'false'` from a form, `0`, `null`. The message says which shape it
+was, never the value.
+**Why:** `{ audit: false }` is a [silent update](guide/stamps.md#silent-updates);
+a value that merely looks false must not decide whether a row is stamped. An
+`ArgumentError`, `argument: 'options'`, `key: 'audit'`.
+**Fix:**
+
+```ts
+await tickets.update(id, { title }, { audit: body.silent === true ? false : true });
+```
+
+### `updateMany on "tickets": "session" is not an option. Bind a transaction with with(tx)`
+
+**When:** `update` or `updateMany` with an options key other than `audit`.
+`session` and `tx` get the message above; any other key says the only option
+is `audit`.
+**Why:** the options are checked whole, so a key that would be ignored is not:
+a write that thought it ran in a transaction would run outside it. An
+`ArgumentError`, `argument: 'options'`, `key` the name given.
+**Fix:**
+
+```ts
+await withTransaction(db, async (tx) => {
+	await tickets.with(tx).updateMany(where, { title }, { audit: false });
+});
+```
 
 ### `updateMany on "tickets": "version" is the optimistic lock, which only update checks. Leave it out; every write raises it`
 

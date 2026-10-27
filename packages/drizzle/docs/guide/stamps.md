@@ -332,27 +332,34 @@ fact that *these* rows changed must not show, pass `{ audit: false }` as the
 last argument:
 
 ```ts
-const silent = await cardRepository.update(cardId, { linkedTo: otherId }, { audit: false });
+const silent = await ticketRepository.as(session.userId).update(
+	id,
+	{ title: 'Edited' },
+	{ audit: false },
+);
 silent.version;     // unchanged
 silent.updatedAt;   // unchanged
 silent.updatedBy;   // unchanged
 
-await cardRepository.updateMany({ deckId }, { archived: true }, { audit: false });
+await ticketRepository.updateMany({ slug: 'login-broken' }, { title: 'Edited' }, { audit: false });
 ```
 
 What a silent update does:
 
-- leaves `version`, `updatedAt` and `updatedBy` as they were, an `updatedAt`
-  declared with `$onUpdate` included: the statement sets it to its own stored
-  value, so Drizzle does not stamp it;
+- leaves `version`, `updatedAt` and `updatedBy` as they were, and **every
+  column declared with `$onUpdate` keeps its stored value**, not only
+  `updatedAt`: the statement sets each one to its own value, so Drizzle does
+  not stamp it and the row is not marked as changed, a dirty flag included;
 - keeps a stamp the patch sets itself: `{ updatedAt: at }` is written;
 - checks an expected `version` in the patch, as `update` does, and raises
   nothing;
 - runs in the transaction the repository is bound to (`with(tx)`), so it
   commits and rolls back with it, and the table's checks and coercion apply
   as for any write;
-- still refuses a primary-key column in the patch, and an `audit` that is not
-  a boolean is an `ArgumentError`.
+- still refuses a primary-key column in the patch. The options are checked:
+  an `audit` that is not a boolean, or any other key, is an `ArgumentError`
+  ([troubleshooting](../troubleshooting.md#update-on-tickets-audit-must-be-a-boolean-not-a-string)).
+  `session` and `tx` are not options: bind a transaction with `with(tx)`.
 
 What to know:
 
@@ -385,7 +392,8 @@ purpose:
 | A primary key in an update's patch | refused before anything is sent: an `ArgumentError`, and the addressed key is out of `UpdatePatch`/`ManyPatch`; every other key column is refused at run time only | `_id` refused before anything is sent (since 0.18.0): a bare `TypeError`, and `_id` is out of every patch type, operators included — only a top-level `_id: undefined` compiles, without `exactOptionalPropertyTypes` | the same rule; the class is each package's own, and there `_id` is the only key and always known to the types |
 | A key given as `undefined` in a patch | dropped like any undefined value | refused | there `_id: undefined` in a patch is a mistake a body carried, and refusing it costs nothing; here it predates the rule and still works |
 | A key in an upsert's values | the id an insert gets, never written on the update half | refused: the `_id` an insert gets goes in the filter, which seeds it | the values there are one pipeline for both halves; here the insert and the update are two clauses, so the key can be kept out of one |
-| A silent update (`{ audit: false }`: no stamps) | `update` and `updateMany` take it, since 0.7.0 (`$onUpdate` columns included) | `update` and `updateMany` take it, since 0.24.0, and no `after` hook runs | there are no hooks here yet, so a silent update has none to skip or to tell |
+| A silent update (`{ audit: false }`: no stamps) | `update` and `updateMany` take it, since 0.7.0 (every `$onUpdate` column keeps its value) | `update` and `updateMany` take it, since 0.24.0, and no `after` hook runs | there are no hooks here yet, so a silent update has none to skip or to tell |
+| A non-boolean `audit`, or another option key | `ArgumentError` | anything but `false` is audited; `session` is refused with a `TypeError` | the options object here is checked whole, and a typo in a silent write would stamp the row it was meant to leave alone |
 | Which half ran | not reported | told to the hooks | there are no hooks here yet |
 | Hooks | none | `beforeCreate`, `afterUpdate`… | not built yet — see the [roadmap](../roadmap.md) |
 

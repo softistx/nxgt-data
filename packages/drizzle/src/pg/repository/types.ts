@@ -102,13 +102,18 @@ export type UpdatePatch<
 /** What `update` and `updateMany` take beside the patch. */
 export interface UpdateOptions {
 	/**
-	 * `false` makes the update silent: `updatedAt` (including a column with
-	 * `$onUpdate`), `updatedBy` and the version are left as they were. A
+	 * `false` makes the update silent: `updatedAt`, `updatedBy` and the
+	 * version are left as they were, and so is every column declared with
+	 * `$onUpdate`, which keeps its stored value. A
 	 * version the patch gives is still checked, and a stamp the patch sets
 	 * itself is still written. The write runs in the repository's
 	 * transaction (`with(tx)`) and is checked like any other. Default `true`.
 	 */
 	audit?: boolean | undefined;
+	/** Not an option: bind a transaction with `with(tx)`. */
+	session?: never;
+	/** Not an option: bind a transaction with `with(tx)`. */
+	tx?: never;
 }
 
 /**
