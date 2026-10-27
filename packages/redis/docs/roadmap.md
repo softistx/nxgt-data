@@ -5,7 +5,8 @@ item shipped in is the only number on this page.
 
 ## Now
 
-Nothing is under way; the queue shipped in 0.9.0.
+- **Keyed channel streams** — `channel.stream(key)`, an async iterator per
+  room, user or document over one shared subscription, in the next minor.
 
 ## Next
 

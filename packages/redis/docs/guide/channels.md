@@ -39,6 +39,9 @@ interface ChannelDefinition<S extends z.ZodType> {
 	readonly name: string;
 	readonly schema: S;
 	readonly ttl?: never;
+	readonly lease?: never;
+	key?(message: z.output<S>): string; // the selector of keyed streams
+	fallback?: 'local'; // see Keyed streams
 }
 
 function defineChannel<S extends z.ZodType>(
@@ -213,6 +216,15 @@ process.on('SIGTERM', () => {
 
 `error.key` is the channel's name. `defineChannel` refuses an empty name with
 a `TypeError`, at definition time.
+
+## Keyed streams
+
+A definition may carry a `key(message)` selector. Through the wiring it gives
+`redis.channels.<name>.stream(key)`, an async iterator of the messages of one
+room, user or document over a single shared subscription, with an immediate
+`return()`, a bounded buffer and an opt-in in-process fallback (`fallback: 'local'`)
+when Redis is down.
+See [Keyed streams](wiring/channels.md#keyed-streams).
 
 ## Next
 

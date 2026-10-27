@@ -1,8 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { eventually, useRedis } from '../../test/fixtures';
+import { rejection } from '../../test/rejection';
 import * as caches from '../../test/wiring/caches';
 import * as channels from '../../test/wiring/channels';
+import * as keyed from '../../test/wiring/keyed-channels';
 import { connectRedis } from '../connection/connect';
+import { RedisError } from '../errors/redis-error';
 import { defineRedis } from './config/define-redis';
 import { openRedis } from './open-redis';
 
@@ -13,6 +16,16 @@ const redisOn = async (prefix?: string) =>
 	track(
 		await openRedis(
 			defineRedis({ uri: servers.redis.uri, prefix, caches, channels }),
+		),
+	);
+
+const keyedOn = async () =>
+	track(
+		await openRedis(
+			defineRedis({
+				uri: servers.redis.uri,
+				channels: { ...channels, ...keyed },
+			}),
 		),
 	);
 
@@ -185,5 +198,79 @@ describe('the subscriptions the Redis keeps', () => {
 		await redis.channels.created.publish(ada);
 		await eventually(() => errors.length, 1);
 		expect((errors[0] as Error).message).toBe('the handler broke');
+	});
+
+	test('stream(key) carries one key through Redis, and return() releases it at once', async () => {
+		const redis = await keyedOn();
+		const a = redis.channels.changed.stream('a');
+		const b = redis.channels.changed.stream('b');
+		const first = a.next();
+		const other = b.next();
+		await Bun.sleep(100); // the shared subscription opens on the first read
+		await redis.channels.changed.publish({ id: 'b', n: 2 });
+		await redis.channels.changed.publish({ id: 'a', n: 1 });
+		expect(await first).toEqual({ value: { id: 'a', n: 1 }, done: false });
+		expect(await other).toEqual({ value: { id: 'b', n: 2 }, done: false });
+		const idle = a.next();
+		expect(await a.return(undefined)).toEqual({ value: undefined, done: true });
+		expect(await idle).toEqual({ value: undefined, done: true });
+		await b.return(undefined);
+		await redis.channels.changed.close();
+	});
+
+	test('stream() on a channel defined without a key is a TypeError', async () => {
+		const redis = await redisOn();
+		expect(() => redis.channels.created.stream('a')).toThrow(TypeError);
+	});
+
+	test('redis.close() ends a stream still waiting', async () => {
+		const redis = await keyedOn();
+		const it = redis.channels.changed.stream('a');
+		const idle = it.next();
+		await Bun.sleep(100);
+		await redis.close();
+		expect(await idle).toEqual({ value: undefined, done: true });
+	});
+
+	test('a stream asked for after redis.close() is already finished', async () => {
+		const redis = await keyedOn();
+		await redis.close();
+		const it = redis.channels.changed.stream('a');
+		expect(await it.next()).toEqual({ value: undefined, done: true });
+	});
+
+	test('channel.close() ends its streams, and a later stream() works again', async () => {
+		const redis = await keyedOn();
+		const old = redis.channels.changed.stream('a');
+		const idle = old.next();
+		await Bun.sleep(100);
+		await redis.channels.changed.close();
+		expect(await idle).toEqual({ value: undefined, done: true });
+		const fresh = redis.channels.changed.stream('a');
+		const read = fresh.next();
+		await Bun.sleep(100);
+		await redis.channels.changed.publish({ id: 'a', n: 1 });
+		expect((await read).value).toEqual({ id: 'a', n: 1 });
+		await fresh.return(undefined);
+	});
+
+	test('with the fallback on, an invalid payload still throws INVALID', async () => {
+		const redis = await keyedOn();
+		const it = redis.channels.resilient.stream('a');
+		void it.next();
+		await Bun.sleep(100);
+		const error = await rejection(
+			redis.channels.resilient.publish({ id: 'a' } as never),
+		);
+		expect(error).toBeInstanceOf(RedisError);
+		expect((error as RedisError).code).toBe('INVALID');
+		await it.return(undefined);
+	});
+
+	test('a stream made before redis.close() and read after it is finished', async () => {
+		const redis = await keyedOn();
+		const it = redis.channels.changed.stream('a');
+		await redis.close();
+		expect(await it.next()).toEqual({ value: undefined, done: true });
 	});
 });

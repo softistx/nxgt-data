@@ -38,6 +38,9 @@ application can handle.
   - [`This message does not match the schema "orders" carries:`](#this-message-does-not-match-the-schema-orders-carries)
   - [`A message on "orders" does not match its schema:`](#a-message-on-orders-does-not-match-its-schema)
   - [A published message never arrives](#a-published-message-never-arrives)
+  - [``channel "room.changed": stream() needs a `key` in its defineChannel``](#channel-roomchanged-stream-needs-a-key-in-its-definechannel)
+  - [A keyed stream hears nothing from another process while Redis is down](#a-keyed-stream-hears-nothing-from-another-process-while-redis-is-down)
+  - [`stream: bufferSize is 0; it is a number of messages, a whole number of at least 1`](#stream-buffersize-is-0-it-is-a-number-of-messages-a-whole-number-of-at-least-1)
 - **Queues** (`QueueError`, and the `TypeError`s of `defineQueue`, `add`, `work` and `list`)
   - [`defineQueue: a queue needs a name, for its keys`](#definequeue-a-queue-needs-a-name-for-its-keys)
   - [`defineQueue: "my{queue}" has braces; the name is the keys' hash tag, so it cannot hold any`](#definequeue-myqueue-has-braces-the-name-is-the-keys-hash-tag-so-it-cannot-hold-any)
@@ -617,6 +620,43 @@ not connected at that instant never sees it, and nothing is replayed.
 const delivered = await publish(client, orders, payload);
 if (delivered === 0) await queue.add(payload); // a stream or a queue, where it must not be lost
 ```
+
+### ``channel "room.changed": stream() needs a `key` in its defineChannel``
+
+**When:** `redis.channels.roomChanged.stream('r1')` throws a `TypeError`.
+**Why:** a stream filters the channel's messages by key, and the definition
+has no `key` selector to give them one.
+**Fix:**
+
+```ts
+export const roomChanged = defineChannel({
+	name: 'room.changed',
+	schema: z.object({ roomId: z.string() }),
+	key: (change) => change.roomId,
+});
+```
+
+### `stream: bufferSize is 0; it is a number of messages, a whole number of at least 1`
+
+**When:** `stream(key, { bufferSize })` throws a `TypeError`; the message
+names the value you passed.
+**Why:** `bufferSize` is how many unread messages an iterator keeps, so it is
+a whole number of at least 1 (default 256).
+**Fix:**
+
+```ts
+redis.channels.roomChanged.stream('r1', { bufferSize: 64 });
+```
+
+### A keyed stream hears nothing from another process while Redis is down
+
+**When:** with `fallback: 'local'`, `publish` resolves with `0` and only this
+process's iterators receive the message.
+**Why:** the fallback is local by design. If Redis had applied the publish and
+only the reply was lost, the same message also arrives through the
+subscription, so a local iterator can see it twice.
+**Fix:** treat a keyed message as idempotent (carry a version or an id), or
+leave `fallback` off and let `publish` throw.
 
 ## Queues
 

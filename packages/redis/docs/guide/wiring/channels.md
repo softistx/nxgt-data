@@ -28,6 +28,8 @@ page is about what the wiring adds.
 | `name` | `string` | the channel's name in Redis, prefix included — `myapp:prod:user.created` |
 | `publish(payload)` | `Promise<number>` | checks the payload against the schema, publishes it, and gives back the number of subscribers Redis handed it to |
 | `subscribe(handler, options?)` | `Promise<Subscription>` | listens, each message parsed by the schema, and records the subscription |
+| `stream(key, options?)` | `AsyncGenerator<T>` | the messages whose `key` selector gives `key`; see [Keyed streams](#keyed-streams) |
+| `close()` | `Promise<void>` | stops every stream of the channel and closes their shared subscription |
 
 `publish`'s number is **not** a delivery guarantee: Redis pub/sub is
 fire-and-forget, a subscriber that is not connected at that instant never sees
@@ -80,6 +82,61 @@ the subscription's own `close` is memoised.
 	await redis.channels.created.publish(user);
 }   // the subscription and the client are given back here
 ```
+
+## Keyed streams
+
+An application that serves live updates per room, user or document does not
+want one Redis subscription per client. Give the channel a `key` selector, and
+read `stream(key)` as an async iterator:
+
+```ts
+export const roomChanged = defineChannel({
+	name: 'room.changed',
+	schema: z.object({ roomId: z.string(), text: z.string() }),
+	key: (change) => change.roomId,
+});
+
+// A GraphQL subscription resolver, as it is:
+const Subscription = {
+	roomChanged: {
+		subscribe: (_: unknown, args: { roomId: string }) =>
+			redis.channels.roomChanged.stream(args.roomId),
+		resolve: (change: { roomId: string; text: string }) => change,
+	},
+};
+
+// Or by hand:
+for await (const change of redis.channels.roomChanged.stream('r1')) {
+	console.log(change.text); // only the messages of room r1
+}
+```
+
+- **One subscription per process.** The first read of the first iterator opens
+  it; it is fanned out in memory to the iterators whose key matches, and the
+  last iterator to leave closes it.
+- **Leaving is immediate.** `return()`, `throw()` and `await using` release the
+  iterator's listener even while it waits for a message, and a pending
+  `next()` completes with `done: true`. A client that disconnects frees its
+  resources without waiting for the next message.
+- **A bounded buffer.** `stream(key, { bufferSize })` (default 256, at least
+  1) keeps that many unread messages; a reader slower than the publishers
+  loses the oldest.
+- **Redis down.** A failed subscribe is forgotten, the iterator is not
+  refused, and the next iterator tries again. `publish` throws as it always
+  did, unless the definition says `fallback: 'local'`: then a `publish` that
+  fails on the transport hands the parsed message to this process's open
+  iterators of its key and resolves with `0`. A message the schema refuses, or
+  a key nobody here reads, still throws. See
+  [the trap](../../../README.md#traps).
+- **bufferSize.** A whole number of at least 1, else a `TypeError`.
+- **Closing.** `redis.channels.roomChanged.close()` ends every stream of the
+  channel, idle or not (a later `stream()` starts afresh); `redis.close()` does
+  the same for all channels, and a `stream()` asked for afterwards ends at
+  once.
+- **Registering.** An iterator takes its listener, and opens the subscription,
+  on its first read; one returned before then holds nothing.
+- **No `key`, no stream.** `stream()` on a channel defined without a `key`
+  throws a `TypeError` ([troubleshooting](../../troubleshooting.md)).
 
 ## The name a message actually lands on
 
@@ -182,6 +239,11 @@ interface BoundChannel<D> {
 		handler: (payload: PayloadOf<D>) => void | Promise<void>,
 		options?: SubscribeOptions,
 	): Promise<Subscription>;
+	stream(
+		key: string,
+		options?: StreamOptions, // { bufferSize?: number }
+	): AsyncGenerator<PayloadOf<D>, undefined, undefined> & AsyncDisposable;
+	close(): Promise<void>;
 }
 
 /** What a channel carries, read from the schema it was defined with. */

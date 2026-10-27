@@ -238,3 +238,40 @@ void objectParams;
 // @ts-expect-error this key takes an object, not a string
 const wrongParams: ParamsOf<typeof seatCache> = 'u1';
 void wrongParams;
+
+// A channel's `key` selector returns a string, and `stream` is typed by the schema.
+defineChannel({
+	name: 'bad.key',
+	schema: z.object({ roomId: z.string() }),
+	// @ts-expect-error the key is a string, not a number
+	key: (change) => change.roomId.length,
+});
+defineChannel({
+	name: 'bad.fallback',
+	schema: z.object({ roomId: z.string() }),
+	// @ts-expect-error the only fallback is 'local'
+	fallback: 'remote',
+});
+
+async function streamTypes(
+	channel: import('../../src').BoundChannel<
+		ReturnType<typeof streamDefinition>
+	>,
+) {
+	for await (const change of channel.stream('r1')) {
+		const roomId: string = change.roomId;
+		void roomId;
+		// @ts-expect-error the payload has no `nope`
+		void change.nope;
+	}
+	// @ts-expect-error the key is a string
+	channel.stream(1);
+}
+function streamDefinition() {
+	return defineChannel({
+		name: 'room.changed',
+		schema: z.object({ roomId: z.string() }),
+		key: (change) => change.roomId,
+	});
+}
+void streamTypes;
