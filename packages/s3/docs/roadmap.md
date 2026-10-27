@@ -41,6 +41,9 @@ _Nothing queued._
 
 ## Shipped
 
+- **`isBucketUnavailable(error)`** — tells a failure that means the bucket
+  cannot be used (network codes, `TIMEOUT`, deployment-level S3 codes) from the
+  caller's own refusals, so a route can answer 503.
 - **A deadline on `put` and `list`** — `timeoutMs` on both, and the bucket's
   default now bounds them too: no answer in time rejects with `S3Error`
   `TIMEOUT` and aborts the request. A listing signs its own ListObjectsV2 GET

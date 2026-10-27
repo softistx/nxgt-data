@@ -10,7 +10,7 @@ S3 on Bun's own `S3Client`. `S3Client` is built into Bun, so this package has
 | [Writing](guide/writes.md) | you are storing an object, choosing what a write says about it, handling a refusal, or deleting an object (`put` and `delete` take a deadline) |
 | [Presigned URLs](guide/presigned-urls.md) | a browser or another service should read or write an object directly, without your credentials — and a presigned POST, when the service must hold the upload to a size and a type |
 | [Testing](guide/testing.md) | your suite needs a real S3 API: `@nxgt/s3/testing` starts SeaweedFS, creates buckets and empties them between tests |
-| [Troubleshooting](troubleshooting.md) | a call threw, an upload was refused, or a signed URL did not do what you expected |
+| [Troubleshooting](troubleshooting.md) | a call threw, an upload was refused, the bucket cannot be reached (`isBucketUnavailable`), or a signed URL did not do what you expected |
 | [Roadmap](roadmap.md) | you want to know what is coming, and what has been ruled out |
 
 The [README](../README.md) is the short version: install, one example per

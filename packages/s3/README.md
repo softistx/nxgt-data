@@ -350,6 +350,35 @@ and **Bun names those `S3Error` too**, with S3's codes (`NoSuchKey` and the
 rest). Discriminate with `instanceof S3Error` on this package's class, never
 with `error.name`.
 
+### Is the bucket unavailable?
+
+`isBucketUnavailable(error)` tells a failure that means the bucket cannot be
+used from here from one that is the caller's. It reads the `code` of an
+`Error` only, never its name or message.
+
+- **`true`**: this package's `S3Error` with code `TIMEOUT`; a Bun or Node
+  network code (`ConnectionRefused`, `ConnectionClosed`, `DNSResolveFailed`,
+  `ECONNREFUSED`, `ECONNRESET`, `ECONNABORTED`, `ETIMEDOUT`, `EHOSTUNREACH`,
+  `ENETUNREACH`, `ENOTFOUND`, `EAI_AGAIN`, `EPIPE`); and an S3 service code
+  from Bun's client that means the deployment cannot use the bucket
+  (`AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`,
+  `NoSuchBucket`, `ExpiredToken`, `InternalError`, `ServiceUnavailable`,
+  `SlowDown`).
+- **`false`**: this package's refusals of the caller's input (`WRONG_TYPE`,
+  `TOO_LARGE`, `UNMEASURABLE`, `WRONG_OPTION`), which stay the caller's
+  (4xx); per-request codes such as `NoSuchKey`; anything else.
+
+```ts
+import { isBucketUnavailable } from '@nxgt/s3';
+
+try {
+	await avatars.put(key, body);
+} catch (error) {
+	if (isBucketUnavailable(error)) return new Response(null, { status: 503 });
+	throw error;
+}
+```
+
 ## What does not compile
 
 Each is a `@ts-expect-error` case in `test/types/s3.ts`.
