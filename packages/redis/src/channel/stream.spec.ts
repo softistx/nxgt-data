@@ -306,6 +306,7 @@ describe('keyed streams', () => {
 		/** A broker whose subscribe stays pending until `settle` is called. */
 		function hangingBroker() {
 			const broker = fakeBroker();
+			const settlers: ((fail: boolean) => void)[] = [];
 			let settle: (fail: boolean) => void = () => {};
 			const real = broker.source.subscribe;
 			const source: StreamSource<Change> = {
@@ -319,10 +320,16 @@ describe('keyed streams', () => {
 							if (fail) reject(new Error('ECONNREFUSED'));
 							else resolve(real(handler, options));
 						};
+						settlers.push(settle);
 					});
 				},
 			};
-			return { source, settle: (fail: boolean) => settle(fail), broker };
+			return {
+				source,
+				settle: (fail: boolean) => settle(fail),
+				settlers,
+				broker,
+			};
 		}
 
 		test('a locally delivered message reaches next() without waiting for the subscribe', async () => {
@@ -407,6 +414,51 @@ describe('keyed streams', () => {
 			} finally {
 				process.off('unhandledRejection', note);
 			}
+		});
+
+		test('a stream re-opened while the old subscribe is pending: the old one is closed, the new one delivers once', async () => {
+			const hanging = hangingBroker();
+			const streams = createKeyedStreams(hanging.source, keyOf);
+			const first = streams.stream('a');
+			void first.next();
+			await Bun.sleep(5);
+			await first.return(undefined);
+			const second = streams.stream('a');
+			const read = second.next();
+			await Bun.sleep(5);
+			expect(hanging.settlers).toHaveLength(2);
+			for (const settle of hanging.settlers) settle(false);
+			await Bun.sleep(5);
+			expect(hanging.broker.state.closes).toBe(1);
+			expect(hanging.broker.listeners()).toBe(1);
+			await hanging.broker.source.publish(room('a', 5));
+			expect(await read).toEqual({ value: room('a', 5), done: false });
+			expect(
+				await Promise.race([second.next(), Bun.sleep(20)]),
+			).toBeUndefined();
+			await streams.close();
+			expect(hanging.broker.state.closes).toBe(2);
+		});
+
+		test('a superseded subscription that resolves late delivers nothing', async () => {
+			const hanging = hangingBroker();
+			const streams = createKeyedStreams(hanging.source, keyOf);
+			const first = streams.stream('a');
+			void first.next();
+			await Bun.sleep(5);
+			await first.return(undefined);
+			const second = streams.stream('a');
+			const read = second.next();
+			await Bun.sleep(5);
+			hanging.settlers[0]?.(false);
+			// Resolved but not the current attempt: a publish now reaches nobody.
+			await hanging.broker.source.publish(room('a', 6));
+			expect(await Promise.race([read, Bun.sleep(20)])).toBeUndefined();
+			hanging.settlers[1]?.(false);
+			await Bun.sleep(5);
+			await hanging.broker.source.publish(room('a', 7));
+			expect(await read).toEqual({ value: room('a', 7), done: false });
+			await streams.close();
 		});
 	});
 });

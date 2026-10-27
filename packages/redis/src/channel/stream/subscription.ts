@@ -4,7 +4,12 @@ import { deliver } from './listeners';
 /** Opens the process's one subscription. A failed open is forgotten. */
 export async function open<T>(ctx: StreamContext<T>): Promise<void> {
 	if (ctx.opened !== undefined || ctx.closed) return;
-	const attempt = ctx.source.subscribe((message) => deliver(ctx, message));
+	// A superseded attempt that resolves late must not deliver while its
+	// background close is still on its way: that would repeat a message.
+	const attempt: ReturnType<StreamContext<T>['source']['subscribe']> =
+		ctx.source.subscribe((message) => {
+			if (ctx.opened === attempt) deliver(ctx, message);
+		});
 	ctx.opened = attempt;
 	try {
 		const subscription = await attempt;
