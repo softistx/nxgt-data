@@ -1,5 +1,16 @@
 # @nxgt/image
 
+## 0.2.0
+
+### Minor Changes
+
+- [#271](https://github.com/softistx/nxgt-data/pull/271) [`34b6b00`](https://github.com/softistx/nxgt-data/commit/34b6b00582ffcedfdaa5cbc498b5b47247199d4b) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Add `cropFromQuery(params)` and `uploadImage(store, owner, request)`. `cropFromQuery` (main entry) reads the optional square crop from `?x=&y=&size=`: `undefined` when none of the three is present, otherwise a crop where a missing, blank or non-numeric value is `NaN`, which the set refuses as `INVALID_CROP`. `uploadImage` (`@nxgt/image/s3`) checks the request is `image/*` (`UNSUPPORTED_TYPE` otherwise), streams the body into `store.replace` under a fresh `crypto.randomUUID()` id with the query's crop, and returns `{ id, version, variants }`; a body over the byte limit is the usual `TOO_LARGE` `ImageError`.
+
+### Patch Changes
+
+- Updated dependencies [[`d660cb3`](https://github.com/softistx/nxgt-data/commit/d660cb357013b374bb5676f824f52498b61992b7), [`8387457`](https://github.com/softistx/nxgt-data/commit/8387457d014630b80ef287efed972dadf4a4499e)]:
+  - @nxgt/s3@0.7.0
+
 ## 0.1.1
 
 ### Patch Changes

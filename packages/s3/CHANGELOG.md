@@ -1,5 +1,13 @@
 # @nxgt/s3
 
+## 0.7.0
+
+### Minor Changes
+
+- [#270](https://github.com/softistx/nxgt-data/pull/270) [`d660cb3`](https://github.com/softistx/nxgt-data/commit/d660cb357013b374bb5676f824f52498b61992b7) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Export `isBucketUnavailable(error)`: `true` for this package's `TIMEOUT`, for a Bun or Node network code (`ConnectionRefused`, `DNSResolveFailed`, `ECONNREFUSED`, `ETIMEDOUT`, `ENOTFOUND`, …) and for S3 service codes meaning the deployment cannot use the bucket (`AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `NoSuchBucket`, `ExpiredToken`, `InternalError`, `ServiceUnavailable`, `SlowDown`); `false` for the caller's refusals (`WRONG_TYPE`, `TOO_LARGE`, `UNMEASURABLE`, `WRONG_OPTION`) and per-request codes such as `NoSuchKey`. Reads the code only. Lets a route answer 503 when the bucket cannot be used.
+
+- [#274](https://github.com/softistx/nxgt-data/pull/274) [`8387457`](https://github.com/softistx/nxgt-data/commit/8387457d014630b80ef287efed972dadf4a4499e) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Add an optional `parseKey(key): P | undefined` to `defineBucket`'s definition and `parseKey(key)` to the bound bucket: the way back from a stored object key to the params `key` built it from, `undefined` when the key is not the bucket's (also when the parsed params do not rebuild the same key). Without a `parseKey` on the definition, the bound one throws a `TypeError`. Additive. Fixes [#273](https://github.com/softistx/nxgt-data/issues/273).
+
 ## 0.6.0
 
 ### Minor Changes
