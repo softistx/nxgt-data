@@ -9,8 +9,11 @@ type Params = { ownerId: string; imageId: string };
 const stored: StoredImage = { version: 'abc', variants: [] };
 
 function fakeStore() {
-	const calls: { params: Params; input: unknown; options?: ProcessOptions }[] =
-		[];
+	const calls: {
+		params: Params;
+		input: unknown;
+		options?: ProcessOptions | undefined;
+	}[] = [];
 	const store: Pick<ImageStore<Params>, 'replace'> = {
 		async replace(params, input, options) {
 			calls.push({ params, input, options });
