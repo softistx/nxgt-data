@@ -39,7 +39,9 @@ export interface ChannelDefinition<S extends z.ZodType> {
 	 * reached and no `stream()` of this process reads the message's key.
 	 * `'throw'` (the default) rethrows the transport error. `'drop'` resolves
 	 * with `0` and forgets the message, for fire-and-forget events nobody may
-	 * be watching. A message the schema refuses still throws. Needs
+	 * be watching. Any failure of the publish but a schema refusal is dropped
+	 * (a transport error, a closed client). A message the schema refuses still
+	 * throws. Needs
 	 * `fallback: 'local'`.
 	 */
 	onNoLocalReader?: 'throw' | 'drop';

@@ -378,6 +378,19 @@ await seen.remember('u1', () => loadRaw('u1'));       // the loader returns the 
 export const users = defineCache({ name: 'user', key: (id: string) => id, ttl: 300, schema });
 ```
 
+### `defineChannel "…": onNoLocalReader: 'drop' needs fallback: 'local'`
+
+**When:** at `defineChannel`, with `onNoLocalReader: 'drop'` and no
+`fallback: 'local'` (or with a value other than `'throw'` or `'drop'`, which
+reads `onNoLocalReader is 'throw' or 'drop'`). A plain `TypeError`.
+**Why:** `onNoLocalReader` only says what the local fallback does when no
+stream here reads the key; without the fallback there is nothing to drop to.
+**Fix:**
+
+```ts
+defineChannel({ name: 'run.event', schema, key, fallback: 'local', onNoLocalReader: 'drop' });
+```
+
 ### `defineChannel: a channel needs a name`
 
 **When:** at `defineChannel`, with an empty `name` — usually a name read from
