@@ -378,6 +378,19 @@ await seen.remember('u1', () => loadRaw('u1'));       // the loader returns the 
 export const users = defineCache({ name: 'user', key: (id: string) => id, ttl: 300, schema });
 ```
 
+### `defineChannel "…": onNoLocalReader: 'drop' needs fallback: 'local'`
+
+**When:** at `defineChannel`, with `onNoLocalReader: 'drop'` and no
+`fallback: 'local'` (or with a value other than `'throw'` or `'drop'`, which
+reads `onNoLocalReader is 'throw' or 'drop'`). A plain `TypeError`.
+**Why:** `onNoLocalReader` only says what the local fallback does when no
+stream here reads the key; without the fallback there is nothing to drop to.
+**Fix:**
+
+```ts
+defineChannel({ name: 'run.event', schema, key, fallback: 'local', onNoLocalReader: 'drop' });
+```
+
 ### `defineChannel: a channel needs a name`
 
 **When:** at `defineChannel`, with an empty `name` — usually a name read from
@@ -675,6 +688,25 @@ only the reply was lost, the same message also arrives through the
 subscription, so a local iterator can see it twice.
 **Fix:** treat a keyed message as idempotent (carry a version or an id), or
 leave `fallback` off and let `publish` throw.
+
+### `publish` throws while Redis is down, though `fallback: 'local'` is on
+
+**When:** Redis is unreachable and no `stream()` of this process reads the
+message's key (or none is open at all): `publish` rethrows the transport error,
+on every call.
+**Why:** the fallback only delivers to local readers; with none, it cannot tell
+a message nobody wants from a message that must not be lost, so it throws.
+**Fix:** for fire-and-forget events, say nobody-reading is fine:
+
+```ts
+export const runEvent = defineChannel({
+	name: 'run.event',
+	schema: z.object({ runId: z.string(), step: z.number() }),
+	key: (event) => event.runId,
+	fallback: 'local',
+	onNoLocalReader: 'drop', // resolves with 0 instead of throwing
+});
+```
 
 ## Queues
 

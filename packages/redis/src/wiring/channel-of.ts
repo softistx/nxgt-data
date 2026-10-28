@@ -4,6 +4,7 @@ import {
 	type Subscription,
 	subscribe,
 } from '../channel/pubsub';
+import { RedisError } from '../errors/redis-error';
 import { streamsFor } from './channel-streams';
 import type { InstanceContext, WiringContext } from './context';
 import type { AnyChannel, BoundChannel } from './types';
@@ -45,15 +46,28 @@ export function channelOf(
 			[Symbol.asyncDispose]: { enumerable: false, value: forget },
 		}) as Subscription;
 	};
+	const drop =
+		prefixedDefinition.fallback === 'local' &&
+		prefixedDefinition.onNoLocalReader === 'drop';
 	const hub = streamsFor(ctx, prefixedDefinition, bound, subscribeBound);
 	return {
 		definition: prefixedDefinition,
 		name: prefixedDefinition.name,
 		// With streams open in this process, a publish Redis refuses reaches
 		// them anyway; otherwise it is what `publish` does.
-		publish: (payload) => {
+		publish: async (payload) => {
 			const open = hub.current();
-			return open === undefined ? bound(payload) : open.publish(payload);
+			if (open !== undefined) return open.publish(payload);
+			if (!drop) return bound(payload);
+			// No stream open: nobody here reads, so `'drop'` forgets the message
+			// a failed transport refused; a message the schema refuses throws.
+			try {
+				return await bound(payload);
+			} catch (error) {
+				if (error instanceof RedisError && error.code === 'INVALID')
+					throw error;
+				return 0;
+			}
 		},
 		stream: (key, options) => hub.open().stream(key, options) as never,
 		close: hub.close,

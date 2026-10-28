@@ -42,6 +42,7 @@ interface ChannelDefinition<S extends z.ZodType> {
 	readonly lease?: never;
 	key?(message: z.output<S>): string; // the selector of keyed streams
 	fallback?: 'local'; // see Keyed streams
+	onNoLocalReader?: 'throw' | 'drop'; // with fallback; default 'throw'
 }
 
 function defineChannel<S extends z.ZodType>(

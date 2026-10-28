@@ -288,6 +288,48 @@ describe('the subscriptions the Redis keeps', () => {
 				}),
 			);
 
+		test('publish throws when nobody reads, by default', async () => {
+			const redis = await unreachable();
+			expect(
+				await rejection(redis.channels.resilient.publish({ id: 'a', n: 1 })),
+			).toBeDefined();
+			const it = redis.channels.resilient.stream('a');
+			void it.next();
+			expect(
+				await rejection(redis.channels.resilient.publish({ id: 'b', n: 1 })),
+			).toBeDefined();
+			await it.return(undefined);
+		});
+
+		test("onNoLocalReader: 'drop' resolves with 0 with no stream open", async () => {
+			const redis = await unreachable();
+			expect(
+				await redis.channels.fireAndForget.publish({ id: 'a', n: 1 }),
+			).toBe(0);
+		});
+
+		test("onNoLocalReader: 'drop' drops a key nobody reads, still delivers to a reader", async () => {
+			const redis = await unreachable();
+			const it = redis.channels.fireAndForget.stream('a');
+			const read = it.next();
+			expect(
+				await redis.channels.fireAndForget.publish({ id: 'b', n: 1 }),
+			).toBe(0);
+			expect(
+				await redis.channels.fireAndForget.publish({ id: 'a', n: 2 }),
+			).toBe(0);
+			expect((await read).value).toEqual({ id: 'a', n: 2 });
+			await it.return(undefined);
+		});
+
+		test("onNoLocalReader: 'drop' still throws INVALID for a refused message", async () => {
+			const redis = await unreachable();
+			const error = await rejection(
+				redis.channels.fireAndForget.publish({ id: 'a' } as never),
+			);
+			expect((error as RedisError).code).toBe('INVALID');
+		});
+
 		test('channel.close() does not wait for a subscribe in flight', async () => {
 			const redis = await unreachable();
 			const it = redis.channels.resilient.stream('a');

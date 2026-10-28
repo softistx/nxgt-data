@@ -121,7 +121,7 @@ describe('local channels', () => {
 			channels: { ...channels, note: 'not a channel' },
 		});
 		expect(Object.keys(local.channels).sort()).toEqual(
-			['changed', 'created', 'deleted', 'resilient'].sort(),
+			['changed', 'created', 'deleted', 'fireAndForget', 'resilient'].sort(),
 		);
 	});
 
