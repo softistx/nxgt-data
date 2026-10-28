@@ -1,5 +1,11 @@
 # @nxgt/redis
 
+## 0.12.0
+
+### Minor Changes
+
+- [#298](https://github.com/softistx/nxgt-data/pull/298) [`334b063`](https://github.com/softistx/nxgt-data/commit/334b063b4bcef704d3228d713505f78b61ed2d29) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Add `onNoLocalReader: 'drop'` to `defineChannel` (with `fallback: 'local'`): when Redis is down and no `stream()` of the process reads the message's key, `publish` resolves with `0` instead of throwing, for fire-and-forget events nobody may be watching. The default, `'throw'`, is unchanged, and a message the schema refuses still throws.
+
 ## 0.11.0
 
 ### Minor Changes
