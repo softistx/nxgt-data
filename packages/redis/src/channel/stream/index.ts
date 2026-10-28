@@ -13,8 +13,8 @@ export interface KeyedStreams<T> {
 	/**
 	 * Publishes through the source. With `fallback`, a transport failure
 	 * delivers the parsed message to this process's iterators of its key and
-	 * resolves with `0`; a message the schema refuses, and a key nobody here
-	 * reads, still throw.
+	 * resolves with `0`; a message the schema refuses still throws, and so does a
+	 * key nobody here reads, unless `dropUnread` makes it resolve with `0`.
 	 */
 	publish(message: T): Promise<number>;
 	/** How many iterators are open. */
@@ -33,7 +33,10 @@ async function publishVia<T>(
 	} catch (error) {
 		if (!ctx.fallback || ctx.source.refuses?.(error) === true) throw error;
 		const parsed = ctx.source.parse ? ctx.source.parse(message) : message;
-		if (!ctx.byKey.has(ctx.keyOf(parsed))) throw error;
+		if (!ctx.byKey.has(ctx.keyOf(parsed))) {
+			if (ctx.dropUnread) return 0;
+			throw error;
+		}
 		deliver(ctx, parsed);
 		return 0;
 	}
@@ -47,9 +50,14 @@ async function publishVia<T>(
 export function createKeyedStreams<T>(
 	source: StreamSource<T>,
 	keyOf: (message: T) => string,
-	options: { fallback?: boolean } = {},
+	options: { fallback?: boolean; dropUnread?: boolean } = {},
 ): KeyedStreams<T> {
-	const ctx = newContext(source, keyOf, options.fallback === true);
+	const ctx = newContext(
+		source,
+		keyOf,
+		options.fallback === true,
+		options.dropUnread === true,
+	);
 	return {
 		get listeners() {
 			return ctx.count;

@@ -34,6 +34,15 @@ export interface ChannelDefinition<S extends z.ZodType> {
 	 * was lost. A message the schema refuses still throws. Off by default.
 	 */
 	fallback?: 'local';
+	/**
+	 * With `fallback: 'local'`, what `publish` does when Redis cannot be
+	 * reached and no `stream()` of this process reads the message's key.
+	 * `'throw'` (the default) rethrows the transport error. `'drop'` resolves
+	 * with `0` and forgets the message, for fire-and-forget events nobody may
+	 * be watching. A message the schema refuses still throws. Needs
+	 * `fallback: 'local'`.
+	 */
+	onNoLocalReader?: 'throw' | 'drop';
 }
 
 /**
@@ -61,6 +70,23 @@ export function defineChannel<S extends z.ZodType>(
 ): ChannelDefinition<S> {
 	if (definition.name.length === 0) {
 		throw new TypeError('defineChannel: a channel needs a name');
+	}
+	if (
+		definition.onNoLocalReader !== undefined &&
+		definition.onNoLocalReader !== 'throw' &&
+		definition.onNoLocalReader !== 'drop'
+	) {
+		throw new TypeError(
+			`defineChannel "${definition.name}": onNoLocalReader is 'throw' or 'drop'`,
+		);
+	}
+	if (
+		definition.onNoLocalReader === 'drop' &&
+		definition.fallback !== 'local'
+	) {
+		throw new TypeError(
+			`defineChannel "${definition.name}": onNoLocalReader: 'drop' needs fallback: 'local'`,
+		);
 	}
 	return Object.freeze({ ...definition });
 }

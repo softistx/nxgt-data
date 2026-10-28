@@ -51,7 +51,10 @@ export function streamsFor(
 					error instanceof RedisError && error.code === 'INVALID',
 			},
 			(message) => select.call(definition, message),
-			{ fallback: definition.fallback === 'local' },
+			{
+				fallback: definition.fallback === 'local',
+				dropUnread: definition.onNoLocalReader === 'drop',
+			},
 		);
 		streams = hub;
 		const closeHub = () => {

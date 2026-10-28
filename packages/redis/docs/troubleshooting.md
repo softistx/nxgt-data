@@ -676,6 +676,25 @@ subscription, so a local iterator can see it twice.
 **Fix:** treat a keyed message as idempotent (carry a version or an id), or
 leave `fallback` off and let `publish` throw.
 
+### `publish` throws while Redis is down, though `fallback: 'local'` is on
+
+**When:** Redis is unreachable and no `stream()` of this process reads the
+message's key (or none is open at all): `publish` rethrows the transport error,
+on every call.
+**Why:** the fallback only delivers to local readers; with none, it cannot tell
+a message nobody wants from a message that must not be lost, so it throws.
+**Fix:** for fire-and-forget events, say nobody-reading is fine:
+
+```ts
+export const runEvent = defineChannel({
+	name: 'run.event',
+	schema: z.object({ runId: z.string(), step: z.number() }),
+	key: (event) => event.runId,
+	fallback: 'local',
+	onNoLocalReader: 'drop', // resolves with 0 instead of throwing
+});
+```
+
 ## Queues
 
 A queue throws a `QueueError` and a bare `TypeError`. `QueueError` has a `code`

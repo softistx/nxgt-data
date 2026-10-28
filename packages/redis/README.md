@@ -784,7 +784,9 @@ Each is a `@ts-expect-error` case in `test/types/redis.ts`.
   nobody here reads, it throws as before. Other processes do not hear such a
   message, and if Redis applied the publish but the reply was lost, the local
   iterators hear it twice (once through the subscription, once through the
-  fallback).
+  fallback). If nothing here reads the key, `publish` throws unless the
+  definition also says `onNoLocalReader: 'drop'`: it then resolves with `0`
+  and the message is forgotten (a schema refusal still throws).
 - **A write is typed by what the schema accepts.** `set` and a `remember`
   loader take `z.input`, so a `.default()` field may be left out. Where a
   field's input type is `unknown` — `z.coerce.number()` — the compiler accepts

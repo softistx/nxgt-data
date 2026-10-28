@@ -38,6 +38,8 @@ export interface StreamContext<T> {
 	readonly keyOf: (message: T) => string;
 	/** Deliver a refused `publish` to the local iterators of its key. */
 	readonly fallback: boolean;
+	/** With `fallback`, a refused `publish` nobody here reads is dropped, not thrown. */
+	readonly dropUnread: boolean;
 	readonly byKey: Map<string, Set<Listener<T>>>;
 	count: number;
 	closed: boolean;
@@ -50,11 +52,13 @@ export function newContext<T>(
 	source: StreamSource<T>,
 	keyOf: (message: T) => string,
 	fallback: boolean,
+	dropUnread = false,
 ): StreamContext<T> {
 	return {
 		source,
 		keyOf,
 		fallback,
+		dropUnread,
 		byKey: new Map(),
 		count: 0,
 		closed: false,

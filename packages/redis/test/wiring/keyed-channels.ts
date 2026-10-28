@@ -15,3 +15,12 @@ export const resilient = defineChannel({
 	key: (change) => change.id,
 	fallback: 'local',
 });
+
+/** The same, dropping a message nobody here reads when Redis is down. */
+export const fireAndForget = defineChannel({
+	name: 'user.fire-and-forget',
+	schema: z.object({ id: z.string(), n: z.number() }),
+	key: (change) => change.id,
+	fallback: 'local',
+	onNoLocalReader: 'drop',
+});

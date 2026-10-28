@@ -134,7 +134,9 @@ for await (const change of redis.channels.roomChanged.stream('r1')) {
   a key nobody here reads, still throws. `close()` (the channel's, and
   `redis.close()`) does not wait for a subscribe still in flight either: the
   iterators end at once and a subscription that resolves late is closed in the
-  background. See
+  background. `onNoLocalReader: 'drop'` (with `fallback: 'local'`) makes a
+  `publish` that no local stream reads resolve with `0` instead of throwing, for
+  fire-and-forget events; the default is `'throw'`. See
   [the trap](../../../README.md#traps).
 - **bufferSize.** A whole number of at least 1, else a `TypeError`.
 - **Closing.** `redis.channels.roomChanged.close()` ends every stream of the
