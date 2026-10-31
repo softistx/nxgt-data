@@ -1,6 +1,11 @@
 import { WiringError } from '../errors/wiring-error';
 import type { SyncOptions } from '../sync/sync-collection';
-import { databaseOf, derived, type WiringContext } from './context';
+import {
+	databaseOf,
+	derived,
+	derivedDatabase,
+	type WiringContext,
+} from './context';
 import { pingMongo } from './ping';
 import { scopeOf } from './scope';
 import { syncMongo, syncMongoBuckets } from './sync';
@@ -15,7 +20,7 @@ async function closeOpened(ctx: WiringContext): Promise<void> {
 	if (!ctx.root) {
 		throw new WiringError(
 			'DERIVED',
-			'close: this Mongo came from `as`, `withSession` or a transaction. ' +
+			'close: this Mongo came from `as`, `withSession`, `database` or a transaction. ' +
 				'Close the one `openMongo` returned — the clients are shared.',
 		);
 	}
@@ -77,6 +82,9 @@ export function mongoOf<C>(ctx: WiringContext): Mongo<C> {
 		},
 		withSession(session) {
 			return mongoOf<C>(derived(ctx, { session }));
+		},
+		database(name, ...[options]: [{ from?: string }?]) {
+			return mongoOf(derivedDatabase(ctx, name, options?.from)) as never;
 		},
 		transaction<T>(
 			fn: (mongo: Mongo<C>) => Promise<T>,

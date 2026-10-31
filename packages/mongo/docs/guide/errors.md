@@ -235,7 +235,7 @@ collections. `WiringError` is only about the wiring.
 | `NO_DATABASE` | `transaction(fn, { on: '<name>' })` | this Mongo holds no database under that name; the message lists the ones it has. Reading `mongo.databases.<name>` does **not** throw — an unknown key is plain `undefined` |
 | `SEVERAL_DATABASES` | reading `mongo.db` | the Mongo holds more than one database, so there is no "the" database to give |
 | `TRANSACTION` | `transaction` | the Mongo holds several clients and the call named none, or it is already in a session and still passed `{ on }` |
-| `DERIVED` | `close` | the Mongo came from `as`, `withSession` or a transaction: the clients are the root Mongo's |
+| `DERIVED` | `close` | the Mongo came from `as`, `withSession`, `database` or a transaction: the clients are the root Mongo's |
 | `DISCOVERY` | `discoverCollections` | the glob is missing, a matched file has no definition under the `export` asked for, or two files define the same server collection |
 
 `code` is the field to switch on: it survives a build that ends up with two
@@ -346,7 +346,7 @@ await mongo.transaction(async (tx) => { /* … */ });
 
 // DERIVED — closing a Mongo that `as` derived.
 await mongo.as(userId).close();
-// WiringError: close: this Mongo came from `as`, `withSession` or a transaction. …
+// WiringError: close: this Mongo came from `as`, `withSession`, `database` or a transaction. …
 ```
 
 A name no database has, and `{ on: 'nowhere' }` with it, do not compile

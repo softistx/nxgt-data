@@ -1379,11 +1379,18 @@ deep.
 | `databases`, `clients` | Every scope and every `MongoClient`, under the database's name. |
 | `actor`, `session` | What this `Mongo` stamps and runs in, if anything. |
 | `as(actor)`, `withSession(session)` | **Another** `Mongo` over the same clients; the one it came from is unchanged. |
+| `database(name, options?)` | **Another** `Mongo` on database `name` of the same client, synchronously: same collections, buckets, options and `autoSync`, the actor and the session (or transaction) carried, no new connection, and it cannot be closed. `{ from }` says whose collections, required with several databases. `await tenant.sync()` syncs it explicitly. |
 | `transaction(fn, options?)` | `fn` with a `Mongo` whose collections and buckets are all in the transaction. May run twice, unless `options.retryTransient` (else the config's `transactions.retryTransient`) is `false`. |
 | `sync(options?)` | `SyncReport[]` per database, collections only. A deployment step. |
 | `syncBuckets()` | Creates each bucket's four indexes, per database and bucket key. |
 | `ping(options?)` | `PingResult` per database. Never throws; `timeoutMS`, 2 s by default, plus a 250 ms grace; `0` is not "no limit" here, it leaves only the grace. |
 | `close()` | Gives back what it opened. Idempotent; only the `Mongo` `openMongo` returned. |
+
+```ts
+// one database per tenant, derived per request
+const tenant = mongo.as(userId).database(`tenant_${tenantId}`);
+await tenant.db.users.create({ email: 'ada@example.com' });
+```
 
 `MongoOf<typeof config>` is that `Mongo`'s type, for a service that declares
 it rather than reading it off `await openMongo(…)`. `await using mongo = await

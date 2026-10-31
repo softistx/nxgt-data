@@ -80,3 +80,58 @@ export function databaseOf(ctx: WiringContext, name: string): DatabaseContext {
 	}
 	return found;
 }
+
+/**
+ * The same Mongo over another database of the same client, found by name
+ * and with no connection of its own: the client is the source database's,
+ * its collections, buckets, options and `autoSync` are carried, and the
+ * session and the actor travel with the context. It holds one database,
+ * under the key `default`, whatever the source's key was.
+ */
+export function derivedDatabase(
+	ctx: WiringContext,
+	name: string,
+	from: string | undefined,
+): WiringContext {
+	if (typeof name !== 'string' || name.length === 0) {
+		throw new WiringError(
+			'CONFIG',
+			'database: the name of the database must be a non-empty string.',
+			{ database: String(name) },
+		);
+	}
+	let source: DatabaseContext | undefined;
+	if (from === undefined) {
+		if (ctx.databases.length !== 1) {
+			throw new WiringError(
+				'SEVERAL_DATABASES',
+				'database: this Mongo has several databases. Say which one the ' +
+					'collections come from, as `{ from: "main" }`.',
+			);
+		}
+		source = ctx.databases[0];
+	} else {
+		source = databaseOf(ctx, from);
+	}
+	if (!source) {
+		throw new WiringError(
+			'NO_DATABASE',
+			'database: this Mongo has no database.',
+		);
+	}
+	const database: DatabaseContext = {
+		...source,
+		name: 'default',
+		db: source.client.db(name),
+		// The client stays the one the Mongo opened, or the config gave.
+		connection: undefined,
+	};
+	return {
+		databases: [database],
+		session: ctx.session,
+		actor: ctx.actor,
+		retryTransient: ctx.retryTransient,
+		cache: new Map(),
+		root: false,
+	};
+}

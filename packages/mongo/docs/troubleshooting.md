@@ -139,7 +139,7 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`connectMongo: this URI is already connected with other options. Pass the same options everywhere, or close the first connection.`](#connectmongo-this-uri-is-already-connected-with-other-options-pass-the-same-options-everywhere-or-close-the-first-connection)
   - [``db: this Mongo has several databases. Read the one you mean, as `mongo.databases.main`.``](#db-this-mongo-has-several-databases-read-the-one-you-mean-as-mongodatabasesmain)
   - [`No database "reporting" in this Mongo: it has "main", "analytics".`](#no-database-reporting-in-this-mongo-it-has-main-analytics)
-  - [``close: this Mongo came from `as`, `withSession` or a transaction. Close the one `openMongo` returned — the clients are shared.``](#close-this-mongo-came-from-as-withsession-or-a-transaction-close-the-one-openmongo-returned--the-clients-are-shared)
+  - [``close: this Mongo came from `as`, `withSession`, `database` or a transaction. Close the one `openMongo` returned — the clients are shared.``](#close-this-mongo-came-from-as-withsession-database-or-a-transaction-close-the-one-openmongo-returned--the-clients-are-shared)
   - [`not authorized on app to execute command { collMod: "users", … }`](#not-authorized-on-app-to-execute-command--collmod-users--)
   - [``transaction: this Mongo holds more than one client, and a transaction lives on one. Name the database it runs on, as `{ on: 'main' }`.``](#transaction-this-mongo-holds-more-than-one-client-and-a-transaction-lives-on-one-name-the-database-it-runs-on-as--on-main-)
   - [``transaction: this Mongo is already in a session, which this call joins, so `on` has no client left to choose.``](#transaction-this-mongo-is-already-in-a-session-which-this-call-joins-so-on-has-no-client-left-to-choose)
@@ -2272,10 +2272,10 @@ name that is not there does not throw: it does not compile, and gives
 await mongo.transaction(fn, { on: 'main' });   // a key of `config.databases`
 ```
 
-### ``close: this Mongo came from `as`, `withSession` or a transaction. Close the one `openMongo` returned — the clients are shared.``
+### ``close: this Mongo came from `as`, `withSession`, `database` or a transaction. Close the one `openMongo` returned — the clients are shared.``
 
 **When:** `close()` — including the implicit one of `await using` — on a Mongo
-that came from `as`, `withSession`, or the one handed to a transaction body.
+that came from `as`, `withSession`, `database`, or the one handed to a transaction body.
 
 **Why:** a derived Mongo shares the databases and the clients of the Mongo
 `openMongo` returned. Closing it would take the connections from every other

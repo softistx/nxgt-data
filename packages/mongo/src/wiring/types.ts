@@ -87,6 +87,17 @@ export type MongoTransactionOptions<C> = WithTransactionOptions & {
 	on?: DbName<C>;
 };
 
+/** What `database` takes: which database's collections it derives from. */
+export interface DerivedDatabaseOptions<N extends string> {
+	from?: N;
+}
+
+/** The config of a database `database(name)` derived: one database, same wiring. */
+export type DerivedConfig<C, N extends DbName<C>> = {
+	collections: CollectionsIn<C, N>;
+	buckets: BucketsIn<C, N>;
+};
+
 /**
  * An application's MongoDB, wired: the collections on their database, the
  * clients, and what a request adds to them.
@@ -118,6 +129,25 @@ export interface Mongo<C> extends AsyncDisposable {
 	as(actor: MongoActor<C>): Mongo<C>;
 	/** The same mongo, running in this session; `undefined` takes it away. */
 	withSession(session: ClientSession | undefined): Mongo<C>;
+	/**
+	 * The same collections and buckets on another database of the same client,
+	 * synchronously: a Mongo for a tenant's database, per request. It carries
+	 * the actor (`as`) and the session or transaction this Mongo is in, builds
+	 * its collections of its own, and keeps the source database's options and
+	 * `autoSync` — which runs lazily on first use, so nothing here awaits.
+	 * `sync()` on the result syncs that database explicitly.
+	 *
+	 * No connection is opened and the client stays open: like `as`, the result
+	 * cannot be closed. It holds one database, read as `db` or
+	 * `databases.default`. `from` names the database whose collections it
+	 * takes, and is required once this Mongo holds several.
+	 */
+	database<N extends DbName<C> = DbName<C>>(
+		name: string,
+		...options: [SoleScope<C>] extends [never]
+			? [options: DerivedDatabaseOptions<N>]
+			: [options?: DerivedDatabaseOptions<N>]
+	): Mongo<DerivedConfig<C, N>>;
 	/**
 	 * Runs `fn` in a transaction, with a Mongo whose collections and buckets
 	 * are all in it: a file written there commits or rolls back with the
