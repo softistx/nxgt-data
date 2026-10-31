@@ -1014,7 +1014,8 @@ chunk. After about 120 seconds the `DataError` arrives, its `cause` the
 driver's abort (`Transaction ... has been aborted`) or write conflict. When
 the client was given a `timeoutMS`, the driver's own timeout error
 (`Timed out during withTransaction`, or `Server reported a timeout error`)
-comes back instead, with that error on its `cause`.
+comes back instead, with that error on its `cause` — below mongodb 7.8 only:
+from 7.8 on, the driver ignores `timeoutMS` and the window is always 120 seconds.
 **Why:** the server labels the abort `TransientTransactionError`, so the
 driver reruns the callback from the start until its window closes. The
 collision is deterministic, so every run fails the same way.
@@ -2192,8 +2193,10 @@ and the driver's own `MongoOperationTimeoutError` did not come first. The
 selection, which waits `serverSelectionTimeoutMS` (30 s by default): a client
 handed over unconnected makes its connect on the first command, and a
 connected client that has just lost its server makes its second ping wait the
-same way (measured on mongodb 7.6.0). A server that is merely too slow still
-reports `MongoOperationTimeoutError`.
+same way (measured on mongodb 7.6.0). Below mongodb 7.8, a server that is
+merely too slow still reports `MongoOperationTimeoutError`. From 7.8 on the
+driver ignores `timeoutMS`, so this timer is the only deadline and every slow
+server reports this error.
 
 **Fix:** answer 503 and look at the server. If the database is a `client` you
 handed over, connect it before `openMongo`:

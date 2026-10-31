@@ -10,12 +10,7 @@ import { createHash } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
-import type {
-	Collection,
-	CommandStartedEvent,
-	Db,
-	TransactionOptions,
-} from 'mongodb';
+import type { Collection, CommandStartedEvent, Db } from 'mongodb';
 import { Binary, GridFSBucket, MongoClient, ObjectId } from 'mongodb';
 import { avatars, clips, uploads } from '../../test/buckets';
 import { rejection, rejectionMessage } from '../../test/rejection';
@@ -1290,32 +1285,39 @@ describe('two callers storing the same bytes at once', () => {
 		// what comes back is the abort and not this package's `ConflictError`.
 		// There is nothing to wait for either — a document another transaction
 		// wrote is not in this one's snapshot however long it waits.
+		//
+		// The abort is labelled transient, so the driver runs the callback
+		// again, for 120 s. That window is the driver's to bound, and since
+		// mongodb 7.8 it cannot be shortened: `timeoutMS` (CSOT) has no effect
+		// there, and a `{ timeoutMS: 3000 }` left the callback looping past
+		// this test's 30 s, its transactions still open under the next tests'
+		// `dropDatabase`, which then timed out one after the other. So the
+		// callback ends the loop itself, on its third run, whatever the driver
+		// and whatever an assertion below makes of the first two.
+		const enough = new Error('three runs are enough');
+		const seen: unknown[] = [];
 		let runs = 0;
 		const error = await rejection(
-			withTransaction(
-				t.client,
-				async (session) => {
-					runs += 1;
+			withTransaction(t.client, async (session) => {
+				runs += 1;
+				if (runs > 2) throw enough;
+				try {
 					await files.withSession(session).putOnce(mine);
-				},
-				// The abort is labelled transient, so the driver runs the callback
-				// again until its window closes: 120 s unless told a shorter one. The
-				// driver takes `timeoutMS` here; its `TransactionOptions` type omits it.
-				{ timeoutMS: 3000 } as TransactionOptions,
-			),
+				} catch (thrown) {
+					seen.push(thrown);
+					throw thrown;
+				}
+			}),
 		);
-		// What is left is the driver's timeout, and which error it ends on
-		// depends on timing: the abort itself, or a retried command that met the
-		// server's MaxTimeMS as the window closed. Both are accepted; what this
-		// pins is that the callback was run again, that the call failed with
-		// an error whose cause is one of the two (the driver's timeout error
-		// reaches the caller as it is, not as a `DataError`), and that nothing
-		// was stored.
-		expect(runs).toBeGreaterThan(1);
-		expect(error).toBeInstanceOf(Error);
-		expect(String((error as Error).cause)).toMatch(
-			/aborted|exceeded time limit/,
-		);
+		// The callback was run again, so the driver took each failure as
+		// transient; each was the server's abort (the driver's error reaches
+		// the caller as it is, not as a `DataError`); and nothing was stored.
+		expect(error).toBe(enough);
+		expect(runs).toBe(3);
+		expect(seen).toHaveLength(2);
+		for (const thrown of seen) {
+			expect(String((thrown as Error).cause ?? thrown)).toMatch(/aborted/);
+		}
 		expect(
 			await t.db
 				.collection('uploads.files')

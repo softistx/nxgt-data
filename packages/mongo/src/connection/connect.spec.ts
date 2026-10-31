@@ -6,6 +6,7 @@ import {
 	expect,
 	test,
 } from 'bun:test';
+import { slowPingErrorName } from '../../test/driver';
 import { rejectionMessage } from '../../test/rejection';
 import { startMongo, type TestServer } from '../../test/server';
 import { ConnectionError } from '../errors/data-error';
@@ -119,7 +120,7 @@ describe('ping', () => {
 		if (result.ok) expect(result.latencyMs).toBeGreaterThanOrEqual(0);
 	});
 
-	test('answers within its timeout when the server does not', async () => {
+	test('answers within its timeout when the server does not (the driver’s error below mongodb 7.8, the timer’s from 7.8 on)', async () => {
 		const mongo = await connectMongo(t.uri);
 		await t.failNext(['ping'], { blockConnection: true, blockTimeMS: 4_000 });
 		const started = Date.now();
@@ -127,7 +128,7 @@ describe('ping', () => {
 		const result = await mongo.ping();
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
-			expect((result.error as Error).name).toBe('MongoOperationTimeoutError');
+			expect((result.error as Error).name).toBe(slowPingErrorName);
 		}
 		expect(Date.now() - started).toBeGreaterThanOrEqual(1_900);
 		expect(Date.now() - started).toBeLessThan(3_500);

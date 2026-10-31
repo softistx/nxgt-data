@@ -36,7 +36,7 @@ connection's own `ping` answers with —
 | Result | Means |
 | --- | --- |
 | `{ ok: true, latencyMs }` | the server answered `ping`, in that many milliseconds |
-| `{ ok: false, error }` | it did not, within `timeoutMS`; `error` is the driver's — `MongoOperationTimeoutError` for a server too slow, `MongoNetworkError` or `MongoServerSelectionError` for one that is gone — or a `ConnectionError`, `ping: no answer in 1000ms`, when the deadline plus a 250 ms grace passed first |
+| `{ ok: false, error }` | it did not, within `timeoutMS`; `error` is the driver's — `MongoOperationTimeoutError` for a server too slow (below mongodb 7.8; from 7.8 on it is always the `ConnectionError` timer), `MongoNetworkError` or `MongoServerSelectionError` for one that is gone — or a `ConnectionError`, `ping: no answer in 1000ms`, when the deadline plus a 250 ms grace passed first |
 
 The keys are the database names the configuration gave, `default` when it
 named none, and the types know them: `health.main` on a Mongo with no `main`
@@ -60,7 +60,8 @@ The ping carries no session and no actor.
 Every database is pinged by the same `ping`, raced against a timer set at
 `timeoutMS` plus a 250 ms grace, so the driver's own
 `MongoOperationTimeoutError` still wins whenever the driver honours the
-deadline. The timer is there because `timeoutMS` does not bound server
+deadline. From mongodb 7.8 on the driver ignores `timeoutMS`, so a
+server too slow is always reported by the timer, as a `ConnectionError`. The timer is there because `timeoutMS` does not bound server
 selection (measured on mongodb 7.6.0): a client that was **never connected**
 makes its connect on the first command, and a connected client that has just
 lost its server makes its second ping wait `serverSelectionTimeoutMS` (30 s by

@@ -89,7 +89,8 @@ deterministic collision the server aborts the transaction for, such as
 `putOnce` against a stray committed chunk — is retried for the whole window.
 What comes back at the end is a `DataError` with the driver's error, the
 abort or the write conflict, on its `cause` (the driver's timeout error when
-the client was given a `timeoutMS`). Only `TransientTransactionError` is
+the client was given a `timeoutMS`, below mongodb 7.8: from 7.8 on, `timeoutMS`
+has no effect, and the window cannot be shortened). Only `TransientTransactionError` is
 handed back to the driver; an error without that label, a duplicate key for
 one, fails at once and the callback runs once.
 
@@ -110,7 +111,8 @@ result is unknown (`UnknownTransactionCommitResult`, other than
 because a commit is idempotent. The callback never reruns for it, and a commit
 that may have landed never reaches your retry loop to apply the work twice.
 The 120-second window is fixed: the client's `timeoutMS` (CSOT) does not
-shorten it on this path, unlike the driver's helper.
+shorten it on this path, unlike the driver's helper below mongodb 7.8 (from 7.8
+on the driver ignores `timeoutMS` everywhere).
 The option never reaches the driver. It is refused, with the
 other options, by a call that joins an open transaction.
 

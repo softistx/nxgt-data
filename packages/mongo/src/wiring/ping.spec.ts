@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { MongoClient } from 'mongodb';
+import { slowPingErrorName } from '../../test/driver';
 import { collections, events, useMongo } from '../../test/wiring';
 import { ConnectionError } from '../errors/data-error';
 import { defineMongo } from './config/define-mongo';
@@ -39,7 +40,7 @@ describe('ping', () => {
 		expect(report.default.ok).toBe(true);
 	});
 
-	test('a database the Mongo opened reports the driver’s own timeout', async () => {
+	test('a database the Mongo opened reports the driver’s own timeout below mongodb 7.8, the timer’s from 7.8 on', async () => {
 		const mongo = track(
 			await openMongo(defineMongo({ uri: server.uri, collections })),
 		);
@@ -53,9 +54,7 @@ describe('ping', () => {
 			const took = performance.now() - started;
 			expect(report.default.ok).toBe(false);
 			if (!report.default.ok) {
-				expect((report.default.error as Error).name).toBe(
-					'MongoOperationTimeoutError',
-				);
+				expect((report.default.error as Error).name).toBe(slowPingErrorName);
 			}
 			expect(took).toBeLessThan(1_200);
 		} finally {
