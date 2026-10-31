@@ -75,9 +75,15 @@ export type MongoActor<C> = [ActorOf<WiredDefinition<C>>] extends [never]
 /**
  * The scope of a Mongo that has exactly one database, and `never` for a Mongo
  * that has several: with two, `mongo.databases.main` is the one that says which.
+ * Not written through `IsSole`: that form made `Mongo<C>` invariant in `C`
+ * (0.25.0), and `test/types/covariance.ts` holds it covariant.
  */
 export type SoleScope<C> =
-	IsSole<DbName<C>> extends true ? ScopeOf<C, DbName<C>> : never;
+	DbName<C> extends infer N extends DbName<C>
+		? [Exclude<DbName<C>, N>] extends [never]
+			? ScopeOf<C, N>
+			: never
+		: never;
 
 /** Whether `N` is one name, not a union of several. */
 type IsSole<N> = [N] extends [never]
