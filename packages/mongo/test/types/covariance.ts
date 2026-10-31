@@ -1,6 +1,6 @@
 // `Mongo<C>` stays covariant in its config, and two configs that differ only
 // in wiring keys (`autoSync`) hold assignable Mongos. Checked by
-// `tsc --noEmit`, never run. 0.25.0 broke both through `database()`.
+// `tsc --noEmit`, never run. 0.25.0 broke both through `SoleScope`.
 
 import type { MongoClient } from 'mongodb';
 import { z } from 'zod';
