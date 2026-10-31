@@ -88,7 +88,7 @@ beforeEach(() => s3.reset('avatars', { timeoutMs: 3_000 }));
 ```
 
 On `reset` the deadline applies to each list and each round of deletes; on
-`createBucket` it replaces the 90 s readiness wait. Keep it under your hook
+`createBucket` it replaces the 90 s readiness wait, as a total. Keep it under your hook
 timeout. A value that is not whole milliseconds throws `WRONG_OPTION`.
 
 ## Where the binary comes from

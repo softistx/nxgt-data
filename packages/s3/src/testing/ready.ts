@@ -119,11 +119,15 @@ export async function createBucketOn(
 		dead = true;
 	});
 	for (;;) {
-		const ok = await within(own, bucket, 'createBucket', () =>
-			scoped
-				.write('.nxgt-ready', 'ok')
-				.then(() => true)
-				.catch(() => false),
+		const ok = await within(
+			own === undefined ? undefined : Math.max(1, deadline - Date.now()),
+			bucket,
+			'createBucket',
+			() =>
+				scoped
+					.write('.nxgt-ready', 'ok')
+					.then(() => true)
+					.catch(() => false),
 		);
 		if (ok) break;
 		if (own !== undefined && !dead && Date.now() > deadline) {

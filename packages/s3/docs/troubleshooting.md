@@ -609,8 +609,8 @@ message starts with the call that was waiting: `reset (list)`, `reset
 write in <n>ms. Its log, <path>, says:` followed by the server's log.
 **Why:** the test server accepted the connection and did not answer within
 `timeoutMs`: it is stuck, or the machine is too loaded.
-**Fix:** read the server's log (the `createBucket` message quotes it), stop
-other test servers, and restart. Raise `timeoutMs` only if the machine is
+**Fix:** when the message quotes the server's log (`createBucket` only, when
+the server answered with errors), read it; stop other test servers, and restart. Raise `timeoutMs` only if the machine is
 slow, and keep it under your hook timeout.
 
 ### `createBucket: "x" is not a bucket name S3 accepts: 3 to 63 characters, lowercase letters, digits, dots and hyphens, starting and ending with a letter or digit`
