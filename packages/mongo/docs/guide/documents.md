@@ -385,6 +385,7 @@ const collection = getCollection(db, users, {
 | `validate` | `'parse' \| 'off'` | `'parse'` | `'off'` sends documents as they are — and fills no schema default |
 | `coerce` | `boolean` | `true` | read a string as the `ObjectId` or `Date` its field holds |
 | `maxPageSize` | `number` | `100` | the largest `pageSize` or `limit` a page may ask for |
+| `cursorScope` | `string` | — | the `scope` of every `paginateByCursor` call that gives none; a call's own outranks it: see [Pagination](pagination.md#binding-a-cursor-to-a-list) |
 | `session` | `ClientSession` | — | the session every operation runs in; `withSession` is the same thing, later |
 | `actor` | `ActorOf<Def>` | — | who is writing; `as` is the same thing, later |
 | `db` | `string` | the URI's | which database, when `getCollection` is given a client |

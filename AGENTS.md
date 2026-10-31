@@ -429,7 +429,7 @@ runs Biome instead.
 - **An option a caller is likely to hold as a maybe-missing value, and whose
   `undefined` the package treats as left out, is typed `?: T | undefined`**,
   so a caller under `exactOptionalPropertyTypes` can pass it as it is. So far:
-  `page`, `pageSize`, `withDeleted`, a collection's and a bucket's `session`,
+  `page`, `pageSize`, `withDeleted`, `@nxgt/mongo`'s `cursorScope`, a collection's and a bucket's `session`,
   `startAfter`, a file listing's `after`, a bucket's `contentType`, a
   presigned URL's `expiresIn`, `@nxgt/s3`'s `timeoutMs`, `@nxgt/redis`'s wiring `prefix`, `@nxgt/meilisearch`'s
   `settings`, `dryRun` and `wait`, a patch's fields in `@nxgt/mongo`, and the
