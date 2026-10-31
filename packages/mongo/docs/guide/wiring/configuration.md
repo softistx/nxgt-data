@@ -76,7 +76,7 @@ checked again against the object at `openMongo`.
 | `transactions` | `{ retryTransient?: boolean }` | `{}` | The Mongo's, not a database's: written beside `uri` for one database, or beside `databases` for several. `retryTransient` is the default of every transaction it starts, `true` when left out; a call's own value outranks it. See [A default for the whole client](../transactions.md#a-default-for-the-whole-client) |
 
 `options` and `optionsFor` take `@nxgt/mongo`'s own collection options —
-`maxPageSize`, `coerce`, `validate`, `softDelete`, `touchUpdatedAt`,
+`maxPageSize`, `cursorScope`, `coerce`, `validate`, `softDelete`, `touchUpdatedAt`,
 `optimisticLock`, `hooks` — minus the four the wiring decides itself:
 
 ```ts

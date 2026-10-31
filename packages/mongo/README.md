@@ -772,6 +772,8 @@ await repo.paginateByCursor({ filter: { tenantId }, scope: `tenant:${tenantId}`,
 // InvalidCursorError: Invalid cursor in paginateByCursor on "users": it was written for another scope
 ```
 
+A collection can hold the scope as a default, `cursorScope` (in `getCollection`'s options, or `options` / `optionsFor` of `defineMongo`); a call's own `scope` outranks it. See [Pagination](docs/guide/pagination.md#binding-a-cursor-to-a-list).
+
 **Both refusals name the call and the collection**, because every paginated
 call takes the same options and a log line holding one sentence said nothing
 about which listing produced it:
@@ -1525,7 +1527,7 @@ each: [configuration](docs/guide/wiring/configuration.md), the
 
 `CollectionOptions` turns the behaviours off one by one: `softDelete`,
 `touchUpdatedAt`, `optimisticLock`, `validate: 'off'`, `coerce: false`,
-`maxPageSize`, `autoSync`, `hooks`, and it names the database with `db` when
+`maxPageSize`, `cursorScope`, `autoSync`, `hooks`, and it names the database with `db` when
 you pass a client.
 
 ## What does not compile

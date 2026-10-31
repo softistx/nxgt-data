@@ -117,6 +117,28 @@ const page = await collection.paginateByCursor({
 // written for another scope
 ```
 
+Every call of a list repeats the same `scope`, so a collection can hold it as
+a default: `cursorScope`, a collection option (`getCollection(db, posts,
+{ cursorScope })`) that the wiring takes in `options` and `optionsFor`. A host
+with one database per tenant writes it once per database:
+
+```ts
+const mongo = await openMongo(
+	defineMongo({
+		uri: process.env.MONGO_URI!,
+		collections,
+		options: { cursorScope: `tenant:${tenantId}` },
+	}),
+);
+await mongo.db.posts.paginateByCursor({ after });  // scoped to the tenant
+await mongo.db.posts.paginateByCursor({ scope: 'archive', after }); // a call's scope outranks it
+```
+
+A call that gives no `scope`, or `scope: undefined`, uses the default; there is
+no way to ask for an unscoped cursor on a collection that has one. Setting a
+default refuses the cursors already handed out without a scope, as any scoped
+call does. A value that is not a string is the same `TypeError`.
+
 Only the first 16 hex characters of the scope's SHA-256 enter the cursor, so
 the scope shows neither in the cursor nor in a message. **It binds, it does not
 authenticate**: the cursor is encoded, not signed, and anyone who knows the

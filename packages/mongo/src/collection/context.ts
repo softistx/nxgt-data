@@ -48,6 +48,8 @@ export interface CollectionContext {
 	/** `{ session }` when there is one, to spread into the driver's options. */
 	readonly sessionOption: { session?: ClientSession };
 	readonly maxPageSize: number;
+	/** The `scope` of a `paginateByCursor` call that gives none. */
+	readonly cursorScope: string | undefined;
 	/**
 	 * Whether the schema declares an `id` field of its own. Then `id` is that
 	 * field's, and this package neither computes it nor drops it.
@@ -125,6 +127,7 @@ export function createContext(
 		session,
 		sessionOption: session ? { session } : {},
 		maxPageSize: options.maxPageSize ?? DEFAULT_MAX_PAGE_SIZE,
+		cursorScope: options.cursorScope,
 		hasOwnId: 'id' in shape,
 		parses: (options.validate ?? 'parse') === 'parse',
 		coerces: options.coerce ?? true,
