@@ -81,6 +81,7 @@ _Nothing queued._
 
 ## Shipped
 
+- **`mongo.database(name)`** — a synchronous `Mongo` on another database of the same client, with the same collections, the actor and the session or transaction it was derived in, no new connection (the client stays open; the derived Mongo's `close()` throws, as `as`'s does) and `options` merged per tenant database.
 - **The wiring of `@nxgt/mongo-kit`, folded in** — `defineMongo` checks a
   configuration of one or several databases and freezes it; `openMongo` opens
   the clients and gives back a `Mongo` whose `db` is the driver's own with

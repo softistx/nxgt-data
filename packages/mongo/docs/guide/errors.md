@@ -230,12 +230,13 @@ collections. `WiringError` is only about the wiring.
 
 | `code` | Thrown by | When |
 | --- | --- | --- |
-| `CONFIG` | `defineMongo` | the configuration cannot work: no `uri` and no `client`, both at once, `clientOptions` beside a `client`, a `collections` with no definition in it, two keys on one server collection, `optionsFor` under a key nothing is wired under, or one of the four options the wiring decides; for [buckets](wiring/files.md), a `buckets` with no bucket in it, a bucket key a collection already holds, two keys on one bucket, `session`/`autoSync` in `bucketOptions`, or `bucketOptions` on a database with no `buckets` |
+| `CONFIG` | `defineMongo` | the configuration cannot work: no `uri` and no `client`, both at once, `clientOptions` beside a `client`, a `collections` with no definition in it, two keys on one server collection, `optionsFor` under a key nothing is wired under, or one of the four options the wiring decides (also in the `options` or `optionsFor` of `database()`, or an `optionsFor` key it does not wire); for [buckets](wiring/files.md), a `buckets` with no bucket in it, a bucket key a collection already holds, two keys on one bucket, `session`/`autoSync` in `bucketOptions`, or `bucketOptions` on a database with no `buckets` |
 | `COLLISION` | `openMongo` | a collection or a bucket is wired under a name the driver's `Db` already has — `command`, `watch`, `collection`… — so it would be unreachable |
-| `NO_DATABASE` | `transaction(fn, { on: '<name>' })` | this Mongo holds no database under that name; the message lists the ones it has. Reading `mongo.databases.<name>` does **not** throw — an unknown key is plain `undefined` |
-| `SEVERAL_DATABASES` | reading `mongo.db` | the Mongo holds more than one database, so there is no "the" database to give |
+| `NO_DATABASE` | `transaction(fn, { on: '<name>' })`, `database(name, { from })` | this Mongo holds no database under that name; the message lists the ones it has. Reading `mongo.databases.<name>` does **not** throw — an unknown key is plain `undefined` |
+| `SEVERAL_DATABASES` | reading `mongo.db`, or `database(name)` without `from` | the Mongo holds more than one database, so there is no "the" database to give |
 | `TRANSACTION` | `transaction` | the Mongo holds several clients and the call named none, or it is already in a session and still passed `{ on }` |
-| `DERIVED` | `close` | the Mongo came from `as`, `withSession` or a transaction: the clients are the root Mongo's |
+| `DATABASE_NAME` | `database(name)` | the name is empty, not a string, over 63 bytes, holds `/\. "$*<>:|?` or NUL, or is `admin`, `local` or `config`; the message never repeats the value |
+| `DERIVED` | `close` | the Mongo came from `as`, `withSession`, `database` or a transaction: the clients are the root Mongo's |
 | `DISCOVERY` | `discoverCollections` | the glob is missing, a matched file has no definition under the `export` asked for, or two files define the same server collection |
 
 `code` is the field to switch on: it survives a build that ends up with two
@@ -259,6 +260,7 @@ type WiringErrorCode =
 	| 'COLLISION'
 	| 'NO_DATABASE'
 	| 'SEVERAL_DATABASES'
+	| 'DATABASE_NAME'
 	| 'TRANSACTION'
 	| 'DERIVED'
 	| 'DISCOVERY';
@@ -344,9 +346,13 @@ mongo.db;
 await mongo.transaction(async (tx) => { /* … */ });
 // WiringError: transaction: this Mongo holds more than one client, …
 
+// DATABASE_NAME — a tenant's name MongoDB would refuse, or its own.
+mongo.database('a.b');
+// WiringError: database: the name holds a character MongoDB refuses (one of /\. "$*<>:|? or NUL).
+
 // DERIVED — closing a Mongo that `as` derived.
 await mongo.as(userId).close();
-// WiringError: close: this Mongo came from `as`, `withSession` or a transaction. …
+// WiringError: close: this Mongo came from `as`, `withSession`, `database` or a transaction. …
 ```
 
 A name no database has, and `{ on: 'nowhere' }` with it, do not compile

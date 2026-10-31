@@ -60,6 +60,63 @@ try {
 `as` and `withSession` compose, in either order, and each keeps what the
 other set.
 
+## `database(name, options?)`
+
+The same collections and buckets on **another database of the same client**,
+with no `await`: a host with one database per tenant derives the tenant's
+Mongo per request.
+
+```ts
+const tenant = mongo.as(actor).database(`tenant_${tenantId}`);
+await tenant.db.users.create({ email: 'ada@example.com' });
+```
+
+- It opens no connection: the client is the source database's, and stays
+  open. Like `as`, the result cannot be closed (`DERIVED`).
+- It carries the actor and the session, so one derived inside a
+  `transaction` body joins that transaction (every database of one client can).
+- It builds its own collections, keeping the source's `options`,
+  `optionsFor` and `autoSync`. `autoSync` runs lazily before a collection's
+  first operation, so nothing waits at derivation; `await tenant.sync()`
+  syncs that database explicitly (a deployment step, as everywhere).
+- The result holds one database, under `default`: read it as `tenant.db`.
+- `{ from: 'main' }` names the database whose collections it takes, and is
+  required once the Mongo holds several (`SEVERAL_DATABASES` otherwise,
+  `NO_DATABASE` for an unknown key).
+- `options` and `optionsFor` are merged over the source's, so a host can
+  differ per tenant database. From lowest to highest, a collection's options
+  are: the source's `options`, the source's `optionsFor[key]`, the derived
+  `options`, the derived `optionsFor[key]`. The derived options win, even
+  over the source's `optionsFor` for that collection. What the wiring decides (`db`, `session`,
+  `actor`, `autoSync`) is refused, and so is an `optionsFor` key the source
+  does not wire (`CONFIG`).
+- The definitions are always the source database's: the same schema on each
+  tenant database.
+- The name is checked at call time, since it may come from a request:
+  non-empty, under 64 bytes, none of `/\. "$*<>:|?` or NUL, and not `admin`,
+  `local` or `config`. A refusal is `code: 'DATABASE_NAME'`, and its message
+  never repeats the value.
+
+```ts
+// a cursor scope per tenant database (the `cursorScope` collection option,
+// available since the version that added it; see ../pagination.md)
+const tenant = mongo.database(`tenant_${tenantId}`, {
+	options: { cursorScope: tenantId },
+});
+```
+
+**Do not `await using` a derived Mongo**: its `close()` throws `DERIVED` at the
+end of the block. Keep `await using` for the Mongo `openMongo` returned. To give
+each tenant its own client-backed Mongo and close it later, see [Closing a Mongo
+that was given a client](configuration.md#closing-a-mongo-that-was-given-a-client);
+to serve many tenants from one client, derive, don't open, a Mongo per tenant.
+
+**A tenant database nobody synced has no indexes and no validator.** A first
+write, even inside a transaction, creates the bare collection, so unique
+indexes are not enforced until you sync. Call `await tenant.sync()`, or set
+`autoSync`, which runs outside the session before the collection's first
+operation.
+
 ## `transaction(fn, options?)`
 
 The body is given a Mongo whose collections — and [buckets](files.md#in-a-transaction),
@@ -170,7 +227,7 @@ the right actor: the transaction inherits it.
 
 ## Closing a derived Mongo
 
-`close()` on a Mongo from `as`, `withSession` or a transaction throws — the
+`close()` on a Mongo from `as`, `withSession`, `database` or a transaction throws — the
 clients belong to the Mongo `openMongo` returned, and that is the one to close.
 
 ## Signatures
@@ -185,6 +242,11 @@ type MongoTransactionOptions<C> = TransactionOptions & { on?: DbName<C> };
 interface Mongo<C> {
 	as(actor: MongoActor<C>): Mongo<C>;
 	withSession(session: ClientSession | undefined): Mongo<C>;
+	database<N extends DbName<C>>(
+		name: string,
+		// `from` is required once the Mongo holds several databases
+		options?: { from?: N; options?: …; optionsFor?: … },
+	): Mongo<{ collections: CollectionsIn<C, N>; buckets: BucketsIn<C, N> }>;
 	transaction<T>(
 		fn: (mongo: Mongo<C>) => Promise<T>,
 		options?: MongoTransactionOptions<C>,

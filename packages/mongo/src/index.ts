@@ -265,6 +265,8 @@ export { openMongo } from './wiring/open-mongo';
 export type {
 	BucketSyncReport,
 	DbScope,
+	DerivedConfig,
+	DerivedDatabaseOptions,
 	Mongo,
 	MongoActor,
 	MongoOf,

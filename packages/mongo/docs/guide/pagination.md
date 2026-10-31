@@ -134,6 +134,8 @@ await mongo.db.posts.paginateByCursor({ after });  // scoped to the tenant
 await mongo.db.posts.paginateByCursor({ scope: 'archive', after }); // a call's scope outranks it
 ```
 
+A host that derives a Mongo per tenant sets it per tenant database with [`mongo.database(name, { options: { cursorScope } })`](wiring/actor-and-transactions.md#databasename-options).
+
 A call that gives no `scope`, or `scope: undefined`, uses the default; there is
 no way to ask for an unscoped cursor on a collection that has one. Setting a
 default refuses the cursors already handed out without a scope, as any scoped

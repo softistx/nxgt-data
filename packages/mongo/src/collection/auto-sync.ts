@@ -1,4 +1,4 @@
-import type { Db } from 'mongodb';
+import type { Db, MongoClient } from 'mongodb';
 import type { AnyCollectionDefinition } from '../definition/define-collection';
 import { syncCollection } from '../sync/sync-collection';
 
@@ -11,7 +11,27 @@ import { syncCollection } from '../sync/sync-collection';
  * was not up yet is not a reason to refuse every operation for the life of the
  * process.
  */
-let syncs = new WeakMap<Db, Map<string, Promise<unknown>>>();
+/*
+ * Keyed by client and database name, never by the `Db` object: `client.db(name)`
+ * answers a new `Db` at each call, and a Mongo derived with `database(name)`
+ * must find the sync the last one started.
+ */
+type Syncs = Map<string, Map<string, Promise<unknown>>>;
+let syncs = new WeakMap<MongoClient, Syncs>();
+
+function syncsOf(db: Db): Map<string, Promise<unknown>> {
+	let byDatabase = syncs.get(db.client);
+	if (!byDatabase) {
+		byDatabase = new Map();
+		syncs.set(db.client, byDatabase);
+	}
+	let byName = byDatabase.get(db.databaseName);
+	if (!byName) {
+		byName = new Map();
+		byDatabase.set(db.databaseName, byName);
+	}
+	return byName;
+}
 
 /**
  * Forgets the syncs `autoSync` has already run, for one database or for all.
@@ -22,7 +42,7 @@ let syncs = new WeakMap<Db, Map<string, Promise<unknown>>>();
  * its database between cases calls this alongside.
  */
 export function resetAutoSync(db?: Db): void {
-	if (db) syncs.delete(db);
+	if (db) syncs.get(db.client)?.delete(db.databaseName);
 	else syncs = new WeakMap();
 }
 
@@ -30,11 +50,7 @@ function syncOnce(
 	db: Db,
 	definition: AnyCollectionDefinition,
 ): Promise<unknown> {
-	let byName = syncs.get(db);
-	if (!byName) {
-		byName = new Map();
-		syncs.set(db, byName);
-	}
+	const byName = syncsOf(db);
 	const started = byName.get(definition.name);
 	if (started) return started;
 	const running = syncCollection(db, definition);

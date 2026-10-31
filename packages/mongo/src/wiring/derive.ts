@@ -1,6 +1,13 @@
+import type { ClientSession } from 'mongodb';
 import { WiringError } from '../errors/wiring-error';
 import type { SyncOptions } from '../sync/sync-collection';
-import { databaseOf, derived, type WiringContext } from './context';
+import {
+	type DerivedDatabase,
+	databaseOf,
+	derived,
+	derivedDatabase,
+	type WiringContext,
+} from './context';
 import { pingMongo } from './ping';
 import { scopeOf } from './scope';
 import { syncMongo, syncMongoBuckets } from './sync';
@@ -15,7 +22,7 @@ async function closeOpened(ctx: WiringContext): Promise<void> {
 	if (!ctx.root) {
 		throw new WiringError(
 			'DERIVED',
-			'close: this Mongo came from `as`, `withSession` or a transaction. ' +
+			'close: this Mongo came from `as`, `withSession`, `database` or a transaction. ' +
 				'Close the one `openMongo` returned — the clients are shared.',
 		);
 	}
@@ -23,6 +30,20 @@ async function closeOpened(ctx: WiringContext): Promise<void> {
 		await database.connection?.close();
 	}
 }
+
+const deriveAs = <C>(ctx: WiringContext, actor: unknown): Mongo<C> =>
+	mongoOf<C>(derived(ctx, { actor }));
+
+const deriveSession = <C>(
+	ctx: WiringContext,
+	session: ClientSession | undefined,
+): Mongo<C> => mongoOf<C>(derived(ctx, { session }));
+
+const deriveDatabase = <C>(
+	ctx: WiringContext,
+	name: string,
+	options: DerivedDatabase | undefined,
+): never => mongoOf<C>(derivedDatabase(ctx, name, options)) as never;
 
 /**
  * A Mongo over one context. `as` and `withSession` build another over a new
@@ -72,12 +93,10 @@ export function mongoOf<C>(ctx: WiringContext): Mongo<C> {
 		get session() {
 			return ctx.session;
 		},
-		as(actor) {
-			return mongoOf<C>(derived(ctx, { actor }));
-		},
-		withSession(session) {
-			return mongoOf<C>(derived(ctx, { session }));
-		},
+		as: (actor) => deriveAs<C>(ctx, actor),
+		withSession: (session) => deriveSession<C>(ctx, session),
+		database: (name: string, ...rest: unknown[]) =>
+			deriveDatabase<C>(ctx, name, rest[0] as DerivedDatabase | undefined),
 		transaction<T>(
 			fn: (mongo: Mongo<C>) => Promise<T>,
 			options?: MongoTransactionOptions<C>,

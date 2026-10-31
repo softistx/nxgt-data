@@ -1,6 +1,7 @@
 import type { ClientSession, Db, MongoClient } from 'mongodb';
 import type { ActorOf, TypedCollection } from '../collection/types';
 import type { PingResult } from '../connection/connect';
+import type { AnyCollectionDefinition } from '../definition/define-collection';
 import type {
 	BucketDefinition,
 	BucketIndexReport,
@@ -15,6 +16,7 @@ import type {
 	CollectionsOf,
 	DbName,
 	MongoConfig,
+	WiredCollectionOptions,
 } from './config/types';
 
 /**
@@ -75,16 +77,42 @@ export type MongoActor<C> = [ActorOf<WiredDefinition<C>>] extends [never]
  * that has several: with two, `mongo.databases.main` is the one that says which.
  */
 export type SoleScope<C> =
-	DbName<C> extends infer N extends DbName<C>
-		? [Exclude<DbName<C>, N>] extends [never]
-			? ScopeOf<C, N>
-			: never
-		: never;
+	IsSole<DbName<C>> extends true ? ScopeOf<C, DbName<C>> : never;
+
+/** Whether `N` is one name, not a union of several. */
+type IsSole<N> = [N] extends [never]
+	? false
+	: [N] extends [UnionToIntersection<N>]
+		? true
+		: false;
 
 /** A transaction's options, and which database's client carries it. */
 export type MongoTransactionOptions<C> = WithTransactionOptions & {
 	/** Required once the Mongo holds more than one client. */
 	on?: DbName<C>;
+};
+
+/**
+ * What `database` takes: which database's collections it derives from, and
+ * the collection options merged over that database's — what the wiring
+ * decides (`db`, `session`, `actor`, `autoSync`) is refused, as in the config.
+ */
+export interface DerivedDatabaseOptions<C, N extends DbName<C>> {
+	from?: N | undefined;
+	/** Over the source's `options`, for every collection. */
+	options?: WiredCollectionOptions<AnyCollectionDefinition>;
+	/** Over the source's `optionsFor`, per collection key. */
+	optionsFor?: {
+		[K in keyof CollectionsOf<CollectionsIn<C, N>>]?: WiredCollectionOptions<
+			CollectionsOf<CollectionsIn<C, N>>[K]
+		>;
+	};
+}
+
+/** The config of a database `database(name)` derived: one database, same wiring. */
+export type DerivedConfig<C, N extends DbName<C>> = {
+	collections: CollectionsIn<C, N>;
+	buckets: BucketsIn<C, N>;
 };
 
 /**
@@ -118,6 +146,25 @@ export interface Mongo<C> extends AsyncDisposable {
 	as(actor: MongoActor<C>): Mongo<C>;
 	/** The same mongo, running in this session; `undefined` takes it away. */
 	withSession(session: ClientSession | undefined): Mongo<C>;
+	/**
+	 * The same collections and buckets on another database of the same client,
+	 * synchronously: a Mongo for a tenant's database, per request. It carries
+	 * the actor (`as`) and the session or transaction this Mongo is in, builds
+	 * its collections of its own, and keeps the source database's options and
+	 * `autoSync` — which runs lazily on first use, so nothing here awaits.
+	 * `sync()` on the result syncs that database explicitly.
+	 *
+	 * No connection is opened and the client stays open: like `as`, the result
+	 * cannot be closed. It holds one database, read as `db` or
+	 * `databases.default`. `from` names the database whose collections it
+	 * takes, and is required once this Mongo holds several.
+	 */
+	database<N extends DbName<C> = DbName<C>>(
+		name: string,
+		...options: IsSole<DbName<C>> extends true
+			? [options?: DerivedDatabaseOptions<C, N>]
+			: [options: DerivedDatabaseOptions<C, N> & { from: N }]
+	): Mongo<DerivedConfig<C, N>>;
 	/**
 	 * Runs `fn` in a transaction, with a Mongo whose collections and buckets
 	 * are all in it: a file written there commits or rolls back with the

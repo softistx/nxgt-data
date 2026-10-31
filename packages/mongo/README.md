@@ -1382,11 +1382,25 @@ deep.
 | `databases`, `clients` | Every scope and every `MongoClient`, under the database's name. |
 | `actor`, `session` | What this `Mongo` stamps and runs in, if anything. |
 | `as(actor)`, `withSession(session)` | **Another** `Mongo` over the same clients; the one it came from is unchanged. |
+| `database(name, options?)` | **Another** `Mongo` on database `name` of the same client, synchronously: same collections, buckets, options and `autoSync`, the actor and the session (or transaction) carried, no new connection, and it cannot be closed. `{ from }` says whose collections, required with several databases (`{ from: 'main' }`), and `options` / `optionsFor` merge over the source's (source `options` < source `optionsFor` < derived `options` < derived `optionsFor`). `await tenant.sync()` syncs it explicitly. |
 | `transaction(fn, options?)` | `fn` with a `Mongo` whose collections and buckets are all in the transaction. May run twice, unless `options.retryTransient` (else the config's `transactions.retryTransient`) is `false`. |
 | `sync(options?)` | `SyncReport[]` per database, collections only. A deployment step. |
 | `syncBuckets()` | Creates each bucket's four indexes, per database and bucket key. |
 | `ping(options?)` | `PingResult` per database. Never throws; `timeoutMS`, 2 s by default, plus a 250 ms grace; `0` is not "no limit" here, it leaves only the grace. From mongodb 7.8 on the driver ignores `timeoutMS`, so a slow server is always reported by this timer, as a `ConnectionError`. |
 | `close()` | Gives back what it opened. Idempotent; only the `Mongo` `openMongo` returned. |
+
+```ts
+// one database per tenant, derived per request
+const tenant = mongo.as(userId).database(`tenant_${tenantId}`);
+await tenant.db.users.create({ email: 'ada@example.com' });
+
+// with several databases, say whose collections: `{ from: 'main' }`
+mongo.database(`tenant_${tenantId}`, { from: 'main' });
+```
+
+It cannot be closed (`await using` on it throws `DERIVED` at the end of the
+block), and it does not compile without `from` when the Mongo holds several
+databases.
 
 `MongoOf<typeof config>` is that `Mongo`'s type, for a service that declares
 it rather than reading it off `await openMongo(…)`. `await using mongo = await
@@ -1589,6 +1603,20 @@ operator, and getting it subtly wrong is worse than being honest about it.
 
 ## Traps
 
+- **An `autoSync` tenant database first touched inside a transaction fails
+  its commit with 112.** When the transaction already wrote to another
+  database, `autoSync` creates the tenant collection outside the session while
+  the transaction creates it implicitly, and the commit fails with
+  `WriteConflict` ("Collection namespace … is already in use", a
+  `TransientTransactionError`; measured with `retryTransient: false`). Sync the
+  tenant database before the transaction (`await tenant.sync()`), as for a
+  bucket's first upload.
+- **A tenant database nobody synced has no indexes and no validator.** A
+  first write creates the bare collection — even inside a `transaction`, mongod
+  creates it implicitly — so unique indexes are not enforced and existing
+  duplicates then make the later sync fail. A Mongo from
+  `mongo.database(name)` is not synced for you: call `await tenant.sync()`, or
+  set `autoSync`, which runs outside the session before the first operation.
 - **A default `cursorScope` refuses the cursors issued without one.** Setting
   it on a collection whose calls passed no `scope` makes every cursor already
   handed out an `InvalidCursorError`; set it to the very string your calls

@@ -37,6 +37,7 @@ collections: `mongo.db.avatars` is the `TypedBucket` `@nxgt/mongo/gridfs`'s
 | `session` | `ClientSession \| undefined` | The session every collection and bucket of this Mongo runs in |
 | `as(actor)` | `Mongo<C>` | [Another Mongo, stamping that actor](actor-and-transactions.md) |
 | `withSession(session)` | `Mongo<C>` | [Another Mongo, in that session](actor-and-transactions.md) |
+| `database(name, options?)` | `Mongo<…>` | [The same collections on another database of the same client, synchronously](actor-and-transactions.md#databasename-options) |
 | `transaction(fn, options?)` | `Promise<T>` | [`fn` with a Mongo in a transaction](actor-and-transactions.md) |
 | `sync(options?)` | `Promise<Record<DbName<C>, SyncReport[]>>` | [A deployment step](sync.md), for the collections |
 | `syncBuckets()` | `Promise<BucketSyncReport<C>>` | [The buckets' indexes](files.md#indexes-syncbuckets), per database and bucket key |
@@ -164,6 +165,7 @@ interface Mongo<C> extends AsyncDisposable {
 	readonly session: ClientSession | undefined;
 	as(actor: MongoActor<C>): Mongo<C>;
 	withSession(session: ClientSession | undefined): Mongo<C>;
+	database<N extends DbName<C>>(name: string, options?: { from?: N }): Mongo<…>;
 	transaction<T>(
 		fn: (mongo: Mongo<C>) => Promise<T>,
 		options?: MongoTransactionOptions<C>,

@@ -10,7 +10,9 @@ export type WiringErrorCode =
 	| 'SEVERAL_DATABASES'
 	/** A transaction that cannot be opened: no client named, or already in one. */
 	| 'TRANSACTION'
-	/** `close()` on a Mongo that `as`, `withSession` or a transaction derived. */
+	/** `database(name)` was given a name MongoDB refuses, or a reserved one. */
+	| 'DATABASE_NAME'
+	/** `close()` on a Mongo that `as`, `withSession`, `database` or a transaction derived. */
 	| 'DERIVED'
 	/** `discoverCollections` could not make a set of definitions from a glob. */
 	| 'DISCOVERY';
