@@ -1,4 +1,50 @@
 import { S3Client } from 'bun';
+import { checkTimeout } from '../bucket/operations/deadline';
+import { S3Error } from '../errors/s3-error';
+
+/** The option both `createBucket` and `reset` take. */
+export interface DeadlineOptions {
+	/**
+	 * A deadline in whole milliseconds, 1 or more. A call that gets no answer
+	 * in time rejects with `S3Error` `TIMEOUT`. Without it, `reset` waits as
+	 * long as the server does and `createBucket` keeps its 90 s readiness wait.
+	 */
+	timeoutMs?: number | undefined;
+}
+
+/**
+ * Settles with `run`, or rejects with `S3Error` `TIMEOUT` once `timeoutMs`
+ * has passed. The timer is cleared whichever way it ends.
+ */
+async function within<T>(
+	timeoutMs: number | undefined,
+	bucket: string,
+	call: string,
+	run: () => Promise<T>,
+): Promise<T> {
+	if (timeoutMs === undefined) return run();
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<never>((_, reject) => {
+		timer = setTimeout(
+			() =>
+				reject(
+					new S3Error(
+						'TIMEOUT',
+						bucket,
+						`${call} on "${bucket}": the test S3 server gave no answer in ${timeoutMs}ms; it is stuck`,
+					),
+				),
+			timeoutMs,
+		);
+	});
+	const work = run();
+	work.catch(() => undefined);
+	try {
+		return await Promise.race([work, late]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
 
 export interface ServerAddress {
 	endpoint: string;
@@ -61,9 +107,11 @@ export async function createBucketOn(
 	address: ServerAddress,
 	bucket: string,
 	server: ServerHandle,
-	timeoutMs = 90_000,
+	options: DeadlineOptions = {},
 ): Promise<void> {
 	checkBucketName(bucket);
+	const own = checkTimeout(bucket, options.timeoutMs, 'createBucket');
+	const timeoutMs = own ?? 90_000;
 	const scoped = new S3Client({ ...address, bucket });
 	const deadline = Date.now() + timeoutMs;
 	let dead = false;
@@ -71,11 +119,21 @@ export async function createBucketOn(
 		dead = true;
 	});
 	for (;;) {
-		const ok = await scoped
-			.write('.nxgt-ready', 'ok')
-			.then(() => true)
-			.catch(() => false);
+		const ok = await within(own, bucket, 'createBucket', () =>
+			scoped
+				.write('.nxgt-ready', 'ok')
+				.then(() => true)
+				.catch(() => false),
+		);
 		if (ok) break;
+		if (own !== undefined && !dead && Date.now() > deadline) {
+			throw new S3Error(
+				'TIMEOUT',
+				bucket,
+				`createBucket on "${bucket}": the test S3 server did not take a write in ${own}ms. Its log, ${server.logPath}, says:\n` +
+					(await logTail(server.logPath)),
+			);
+		}
 		const failed = dead
 			? 'SeaweedFS exited before it served S3'
 			: Date.now() > deadline
@@ -95,19 +153,26 @@ export async function createBucketOn(
 /**
  * Deletes every object of `bucket`, so a test starts from nothing. A failure
  * of the listing or of a delete (a bucket that was never created included) is
- * thrown, not hidden: a test must not run on objects a reset missed.
+ * thrown, not hidden: a test must not run on objects a reset missed. With
+ * `timeoutMs`, each list and delete round has that deadline (`TIMEOUT`).
  */
 export async function emptyBucket(
 	address: ServerAddress,
 	bucket: string,
+	options: DeadlineOptions = {},
 ): Promise<void> {
+	const own = checkTimeout(bucket, options.timeoutMs, 'reset');
 	const scoped = new S3Client({ ...address, bucket });
 	for (let page = 0; page < 1000; page++) {
-		const listed = await scoped.list({ maxKeys: 1000 });
+		const listed = await within(own, bucket, 'reset (list)', () =>
+			scoped.list({ maxKeys: 1000 }),
+		);
 		const keys = (listed.contents ?? []).flatMap((found) =>
 			found.key ? [found.key] : [],
 		);
-		await Promise.all(keys.map((key) => scoped.delete(key)));
+		await within(own, bucket, 'reset (delete)', () =>
+			Promise.all(keys.map((key) => scoped.delete(key))),
+		);
 		if (keys.length === 0 || !listed.isTruncated) return;
 	}
 }
