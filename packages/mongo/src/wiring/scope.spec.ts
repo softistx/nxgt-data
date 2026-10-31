@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { ObjectId } from 'mongodb';
 import { collections, useMongo } from '../../test/wiring';
 import { defineMongo } from './config/define-mongo';
 import { openMongo } from './open-mongo';
@@ -86,6 +87,52 @@ describe('the scope', () => {
 		expect((await mongo.db.posts.paginate({ pageSize: 3 })).items).toHaveLength(
 			2,
 		);
+	});
+
+	test('gives the default cursor scope to the collections, and to a derived Mongo', async () => {
+		const mongo = track(
+			await openMongo(
+				defineMongo({
+					uri: server.uri,
+					collections,
+					options: { cursorScope: 'tenant:a' },
+					optionsFor: { posts: { cursorScope: 'tenant:b' } },
+				}),
+			),
+		);
+		await mongo.db.users.createMany(threeUsers);
+		await mongo.db.posts.createMany([{ title: 'a' }, { title: 'b' }]);
+		const users = await mongo.db.users.paginateByCursor({ limit: 1 });
+		const posts = await mongo.db.posts.paginateByCursor({ limit: 1 });
+		const same = (
+			await mongo.db.users.paginateByCursor({
+				limit: 1,
+				scope: 'tenant:a',
+			})
+		).nextCursor;
+		expect(same).toBe(users.nextCursor);
+		// optionsFor outranks options: posts is bound to tenant:b.
+		const viaB = (
+			await mongo.db.posts.paginateByCursor({
+				limit: 1,
+				scope: 'tenant:b',
+			})
+		).nextCursor;
+		expect(viaB).toBe(posts.nextCursor);
+		// A derived Mongo keeps the scope.
+		const derived = mongo.as(new ObjectId());
+		expect(
+			(await derived.db.users.paginateByCursor({ limit: 1 })).nextCursor,
+		).toBe(users.nextCursor);
+		const inSession = mongo.withSession(undefined);
+		expect(
+			(await inSession.db.users.paginateByCursor({ limit: 1 })).nextCursor,
+		).toBe(users.nextCursor);
+		await mongo.transaction(async (tx) => {
+			expect(
+				(await tx.db.users.paginateByCursor({ limit: 1 })).nextCursor,
+			).toBe(users.nextCursor);
+		});
 	});
 
 	test('syncs before the first operation when autoSync is on', async () => {

@@ -74,7 +74,7 @@ do {
 | `orderBy` | `FieldOf<Def>` | `'_id'` | the field to page along. A field the schema does not have is a `TypeError` |
 | `direction` | `'asc' \| 'desc'` | `'asc'` | |
 | `filter` | `FilterOf<Def>` | `{}` | |
-| `scope` | `string` | — | binds the cursor to one list (a tenant, a filter): see [below](#binding-a-cursor-to-a-list). A value that is not a string is a `TypeError` |
+| `scope` | `string` | — | binds the cursor to one list (a tenant, a filter): see [below](#binding-a-cursor-to-a-list). A value that is not a string is a `TypeError`. Defaults to the collection's `cursorScope` |
 | `withDeleted` | `boolean` | `false` | |
 
 The cursor is a keyset on the field **and** `_id`, which breaks its ties: no
@@ -137,7 +137,10 @@ await mongo.db.posts.paginateByCursor({ scope: 'archive', after }); // a call's 
 A call that gives no `scope`, or `scope: undefined`, uses the default; there is
 no way to ask for an unscoped cursor on a collection that has one. Setting a
 default refuses the cursors already handed out without a scope, as any scoped
-call does. A value that is not a string is the same `TypeError`.
+call does. To adopt it safely, set it to the very string your calls passed and
+the cursors already issued stay valid. A `cursorScope` that is not a string is a
+`TypeError` from `getCollection`, and a call's `scope: null` stays a `TypeError`
+rather than falling back to the default.
 
 Only the first 16 hex characters of the scope's SHA-256 enter the cursor, so
 the scope shows neither in the cursor nor in a message. **It binds, it does not

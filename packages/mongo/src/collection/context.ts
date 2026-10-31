@@ -116,6 +116,17 @@ export function createContext(
 		);
 	}
 
+	if (
+		options.cursorScope !== undefined &&
+		typeof options.cursorScope !== 'string'
+	) {
+		const shape =
+			options.cursorScope === null ? 'null' : typeof options.cursorScope;
+		throw new TypeError(
+			`getCollection: cursorScope of "${name}" must be a string, not ${shape}`,
+		);
+	}
+
 	return {
 		definition,
 		db,

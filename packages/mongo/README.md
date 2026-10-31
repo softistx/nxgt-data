@@ -1588,6 +1588,11 @@ operator, and getting it subtly wrong is worse than being honest about it.
 
 ## Traps
 
+- **A default `cursorScope` refuses the cursors issued without one.** Setting
+  it on a collection whose calls passed no `scope` makes every cursor already
+  handed out an `InvalidCursorError`; set it to the very string your calls
+  passed and they stay valid. A call's `scope: null` is a `TypeError`, not
+  the default.
 - **A document that was read is not a create.** It carries its version, its
   `deletedAt` and its actors, which a create refuses. Take the stamps out
   first, or copy it with `raw`.

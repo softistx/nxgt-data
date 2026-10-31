@@ -328,7 +328,7 @@ export interface CursorPaginateOptions<Def> extends ReadOptions {
 	 * message. It binds, it does not authenticate: the cursor is encoded, not
 	 * signed, and anyone who knows the scope can compute the hash.
 	 */
-	scope?: string;
+	scope?: string | undefined;
 }
 
 /**
@@ -391,7 +391,7 @@ export interface CollectionOptions<Def> {
 	 * outranks it. Default: none. Cursors written without a scope are refused
 	 * once it is set, as they are by any scoped call.
 	 */
-	cursorScope?: string;
+	cursorScope?: string | undefined;
 	/** The session every operation runs in. `withSession` is how it is set. */
 	session?: ClientSession | undefined;
 	/** Who is writing, stamped into `createdBy`, `updatedBy` and `deletedBy`. */
