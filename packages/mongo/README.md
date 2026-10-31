@@ -1602,6 +1602,14 @@ operator, and getting it subtly wrong is worse than being honest about it.
 
 ## Traps
 
+- **An `autoSync` tenant database first touched inside a transaction fails
+  its commit with 112.** When the transaction already wrote to another
+  database, `autoSync` creates the tenant collection outside the session while
+  the transaction creates it implicitly, and the commit fails with
+  `WriteConflict` ("Collection namespace … is already in use", a
+  `TransientTransactionError`; measured with `retryTransient: false`). Sync the
+  tenant database before the transaction (`await tenant.sync()`), as for a
+  bucket's first upload.
 - **A tenant database nobody synced has no indexes and no validator.** A
   first write creates the bare collection — even inside a `transaction`, mongod
   creates it implicitly — so unique indexes are not enforced and existing

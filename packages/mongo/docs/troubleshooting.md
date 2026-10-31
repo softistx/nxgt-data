@@ -140,6 +140,7 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [``db: this Mongo has several databases. Read the one you mean, as `mongo.databases.main`.``](#db-this-mongo-has-several-databases-read-the-one-you-mean-as-mongodatabasesmain)
   - [`No database "reporting" in this Mongo: it has "main", "analytics".`](#no-database-reporting-in-this-mongo-it-has-main-analytics)
   - [``database: this Mongo has several databases. Say which one the collections come from, as `{ from: "main" }`.``](#database-this-mongo-has-several-databases-say-which-one-the-collections-come-from-as--from-main-)
+  - [`Collection namespace 'tenant_a.users' is already in use` (112, tenant database in a transaction)](#collection-namespace-tenant_ausers-is-already-in-use-112-tenant-database-in-a-transaction)
   - [`database: the name … .`](#database-the-name--)
   - [`database: options has "autoSync", which the wiring decides.`](#database-options-has-autosync-which-the-wiring-decides)
   - [`Expected 2 arguments, but got 1.` on `mongo.database(name)`](#expected-2-arguments-but-got-1-on-mongodatabasename)
@@ -2289,6 +2290,27 @@ several there is no "the" database. `code: 'SEVERAL_DATABASES'`.
 
 ```ts
 mongo.database(`tenant_${id}`, { from: 'main' });
+```
+
+### `Collection namespace 'tenant_a.users' is already in use` (112, tenant database in a transaction)
+
+**When:** a Mongo derived with `database(name)` on a Mongo with `autoSync`,
+first touched inside a `transaction` that already wrote to another database,
+with `retryTransient: false`. The commit fails with `WriteConflict` (112),
+labelled `TransientTransactionError`.
+
+**Why:** `autoSync` creates the collection outside the session, and the
+transaction creates it implicitly: the two conflict, the same way a bucket's
+first upload with `autoSync` does.
+
+**Fix:** sync the tenant database before the transaction:
+
+```ts
+const tenant = mongo.database(`tenant_${tenantId}`);
+await tenant.sync();
+await mongo.transaction(async (tx) => {
+	await tx.database(`tenant_${tenantId}`).db.users.create(user);
+});
 ```
 
 ### `database: the name … .`
