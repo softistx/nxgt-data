@@ -1,5 +1,11 @@
 # @nxgt/mongo
 
+## 0.25.2
+
+### Patch Changes
+
+- [#317](https://github.com/softistx/nxgt-data/pull/317) [`f4a66bc`](https://github.com/softistx/nxgt-data/commit/f4a66bc1062e03ac54335f4a3d18ee08b51f9982) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `Mongo<any>` is assignable again to a structural type with a typed `db` (fixes the 0.25.1 regression): `SoleScope<any>` is `any`, as before, so `tx as unknown as EventsMongo` is no longer needed. `Mongo<C>` stays covariant for every other config.
+
 ## 0.25.1
 
 ### Patch Changes
