@@ -128,6 +128,35 @@ void many.transaction(
 	{ on: 'main' },
 );
 
+// `database` derives a Mongo on another database of the same client. With
+// several, `from` says whose collections, and is required.
+// @ts-expect-error — no options: which database's collections?
+void many.database('t');
+// @ts-expect-error — empty options say nothing either.
+void many.database('t', {});
+// @ts-expect-error — the Mongo has no database under that name.
+void many.database('t', { from: 'nope' });
+const tenantOfAnalytics = many.database('t', { from: 'analytics' });
+void tenantOfAnalytics.db.events;
+// @ts-expect-error — the analytics database wires no `users`.
+void tenantOfAnalytics.db.users;
+void many.database('t', {
+	from: 'main',
+	options: { validate: 'off' },
+	optionsFor: { users: { coerce: true } },
+});
+// @ts-expect-error — `optionsFor` under a key the source does not wire.
+void many.database('t', { from: 'main', optionsFor: { events: {} } });
+// @ts-expect-error — the wiring decides `autoSync`.
+void many.database('t', { from: 'main', options: { autoSync: true } });
+
+// With one, there is nothing to choose.
+const tenant = mongo.database('t');
+void tenant.db.users;
+void mongo.database('t', { from: undefined });
+// @ts-expect-error — `events` is not wired by this Mongo.
+void tenant.db.events;
+
 // Collections whose actors disagree leave nothing to stamp.
 const counters = defineCollection({
 	name: 'counters',

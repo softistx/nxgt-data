@@ -1,6 +1,7 @@
 import type { ClientSession, Db, MongoClient } from 'mongodb';
 import type { ActorOf, TypedCollection } from '../collection/types';
 import type { PingResult } from '../connection/connect';
+import type { AnyCollectionDefinition } from '../definition/define-collection';
 import type {
 	BucketDefinition,
 	BucketIndexReport,
@@ -15,6 +16,7 @@ import type {
 	CollectionsOf,
 	DbName,
 	MongoConfig,
+	WiredCollectionOptions,
 } from './config/types';
 
 /**
@@ -75,11 +77,14 @@ export type MongoActor<C> = [ActorOf<WiredDefinition<C>>] extends [never]
  * that has several: with two, `mongo.databases.main` is the one that says which.
  */
 export type SoleScope<C> =
-	DbName<C> extends infer N extends DbName<C>
-		? [Exclude<DbName<C>, N>] extends [never]
-			? ScopeOf<C, N>
-			: never
-		: never;
+	IsSole<DbName<C>> extends true ? ScopeOf<C, DbName<C>> : never;
+
+/** Whether `N` is one name, not a union of several. */
+type IsSole<N> = [N] extends [never]
+	? false
+	: [N] extends [UnionToIntersection<N>]
+		? true
+		: false;
 
 /** A transaction's options, and which database's client carries it. */
 export type MongoTransactionOptions<C> = WithTransactionOptions & {
@@ -87,9 +92,21 @@ export type MongoTransactionOptions<C> = WithTransactionOptions & {
 	on?: DbName<C>;
 };
 
-/** What `database` takes: which database's collections it derives from. */
-export interface DerivedDatabaseOptions<N extends string> {
-	from?: N;
+/**
+ * What `database` takes: which database's collections it derives from, and
+ * the collection options merged over that database's — what the wiring
+ * decides (`db`, `session`, `actor`, `autoSync`) is refused, as in the config.
+ */
+export interface DerivedDatabaseOptions<C, N extends DbName<C>> {
+	from?: N | undefined;
+	/** Over the source's `options`, for every collection. */
+	options?: WiredCollectionOptions<AnyCollectionDefinition>;
+	/** Over the source's `optionsFor`, per collection key. */
+	optionsFor?: {
+		[K in keyof CollectionsOf<CollectionsIn<C, N>>]?: WiredCollectionOptions<
+			CollectionsOf<CollectionsIn<C, N>>[K]
+		>;
+	};
 }
 
 /** The config of a database `database(name)` derived: one database, same wiring. */
@@ -144,9 +161,9 @@ export interface Mongo<C> extends AsyncDisposable {
 	 */
 	database<N extends DbName<C> = DbName<C>>(
 		name: string,
-		...options: [SoleScope<C>] extends [never]
-			? [options: DerivedDatabaseOptions<N>]
-			: [options?: DerivedDatabaseOptions<N>]
+		...options: IsSole<DbName<C>> extends true
+			? [options?: DerivedDatabaseOptions<C, N>]
+			: [options: DerivedDatabaseOptions<C, N> & { from: N }]
 	): Mongo<DerivedConfig<C, N>>;
 	/**
 	 * Runs `fn` in a transaction, with a Mongo whose collections and buckets

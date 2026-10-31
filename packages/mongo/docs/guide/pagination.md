@@ -273,3 +273,7 @@ A bucket pages the same way: [Files](gridfs.md#listing).
 
 - [Documents](documents.md) — the reads these are built on.
 - [Aggregation](aggregation.md) — grouping and relations over a page.
+
+## One cursor scope per tenant database
+
+A host that derives a Mongo per tenant with [`mongo.database(name, { options })`](wiring/actor-and-transactions.md#databasename-options) sets the collection options of the tenant's database there, such as `cursorScope`, merged over the source database's.

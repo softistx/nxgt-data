@@ -169,6 +169,8 @@ await b.db.users.count(); // still works
 await client.close();     // yours to close, when the last Mongo is gone
 ```
 
+To serve many tenants from one client, derive rather than open: [`mongo.database(name)`](actor-and-transactions.md#databasename-options) gives a Mongo per tenant database synchronously, with no new connection.
+
 A client the Mongo opened from a `uri` is shared with its other holders and
 closed when the last one calls `close()`.
 

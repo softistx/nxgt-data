@@ -139,6 +139,10 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`connectMongo: this URI is already connected with other options. Pass the same options everywhere, or close the first connection.`](#connectmongo-this-uri-is-already-connected-with-other-options-pass-the-same-options-everywhere-or-close-the-first-connection)
   - [``db: this Mongo has several databases. Read the one you mean, as `mongo.databases.main`.``](#db-this-mongo-has-several-databases-read-the-one-you-mean-as-mongodatabasesmain)
   - [`No database "reporting" in this Mongo: it has "main", "analytics".`](#no-database-reporting-in-this-mongo-it-has-main-analytics)
+  - [`database: this Mongo has several databases. Say which one the collections come from, as `{ from: "main" }`.`](#database-this-mongo-has-several-databases-say-which-one-the-collections-come-from-as--from-main-)
+  - [`database: the name … .`](#database-the-name--)
+  - [`database: options has "autoSync", which the wiring decides.`](#database-options-has-autosync-which-the-wiring-decides)
+  - [`Expected 2 arguments, but got 1.` on `mongo.database(name)`](#expected-2-arguments-but-got-1-on-mongodatabasename)
   - [``close: this Mongo came from `as`, `withSession`, `database` or a transaction. Close the one `openMongo` returned — the clients are shared.``](#close-this-mongo-came-from-as-withsession-database-or-a-transaction-close-the-one-openmongo-returned--the-clients-are-shared)
   - [`not authorized on app to execute command { collMod: "users", … }`](#not-authorized-on-app-to-execute-command--collmod-users--)
   - [``transaction: this Mongo holds more than one client, and a transaction lives on one. Name the database it runs on, as `{ on: 'main' }`.``](#transaction-this-mongo-holds-more-than-one-client-and-a-transaction-lives-on-one-name-the-database-it-runs-on-as--on-main-)
@@ -2258,7 +2262,7 @@ await mongo.databases.main.users.create({ email: 'ada@example.com' });
 
 ### `No database "reporting" in this Mongo: it has "main", "analytics".`
 
-**When:** `transaction(fn, { on })` with a name the config does not hold.
+**When:** `transaction(fn, { on })`, or `database(name, { from })`, with a name the config does not hold.
 
 **Why:** the names are the keys of `databases` in the config, nothing else —
 not the database names on the server. `code: 'NO_DATABASE'`, with the name
@@ -2270,6 +2274,61 @@ name that is not there does not throw: it does not compile, and gives
 
 ```ts
 await mongo.transaction(fn, { on: 'main' });   // a key of `config.databases`
+mongo.database('tenant_a', { from: 'main' });  // likewise
+```
+
+### `database: this Mongo has several databases. Say which one the collections come from, as `{ from: "main" }`.`
+
+**When:** `mongo.database(name)` without `from` on a Mongo that holds several
+databases. It does not compile either.
+
+**Why:** the derived Mongo takes the collections of one database, and with
+several there is no "the" database. `code: 'SEVERAL_DATABASES'`.
+
+**Fix:**
+
+```ts
+mongo.database(`tenant_${id}`, { from: 'main' });
+```
+
+### `database: the name … .`
+
+**When:** `mongo.database(name)` with a name MongoDB refuses: empty or not a
+string, 64 bytes or more, holding one of `/\. "$*<>:|?` or NUL, or one of its
+own databases (`admin`, `local`, `config`).
+
+**Why:** the name often comes from a request, so it is checked before the
+driver sees it; the message says which rule broke and never repeats the value.
+`code: 'DATABASE_NAME'`.
+
+**Fix:** map the tenant id to a safe name before deriving, and answer 400 on
+`error.code === 'DATABASE_NAME'`:
+
+```ts
+mongo.database(`tenant_${tenantId}`); // an id of letters, digits and `_`
+```
+
+### `database: options has "autoSync", which the wiring decides.`
+
+**When:** `database(name, { options })` or `optionsFor` names `db`, `session`,
+`actor` or `autoSync`, or `optionsFor` names a key the source does not wire
+(`database: optionsFor has options for "x", which it does not wire.`).
+
+**Why:** the derived Mongo carries the source's `autoSync`, the actor and the
+session; they are not per-call options. `code: 'CONFIG'`.
+
+**Fix:** drop the key; use `as` and `withSession` for the actor and the session.
+
+### `Expected 2 arguments, but got 1.` on `mongo.database(name)`
+
+**When:** compile time, `mongo.database('tenant_a')` on a Mongo that holds several databases (also `Property 'from' is missing in type '{}'` for `database(name, {})`, and `Type '"nope"' is not assignable` for an unknown `from`).
+
+**Why:** with several databases there is no "the" database to take the collections from, so `from` is required and must be one of the config's keys. At run time the same call is `SEVERAL_DATABASES` or `NO_DATABASE`.
+
+**Fix:**
+
+```ts
+mongo.database('tenant_a', { from: 'main' });
 ```
 
 ### ``close: this Mongo came from `as`, `withSession`, `database` or a transaction. Close the one `openMongo` returned — the clients are shared.``

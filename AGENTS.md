@@ -1001,9 +1001,9 @@ the file.
     request** — a `where`, an `orderBy`, an `acl`, an `expiresIn` — carries a
     class with a `code`, so a handler answers 400 without matching message
     text.
-    `WiringError`, in `@nxgt/mongo`, is the deliberate exception: every one of
-    its refusals is wiring-time, and it still gives them codes, because it has
-    seven distinct ones and a start-up script wants to tell them apart. The
+    `WiringError`, in `@nxgt/mongo`, is the deliberate exception: almost every
+    one of its refusals is wiring-time, and it still gives them codes, because
+    it has eight distinct ones and a start-up script wants to tell them apart. The
     rule underneath is **a handful of refusals can be told apart by their
     sentence; a dozen cannot**.
   - *Extend `Error` or `TypeError`?* Extend whichever class the refusals it
@@ -1019,6 +1019,9 @@ the file.
     text for the other. The **wiring's** refusals are the one place it has a
     code: `defineMongo`, `openMongo` and the rest of `src/wiring/` throw a
     `WiringError`, a `TypeError` with a `code`, and that guide says it too.
+    One of them is call-time: `mongo.database(name)` takes a tenant's name,
+    which can come from a request, so its refusal has a code of its own,
+    `DATABASE_NAME`, whose message never repeats the value.
 - **A message names what failed, not only what was wrong.** Every one of these
   packages has several calls that take options under the same names — `page`,
   `pageSize`, `limit`, `after` — so `limit must be an integer of at least 1`

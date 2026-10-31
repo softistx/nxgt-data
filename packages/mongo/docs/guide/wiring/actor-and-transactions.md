@@ -83,8 +83,36 @@ await tenant.db.users.create({ email: 'ada@example.com' });
 - `{ from: 'main' }` names the database whose collections it takes, and is
   required once the Mongo holds several (`SEVERAL_DATABASES` otherwise,
   `NO_DATABASE` for an unknown key).
+- `options` and `optionsFor` are merged over the source's, so a host can
+  differ per tenant database. What the wiring decides (`db`, `session`,
+  `actor`, `autoSync`) is refused, and so is an `optionsFor` key the source
+  does not wire (`CONFIG`).
 - The definitions are always the source database's: the same schema on each
   tenant database.
+- The name is checked at call time, since it may come from a request:
+  non-empty, under 64 bytes, none of `/\. "$*<>:|?` or NUL, and not `admin`,
+  `local` or `config`. A refusal is `code: 'DATABASE_NAME'`, and its message
+  never repeats the value.
+
+```ts
+// a cursor scope per tenant database (the `cursorScope` collection option of
+// the release after nxgt-data#304; see ../pagination.md)
+const tenant = mongo.database(`tenant_${tenantId}`, {
+	options: { cursorScope: tenantId },
+});
+```
+
+**Do not `await using` a derived Mongo**: its `close()` throws `DERIVED` at the
+end of the block. Keep `await using` for the Mongo `openMongo` returned. To give
+each tenant its own client-backed Mongo and close it later, see [Closing a Mongo
+that was given a client](configuration.md#closing-a-mongo-that-was-given-a-client);
+to serve many tenants from one client, derive, don't open, a Mongo per tenant.
+
+**A tenant database nobody synced has no indexes and no validator.** A first
+write, even inside a transaction, creates the bare collection, so unique
+indexes are not enforced until you sync. Call `await tenant.sync()`, or set
+`autoSync`, which runs outside the session before the collection's first
+operation.
 
 ## `transaction(fn, options?)`
 
@@ -213,7 +241,8 @@ interface Mongo<C> {
 	withSession(session: ClientSession | undefined): Mongo<C>;
 	database<N extends DbName<C>>(
 		name: string,
-		options?: { from?: N }, // required once the Mongo holds several databases
+		// `from` is required once the Mongo holds several databases
+		options?: { from?: N; options?: …; optionsFor?: … },
 	): Mongo<{ collections: CollectionsIn<C, N>; buckets: BucketsIn<C, N> }>;
 	transaction<T>(
 		fn: (mongo: Mongo<C>) => Promise<T>,

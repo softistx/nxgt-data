@@ -3,6 +3,7 @@ import type { MongoConnection } from '../connection/connect';
 import type { AnyCollectionDefinition } from '../definition/define-collection';
 import { WiringError } from '../errors/wiring-error';
 import type { BucketDefinition } from '../gridfs';
+import { checkDatabaseName } from './config/database-name';
 import type {
 	WiredBucketOptions,
 	WiredCollectionOptions,
@@ -81,25 +82,44 @@ export function databaseOf(ctx: WiringContext, name: string): DatabaseContext {
 	return found;
 }
 
+/** What `database` takes besides the name; the types say more than this. */
+export interface DerivedDatabase {
+	from?: string | undefined;
+	options?: object | undefined;
+	optionsFor?: Record<string, object> | undefined;
+}
+
+/** The four options the wiring decides, refused in a `database` override. */
+const OWNED = ['db', 'session', 'actor', 'autoSync'] as const;
+
+function checkOverride(what: string, options: unknown, key?: string): void {
+	if (typeof options !== 'object' || options === null) return;
+	for (const owned of OWNED) {
+		if (owned in options) {
+			throw new WiringError(
+				'CONFIG',
+				`database: ${what} has "${owned}", which the wiring decides.`,
+				{ key },
+			);
+		}
+	}
+}
+
 /**
  * The same Mongo over another database of the same client, found by name
  * and with no connection of its own: the client is the source database's,
  * its collections, buckets, options and `autoSync` are carried, and the
- * session and the actor travel with the context. It holds one database,
- * under the key `default`, whatever the source's key was.
+ * session and the actor travel with the context. `options` and `optionsFor`
+ * are merged over the source's. It holds one database, under the key
+ * `default`, whatever the source's key was.
  */
 export function derivedDatabase(
 	ctx: WiringContext,
 	name: string,
-	from: string | undefined,
+	change: DerivedDatabase = {},
 ): WiringContext {
-	if (typeof name !== 'string' || name.length === 0) {
-		throw new WiringError(
-			'CONFIG',
-			'database: the name of the database must be a non-empty string.',
-			{ database: String(name) },
-		);
-	}
+	checkDatabaseName(name);
+	const { from } = change;
 	let source: DatabaseContext | undefined;
 	if (from === undefined) {
 		if (ctx.databases.length !== 1) {
@@ -119,10 +139,31 @@ export function derivedDatabase(
 			'database: this Mongo has no database.',
 		);
 	}
+	checkOverride('options', change.options);
+	const keys = new Set(source.wired.map(([key]) => key));
+	for (const [key, options] of Object.entries(change.optionsFor ?? {})) {
+		if (!keys.has(key)) {
+			throw new WiringError(
+				'CONFIG',
+				`database: optionsFor has options for "${key}", which it does not wire.`,
+				{ key },
+			);
+		}
+		checkOverride(`the options of "${key}"`, options, key);
+	}
+	const optionsFor: Record<
+		string,
+		WiringContext['databases'][number]['options']
+	> = { ...source.optionsFor };
+	for (const [key, options] of Object.entries(change.optionsFor ?? {})) {
+		optionsFor[key] = { ...optionsFor[key], ...options } as never;
+	}
 	const database: DatabaseContext = {
 		...source,
 		name: 'default',
 		db: source.client.db(name),
+		options: { ...source.options, ...change.options } as never,
+		optionsFor,
 		// The client stays the one the Mongo opened, or the config gave.
 		connection: undefined,
 	};

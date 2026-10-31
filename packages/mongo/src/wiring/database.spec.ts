@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { MongoClient, ObjectId } from 'mongodb';
+import { rejection } from '../../test/rejection';
 import { collections, events, useMongo } from '../../test/wiring';
+import { resetAutoSync } from '../collection/auto-sync';
 import { WiringError } from '../errors/wiring-error';
 import { defineMongo } from './config/define-mongo';
 import { openMongo } from './open-mongo';
@@ -17,6 +19,8 @@ beforeEach(async () => {
 	} finally {
 		await client.close();
 	}
+	// The dropped databases are no longer in shape, whatever autoSync remembers.
+	resetAutoSync();
 });
 
 const plainMongo = async (more: { autoSync?: boolean } = {}) =>
@@ -52,22 +56,36 @@ describe('database', () => {
 	});
 
 	test('joins the transaction it was derived in', async () => {
-		const mongo = await plainMongo();
-		// mongod cannot create a collection inside a transaction on a fresh database.
-		await mongo.database('tenant_a').db.createCollection('users');
-		await expect(
+		const mongo = await plainMongo({ autoSync: true });
+		const rolledBack = await rejection(
 			mongo.transaction(async (tx) => {
 				await tx
 					.database('tenant_a')
 					.db.users.create({ email: 'a@example.com' });
 				throw new Error('rollback');
 			}),
-		).rejects.toThrow('rollback');
+		);
+		expect(rolledBack).toHaveProperty('message', 'rollback');
 		expect(await mongo.database('tenant_a').db.users.count()).toBe(0);
 		await mongo.transaction(async (tx) => {
 			await tx.database('tenant_a').db.users.create({ email: 'a@example.com' });
 		});
 		expect(await mongo.database('tenant_a').db.users.count()).toBe(1);
+	});
+
+	test('a never-synced database has no indexes, even after a write in a transaction', async () => {
+		const mongo = await plainMongo();
+		await mongo.transaction(async (tx) => {
+			await tx.database('tenant_a').db.users.create({ email: 'a@b.c' });
+		});
+		const raw = mongo.database('tenant_a').db.collection('users');
+		expect((await raw.indexes()).map((index) => index.name)).toEqual(['_id_']);
+		// Synced, the unique index is there and enforced.
+		await mongo.database('tenant_a').sync();
+		const error = await rejection(
+			mongo.database('tenant_a').db.users.create({ email: 'a@b.c' }),
+		);
+		expect(error).toHaveProperty('name', 'ConflictError');
 	});
 
 	test('builds its own collections, and keeps autoSync', async () => {
@@ -78,6 +96,18 @@ describe('database', () => {
 		await tenant.db.users.count();
 		const names = await tenant.db.listCollections().toArray();
 		expect(names.map((c) => c.name)).toContain('users');
+	});
+
+	test('syncs a tenant database once, however often it is derived', async () => {
+		const mongo = await plainMongo({ autoSync: true });
+		await mongo.database('tenant_a').db.users.count();
+		const raw = mongo.database('tenant_a').db.collection('users');
+		await raw.dropIndexes();
+		// A new derivation, so a new `Db`: it must find the sync already done.
+		await mongo.database('tenant_a').db.users.count();
+		await mongo.as(new ObjectId()).database('tenant_a').db.users.count();
+		const indexes = await raw.indexes();
+		expect(indexes.map((index) => index.name)).toEqual(['_id_']);
 	});
 
 	test('can derive again, and sync explicitly', async () => {
@@ -97,9 +127,73 @@ describe('database', () => {
 		expect(await mongo.db.users.count()).toBe(0);
 	});
 
-	test('refuses an empty name', async () => {
+	test.each([
+		['an empty name', ''],
+		['a slash', 'a/b'],
+		['a dot', 'a.b'],
+		['a space', 'a b'],
+		['a dollar', 'a$b'],
+		['a NUL', 'a\0b'],
+		['64 bytes', 'x'.repeat(64)],
+		['a reserved name', 'admin'],
+		['another reserved name', 'local'],
+		['the last reserved name', 'config'],
+	])('refuses %s with DATABASE_NAME, and not its value', async (_, name) => {
 		const mongo = await plainMongo();
-		expect(() => mongo.database('')).toThrow(WiringError);
+		let error: unknown;
+		try {
+			mongo.database(name);
+		} catch (caught) {
+			error = caught;
+		}
+		expect(error).toBeInstanceOf(WiringError);
+		expect(error).toHaveProperty('code', 'DATABASE_NAME');
+		if (name.length > 0 && !['admin', 'local', 'config'].includes(name)) {
+			expect((error as Error).message).not.toContain(name);
+		}
+	});
+
+	test('refuses a name that is not a string', async () => {
+		const mongo = await plainMongo();
+		const loose = mongo as unknown as { database(name: unknown): unknown };
+		expect(() => loose.database(42)).toThrow(
+			expect.objectContaining({ code: 'DATABASE_NAME' }),
+		);
+	});
+
+	test("merges `options` and `optionsFor` over the source's", async () => {
+		const mongo = await plainMongo();
+		const bad = { email: 42 } as never;
+		await rejection(mongo.db.users.create(bad)); // `parse` by default
+		const lax = mongo.database('tenant_a', { options: { validate: 'off' } });
+		await lax.db.users.create(bad);
+		expect(await lax.db.users.count()).toBe(1);
+		// `optionsFor` wins over `options`, for its key only.
+		const mixed = mongo.database('tenant_b', {
+			options: { validate: 'off' },
+			optionsFor: { users: { validate: 'parse' } },
+		});
+		expect(await rejection(mixed.db.users.create(bad))).toBeInstanceOf(Error);
+		await mixed.db.posts.create({ title: 42 } as never);
+		// And the Mongo it came from keeps its own.
+		expect(await mongo.db.users.count()).toBe(0);
+	});
+
+	test('refuses what the wiring decides, and a key nothing wires', async () => {
+		const mongo = await plainMongo();
+		const loose = mongo as unknown as {
+			database(name: string, options: object): unknown;
+		};
+		for (const options of [
+			{ options: { autoSync: true } },
+			{ options: { session: null } },
+			{ optionsFor: { users: { actor: 1 } } },
+			{ optionsFor: { nowhere: {} } },
+		]) {
+			expect(() => loose.database('tenant_a', options)).toThrow(
+				expect.objectContaining({ code: 'CONFIG' }),
+			);
+		}
 	});
 
 	describe('with several databases', () => {
@@ -132,8 +226,12 @@ describe('database', () => {
 			const loose = mongo as unknown as {
 				database(name: string, options?: { from?: string }): unknown;
 			};
-			expect(() => loose.database('t')).toThrow(WiringError);
-			expect(() => loose.database('t', { from: 'nope' })).toThrow(WiringError);
+			expect(() => loose.database('t')).toThrow(
+				expect.objectContaining({ code: 'SEVERAL_DATABASES' }),
+			);
+			expect(() => loose.database('t', { from: 'nope' })).toThrow(
+				expect.objectContaining({ code: 'NO_DATABASE' }),
+			);
 		});
 	});
 });
