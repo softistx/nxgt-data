@@ -65,7 +65,7 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [`No pinned SHA-256 for SeaweedFS 4.47 plan9_amd64.tar.gz: refusing to run an unchecked download.`](#no-pinned-sha-256-for-seaweedfs-447-plan9_amd64targz-refusing-to-run-an-unchecked-download)
   - [`GET https://github.com/seaweedfs/seaweedfs/releases/download/4.47/linux_amd64.tar.gz answered 404`](#get-httpsgithubcomseaweedfsseaweedfsreleasesdownload447linux_amd64targz-answered-404)
   - [`SeaweedFS did not serve S3 on http://127.0.0.1:24561 in 90s (bucket "avatars"). Its log, …/weed.log, says:`](#seaweedfs-did-not-serve-s3-on-http12700124561-in-90s-bucket-avatars-its-log-weedlog-says)
-  - [`reset on "avatars": the test S3 server gave no answer in 3000ms; it is stuck`](#reset-on-avatars-the-test-s3-server-gave-no-answer-in-3000ms-it-is-stuck)
+  - [`reset (list) on "avatars": the test S3 server gave no answer in 3000ms; it is stuck`](#reset-list-on-avatars-the-test-s3-server-gave-no-answer-in-3000ms-it-is-stuck)
   - [`createBucket: "x" is not a bucket name S3 accepts: 3 to 63 characters, lowercase letters, digits, dots and hyphens, starting and ending with a letter or digit`](#createbucket-x-is-not-a-bucket-name-s3-accepts-3-to-63-characters-lowercase-letters-digits-dots-and-hyphens-starting-and-ending-with-a-letter-or-digit)
   - [`no free block of 8 consecutive ports`](#no-free-block-of-8-consecutive-ports)
 - **Deadlines**
@@ -600,12 +600,13 @@ longer than 90 s; stop other test servers, and give `beforeAll` a timeout of
 120 s or more. To fail sooner with an `S3Error` `TIMEOUT`, pass
 `createBucket(name, { timeoutMs })`.
 
-### `reset on "avatars": the test S3 server gave no answer in 3000ms; it is stuck`
+### `reset (list) on "avatars": the test S3 server gave no answer in 3000ms; it is stuck`
 
 **When:** `reset(bucket, { timeoutMs })` or `createBucket(name, { timeoutMs })`
-from `@nxgt/s3/testing`; the message starts with `createBucket` or `reset
-(list)` / `reset (delete)` as the call that was waiting. The error is an
-`S3Error` coded `TIMEOUT`.
+from `@nxgt/s3/testing`. The error is an `S3Error` coded `TIMEOUT`. The
+message starts with the call that was waiting: `reset (list)`, `reset
+(delete)` or `createBucket`; `createBucket` can also end with `did not take a
+write in <n>ms. Its log, <path>, says:` followed by the server's log.
 **Why:** the test server accepted the connection and did not answer within
 `timeoutMs`: it is stuck, or the machine is too loaded.
 **Fix:** read the server's log (the `createBucket` message quotes it), stop
