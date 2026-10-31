@@ -1,5 +1,12 @@
 # @nxgt/image
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [[`24cc8a7`](https://github.com/softistx/nxgt-data/commit/24cc8a7d1fdf2442a6d7a15d9752bbce3900553c)]:
+  - @nxgt/s3@0.8.0
+
 ## 0.2.0
 
 ### Minor Changes
