@@ -1,5 +1,19 @@
 # @nxgt/mongo
 
+## 0.25.0
+
+### Minor Changes
+
+- [#304](https://github.com/softistx/nxgt-data/pull/304) [`20f159c`](https://github.com/softistx/nxgt-data/commit/20f159c547a1ab798c96f892b62e7fa30034e37c) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Add a `cursorScope` collection option, taken by `getCollection` and by `options` / `optionsFor` of `defineMongo`: the `scope` of every `paginateByCursor` call that gives none, for a host that binds every list to one tenant. A call's own `scope` outranks it, and a collection without it is unchanged.
+
+- [#307](https://github.com/softistx/nxgt-data/pull/307) [`0a4650c`](https://github.com/softistx/nxgt-data/commit/0a4650c15e5ad495fb5256412a1c7c0e30b5870a) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Add `mongo.database(name, { from?, options?, optionsFor? })`: derives, synchronously, a `Mongo` for another database of the same client, with the same collections, buckets, options and `autoSync`, carrying the actor (`as`) and the session or transaction it was derived in. It opens no connection, and like `as` it cannot be closed, so the client stays open. `from` names the source database and is required when the Mongo holds several. `options` and `optionsFor` are merged over the source's for that database (the derived ones win, even over the source's `optionsFor`); `db`, `session`, `actor` and `autoSync` are refused. The name is checked at call time, and a refusal is the new `WiringErrorCode` `DATABASE_NAME`.
+  
+  Behaviour change: the memo behind the public `autoSync` / `resetAutoSync` is now kept per client and database name instead of per `Db` object, so two `Db` objects of one database sync once.
+
+### Patch Changes
+
+- [#312](https://github.com/softistx/nxgt-data/pull/312) [`a9374d4`](https://github.com/softistx/nxgt-data/commit/a9374d4e82ff343b332a281f5119b7598f5df05d) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Document that mongodb 7.8 ignores `timeoutMS`: a transaction retrying a deterministic collision always runs the driver's full 120-second window, and `ping` reports a slow server through its own timer (`ConnectionError`). The GridFS transactional-collision spec no longer relies on `timeoutMS`, which left it looping under mongodb 7.8 and timed out the specs after it ([#308](https://github.com/softistx/nxgt-data/issues/308)).
+
 ## 0.24.1
 
 ### Patch Changes
