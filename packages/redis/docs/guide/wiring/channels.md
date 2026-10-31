@@ -122,6 +122,23 @@ for await (const change of redis.channels.roomChanged.stream('r1')) {
 - **A bounded buffer.** `stream(key, { bufferSize })` (default 256, at least
   1) keeps that many unread messages; a reader slower than the publishers
   loses the oldest.
+- **Waiting for the subscription: `ready()`.** The first `next()` does not wait
+  for the SUBSCRIBE, and pub/sub keeps nothing, so a message published in that
+  window is lost. When a flow must publish *after* the subscriber listens (an
+  event a subscription triggers itself), `await` the iterator's `ready()`: it
+  starts the subscription if no read has, and resolves once Redis confirmed it.
+  It joins the subscription another iterator already opened, resolves at once
+  on an iterator or channel that is closed, and rejects with the subscribe
+  error when it fails (the failure is forgotten, so a later iterator tries
+  again).
+
+  ```ts
+  const changes = redis.channels.roomChanged.stream('r1');
+  await changes.ready(); // SUBSCRIBE is confirmed
+  await redis.channels.roomChanged.publish({ roomId: 'r1', text: 'hi' });
+  const first = await changes.next(); // hears it
+  ```
+
 - **Redis down.** The first `next()` starts the subscribe but never waits for
   it (against an unreachable server it takes about 30 s to fail): a message
   delivered locally, or already queued, is returned at once. A failed

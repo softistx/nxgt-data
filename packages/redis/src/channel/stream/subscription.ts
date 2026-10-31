@@ -1,9 +1,17 @@
 import type { StreamContext } from './context';
 import { deliver } from './listeners';
 
-/** Opens the process's one subscription. A failed open is forgotten. */
+/**
+ * Opens the process's one subscription, or waits for the one in flight. A
+ * failed open is forgotten (the next iterator tries again) and rethrown to
+ * whoever awaits this call.
+ */
 export async function open<T>(ctx: StreamContext<T>): Promise<void> {
-	if (ctx.opened !== undefined || ctx.closed) return;
+	if (ctx.closed) return;
+	if (ctx.opened !== undefined) {
+		await ctx.opened;
+		return;
+	}
 	// A superseded attempt that resolves late must not deliver while its
 	// background close is still on its way: that would repeat a message.
 	const attempt: ReturnType<StreamContext<T>['source']['subscribe']> =
@@ -14,8 +22,9 @@ export async function open<T>(ctx: StreamContext<T>): Promise<void> {
 	try {
 		const subscription = await attempt;
 		if (ctx.opened === attempt) ctx.live = subscription;
-	} catch {
+	} catch (error) {
 		if (ctx.opened === attempt) ctx.opened = undefined;
+		throw error;
 	}
 }
 

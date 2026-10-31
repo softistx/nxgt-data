@@ -40,6 +40,7 @@ application can handle.
   - [A published message never arrives](#a-published-message-never-arrives)
   - [``channel "room.changed": stream() needs a `key` in its defineChannel``](#channel-roomchanged-stream-needs-a-key-in-its-definechannel)
   - [A keyed stream hears nothing from another process while Redis is down](#a-keyed-stream-hears-nothing-from-another-process-while-redis-is-down)
+  - [A keyed stream misses a message published right after it was opened](#a-keyed-stream-misses-a-message-published-right-after-it-was-opened)
   - [`stream: bufferSize is 0; it is a number of messages, a whole number of at least 1`](#stream-buffersize-is-0-it-is-a-number-of-messages-a-whole-number-of-at-least-1)
 - **Queues** (`QueueError`, and the `TypeError`s of `defineQueue`, `add`, `work` and `list`)
   - [`defineQueue: a queue needs a name, for its keys`](#definequeue-a-queue-needs-a-name-for-its-keys)
@@ -688,6 +689,21 @@ only the reply was lost, the same message also arrives through the
 subscription, so a local iterator can see it twice.
 **Fix:** treat a keyed message as idempotent (carry a version or an id), or
 leave `fallback` off and let `publish` throw.
+
+### A keyed stream misses a message published right after it was opened
+
+**When:** `publish` follows `stream(key)` and its first `next()` at once, and the
+iterator never receives the message (`publish` may resolve with `0`).
+**Why:** the first read starts the SUBSCRIBE in the background without waiting
+for it, and Redis pub/sub stores nothing: a message published before the
+subscription is active reaches nobody.
+**Fix:** wait for the subscription before publishing:
+
+```ts
+const changes = redis.channels.roomChanged.stream('r1');
+await changes.ready(); // rejects if the subscribe fails
+await redis.channels.roomChanged.publish({ roomId: 'r1', text: 'hi' });
+```
 
 ### `publish` throws while Redis is down, though `fallback: 'local'` is on
 

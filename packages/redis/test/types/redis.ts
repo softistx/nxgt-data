@@ -267,6 +267,10 @@ async function streamTypes(
 	}
 	// @ts-expect-error the key is a string
 	channel.stream(1);
+	const ready: Promise<void> = channel.stream('r1').ready();
+	void ready;
+	// @ts-expect-error ready() takes no argument
+	void channel.stream('r1').ready(1);
 }
 function streamDefinition() {
 	return defineChannel({
@@ -289,6 +293,7 @@ function localTypes() {
 	void local.channels.other;
 	// @ts-expect-error the key is a string
 	local.channels.room.stream(1);
+	void local.channels.room.stream('r1').ready();
 	// @ts-expect-error the definitions are given as `channels`
 	localChannels({ room: streamDefinition() });
 }
