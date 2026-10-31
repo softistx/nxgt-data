@@ -1,5 +1,11 @@
 # @nxgt/redis
 
+## 0.13.0
+
+### Minor Changes
+
+- [#320](https://github.com/softistx/nxgt-data/pull/320) [`b14b6e2`](https://github.com/softistx/nxgt-data/commit/b14b6e266dd375806968bdc4ee4439df4e0304f4) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Keyed streams: `stream(key).ready()` starts the Redis subscription if no read has, and resolves once SUBSCRIBE is confirmed, so a message published after it is heard. It rejects with the subscribe failure.
+
 ## 0.12.0
 
 ### Minor Changes
