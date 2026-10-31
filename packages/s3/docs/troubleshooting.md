@@ -65,6 +65,7 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [`No pinned SHA-256 for SeaweedFS 4.47 plan9_amd64.tar.gz: refusing to run an unchecked download.`](#no-pinned-sha-256-for-seaweedfs-447-plan9_amd64targz-refusing-to-run-an-unchecked-download)
   - [`GET https://github.com/seaweedfs/seaweedfs/releases/download/4.47/linux_amd64.tar.gz answered 404`](#get-httpsgithubcomseaweedfsseaweedfsreleasesdownload447linux_amd64targz-answered-404)
   - [`SeaweedFS did not serve S3 on http://127.0.0.1:24561 in 90s (bucket "avatars"). Its log, …/weed.log, says:`](#seaweedfs-did-not-serve-s3-on-http12700124561-in-90s-bucket-avatars-its-log-weedlog-says)
+  - [`reset (list) on "avatars": the test S3 server gave no answer in 3000ms; it is stuck`](#reset-list-on-avatars-the-test-s3-server-gave-no-answer-in-3000ms-it-is-stuck)
   - [`createBucket: "x" is not a bucket name S3 accepts: 3 to 63 characters, lowercase letters, digits, dots and hyphens, starting and ending with a letter or digit`](#createbucket-x-is-not-a-bucket-name-s3-accepts-3-to-63-characters-lowercase-letters-digits-dots-and-hyphens-starting-and-ending-with-a-letter-or-digit)
   - [`no free block of 8 consecutive ports`](#no-free-block-of-8-consecutive-ports)
 - **Deadlines**
@@ -596,7 +597,22 @@ the interesting lines of its own log: a taken port, a binary that dies on
 start, a disk with no room for the volumes it allocates.
 **Fix:** read those lines first. A machine under heavy load can also need
 longer than 90 s; stop other test servers, and give `beforeAll` a timeout of
-120 s or more.
+120 s or more. To fail sooner with an `S3Error` `TIMEOUT`, pass
+`createBucket(name, { timeoutMs })`.
+
+### `reset (list) on "avatars": the test S3 server gave no answer in 3000ms; it is stuck`
+
+**When:** `reset(bucket, { timeoutMs })` or `createBucket(name, { timeoutMs })`
+from `@nxgt/s3/testing`. The error is an `S3Error` coded `TIMEOUT`. The
+message starts with the call that was waiting: `reset (list)`, `reset
+(delete)` or `createBucket`; `createBucket` can also end with `did not take a
+write in <n>ms. Its log, <path>, says:` followed by the server's log.
+**Why:** the test server accepted the connection and did not answer within
+`timeoutMs`: it is stuck, or the machine is too loaded.
+**Fix:** when the message quotes the server's log (`createBucket` only, when
+the server answered with errors), read it; stop other test servers, and restart. Raise `timeoutMs` only if the
+machine is slow, and keep it under your hook timeout. On `createBucket` the
+number in the message can be the time left of the total, not `timeoutMs`.
 
 ### `createBucket: "x" is not a bucket name S3 accepts: 3 to 63 characters, lowercase letters, digits, dots and hyphens, starting and ending with a letter or digit`
 

@@ -96,7 +96,9 @@ test('stores an avatar', async () => {
   from the working directory; the binary lives in `<cacheDir>/<version>/weed`
   (`TEST_SEAWEEDFS_VERSION`). Cache that folder in CI.
 - It resolves to `{ endpoint, accessKeyId, secretAccessKey, region, options,
-  createBucket(name), reset(bucket), stop() }`. `options` goes straight to
+  createBucket(name, { timeoutMs }?), reset(bucket, { timeoutMs }?), stop() }`.
+  `timeoutMs` makes a stuck server fail with `S3Error` `TIMEOUT` instead of
+  hanging the hook. `options` goes straight to
   `bindBucket`. `stop()` kills the server and removes its files; calling it
   twice does nothing. A server nobody stopped does not keep the process alive,
   and is killed when it exits or gets SIGINT or SIGTERM (which then ends the
