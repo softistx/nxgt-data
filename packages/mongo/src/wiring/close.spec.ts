@@ -35,6 +35,22 @@ describe('close', () => {
 		expect(answer['ok']).toBe(1);
 	});
 
+	test('closing one Mongo on a given client leaves the others working', async () => {
+		const first = await openMongo(
+			defineMongo({ client: server.client, collections }),
+		);
+		const second = await openMongo(
+			defineMongo({ client: server.client, collections }),
+		);
+		await first.close();
+		expect(second.clients.default).toBe(server.client);
+		expect(await second.db.users.count()).toBe(0);
+		const answer = await server.client.db().command({ ping: 1 });
+		expect(answer['ok']).toBe(1);
+		await second.close();
+		expect((await server.client.db().command({ ping: 1 }))['ok']).toBe(1);
+	});
+
 	test('runs once, however many callers ask', async () => {
 		const mongo = await openMongo(
 			defineMongo({ uri: server.uri, collections }),
