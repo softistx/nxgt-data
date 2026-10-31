@@ -2193,8 +2193,10 @@ and the driver's own `MongoOperationTimeoutError` did not come first. The
 selection, which waits `serverSelectionTimeoutMS` (30 s by default): a client
 handed over unconnected makes its connect on the first command, and a
 connected client that has just lost its server makes its second ping wait the
-same way (measured on mongodb 7.6.0). A server that is merely too slow still
-reports `MongoOperationTimeoutError`.
+same way (measured on mongodb 7.6.0). Below mongodb 7.8, a server that is
+merely too slow still reports `MongoOperationTimeoutError`. From 7.8 on the
+driver ignores `timeoutMS`, so this timer is the only deadline and every slow
+server reports this error.
 
 **Fix:** answer 503 and look at the server. If the database is a `client` you
 handed over, connect it before `openMongo`:

@@ -36,7 +36,7 @@ connection's own `ping` answers with —
 | Result | Means |
 | --- | --- |
 | `{ ok: true, latencyMs }` | the server answered `ping`, in that many milliseconds |
-| `{ ok: false, error }` | it did not, within `timeoutMS`; `error` is the driver's — `MongoOperationTimeoutError` for a server too slow, `MongoNetworkError` or `MongoServerSelectionError` for one that is gone — or a `ConnectionError`, `ping: no answer in 1000ms`, when the deadline plus a 250 ms grace passed first |
+| `{ ok: false, error }` | it did not, within `timeoutMS`; `error` is the driver's — `MongoOperationTimeoutError` for a server too slow (below mongodb 7.8; from 7.8 on it is always the `ConnectionError` timer), `MongoNetworkError` or `MongoServerSelectionError` for one that is gone — or a `ConnectionError`, `ping: no answer in 1000ms`, when the deadline plus a 250 ms grace passed first |
 
 The keys are the database names the configuration gave, `default` when it
 named none, and the types know them: `health.main` on a Mongo with no `main`

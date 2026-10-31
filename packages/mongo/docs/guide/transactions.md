@@ -111,7 +111,8 @@ result is unknown (`UnknownTransactionCommitResult`, other than
 because a commit is idempotent. The callback never reruns for it, and a commit
 that may have landed never reaches your retry loop to apply the work twice.
 The 120-second window is fixed: the client's `timeoutMS` (CSOT) does not
-shorten it on this path, unlike the driver's helper.
+shorten it on this path, unlike the driver's helper below mongodb 7.8 (from 7.8
+on the driver ignores `timeoutMS` everywhere).
 The option never reaches the driver. It is refused, with the
 other options, by a call that joins an open transaction.
 

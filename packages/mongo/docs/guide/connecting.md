@@ -103,8 +103,11 @@ throws — a health check reports, it does not fail. The deadline holds even
 right after the server is lost, when the driver would otherwise wait
 `serverSelectionTimeoutMS` (30 s by default) for a server to select; then the
 result is `{ ok: false }` with a `ConnectionError`, `ping: no answer in 500ms`.
+From mongodb 7.8 on the driver ignores `timeoutMS` altogether, so this timer
+is the only deadline and a slow server is reported the same way.
 
-`timeoutMS: 0` is not "no limit" here, as it is for the driver: a health check
+`timeoutMS: 0` is not "no limit" here, as it is for the driver below mongodb 7.8
+(from 7.8 on the driver ignores the option): a health check
 without one makes no sense, so only the 250 ms grace bounds it.
 
 ```ts
