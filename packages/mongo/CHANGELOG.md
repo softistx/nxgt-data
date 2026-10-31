@@ -1,5 +1,11 @@
 # @nxgt/mongo
 
+## 0.25.1
+
+### Patch Changes
+
+- [#314](https://github.com/softistx/nxgt-data/pull/314) [`f163d2c`](https://github.com/softistx/nxgt-data/commit/f163d2cacc7a4b6d378c1c27d8a1ff865aa0a7e4) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `Mongo<C>` is covariant in its config again, as in 0.24.1 (fixes the 0.25.0 regression). 0.25.0 made `SoleScope<C>` (the type of `mongo.db`) a conditional on `IsSole<DbName<C>>`, which TypeScript measured as invariant: a `Mongo<A>` no longer converted to `Mongo<never>` or `Mongo<unknown>` with a plain `as`, and a Mongo opened from a config without `autoSync` was no longer assignable to `MongoOf` of the same config with `autoSync`. `database()` is unchanged: it still requires `from` once several databases are wired.
+
 ## 0.25.0
 
 ### Minor Changes
