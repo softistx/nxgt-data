@@ -35,6 +35,48 @@ describe('close', () => {
 		expect(answer['ok']).toBe(1);
 	});
 
+	test('closing one Mongo on a given client leaves the others working', async () => {
+		const first = await openMongo(
+			defineMongo({ client: server.client, collections }),
+		);
+		const second = await openMongo(
+			defineMongo({ client: server.client, collections }),
+		);
+		await first.close();
+		expect(second.clients.default).toBe(server.client);
+		expect(await second.db.users.count()).toBe(0);
+		const answer = await server.client.db().command({ ping: 1 });
+		expect(answer['ok']).toBe(1);
+		await second.close();
+		expect((await server.client.db().command({ ping: 1 }))['ok']).toBe(1);
+	});
+
+	test('closing a Mongo on a given client lets another one finish its work', async () => {
+		let release: () => void = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const first = await openMongo(
+			defineMongo({ client: server.client, collections }),
+		);
+		const second = await openMongo(
+			defineMongo({
+				client: server.client,
+				collections,
+				options: {
+					// Holds the write before it reaches the server, so it is still
+					// pending while `first.close()` runs.
+					hooks: { beforeCreate: async () => void (await gate) },
+				},
+			}),
+		);
+		const pending = second.db.users.create({ email: 'ada@example.com' });
+		await first.close();
+		release();
+		expect((await pending)['email']).toBe('ada@example.com');
+		await second.close();
+	});
+
 	test('runs once, however many callers ask', async () => {
 		const mongo = await openMongo(
 			defineMongo({ uri: server.uri, collections }),

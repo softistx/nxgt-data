@@ -1357,7 +1357,7 @@ A single database is named `default`.
 | Key of `defineMongo` | Default | |
 | --- | --- | --- |
 | `uri` | — | One of `uri` and `client`, never both. |
-| `client` | — | A client the application opened. Never closed by the `Mongo`. |
+| `client` | — | A client the application opened. `close()` on the `Mongo` leaves it open, and other Mongos on it keep working. |
 | `clientOptions` | `{}` | Passed to the driver with `uri`. Refused with `client`. |
 | `database` | the URI's, else `test` | The database's name. |
 | `collections` | — | `import * as collections from './models'`. |

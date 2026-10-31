@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Subprocess } from 'bun';
 import { freePorts, releasePorts } from './ports';
-import { createBucketOn, emptyBucket, type ServerAddress } from './ready';
+import {
+	createBucketOn,
+	type DeadlineOptions,
+	emptyBucket,
+	type ServerAddress,
+} from './ready';
 import { reapOnExit } from './reaper';
 import { type SeaweedfsOptions, seaweedfsBinary } from './seaweedfs';
 import {
@@ -23,10 +28,18 @@ export interface TestS3 {
 	region: string;
 	/** Options ready for `bindBucket`, pointing at this server. */
 	options: ServerAddress;
-	/** Creates `name` and resolves once it takes writes. */
-	createBucket(name: string): Promise<void>;
-	/** Empties a bucket, so each test starts from nothing. */
-	reset(bucket: string): Promise<void>;
+	/**
+	 * Creates `name` and resolves once it takes writes. With `timeoutMs` a
+	 * server that is not ready in time fails with `S3Error` `TIMEOUT`; without
+	 * it the wait is 90 s.
+	 */
+	createBucket(name: string, options?: DeadlineOptions): Promise<void>;
+	/**
+	 * Empties a bucket, so each test starts from nothing. With `timeoutMs`, a
+	 * list or delete round that gets no answer in time fails with `S3Error`
+	 * `TIMEOUT`, instead of hanging until the test runner's hook timeout.
+	 */
+	reset(bucket: string, options?: DeadlineOptions): Promise<void>;
 	/** Kills the server and removes its files. Calling it again does nothing. */
 	stop(): Promise<void>;
 }
@@ -90,8 +103,9 @@ export async function startTestS3(
 		secretAccessKey: SECRET_ACCESS_KEY,
 		region: address.region,
 		options: address,
-		createBucket: (name) => createBucketOn(address, name, server),
-		reset: (bucket) => emptyBucket(address, bucket),
+		createBucket: (name, options) =>
+			createBucketOn(address, name, server, options),
+		reset: (bucket, options) => emptyBucket(address, bucket, options),
 		stop,
 	};
 }

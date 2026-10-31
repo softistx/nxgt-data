@@ -51,8 +51,8 @@ test('stores and reads back an avatar', async () => {
 | `endpoint` | `http://127.0.0.1:<port>` |
 | `accessKeyId`, `secretAccessKey`, `region` | the credentials the server accepts (local only), and `us-east-1` |
 | `options` | all of the above plus `virtualHostedStyle: false`: pass it as the second argument of `bindBucket` |
-| `createBucket(name)` | creates the bucket and resolves once it takes writes |
-| `reset(bucket)` | deletes every object of the bucket, so each test starts from nothing |
+| `createBucket(name, { timeoutMs }?)` | creates the bucket and resolves once it takes writes; waits 90 s unless `timeoutMs` is given |
+| `reset(bucket, { timeoutMs }?)` | deletes every object of the bucket, so each test starts from nothing; no deadline unless `timeoutMs` is given |
 | `stop()` | kills the server and removes its files; a second call does nothing |
 
 A bucket must be created before it is used, and its name must follow S3's
@@ -75,6 +75,21 @@ caught and does leave the `weed` running: stop it yourself.
 
 `reset` throws if it cannot list or delete, for a bucket that was never
 created included, so create each bucket first.
+
+## Failing fast on a stuck server
+
+Without a deadline, a stuck server hangs `reset` until your runner's hook
+timeout (15 s in `bun test`), and the failure says nothing about S3. Pass
+`timeoutMs`, a whole number of milliseconds, 1 or more, to get an `S3Error`
+with code `TIMEOUT` that names the bucket instead:
+
+```ts
+beforeEach(() => s3.reset('avatars', { timeoutMs: 3_000 }));
+```
+
+On `reset` the deadline applies to each list and each round of deletes; on
+`createBucket` it replaces the 90 s readiness wait, as a total. Keep it under
+your hook timeout. A value that is not whole milliseconds throws `WRONG_OPTION`.
 
 ## Where the binary comes from
 
