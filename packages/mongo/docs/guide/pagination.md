@@ -74,7 +74,7 @@ do {
 | `orderBy` | `FieldOf<Def>` | `'_id'` | the field to page along. A field the schema does not have is a `TypeError` |
 | `direction` | `'asc' \| 'desc'` | `'asc'` | |
 | `filter` | `FilterOf<Def>` | `{}` | |
-| `scope` | `string` | — | binds the cursor to one list (a tenant, a filter): see [below](#binding-a-cursor-to-a-list). A value that is not a string is a `TypeError` |
+| `scope` | `string` | — | binds the cursor to one list (a tenant, a filter): see [below](#binding-a-cursor-to-a-list). A value that is not a string is a `TypeError`. Defaults to the collection's `cursorScope` |
 | `withDeleted` | `boolean` | `false` | |
 
 The cursor is a keyset on the field **and** `_id`, which breaks its ties: no
@@ -116,6 +116,33 @@ const page = await collection.paginateByCursor({
 // InvalidCursorError: Invalid cursor in paginateByCursor on "posts": it was
 // written for another scope
 ```
+
+Every call of a list repeats the same `scope`, so a collection can hold it as
+a default: `cursorScope`, a collection option (`getCollection(db, posts,
+{ cursorScope })`) that the wiring takes in `options` and `optionsFor`. A host
+with one database per tenant writes it once per database:
+
+```ts
+const mongo = await openMongo(
+	defineMongo({
+		uri: process.env.MONGO_URI!,
+		collections,
+		options: { cursorScope: `tenant:${tenantId}` },
+	}),
+);
+await mongo.db.posts.paginateByCursor({ after });  // scoped to the tenant
+await mongo.db.posts.paginateByCursor({ scope: 'archive', after }); // a call's scope outranks it
+```
+
+A host that derives a Mongo per tenant sets it per tenant database with [`mongo.database(name, { options: { cursorScope } })`](wiring/actor-and-transactions.md#databasename-options).
+
+A call that gives no `scope`, or `scope: undefined`, uses the default; there is
+no way to ask for an unscoped cursor on a collection that has one. Setting a
+default refuses the cursors already handed out without a scope, as any scoped
+call does. To adopt it safely, set it to the very string your calls passed and
+the cursors already issued stay valid. A `cursorScope` that is not a string is a
+`TypeError` from `getCollection`, and a call's `scope: null` stays a `TypeError`
+rather than falling back to the default.
 
 Only the first 16 hex characters of the scope's SHA-256 enter the cursor, so
 the scope shows neither in the cursor nor in a message. **It binds, it does not
@@ -273,7 +300,3 @@ A bucket pages the same way: [Files](gridfs.md#listing).
 
 - [Documents](documents.md) — the reads these are built on.
 - [Aggregation](aggregation.md) — grouping and relations over a page.
-
-## One cursor scope per tenant database
-
-A host that derives a Mongo per tenant with [`mongo.database(name, { options })`](wiring/actor-and-transactions.md#databasename-options) sets the collection options of the tenant's database there, such as `cursorScope`, merged over the source database's.

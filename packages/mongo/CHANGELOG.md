@@ -1,5 +1,11 @@
 # @nxgt/mongo
 
+## 0.24.1
+
+### Patch Changes
+
+- [#303](https://github.com/softistx/nxgt-data/pull/303) [`fda5fcb`](https://github.com/softistx/nxgt-data/commit/fda5fcb872fb6d621afc6652f5f10f47609de5cb) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Document, and pin with a test, that `close()` on a Mongo built with a given `client` leaves the client open and every other Mongo on it working.
+
 ## 0.24.0
 
 ### Minor Changes

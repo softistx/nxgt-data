@@ -309,6 +309,85 @@ describe('paginateByCursor', () => {
 			).toBe(another);
 		});
 
+		test('takes the default scope of the collection', async () => {
+			const bound = getCollection(t.db, posts, { cursorScope: 'tenant-1' });
+			await bound.sync();
+			await bound.createMany([
+				{ title: 'a', rank: 0 },
+				{ title: 'b', rank: 0 },
+				{ title: 'c', rank: 0 },
+			]);
+			const page = await bound.paginateByCursor({ limit: 1 });
+			// The same string given by the call is the same cursor.
+			expect(
+				(await bound.paginateByCursor({ limit: 1, scope: 'tenant-1' }))
+					.nextCursor,
+			).toBe(page.nextCursor);
+			// `scope: undefined` is a call that gave none.
+			expect(
+				(await bound.paginateByCursor({ limit: 1, scope: undefined }))
+					.nextCursor,
+			).toBe(page.nextCursor);
+			// Another collection, with no default, refuses it, as does another default.
+			const plain = getCollection(t.db, posts);
+			expect(
+				await rejectionMessage(
+					plain.paginateByCursor({ after: page.nextCursor }),
+				),
+			).toBe(another);
+			const other = getCollection(t.db, posts, { cursorScope: 'tenant-2' });
+			expect(
+				await rejectionMessage(
+					other.paginateByCursor({ after: page.nextCursor }),
+				),
+			).toBe(another);
+		});
+
+		test('lets the scope of a call outrank the default', async () => {
+			const bound = getCollection(t.db, posts, { cursorScope: 'tenant-1' });
+			await bound.sync();
+			await bound.createMany([
+				{ title: 'a', rank: 0 },
+				{ title: 'b', rank: 0 },
+				{ title: 'c', rank: 0 },
+			]);
+			const page = await bound.paginateByCursor({ limit: 1, scope: 'archive' });
+			const plain = getCollection(t.db, posts);
+			const next = await plain.paginateByCursor({
+				after: page.nextCursor,
+				limit: 1,
+				scope: 'archive',
+			});
+			expect(next.items).toHaveLength(1);
+			expect(
+				await rejectionMessage(
+					bound.paginateByCursor({ after: page.nextCursor }),
+				),
+			).toBe(another);
+		});
+
+		test('refuses a null scope instead of using the default', async () => {
+			const bound = getCollection(t.db, posts, { cursorScope: 'tenant-1' });
+			expect(
+				await rejectionMessage(
+					bound.paginateByCursor({ scope: null as never }),
+				),
+			).toContain('"scope" of "posts" must be a string, not null');
+		});
+
+		test('refuses a default scope that is not a string', () => {
+			expect(() =>
+				getCollection(t.db, posts, { cursorScope: 42 as never }),
+			).toThrow(
+				'getCollection: cursorScope of "posts" must be a string, not number',
+			);
+			expect(() =>
+				getCollection(t.db, posts, { cursorScope: null as never }),
+			).toThrow(
+				'getCollection: cursorScope of "posts" must be a string, not null',
+			);
+		});
+
 		test('pages on with the same scope', async () => {
 			const collection = await seedPosts();
 			const pages = await walk((after) =>

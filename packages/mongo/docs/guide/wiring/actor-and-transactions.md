@@ -84,7 +84,10 @@ await tenant.db.users.create({ email: 'ada@example.com' });
   required once the Mongo holds several (`SEVERAL_DATABASES` otherwise,
   `NO_DATABASE` for an unknown key).
 - `options` and `optionsFor` are merged over the source's, so a host can
-  differ per tenant database. What the wiring decides (`db`, `session`,
+  differ per tenant database. From lowest to highest, a collection's options
+  are: the source's `options`, the source's `optionsFor[key]`, the derived
+  `options`, the derived `optionsFor[key]`. The derived options win, even
+  over the source's `optionsFor` for that collection. What the wiring decides (`db`, `session`,
   `actor`, `autoSync`) is refused, and so is an `optionsFor` key the source
   does not wire (`CONFIG`).
 - The definitions are always the source database's: the same schema on each
@@ -95,8 +98,8 @@ await tenant.db.users.create({ email: 'ada@example.com' });
   never repeats the value.
 
 ```ts
-// a cursor scope per tenant database (the `cursorScope` collection option of
-// the release after nxgt-data#304; see ../pagination.md)
+// a cursor scope per tenant database (the `cursorScope` collection option,
+// available since the version that added it; see ../pagination.md)
 const tenant = mongo.database(`tenant_${tenantId}`, {
 	options: { cursorScope: tenantId },
 });

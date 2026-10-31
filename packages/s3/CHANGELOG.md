@@ -1,5 +1,11 @@
 # @nxgt/s3
 
+## 0.8.0
+
+### Minor Changes
+
+- [#306](https://github.com/softistx/nxgt-data/pull/306) [`24cc8a7`](https://github.com/softistx/nxgt-data/commit/24cc8a7d1fdf2442a6d7a15d9752bbce3900553c) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `@nxgt/s3/testing`: `TestS3.reset(bucket, { timeoutMs })` and `createBucket(name, { timeoutMs })` take an optional deadline. A stuck test S3 server now fails fast with an `S3Error` coded `TIMEOUT` that names the bucket, instead of hanging a test hook until the runner's own timeout. Without `timeoutMs` nothing changes.
+
 ## 0.7.1
 
 ### Patch Changes

@@ -13,7 +13,7 @@ const { server, track } = useMongo('wiring-database');
 beforeEach(async () => {
 	const client = await MongoClient.connect(server.uri);
 	try {
-		for (const name of ['tenant_a', 'tenant_b']) {
+		for (const name of ['tenant_a', 'tenant_b', 'tenant_c']) {
 			await client.db(name).dropDatabase();
 		}
 	} finally {
@@ -177,6 +177,92 @@ describe('database', () => {
 		await mixed.db.posts.create({ title: 42 } as never);
 		// And the Mongo it came from keeps its own.
 		expect(await mongo.db.users.count()).toBe(0);
+	});
+
+	test("scopes the tenant database's cursors with `options.cursorScope`", async () => {
+		const mongo = await plainMongo();
+		const tenant = mongo.database('tenant_a', {
+			options: { cursorScope: 'tenant:a' },
+		});
+		const users = [
+			{ email: 'a@example.com' },
+			{ email: 'b@example.com' },
+			{ email: 'c@example.com' },
+		];
+		await tenant.db.users.createMany(users);
+		const scoped = await tenant.db.users.paginateByCursor({ limit: 1 });
+		const explicit = await tenant.db.users.paginateByCursor({
+			limit: 1,
+			scope: 'tenant:a',
+		});
+		expect(scoped.nextCursor).toBe(explicit.nextCursor);
+		// The source Mongo has no scope: the cursor is another list's.
+		const other = await rejection(
+			tenant.db.users.paginateByCursor({
+				limit: 1,
+				after: scoped.nextCursor as string,
+				scope: 'tenant:b',
+			}),
+		);
+		expect(other).toBeInstanceOf(Error);
+		expect(
+			(await mongo.db.users.paginateByCursor({ limit: 1 })).items,
+		).toHaveLength(0);
+	});
+
+	test("the derived options outrank the source's `optionsFor`, the derived `optionsFor` outrank both", async () => {
+		const source = track(
+			await openMongo(
+				defineMongo({
+					uri: server.uri,
+					collections,
+					optionsFor: { users: { cursorScope: 'source:for' } },
+				}),
+			),
+		);
+		// The default cursor of the first page equals the one asked for with `scope`.
+		const agrees = async (mongo: { db: typeof source.db }, scope: string) => {
+			await mongo.db.users.createMany([
+				{ email: 'a@example.com' },
+				{ email: 'b@example.com' },
+			]);
+			const byDefault = await mongo.db.users.paginateByCursor({ limit: 1 });
+			const byScope = await mongo.db.users.paginateByCursor({
+				limit: 1,
+				scope,
+			});
+			return byDefault.nextCursor === byScope.nextCursor;
+		};
+		expect(await agrees(source.database('tenant_a'), 'source:for')).toBe(true);
+		const derivedOptions = source.database('tenant_b', {
+			options: { cursorScope: 'derived:options' },
+		});
+		expect(await agrees(derivedOptions, 'derived:options')).toBe(true);
+		const derivedFor = source.database('tenant_c', {
+			options: { cursorScope: 'derived:options' },
+			optionsFor: { users: { cursorScope: 'derived:for' } },
+		});
+		expect(await agrees(derivedFor, 'derived:for')).toBe(true);
+	});
+
+	test('refuses a second argument or options that are not objects with CONFIG', async () => {
+		const mongo = await plainMongo();
+		const loose = mongo as unknown as {
+			database(name: string, options: unknown): unknown;
+		};
+		for (const options of [
+			null,
+			42,
+			{ options: null },
+			{ options: 'x' },
+			{ optionsFor: null },
+			{ optionsFor: { users: null } },
+			{ optionsFor: [] },
+		]) {
+			expect(() => loose.database('tenant_a', options)).toThrow(
+				expect.objectContaining({ code: 'CONFIG' }),
+			);
+		}
 	});
 
 	test('refuses what the wiring decides, and a key nothing wires', async () => {

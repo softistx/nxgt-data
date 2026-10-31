@@ -139,7 +139,7 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`connectMongo: this URI is already connected with other options. Pass the same options everywhere, or close the first connection.`](#connectmongo-this-uri-is-already-connected-with-other-options-pass-the-same-options-everywhere-or-close-the-first-connection)
   - [``db: this Mongo has several databases. Read the one you mean, as `mongo.databases.main`.``](#db-this-mongo-has-several-databases-read-the-one-you-mean-as-mongodatabasesmain)
   - [`No database "reporting" in this Mongo: it has "main", "analytics".`](#no-database-reporting-in-this-mongo-it-has-main-analytics)
-  - [`database: this Mongo has several databases. Say which one the collections come from, as `{ from: "main" }`.`](#database-this-mongo-has-several-databases-say-which-one-the-collections-come-from-as--from-main-)
+  - [``database: this Mongo has several databases. Say which one the collections come from, as `{ from: "main" }`.``](#database-this-mongo-has-several-databases-say-which-one-the-collections-come-from-as--from-main-)
   - [`database: the name … .`](#database-the-name--)
   - [`database: options has "autoSync", which the wiring decides.`](#database-options-has-autosync-which-the-wiring-decides)
   - [`Expected 2 arguments, but got 1.` on `mongo.database(name)`](#expected-2-arguments-but-got-1-on-mongodatabasename)
@@ -2277,7 +2277,7 @@ await mongo.transaction(fn, { on: 'main' });   // a key of `config.databases`
 mongo.database('tenant_a', { from: 'main' });  // likewise
 ```
 
-### `database: this Mongo has several databases. Say which one the collections come from, as `{ from: "main" }`.`
+### ``database: this Mongo has several databases. Say which one the collections come from, as `{ from: "main" }`.``
 
 **When:** `mongo.database(name)` without `from` on a Mongo that holds several
 databases. It does not compile either.

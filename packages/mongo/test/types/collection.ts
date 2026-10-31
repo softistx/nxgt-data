@@ -55,6 +55,14 @@ assertType<Equal<Omit<ReadUser, 'id'>, User>>(true);
 
 // create takes the schema's input.
 await collection.create({ email: 'ada@example.com' });
+// `cursorScope` is a string, and may be held as `undefined`.
+void getCollection({} as Db, users, { cursorScope: 'tenant:a' });
+void getCollection({} as Db, users, {
+	cursorScope: undefined as string | undefined,
+});
+// @ts-expect-error cursorScope is a string
+void getCollection({} as Db, users, { cursorScope: 42 });
+
 // @ts-expect-error email is required
 await collection.create({ name: 'Ada' });
 // @ts-expect-error age is a number

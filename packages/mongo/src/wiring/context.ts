@@ -92,6 +92,15 @@ export interface DerivedDatabase {
 /** The four options the wiring decides, refused in a `database` override. */
 const OWNED = ['db', 'session', 'actor', 'autoSync'] as const;
 
+function checkObject(what: string, value: unknown, key?: string): void {
+	if (value === undefined) return;
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+		throw new WiringError('CONFIG', `database: ${what} must be an object.`, {
+			key,
+		});
+	}
+}
+
 function checkOverride(what: string, options: unknown, key?: string): void {
 	if (typeof options !== 'object' || options === null) return;
 	for (const owned of OWNED) {
@@ -110,7 +119,7 @@ function checkOverride(what: string, options: unknown, key?: string): void {
  * and with no connection of its own: the client is the source database's,
  * its collections, buckets, options and `autoSync` are carried, and the
  * session and the actor travel with the context. `options` and `optionsFor`
- * are merged over the source's. It holds one database, under the key
+ * are merged over the source's, derived over source (see `optionsFor` below). It holds one database, under the key
  * `default`, whatever the source's key was.
  */
 export function derivedDatabase(
@@ -119,6 +128,12 @@ export function derivedDatabase(
 	change: DerivedDatabase = {},
 ): WiringContext {
 	checkDatabaseName(name);
+	if (typeof change !== 'object' || change === null) {
+		throw new WiringError(
+			'CONFIG',
+			'database: the second argument must be an object, as `{ from: "main" }`.',
+		);
+	}
 	const { from } = change;
 	let source: DatabaseContext | undefined;
 	if (from === undefined) {
@@ -139,6 +154,8 @@ export function derivedDatabase(
 			'database: this Mongo has no database.',
 		);
 	}
+	checkObject('options', change.options);
+	checkObject('optionsFor', change.optionsFor);
 	checkOverride('options', change.options);
 	const keys = new Set(source.wired.map(([key]) => key));
 	for (const [key, options] of Object.entries(change.optionsFor ?? {})) {
@@ -149,12 +166,20 @@ export function derivedDatabase(
 				{ key },
 			);
 		}
+		checkObject(`the options of "${key}"`, options, key);
 		checkOverride(`the options of "${key}"`, options, key);
 	}
 	const optionsFor: Record<
 		string,
 		WiringContext['databases'][number]['options']
 	> = { ...source.optionsFor };
+	// The scope reads `options` then `optionsFor[key]`: for a key the source
+	// gave options of its own, fold the derived `options` in below the derived
+	// `optionsFor`, so the order is source options < source optionsFor <
+	// derived options < derived optionsFor.
+	for (const key of Object.keys(optionsFor)) {
+		optionsFor[key] = { ...optionsFor[key], ...change.options } as never;
+	}
 	for (const [key, options] of Object.entries(change.optionsFor ?? {})) {
 		optionsFor[key] = { ...optionsFor[key], ...options } as never;
 	}

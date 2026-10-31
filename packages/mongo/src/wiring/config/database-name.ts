@@ -13,18 +13,17 @@ const FORBIDDEN = /[/\\. "$*<>:|?\0]/;
  * message says which rule was broken and never repeats the value.
  */
 export function checkDatabaseName(name: unknown): asserts name is string {
-	const refuse = (said: string): never => {
+	const refuse: (said: string) => never = (said) => {
 		throw new WiringError('DATABASE_NAME', `database: the name ${said}.`);
 	};
 	if (typeof name !== 'string' || name.length === 0) {
 		refuse('must be a non-empty string');
 	}
-	const text = name as string;
-	if (Buffer.byteLength(text) >= 64) refuse('must be under 64 bytes');
-	if (FORBIDDEN.test(text)) {
+	if (Buffer.byteLength(name) >= 64) refuse('must be under 64 bytes');
+	if (FORBIDDEN.test(name)) {
 		refuse('holds a character MongoDB refuses (one of /\\. "$*<>:|? or NUL)');
 	}
-	if (RESERVED.has(text)) {
+	if (RESERVED.has(name)) {
 		refuse("is one of MongoDB's own databases (admin, local, config)");
 	}
 }

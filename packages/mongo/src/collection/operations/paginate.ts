@@ -44,7 +44,8 @@ export async function paginateByCursor(
 	}
 	const direction = (opts['direction'] as OrderDirection | undefined) ?? 'asc';
 	const fields = sortField === '_id' ? ['_id'] : [sortField, '_id'];
-	const scope = opts['scope'];
+	const own = opts['scope'];
+	const scope = own === undefined ? ctx.cursorScope : own;
 	if (scope !== undefined && typeof scope !== 'string') {
 		throw new TypeError(
 			`paginateByCursor: "scope" of "${ctx.name}" must be a string, ` +

@@ -772,6 +772,8 @@ await repo.paginateByCursor({ filter: { tenantId }, scope: `tenant:${tenantId}`,
 // InvalidCursorError: Invalid cursor in paginateByCursor on "users": it was written for another scope
 ```
 
+A collection can hold the scope as a default, `cursorScope` (in `getCollection`'s options, or `options` / `optionsFor` of `defineMongo`); a call's own `scope` outranks it. See [Pagination](docs/guide/pagination.md#binding-a-cursor-to-a-list).
+
 **Both refusals name the call and the collection**, because every paginated
 call takes the same options and a log line holding one sentence said nothing
 about which listing produced it:
@@ -1379,7 +1381,7 @@ deep.
 | `databases`, `clients` | Every scope and every `MongoClient`, under the database's name. |
 | `actor`, `session` | What this `Mongo` stamps and runs in, if anything. |
 | `as(actor)`, `withSession(session)` | **Another** `Mongo` over the same clients; the one it came from is unchanged. |
-| `database(name, options?)` | **Another** `Mongo` on database `name` of the same client, synchronously: same collections, buckets, options and `autoSync`, the actor and the session (or transaction) carried, no new connection, and it cannot be closed. `{ from }` says whose collections, required with several databases (`{ from: 'main' }`), and `options` / `optionsFor` merge over the source's. `await tenant.sync()` syncs it explicitly. |
+| `database(name, options?)` | **Another** `Mongo` on database `name` of the same client, synchronously: same collections, buckets, options and `autoSync`, the actor and the session (or transaction) carried, no new connection, and it cannot be closed. `{ from }` says whose collections, required with several databases (`{ from: 'main' }`), and `options` / `optionsFor` merge over the source's (source `options` < source `optionsFor` < derived `options` < derived `optionsFor`). `await tenant.sync()` syncs it explicitly. |
 | `transaction(fn, options?)` | `fn` with a `Mongo` whose collections and buckets are all in the transaction. May run twice, unless `options.retryTransient` (else the config's `transactions.retryTransient`) is `false`. |
 | `sync(options?)` | `SyncReport[]` per database, collections only. A deployment step. |
 | `syncBuckets()` | Creates each bucket's four indexes, per database and bucket key. |
@@ -1539,7 +1541,7 @@ each: [configuration](docs/guide/wiring/configuration.md), the
 
 `CollectionOptions` turns the behaviours off one by one: `softDelete`,
 `touchUpdatedAt`, `optimisticLock`, `validate: 'off'`, `coerce: false`,
-`maxPageSize`, `autoSync`, `hooks`, and it names the database with `db` when
+`maxPageSize`, `cursorScope`, `autoSync`, `hooks`, and it names the database with `db` when
 you pass a client.
 
 ## What does not compile
@@ -1606,6 +1608,11 @@ operator, and getting it subtly wrong is worse than being honest about it.
   duplicates then make the later sync fail. A Mongo from
   `mongo.database(name)` is not synced for you: call `await tenant.sync()`, or
   set `autoSync`, which runs outside the session before the first operation.
+- **A default `cursorScope` refuses the cursors issued without one.** Setting
+  it on a collection whose calls passed no `scope` makes every cursor already
+  handed out an `InvalidCursorError`; set it to the very string your calls
+  passed and they stay valid. A call's `scope: null` is a `TypeError`, not
+  the default.
 - **A document that was read is not a create.** It carries its version, its
   `deletedAt` and its actors, which a create refuses. Take the stamps out
   first, or copy it with `raw`.

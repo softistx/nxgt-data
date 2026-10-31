@@ -36,6 +36,16 @@ void mongo.db.command({ ping: 1 });
 const dbName: string = mongo.db.databaseName;
 void dbName;
 
+// A default cursor scope is a string, and may be held as `undefined`.
+void defineMongo({ uri, collections, options: { cursorScope: 'tenant:a' } });
+void defineMongo({
+	uri,
+	collections,
+	options: { cursorScope: undefined as string | undefined },
+});
+// @ts-expect-error — a cursor scope is a string.
+void defineMongo({ uri, collections, options: { cursorScope: 42 } });
+
 // @ts-expect-error — no collection is wired under that key.
 void mongo.db.usrs;
 
