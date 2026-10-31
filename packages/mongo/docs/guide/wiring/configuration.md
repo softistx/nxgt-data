@@ -155,18 +155,22 @@ host with one database per tenant can give one client to many Mongos and close
 single ones (a cache eviction) without cutting the rest off:
 
 ```ts
-const client = await MongoClient.connect(process.env.MONGO_URL);
+import { MongoClient } from 'mongodb';
+import { defineMongo, openMongo } from '@nxgt/mongo';
+import * as collections from './models';
+
+const client = await MongoClient.connect(process.env.MONGO_URI!);
 
 const a = await openMongo(defineMongo({ client, collections }));
 const b = await openMongo(defineMongo({ client, collections }));
 
-await a.close();        // a is done; the client is not touched
+await a.close();          // a is done; the client is not touched
 await b.db.users.count(); // still works
-await client.close();   // yours to close, when the last Mongo is gone
+await client.close();     // yours to close, when the last Mongo is gone
 ```
 
-Only a client the Mongo opened from a `uri` is closed, and shared with its
-other holders until the last one gives it back.
+A client the Mongo opened from a `uri` is shared with its other holders and
+closed when the last one calls `close()`.
 
 ## The Mongo's type
 
