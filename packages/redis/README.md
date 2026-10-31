@@ -628,7 +628,9 @@ messages with that key, usable as a GraphQL subscription's `subscribe` result.
 One Redis subscription per process, opened by the first read and closed with
 the last iterator; `return()` frees an idle iterator at once; a slow reader
 loses its oldest messages (`bufferSize`, default 256, a whole number of at
-least 1). `channel.close()` ends every stream; `stream()` on a channel defined
+least 1). `await stream.ready()` starts the subscription and resolves once Redis
+confirmed it (rejects with the subscribe error), so a `publish` after it is
+heard; a first `next()` alone does not wait. `channel.close()` ends every stream; `stream()` on a channel defined
 without a `key` throws a `TypeError`. With `fallback: 'local'` on the
 definition, a `publish` that fails on the transport reaches this process's
 iterators instead of throwing (see Traps).

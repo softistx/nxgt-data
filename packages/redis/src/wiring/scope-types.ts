@@ -3,7 +3,7 @@ import type { BoundCache } from '../cache/bind-cache';
 import type { InputOf, ParamsOf, ValueOf } from '../cache/types';
 import type { ChannelDefinition } from '../channel/define-channel';
 import type { SubscribeOptions, Subscription } from '../channel/pubsub';
-import type { StreamOptions } from '../channel/stream';
+import type { StreamIterator, StreamOptions } from '../channel/stream';
 import type {
 	BoundIdempotency,
 	IdempotencyDefinition,
@@ -54,12 +54,10 @@ export interface BoundChannel<D> {
 	 * `throw()` and `Symbol.asyncDispose` release an iterator at once, even
 	 * while it waits. A reader slower than the publishers loses its oldest
 	 * messages past `bufferSize`. Throws a `TypeError` when the definition has
-	 * no `key`.
+	 * no `key`. `ready()` on the iterator starts the subscription and resolves
+	 * once Redis confirmed it, so a publish after it is heard.
 	 */
-	stream(
-		key: string,
-		options?: StreamOptions,
-	): AsyncGenerator<PayloadOf<D>, undefined, undefined> & AsyncDisposable;
+	stream(key: string, options?: StreamOptions): StreamIterator<PayloadOf<D>>;
 	/** Stops every stream of this channel and closes their shared subscription. */
 	close(): Promise<void>;
 }

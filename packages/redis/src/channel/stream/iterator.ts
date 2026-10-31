@@ -10,7 +10,15 @@ import { open } from './subscription';
 const finished = { value: undefined, done: true } as const;
 
 export type StreamIterator<T> = AsyncGenerator<T, undefined, undefined> &
-	AsyncDisposable;
+	AsyncDisposable & {
+		/**
+		 * Starts the subscription if no read has, and resolves once Redis
+		 * confirmed it: a message published after this resolves is heard.
+		 * Rejects with the subscribe failure; resolves at once when the iterator
+		 * or the channel is closed.
+		 */
+		ready(): Promise<void>;
+	};
 
 function checkBufferSize(bufferSize: number | undefined): number {
 	if (bufferSize === undefined) return DEFAULT_BUFFER_SIZE;
@@ -59,19 +67,29 @@ export function createIterator<T>(
 		remove(ctx, listener);
 		wake();
 	};
+	/** Registers the listener and starts the subscribe, once. */
+	const start = (): Promise<void> | undefined => {
+		if (ctx.closed) stopped = true;
+		if (stopped) return undefined;
+		if (!started) {
+			started = true;
+			add(ctx, listener);
+		}
+		return open(ctx);
+	};
 	const iterator: StreamIterator<T> = {
+		async ready() {
+			await start();
+		},
 		async next() {
 			// Closed since the iterator was made: nothing will wake it.
-			if (ctx.closed) stopped = true;
 			if (!stopped && !started) {
-				started = true;
-				add(ctx, listener);
 				// In the background: a read never waits for the subscribe, which
 				// takes as long as the connection attempt to fail, while a message
-				// delivered locally is already in the queue. `open` forgets its
-				// own failure.
-				void open(ctx);
-			}
+				// delivered locally is already in the queue. A failure is
+				// forgotten here; `ready()` is how a caller sees it.
+				start()?.catch(() => {});
+			} else if (ctx.closed) stopped = true;
 			while (!stopped) {
 				const next = queue.shift();
 				if (next !== undefined) return { value: next, done: false };

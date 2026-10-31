@@ -5,6 +5,7 @@ import { deliver, stopAll } from './listeners';
 import { release } from './subscription';
 
 export type { StreamOptions, StreamSource } from './context';
+export type { StreamIterator } from './iterator';
 
 /** What `createKeyedStreams` gives back. */
 export interface KeyedStreams<T> {

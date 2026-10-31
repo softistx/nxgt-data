@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { rejection } from '../../test/rejection';
+import { rejection, rejectionMessage } from '../../test/rejection';
 import { createKeyedStreams, type StreamSource } from './stream';
 
 type Change = { roomId: string; n: number };
@@ -460,5 +460,86 @@ describe('keyed streams', () => {
 			expect(await read).toEqual({ value: room('a', 7), done: false });
 			await streams.close();
 		});
+	});
+});
+
+describe('ready()', () => {
+	/** A broker whose subscribe takes a while to be confirmed. */
+	function slowBroker(delay: number, fail = false) {
+		const broker = fakeBroker();
+		const subscribe = broker.source.subscribe.bind(broker.source);
+		broker.source.subscribe = async (handler, options) => {
+			await Bun.sleep(delay);
+			if (fail) throw new Error('ECONNREFUSED');
+			return subscribe(handler, options);
+		};
+		return broker;
+	}
+
+	test('a publish right after ready() is received', async () => {
+		const broker = slowBroker(20);
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const it = streams.stream('a');
+		await it.ready();
+		expect(await streams.publish(room('a', 1))).toBe(1);
+		expect(await it.next()).toEqual({ value: room('a', 1), done: false });
+		await streams.close();
+	});
+
+	test('ready() after a first next() waits for the same subscription', async () => {
+		const broker = slowBroker(20);
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const it = streams.stream('a');
+		const first = it.next();
+		await it.ready();
+		await streams.publish(room('a', 2));
+		expect(await first).toEqual({ value: room('a', 2), done: false });
+		expect(broker.state.subscribes).toBe(1);
+		await streams.close();
+	});
+
+	test('a second iterator joins the open subscription', async () => {
+		const broker = slowBroker(10);
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const a = streams.stream('a');
+		const b = streams.stream('b');
+		await Promise.all([a.ready(), b.ready()]);
+		expect(broker.state.subscribes).toBe(1);
+		await a.ready();
+		await streams.close();
+	});
+
+	test('rejects with the subscribe failure', async () => {
+		const broker = slowBroker(5, true);
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const it = streams.stream('a');
+		expect(await rejectionMessage(it.ready())).toBe('ECONNREFUSED');
+		await streams.close();
+	});
+
+	test('a failed ready() is forgotten: the next iterator subscribes afresh', async () => {
+		const broker = fakeBroker();
+		broker.state.failNextSubscribe = true;
+		const streams = createKeyedStreams(broker.source, keyOf);
+		expect(await rejectionMessage(streams.stream('a').ready())).toBe(
+			'ECONNREFUSED',
+		);
+		const retry = streams.stream('a');
+		await retry.ready();
+		expect(broker.state.subscribes).toBe(1);
+		expect(await streams.publish(room('a', 3))).toBe(1);
+		expect(await retry.next()).toEqual({ value: room('a', 3), done: false });
+		await streams.close();
+	});
+
+	test('resolves at once on a closed stream', async () => {
+		const broker = fakeBroker();
+		const streams = createKeyedStreams(broker.source, keyOf);
+		const it = streams.stream('a');
+		await it.return(undefined);
+		await it.ready();
+		await streams.close();
+		await streams.stream('a').ready();
+		expect(broker.state.subscribes).toBe(0);
 	});
 });
