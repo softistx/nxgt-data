@@ -147,6 +147,31 @@ Two databases on one URI **share one client** — that is what `connectMongo`
 already does — and must then be configured with the same `clientOptions`: a
 second hold on a client opened with other options is refused.
 
+## Closing a Mongo that was given a client
+
+A Mongo built on a `client` you opened never closes it: `close()` leaves the
+client connected, and every other Mongo on the same client keeps working. A
+host with one database per tenant can give one client to many Mongos and close
+single ones (a cache eviction) without cutting the rest off:
+
+```ts
+import { MongoClient } from 'mongodb';
+import { defineMongo, openMongo } from '@nxgt/mongo';
+import * as collections from './models';
+
+const client = await MongoClient.connect(process.env.MONGO_URI!);
+
+const a = await openMongo(defineMongo({ client, collections }));
+const b = await openMongo(defineMongo({ client, collections }));
+
+await a.close();          // a is done; the client is not touched
+await b.db.users.count(); // still works
+await client.close();     // yours to close, when the last Mongo is gone
+```
+
+A client the Mongo opened from a `uri` is shared with its other holders and
+closed when the last one calls `close()`.
+
 ## The Mongo's type
 
 `MongoOf<typeof config>` is the type of the Mongo this config produces, for a
