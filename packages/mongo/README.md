@@ -1172,7 +1172,8 @@ What follows from that:
   callback again until its window closes** (120 seconds by default) and the
   collision, being deterministic, happens every time. The caller then gets a
   `DataError` with the driver's error, the abort, on its `cause` (the driver's
-  timeout error when the client was given a `timeoutMS`). Resolve the
+  timeout error when the client was given a `timeoutMS`, below mongodb 7.8,
+  which ignores it). Resolve the
   collision, such as by removing the stray chunks, rather than waiting it out,
   or pass `retryTransient: false` to the transaction (or set it as the client
   default in `defineMongo`'s `transactions`) to have it fail at once.

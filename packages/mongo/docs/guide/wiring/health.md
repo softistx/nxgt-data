@@ -60,7 +60,8 @@ The ping carries no session and no actor.
 Every database is pinged by the same `ping`, raced against a timer set at
 `timeoutMS` plus a 250 ms grace, so the driver's own
 `MongoOperationTimeoutError` still wins whenever the driver honours the
-deadline. The timer is there because `timeoutMS` does not bound server
+deadline. From mongodb 7.8 on the driver ignores `timeoutMS`, so a
+server too slow is always reported by the timer, as a `ConnectionError`. The timer is there because `timeoutMS` does not bound server
 selection (measured on mongodb 7.6.0): a client that was **never connected**
 makes its connect on the first command, and a connected client that has just
 lost its server makes its second ping wait `serverSelectionTimeoutMS` (30 s by

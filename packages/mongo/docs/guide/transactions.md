@@ -89,7 +89,8 @@ deterministic collision the server aborts the transaction for, such as
 `putOnce` against a stray committed chunk — is retried for the whole window.
 What comes back at the end is a `DataError` with the driver's error, the
 abort or the write conflict, on its `cause` (the driver's timeout error when
-the client was given a `timeoutMS`). Only `TransientTransactionError` is
+the client was given a `timeoutMS`, below mongodb 7.8: from 7.8 on, `timeoutMS`
+has no effect, and the window cannot be shortened). Only `TransientTransactionError` is
 handed back to the driver; an error without that label, a duplicate key for
 one, fails at once and the callback runs once.
 

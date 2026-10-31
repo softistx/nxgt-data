@@ -1014,7 +1014,8 @@ chunk. After about 120 seconds the `DataError` arrives, its `cause` the
 driver's abort (`Transaction ... has been aborted`) or write conflict. When
 the client was given a `timeoutMS`, the driver's own timeout error
 (`Timed out during withTransaction`, or `Server reported a timeout error`)
-comes back instead, with that error on its `cause`.
+comes back instead, with that error on its `cause` — below mongodb 7.8 only:
+from 7.8 on, the driver ignores `timeoutMS` and the window is always 120 seconds.
 **Why:** the server labels the abort `TransientTransactionError`, so the
 driver reruns the callback from the start until its window closes. The
 collision is deterministic, so every run fails the same way.
