@@ -59,6 +59,7 @@ export type {
 	ManyPatch,
 	NewOf,
 	OrderDirection,
+	OrderPathOf,
 	PaginateOptions,
 	Patch,
 	ProjectionOf,

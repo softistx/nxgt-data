@@ -63,12 +63,24 @@ function keyset(
 	return { $or: clauses };
 }
 
+/** The value at a dotted path, `undefined` when anything on the way is not an object. */
+function valueAt(document: Fields, path: string): unknown {
+	if (path in document) return document[path];
+	let current: unknown = document;
+	for (const part of path.split('.')) {
+		if (!isRecord(current)) return undefined;
+		current = current[part];
+	}
+	return current;
+}
+
 export async function paginateByCursor(
 	ctx: CollectionContext,
 	opts: Fields = {},
 ): Promise<CursorPage<Fields>> {
 	const sortField = (opts['orderBy'] as string | undefined) ?? '_id';
-	if (!ctx.shape[sortField] && sortField !== '_id') {
+	const head = sortField.split('.', 1)[0] as string;
+	if (!ctx.shape[head] && head !== '_id') {
 		throw new TypeError(
 			`paginateByCursor: "${ctx.name}" has no field "${sortField}" in its schema`,
 		);
@@ -136,6 +148,6 @@ export async function paginateByCursor(
 
 	// A null or missing value is kept as `null`: MongoDB sorts both first
 	// ascending, last descending, and `keyset` resumes from there.
-	const values = fields.map((field) => last[field] ?? null);
+	const values = fields.map((field) => valueAt(last, field) ?? null);
 	return { items, nextCursor: encodeCursor({ key, values }) };
 }
