@@ -1,5 +1,11 @@
 # @nxgt/mongo
 
+## 0.26.0
+
+### Minor Changes
+
+- [#326](https://github.com/softistx/nxgt-data/pull/326) [`389e43d`](https://github.com/softistx/nxgt-data/commit/389e43d3d7fdedb1069ac4599b5f7b2ea44f7133) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `paginateByCursor`'s `orderBy` accepts a dotted path into a nested object (`'quantity.baseQuantity'`), typed against the document by the new `OrderPathOf<Def>`: a path that does not exist is a compile error. The cursor carries the nested value and the `_id` tiebreak.
+
 ## 0.25.3
 
 ### Patch Changes
