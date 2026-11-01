@@ -41,9 +41,20 @@ _Nothing queued._
 
 ## Shipped
 
+- **A public origin for presigned URLs** — `bindBucket(…, { publicEndpoint })`
+  signs `presignGet`, `presignPut` and `presignPost` for the origin browsers
+  reach, while every other call keeps using `endpoint`, so a server behind a
+  proxy needs no second bound bucket — 0.9.0.
 - **`isBucketUnavailable(error)`** — tells a failure that means the bucket
   cannot be used (network codes, `TIMEOUT`, deployment-level S3 codes) from the
-  caller's own refusals, so a route can answer 503.
+  caller's own refusals, so a route can answer 503 — 0.7.0.
+- **`parseKey` on `defineBucket`** — the way back from a stored object key to
+  the params it was built from, `undefined` for a key that is not the bucket's,
+  so a key from `list` maps back to its params without parsing it by hand —
+  0.7.0.
+- **A deadline on the test S3 server's `reset` and `createBucket`** —
+  `@nxgt/s3/testing` takes `timeoutMs` on both, so a stuck server fails a test
+  hook with `S3Error` `TIMEOUT` that names the bucket — 0.8.0.
 - **A deadline on `put` and `list`** — `timeoutMs` on both, and the bucket's
   default now bounds them too: no answer in time rejects with `S3Error`
   `TIMEOUT` and aborts the request. A listing signs its own ListObjectsV2 GET

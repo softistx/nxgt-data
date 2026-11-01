@@ -42,8 +42,14 @@ interface BucketDefinition<P> {
 	readonly maxSize?: number;
 }
 
-/** Bun's `S3Options` without `bucket`, plus a default deadline. */
-type BindOptions = Omit<S3Options, 'bucket'> & CallOptions;
+/**
+ * Bun's `S3Options` without `bucket`, plus a default deadline and the origin
+ * browsers reach the service at.
+ */
+type BindOptions = Omit<S3Options, 'bucket'> &
+	CallOptions & {
+		publicEndpoint?: string | undefined;
+	};
 
 interface CallOptions {
 	timeoutMs?: number | undefined;
@@ -169,6 +175,7 @@ const store = bindBucket(avatars); // credentials from the environment
 | Option | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `endpoint` | `string` | AWS | the service's URL; anything S3-compatible Bun can sign for |
+| `publicEndpoint` | `string` | `endpoint` | the origin browsers reach the service at, when it is not `endpoint`. `presignGet`, `presignPut` and `presignPost` are signed for it; every other call goes to `endpoint`. See [Presigned URLs](presigned-urls.md#a-public-origin-for-browsers-an-internal-one-for-the-server). A value that is not an absolute URL is a `TypeError` from `bindBucket` |
 | `accessKeyId` / `secretAccessKey` | `string` | `$S3_*` / `$AWS_*` | the credentials |
 | `sessionToken` | `string` | `$AWS_SESSION_TOKEN` | for temporary credentials |
 | `region` | `string` | `$S3_REGION` / `$AWS_REGION` | the region to sign for |

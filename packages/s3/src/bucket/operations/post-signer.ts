@@ -75,7 +75,10 @@ export function signerOf<P>(
 	// Bun's own `ERR_S3_MISSING_CREDENTIALS` comes out of here when Bun has no
 	// credentials at all, as it does for `presignPut`.
 	const probe = new URL(
-		context.client.presign(PROBE, { method: 'PUT', expiresIn: 1 }),
+		(call === 'presignPost' ? context.presignClient : context.client).presign(
+			PROBE,
+			{ method: 'PUT', expiresIn: 1 },
+		),
 	);
 	const query = queryOf(probe);
 	const scope = (query?.get('X-Amz-Credential') ?? '').split('/');

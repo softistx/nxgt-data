@@ -35,7 +35,18 @@ import type {
  * `list`. A call's own `timeoutMs` wins. It never reaches the `S3Client`.
  * It bounds a whole `put`, an upload included: give a large one its own.
  */
-export type BindOptions = Omit<S3Options, 'bucket'> & CallOptions;
+export type BindOptions = Omit<S3Options, 'bucket'> &
+	CallOptions & {
+		/**
+		 * The origin browsers reach the service at, when it is not `endpoint`
+		 * (`https://media.example.com` in front of `http://minio:9000`).
+		 * `presignGet`, `presignPut` and `presignPost` are signed for it; every
+		 * other call goes to `endpoint`, so the server does not hairpin through
+		 * the proxy. Left out, everything uses `endpoint`. It never reaches the
+		 * `S3Client`. Anything that is not an absolute URL is a `TypeError`.
+		 */
+		publicEndpoint?: string | undefined;
+	};
 
 export type {
 	PresignedPost,
@@ -99,8 +110,9 @@ export interface BoundBucket<P> {
 		} & CallOptions,
 	): Promise<ObjectPage>;
 	/**
-	 * A URL that reads this object, signed. `contentDisposition` signs the
-	 * header the download is served with, for a link that saves under a name.
+	 * A URL that reads this object, signed (for `publicEndpoint` when bound
+	 * with one). `contentDisposition` signs the header the download is served
+	 * with, for a link that saves under a name.
 	 */
 	presignGet(params: P, options?: PresignGetOptions): string;
 	/**
@@ -116,6 +128,9 @@ export interface BoundBucket<P> {
 	 */
 	presignPost(params: P, options?: PresignPostOptions): PresignedPost;
 }
+
+/** An endpoint without trailing slashes, so `https://x/` equals `https://x`. */
+const trimmed = (endpoint: string | undefined) => endpoint?.replace(/\/+$/, '');
 
 /**
  * Binds a bucket definition to credentials.
@@ -138,7 +153,7 @@ export function bindBucket<P>(
 	definition: BucketDefinition<P>,
 	options: BindOptions = {},
 ): BoundBucket<P> {
-	const { timeoutMs, ...clientOptions } = options;
+	const { timeoutMs, publicEndpoint, ...clientOptions } = options;
 	// Wiring, not a request: a bare `TypeError`, like the other definition-time
 	// refusals. Only the per-call value, which can come from a request, is coded.
 	if (timeoutMs !== undefined && !isWholeMs(timeoutMs)) {
@@ -147,13 +162,32 @@ export function bindBucket<P>(
 				`milliseconds, 1 or more; got ${shapeOf(timeoutMs)}`,
 		);
 	}
+	if (publicEndpoint !== undefined && !URL.canParse(publicEndpoint)) {
+		throw new TypeError(
+			`bindBucket on "${definition.bucket}": publicEndpoint is an absolute ` +
+				`URL such as https://media.example.com; got ${shapeOf(publicEndpoint)}`,
+		);
+	}
 	const deadline = timeoutMs;
 	const client = new S3Client({ ...clientOptions, bucket: definition.bucket });
+	// A presigned URL is bound to the host it was signed for, and the browser
+	// opens it: it needs the public origin, while the server's own calls keep
+	// the internal one.
+	const presignClient =
+		publicEndpoint === undefined ||
+		trimmed(publicEndpoint) === trimmed(options.endpoint)
+			? client
+			: new S3Client({
+					...clientOptions,
+					endpoint: publicEndpoint,
+					bucket: definition.bucket,
+				});
 	const context = bucketContext(
 		client,
 		definition,
 		options.secretAccessKey,
 		deadline,
+		presignClient,
 	);
 	return {
 		client,

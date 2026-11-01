@@ -304,6 +304,29 @@ rather than guess where to post the form or as whom
 ([the URL Bun signed has no credential scope](../troubleshooting.md#presignpost-on-avatars-the-url-bun-signed-has-no-credential-scope-or-not-the-key-at-the-end-of-its-path-so-there-is-nowhere-to-post-the-form-)).
 None of the three is an `S3Error`: none is the caller's input.
 
+## A public origin for browsers, an internal one for the server
+
+A presigned URL is bound to the host it was signed for, and the browser opens
+it. Behind a reverse proxy the browser reaches the service at one origin
+(`https://media.example.com`) and the server at another
+(`http://minio:9000`). Give both to `bindBucket`:
+
+```ts
+const store = bindBucket(avatars, {
+	endpoint: 'http://minio:9000', // exists, put, bytes, delete, list
+	publicEndpoint: 'https://media.example.com', // presignGet, presignPut, presignPost
+	accessKeyId: process.env.S3_KEY,
+	secretAccessKey: process.env.S3_SECRET,
+});
+
+store.presignGet({ userId: 'u1' }); // https://media.example.com/avatars/u1.png?X-Amz-…
+await store.exists({ userId: 'u1' }); // goes to http://minio:9000, no hairpin
+```
+
+The credentials, region and bucket are the same for both; only the origin
+differs. Left out (or equal to `endpoint`), everything uses `endpoint`. The
+proxy must forward the `Host` header it received, since the signature covers it.
+
 ## A URL is signed for the bound bucket, whatever the options say
 
 `PresignOptions` carries no `bucket`, `endpoint`, `region` or credential, and
@@ -317,7 +340,7 @@ import type { PresignOptions } from '@nxgt/s3';
 // A bag off a request body never met the types.
 const bag = { expiresIn: 60, bucket: 'somewhere-else' } as PresignOptions;
 
-store.presignGet({ userId: 'u1' }, bag); // …/avatars/u1.png, on this endpoint
+store.presignGet({ userId: 'u1' }, bag); // …/avatars/u1.png, on this bucket's presign origin (`publicEndpoint` when set, else `endpoint`)
 ```
 
 Measured before that filter existed, such a bag redirected the URL: a

@@ -662,3 +662,103 @@ describe('presigned URLs', () => {
 		);
 	});
 });
+
+describe('publicEndpoint', () => {
+	const PUBLIC = 'https://media.example.com';
+	const split = () =>
+		bindBucket(avatars, { ...servers.s3.options, publicEndpoint: PUBLIC });
+
+	test('presignGet, presignPut and presignPost are signed for the public origin', () => {
+		const bucket = split();
+		const get = new URL(bucket.presignGet({ userId: 'u1' }, { expiresIn: 60 }));
+		const put = new URL(bucket.presignPut({ userId: 'u1' }, { expiresIn: 60 }));
+		const form = bucket.presignPost(
+			{ userId: 'u1' },
+			{ expiresIn: 60, type: 'image/png' },
+		);
+		expect(get.origin).toBe(PUBLIC);
+		expect(put.origin).toBe(PUBLIC);
+		expect(get.pathname).toBe('/avatars/u1.png');
+		expect(new URL(form.url).origin).toBe(PUBLIC);
+		expect(form.url.startsWith(`${PUBLIC}/avatars`)).toBe(true);
+	});
+
+	test('every other call still goes to the main endpoint', async () => {
+		const bucket = split();
+		await bucket.put({ userId: 'u1' }, png, { type: 'image/png' });
+		expect(await bucket.exists({ userId: 'u1' })).toBe(true);
+		expect(await bucket.bytes({ userId: 'u1' })).toEqual(png);
+		expect((await bucket.list()).items.map((o) => o.key)).toContain('u1.png');
+		await bucket.delete({ userId: 'u1' });
+		expect(await bucket.exists({ userId: 'u1' })).toBe(false);
+	});
+
+	test('text and stat go to the main endpoint too', async () => {
+		const bucket = split();
+		await bucket.put({ userId: 'u2' }, 'hello', { type: 'image/png' });
+		expect(await bucket.text({ userId: 'u2' })).toBe('hello');
+		expect((await bucket.stat({ userId: 'u2' }))?.size).toBe(5);
+		await bucket.delete({ userId: 'u2' });
+	});
+
+	test('the POST form is signed for the same credential and posts to the public origin', () => {
+		const main = store().presignPost(
+			{ userId: 'u1' },
+			{ expiresIn: 60, type: 'image/png' },
+		);
+		const form = split().presignPost(
+			{ userId: 'u1' },
+			{ expiresIn: 60, type: 'image/png' },
+		);
+		expect(form.url.startsWith(`${PUBLIC}/avatars`)).toBe(true);
+		expect(form.fields['key']).toBe('u1.png');
+		expect(form.fields['policy']).toBeString();
+		expect(form.fields['x-amz-signature']).toBeString();
+		expect(form.fields['x-amz-credential']?.split('/')[0]).toBe(
+			main.fields['x-amz-credential']?.split('/')[0],
+		);
+	});
+
+	test('a publicEndpoint equal to endpoint, trailing slash or not, changes nothing', () => {
+		const { endpoint } = servers.s3.options;
+		for (const publicEndpoint of [endpoint, `${endpoint}/`]) {
+			const bucket = bindBucket(avatars, {
+				...servers.s3.options,
+				publicEndpoint,
+			});
+			const url = new URL(bucket.presignGet({ userId: 'u1' }));
+			expect(url.origin).toBe(new URL(endpoint).origin);
+			expect(url.pathname).toBe('/avatars/u1.png');
+		}
+	});
+
+	test('a publicEndpoint with a trailing slash still signs for that origin', () => {
+		const bucket = bindBucket(avatars, {
+			...servers.s3.options,
+			publicEndpoint: `${PUBLIC}/`,
+		});
+		const url = new URL(bucket.presignGet({ userId: 'u1' }));
+		expect(url.origin).toBe(PUBLIC);
+		expect(url.pathname).toBe('/avatars/u1.png');
+	});
+
+	test('the URL carries the same key, bucket and credential as the main one', () => {
+		const main = new URL(store().presignGet({ userId: 'u1' }));
+		const pub = new URL(split().presignGet({ userId: 'u1' }));
+		expect(pub.pathname).toBe(main.pathname);
+		expect(pub.searchParams.get('X-Amz-Credential')?.split('/')[0]).toBe(
+			main.searchParams.get('X-Amz-Credential')?.split('/')[0],
+		);
+	});
+
+	test('without it, the presigned URL is for `endpoint`', () => {
+		const url = new URL(store().presignGet({ userId: 'u1' }));
+		expect(url.origin).toBe(new URL(servers.s3.options.endpoint).origin);
+	});
+
+	test('a value that is not a URL is a TypeError at bind time', () => {
+		expect(() =>
+			bindBucket(avatars, { ...servers.s3.options, publicEndpoint: 'nope' }),
+		).toThrow(TypeError);
+	});
+});

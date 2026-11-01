@@ -152,10 +152,10 @@ apart. A throw inside your `parseKey` propagates.
 
 ### `bindBucket(definition, options?)`
 
-`options` is Bun's own `S3Options` without `bucket`, passed through whole —
-`endpoint`, `accessKeyId`, `secretAccessKey`, `region`, `sessionToken`,
+`options` is Bun's own `S3Options` without `bucket` — `endpoint`,
+`accessKeyId`, `secretAccessKey`, `region`, `sessionToken`,
 `virtualHostedStyle`, and also `acl`, `storageClass`, `retry`, `partSize` and
-`queueSize`. It is optional: given none, Bun reads its own `S3_*` / `AWS_*`
+`queueSize` — plus `timeoutMs` and `publicEndpoint`. It is optional: given none, Bun reads its own `S3_*` / `AWS_*`
 environment variables. Each bound bucket holds an `S3Client` of its own: S3 is
 stateless HTTP, so there is no connection to share and nothing to close.
 
@@ -169,9 +169,28 @@ reads (5 s above) can cut a large upload, so give a large `put` its own:
 `store.put(params, body, { type, timeoutMs: 120_000 })`.
 
 ```ts
-const store = bindBucket(avatars, { ...credentials, timeoutMs: 5000 });
+const store = bindBucket(avatars, {
+	endpoint: process.env.S3_ENDPOINT,
+	accessKeyId: process.env.S3_KEY,
+	secretAccessKey: process.env.S3_SECRET,
+	timeoutMs: 5000,
+});
 await store.stat({ userId: 'u1' });                    // 5 s
 await store.stat({ userId: 'u1' }, { timeoutMs: 500 }); // 500 ms
+```
+
+Behind a proxy, add `publicEndpoint`: `presignGet`, `presignPut` and
+`presignPost` are signed for the origin browsers reach, every other call goes
+to `endpoint`. The proxy must forward the `Host` header it received, or the
+browser gets `SignatureDoesNotMatch`.
+
+```ts
+const store = bindBucket(avatars, {
+	endpoint: 'http://minio:9000',
+	publicEndpoint: 'https://media.example.com',
+	accessKeyId: process.env.S3_KEY,
+	secretAccessKey: process.env.S3_SECRET,
+});
 ```
 
 | `BoundBucket<P>` | |
@@ -312,7 +331,7 @@ it carries.
 | `BucketDefinition<P>` | what `defineBucket` takes and gives back |
 | `BoundBucket<P>` | what `bindBucket` gives back |
 | `CallOptions` | `{ timeoutMs?: number \| undefined }`, the optional second argument of `stat`, `exists`, `bytes`, `text` and `delete`, and a part of `put`'s and `list`'s options |
-| `BindOptions` | what `bindBucket` takes: Bun's `S3Options` without `bucket`, plus `timeoutMs` |
+| `BindOptions` | what `bindBucket` takes: Bun's `S3Options` without `bucket`, plus `timeoutMs` and `publicEndpoint` |
 | `ObjectPage` | `{ items: StoredObject[]; nextCursor: string \| null }` |
 | `StoredObject` | `{ key: string; size: number \| undefined; lastModified: Date \| undefined; eTag: string \| undefined }` — S3 does not promise the last three, so they are optional here |
 | `PresignOptions` | `{ expiresIn?: number \| undefined; acl?: … }` — what `presignPut` takes |
