@@ -71,7 +71,7 @@ do {
 | --- | --- | --- | --- |
 | `after` | `string \| null` | — | the `nextCursor` of the page before; omit it for the first |
 | `limit` | `number` | `20` | lowered to `maxPageSize`; below 1 is a `RangeError` naming the call |
-| `orderBy` | `FieldOf<Def>` | `'_id'` | the field to page along. A field the schema does not have is a `TypeError`. Null or missing values are allowed, see [Ordering by an optional field](#ordering-by-an-optional-field) |
+| `orderBy` | `OrderPathOf<Def>` | `'_id'` | the field to page along, or a dotted path into a nested object (`'quantity.baseQuantity'`), see [Ordering by a nested field](#ordering-by-a-nested-field). A field the schema does not have is a `TypeError`. Null or missing values are allowed, see [Ordering by an optional field](#ordering-by-an-optional-field) |
 | `direction` | `'asc' \| 'desc'` | `'asc'` | |
 | `filter` | `FilterOf<Def>` | `{}` | |
 | `scope` | `string` | — | binds the cursor to one list (a tenant, a filter): see [below](#binding-a-cursor-to-a-list). A value that is not a string is a `TypeError`. Defaults to the collection's `cursorScope` |
@@ -91,6 +91,28 @@ await collection.paginateByCursor({ after: cursor, orderBy: 'title' });
 // InvalidCursorError: Invalid cursor in paginateByCursor on "posts": it was
 // written for the ordering _id:asc, not title:asc
 ```
+
+### Ordering by a nested field
+
+`orderBy` takes a dotted path into a nested object, typed against the
+document: a path that does not exist is a compile error. Dates, ObjectIds and
+arrays are leaves, and a path never goes through an array.
+
+```ts
+const page = await items.paginateByCursor({
+	orderBy: 'quantity.baseQuantity',
+	direction: 'desc',
+	limit: 20,
+});
+await items.paginateByCursor({ orderBy: 'quantity.baseQuantity', direction: 'desc', after: page.nextCursor });
+// @ts-expect-error no such path
+await items.paginateByCursor({ orderBy: 'quantity.nope' });
+```
+
+The cursor carries the nested value (a `Date` or `bigint` survives it) and the
+`_id` tiebreak, and is bound to the path: `quantity.baseQuantity:desc`. At run
+time the whole path is walked through the schema's nested objects (`TypeError`
+naming the full path when a segment is missing, as for an untyped `'quantity.nope'`). An index on the path, followed by `_id`, keeps it quick.
 
 ### Ordering by an optional field
 

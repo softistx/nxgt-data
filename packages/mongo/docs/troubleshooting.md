@@ -53,6 +53,7 @@ The classes are exported from `@nxgt/mongo`, and the same classes again from
   - [`Invalid cursor in paginateByCursor on "users": it cannot be decoded`](#invalid-cursor-in-paginatebycursor-on-users-it-cannot-be-decoded)
   - [`Invalid cursor in paginateByCursor on "users": it was written for the ordering createdAt:asc, not _id:asc`](#invalid-cursor-in-paginatebycursor-on-users-it-was-written-for-the-ordering-createdatasc-not-_idasc)
   - [`Invalid cursor in paginateByCursor on "users": it was written for another scope`](#invalid-cursor-in-paginatebycursor-on-users-it-was-written-for-another-scope)
+  - [`paginateByCursor: "users" has no field "quantity.nope" in its schema`](#paginatebycursor-users-has-no-field-quantitynope-in-its-schema)
   - [`paginateByCursor: "scope" of "users" must be a string, not number`](#paginatebycursor-scope-of-users-must-be-a-string-not-number)
   - [`paginate on "users": page must be an integer of at least 1, not 0`](#paginate-on-users-page-must-be-an-integer-of-at-least-1-not-0)
   - [`Invalid cursor in paginateByCursor on "users": unexpected shape`](#invalid-cursor-in-paginatebycursor-on-users-unexpected-shape)
@@ -747,6 +748,22 @@ Coercion itself never throws: `getById('nope')` hands the string on, matches
 nothing, and raises `NotFoundError`. And `new ObjectId(undefined)` is a
 **fresh** id, not an error — `toObjectId` throws, `tryObjectId` answers
 `undefined`.
+
+### `paginateByCursor: "users" has no field "quantity.nope" in its schema`
+
+**When:** `orderBy` names a field, or a dotted path, the schema does not have.
+**Why:** `orderBy` is typed (`OrderPathOf`), so a misspelt path is normally a
+compile error; this is the run-time half, reached when the value came from a
+query string or through an `any`. The whole path is walked through the nested
+objects of the schema, and the message names it in full.
+**Fix:**
+
+```ts
+const orderBy = ['createdAt', 'quantity.baseQuantity'].includes(query.sort)
+	? (query.sort as 'createdAt' | 'quantity.baseQuantity')
+	: 'createdAt'; // allow-list what a client may ask for
+await items.paginateByCursor({ orderBy, after });
+```
 
 ### `Invalid cursor in paginateByCursor on "users": it cannot be decoded`
 

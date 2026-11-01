@@ -160,3 +160,26 @@ defineCollection({
 	// @ts-expect-error not a validation level
 	validation: { level: 'lenient' },
 });
+
+// The cursor can also page along a path into a nested object.
+const nested = defineCollection({
+	name: 'nested',
+	schema: z.object({
+		_id: id(),
+		quantity: z.object({ baseQuantity: z.number(), unit: z.string() }),
+		tags: z.array(z.string()),
+		seenAt: z.date(),
+	}),
+});
+declare const nestedCollection: TypedCollection<typeof nested>;
+await nestedCollection.paginateByCursor({ orderBy: 'quantity.baseQuantity' });
+await nestedCollection.paginateByCursor({ orderBy: 'quantity' });
+await nestedCollection.paginateByCursor({ orderBy: 'seenAt' });
+// @ts-expect-error no such nested path
+await nestedCollection.paginateByCursor({ orderBy: 'quantity.nope' });
+// @ts-expect-error no such head
+await nestedCollection.paginateByCursor({ orderBy: 'nope.baseQuantity' });
+// @ts-expect-error a path never goes through an array
+await nestedCollection.paginateByCursor({ orderBy: 'tags.length' });
+// @ts-expect-error a Date has no paths to follow
+await nestedCollection.paginateByCursor({ orderBy: 'seenAt.getTime' });

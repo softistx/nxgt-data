@@ -45,6 +45,7 @@ export type {
 	UpsertArgs,
 	WriteOperation,
 } from './collection/hooks/types';
+export type { OrderPathOf } from './collection/paths';
 export type {
 	ActorOf,
 	CollectionApi,

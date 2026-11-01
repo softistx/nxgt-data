@@ -756,6 +756,9 @@ do {
 	send(page.items);
 	after = page.nextCursor;
 } while (after);
+
+// orderBy takes a dotted path into a nested object, typed against the document
+await repo.paginateByCursor({ orderBy: 'quantity.baseQuantity', direction: 'asc' });
 ```
 
 The cursor is a keyset on the field and `_id`, which breaks its ties: no
@@ -1513,6 +1516,7 @@ each: [configuration](docs/guide/wiring/configuration.md), the
 | `toObjectId`, `toObjectIds`, `tryObjectId`, `objectIdParam` | a string from outside as an `ObjectId` |
 | `isValidObjectId`, `isObjectIdString`, `isObjectId` | the checks behind them |
 | `connectMongo(uri, options?)`, `closeMongo()`, `MongoConnection`, `PingResult` | a shared client, closed with its last holder |
+| `OrderPathOf` | a field or dotted path into a nested object, for `paginateByCursor`'s `orderBy` |
 | `FilterOf`, `NewOf` | a filter and a create, with the strings the collection reads allowed in them |
 | `UpdateOptions` | what `update` and `updateMany` take after the patch: `{ audit: false }` for a silent update. Not the driver's `UpdateOptions` |
 | `NewDocumentOf`, `Patch`, `ManyPatch`, `ExpectedVersion`, `WritableDocumentOf`, `WritableFieldOf`, `WritablePath`, `RemovablePath`, `StampNameOf`, `VersionNameOf`, `SetByCollection`, `FixedOnUpdate` | what a write may say |

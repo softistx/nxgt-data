@@ -33,6 +33,7 @@ import type {
 } from './changes/types';
 import type { AsGiven } from './coerce';
 import type { CollectionHooks } from './hooks/types';
+import type { OrderPathOf } from './paths';
 
 export type OrderDirection = 'asc' | 'desc';
 
@@ -313,12 +314,8 @@ export interface CursorPaginateOptions<Def> extends ReadOptions {
 	/** Documents per page. Default `20`, at most `maxPageSize`. */
 	limit?: number;
 	filter?: FilterOf<Def>;
-	/**
-	 * The field to page along. Default `_id`. Any other is followed by `_id`,
-	 * which breaks its ties. Null or missing values sort first ascending, last
-	 * descending, as MongoDB sorts them.
-	 */
-	orderBy?: FieldOf<Def>;
+	/** The field or dotted path to page along; `_id` breaks ties. Default `_id`. */
+	orderBy?: OrderPathOf<Def>;
 	/** Default `'asc'`. */
 	direction?: OrderDirection;
 	/**

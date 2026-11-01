@@ -63,12 +63,70 @@ function keyset(
 	return { $or: clauses };
 }
 
+/** What a node of the schema wraps: optional, nullable, default, pipe… */
+function inner(schema: unknown): unknown {
+	let node = schema as { def?: { innerType?: unknown; in?: unknown } };
+	for (let i = 0; i < 16; i++) {
+		const next = node.def?.innerType ?? node.def?.in;
+		if (!next) break;
+		node = next as typeof node;
+	}
+	return node;
+}
+
+/**
+ * Whether the schema has the field at a dotted path, walked through its nested
+ * objects. A node that says nothing about its keys (a record, `any`, a union…)
+ * accepts the rest of the path; a scalar or an array does not.
+ */
+function hasPath(shape: Record<string, unknown>, path: string): boolean {
+	if (path === '_id') return true;
+	const [head, ...rest] = path.split('.') as [string, ...string[]];
+	let node: unknown = shape[head];
+	if (!node) return false;
+	for (const part of rest) {
+		const schema = inner(node) as {
+			def?: { type?: string };
+			shape?: Record<string, unknown>;
+		};
+		const type = schema.def?.type;
+		if (type === 'object') {
+			node = schema.shape?.[part];
+			if (!node) return false;
+		} else if (
+			type === 'record' ||
+			type === 'any' ||
+			type === 'unknown' ||
+			type === 'union' ||
+			type === 'lazy' ||
+			type === 'custom' ||
+			type === 'intersection'
+		) {
+			return true;
+		} else {
+			return false;
+		}
+	}
+	return true;
+}
+
+/** The value at a dotted path, `undefined` when anything on the way is not an object. */
+function valueAt(document: Fields, path: string): unknown {
+	if (path in document) return document[path];
+	let current: unknown = document;
+	for (const part of path.split('.')) {
+		if (!isRecord(current)) return undefined;
+		current = current[part];
+	}
+	return current;
+}
+
 export async function paginateByCursor(
 	ctx: CollectionContext,
 	opts: Fields = {},
 ): Promise<CursorPage<Fields>> {
 	const sortField = (opts['orderBy'] as string | undefined) ?? '_id';
-	if (!ctx.shape[sortField] && sortField !== '_id') {
+	if (!hasPath(ctx.shape, sortField)) {
 		throw new TypeError(
 			`paginateByCursor: "${ctx.name}" has no field "${sortField}" in its schema`,
 		);
@@ -136,6 +194,6 @@ export async function paginateByCursor(
 
 	// A null or missing value is kept as `null`: MongoDB sorts both first
 	// ascending, last descending, and `keyset` resumes from there.
-	const values = fields.map((field) => last[field] ?? null);
+	const values = fields.map((field) => valueAt(last, field) ?? null);
 	return { items, nextCursor: encodeCursor({ key, values }) };
 }
