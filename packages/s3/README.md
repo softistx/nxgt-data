@@ -174,6 +174,18 @@ await store.stat({ userId: 'u1' });                    // 5 s
 await store.stat({ userId: 'u1' }, { timeoutMs: 500 }); // 500 ms
 ```
 
+Behind a proxy, add `publicEndpoint`: `presignGet`, `presignPut` and
+`presignPost` are signed for the origin browsers reach, every other call goes
+to `endpoint`.
+
+```ts
+const store = bindBucket(avatars, {
+	...credentials,
+	endpoint: 'http://minio:9000',
+	publicEndpoint: 'https://media.example.com',
+});
+```
+
 | `BoundBucket<P>` | |
 | --- | --- |
 | `client` | the `S3Client` this holds |

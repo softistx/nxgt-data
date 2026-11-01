@@ -86,7 +86,7 @@ export function presignGetUrl<P>(
 	options?: PresignGetOptions,
 ): string {
 	const key = keyOf(context, params);
-	return context.client.presign(key, {
+	return context.presignClient.presign(key, {
 		...signed(key, options, SIGNED_GET, callOf(context, 'presignGet')),
 		method: 'GET',
 	});
@@ -109,7 +109,7 @@ export function presignPutUrl<P>(
 	options?: PresignOptions,
 ): string {
 	const key = keyOf(context, params);
-	return context.client.presign(key, {
+	return context.presignClient.presign(key, {
 		...signed(key, options, SIGNED_PUT, callOf(context, 'presignPut')),
 		method: 'PUT',
 	});

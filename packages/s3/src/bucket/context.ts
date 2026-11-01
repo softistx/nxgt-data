@@ -13,6 +13,11 @@ import type { BucketDefinition } from './types';
  */
 export interface BucketContext<P> {
 	readonly client: S3Client;
+	/**
+	 * The client that signs presigned URLs and POST forms: `client` itself,
+	 * or one for the bucket's `publicEndpoint` when it has one.
+	 */
+	readonly presignClient: S3Client;
 	readonly definition: BucketDefinition<P>;
 	/**
 	 * The types the definition accepts, always as a list, **as written** —
@@ -62,9 +67,11 @@ export function bucketContext<P>(
 	definition: BucketDefinition<P>,
 	secretAccessKey?: string,
 	timeoutMs?: number,
+	presignClient: S3Client = client,
 ): BucketContext<P> {
 	const context: BucketContext<P> = {
 		client,
+		presignClient,
 		definition,
 		accepted: acceptedTypes(definition.contentType),
 		timeoutMs,
