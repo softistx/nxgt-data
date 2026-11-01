@@ -340,7 +340,7 @@ import type { PresignOptions } from '@nxgt/s3';
 // A bag off a request body never met the types.
 const bag = { expiresIn: 60, bucket: 'somewhere-else' } as PresignOptions;
 
-store.presignGet({ userId: 'u1' }, bag); // …/avatars/u1.png, on this endpoint
+store.presignGet({ userId: 'u1' }, bag); // …/avatars/u1.png, on this bucket's presign origin (`publicEndpoint` when set, else `endpoint`)
 ```
 
 Measured before that filter existed, such a bag redirected the URL: a

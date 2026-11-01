@@ -693,6 +693,55 @@ describe('publicEndpoint', () => {
 		expect(await bucket.exists({ userId: 'u1' })).toBe(false);
 	});
 
+	test('text and stat go to the main endpoint too', async () => {
+		const bucket = split();
+		await bucket.put({ userId: 'u2' }, 'hello', { type: 'image/png' });
+		expect(await bucket.text({ userId: 'u2' })).toBe('hello');
+		expect((await bucket.stat({ userId: 'u2' }))?.size).toBe(5);
+		await bucket.delete({ userId: 'u2' });
+	});
+
+	test('the POST form is signed for the same credential and posts to the public origin', () => {
+		const main = store().presignPost(
+			{ userId: 'u1' },
+			{ expiresIn: 60, type: 'image/png' },
+		);
+		const form = split().presignPost(
+			{ userId: 'u1' },
+			{ expiresIn: 60, type: 'image/png' },
+		);
+		expect(form.url.startsWith(`${PUBLIC}/avatars`)).toBe(true);
+		expect(form.fields['key']).toBe('u1.png');
+		expect(form.fields['policy']).toBeString();
+		expect(form.fields['x-amz-signature']).toBeString();
+		expect(form.fields['x-amz-credential']?.split('/')[0]).toBe(
+			main.fields['x-amz-credential']?.split('/')[0],
+		);
+	});
+
+	test('a publicEndpoint equal to endpoint, trailing slash or not, changes nothing', () => {
+		const { endpoint } = servers.s3.options;
+		for (const publicEndpoint of [endpoint, `${endpoint}/`]) {
+			const bucket = bindBucket(avatars, {
+				...servers.s3.options,
+				publicEndpoint,
+			});
+			const url = new URL(bucket.presignGet({ userId: 'u1' }));
+			expect(url.origin).toBe(new URL(endpoint).origin);
+			expect(url.pathname).toBe('/avatars/u1.png');
+		}
+	});
+
+	test('a publicEndpoint with a trailing slash still signs for that origin', () => {
+		const bucket = bindBucket(avatars, {
+			...servers.s3.options,
+			publicEndpoint: `${PUBLIC}/`,
+		});
+		const url = new URL(bucket.presignGet({ userId: 'u1' }));
+		expect(url.origin).toBe(PUBLIC);
+		expect(url.pathname).toBe('/avatars/u1.png');
+	});
+
 	test('the URL carries the same key, bucket and credential as the main one', () => {
 		const main = new URL(store().presignGet({ userId: 'u1' }));
 		const pub = new URL(split().presignGet({ userId: 'u1' }));

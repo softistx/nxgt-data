@@ -42,8 +42,14 @@ interface BucketDefinition<P> {
 	readonly maxSize?: number;
 }
 
-/** Bun's `S3Options` without `bucket`, plus a default deadline. */
-type BindOptions = Omit<S3Options, 'bucket'> & CallOptions;
+/**
+ * Bun's `S3Options` without `bucket`, plus a default deadline and the origin
+ * browsers reach the service at.
+ */
+type BindOptions = Omit<S3Options, 'bucket'> &
+	CallOptions & {
+		publicEndpoint?: string | undefined;
+	};
 
 interface CallOptions {
 	timeoutMs?: number | undefined;

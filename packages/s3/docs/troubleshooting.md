@@ -378,6 +378,28 @@ const url = avatars.presignPut({ userId }, { expiresIn: 300 }); // five minutes
 Sign for the time the page actually needs: a day is a long life for a URL
 anyone can forward.
 
+## Presigned URLs refused by the service
+
+### `SignatureDoesNotMatch` on a presigned URL behind a proxy
+
+**When:** a browser opens a `presignGet`, `presignPut` or `presignPost` URL and
+the service answers `403 SignatureDoesNotMatch`. The URL was signed for one
+host and reached the service as another.
+**Why:** the signature covers the `Host`. Either the URL was signed for
+`endpoint` (an internal address) rather than the origin the browser uses, or the
+proxy rewrites `Host` before forwarding.
+**Fix:** bind with `publicEndpoint`, the origin browsers reach, and make the
+proxy pass the `Host` header through unchanged:
+
+```ts
+const store = bindBucket(avatars, {
+	endpoint: 'http://minio:9000',
+	publicEndpoint: 'https://media.example.com',
+	accessKeyId: process.env.S3_KEY,
+	secretAccessKey: process.env.S3_SECRET,
+});
+```
+
 ## Presigned POSTs refused before they are signed
 
 Every entry here comes from `presignPost`, raised before anything is signed,
@@ -638,6 +660,15 @@ number, on `stat`, `exists`, `bytes`, `text` or `delete`. `code:
 mistake is wiring, not a request: a bare `TypeError` reading `bindBucket on
 "avatars": timeoutMs is a whole number of milliseconds, 1 or more; got …`.
 **Fix:** pass whole milliseconds, 1 or more: `{ timeoutMs: 5000 }`.
+
+### `bindBucket on "avatars": publicEndpoint is an absolute URL such as https://media.example.com; got a string`
+
+**When:** `bindBucket` got a `publicEndpoint` that does not parse as a URL
+(`'media.example.com'`, `''`, a path). A bare `TypeError`: wiring, not a
+request, like the `timeoutMs` one above.
+**Fix:** give the whole origin, scheme included:
+`publicEndpoint: 'https://media.example.com'`. Read it from configuration and
+leave it `undefined` when there is none.
 
 ### `stat on "avatars": no answer in 5000ms`
 

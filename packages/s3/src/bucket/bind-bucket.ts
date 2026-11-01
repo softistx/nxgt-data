@@ -110,8 +110,9 @@ export interface BoundBucket<P> {
 		} & CallOptions,
 	): Promise<ObjectPage>;
 	/**
-	 * A URL that reads this object, signed (for `publicEndpoint` when bound with one). `contentDisposition` signs the
-	 * header the download is served with, for a link that saves under a name.
+	 * A URL that reads this object, signed (for `publicEndpoint` when bound
+	 * with one). `contentDisposition` signs the header the download is served
+	 * with, for a link that saves under a name.
 	 */
 	presignGet(params: P, options?: PresignGetOptions): string;
 	/**
@@ -127,6 +128,9 @@ export interface BoundBucket<P> {
 	 */
 	presignPost(params: P, options?: PresignPostOptions): PresignedPost;
 }
+
+/** An endpoint without trailing slashes, so `https://x/` equals `https://x`. */
+const trimmed = (endpoint: string | undefined) => endpoint?.replace(/\/+$/, '');
 
 /**
  * Binds a bucket definition to credentials.
@@ -170,7 +174,8 @@ export function bindBucket<P>(
 	// opens it: it needs the public origin, while the server's own calls keep
 	// the internal one.
 	const presignClient =
-		publicEndpoint === undefined || publicEndpoint === options.endpoint
+		publicEndpoint === undefined ||
+		trimmed(publicEndpoint) === trimmed(options.endpoint)
 			? client
 			: new S3Client({
 					...clientOptions,
