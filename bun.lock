@@ -135,7 +135,7 @@
     },
     "packages/mongo": {
       "name": "@nxgt/mongo",
-      "version": "0.25.2",
+      "version": "0.25.3",
       "devDependencies": {
         "@types/bun": "^1.4.4",
         "mongodb": "7.6.0",
