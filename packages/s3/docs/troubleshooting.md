@@ -70,6 +70,8 @@ named `"TypeError"`.) The Bun messages were measured on Bun 1.4.2.
   - [`no free block of 8 consecutive ports`](#no-free-block-of-8-consecutive-ports)
 - **Deadlines**
   - [`timeoutMs is a whole number of milliseconds, 1 or more; got a fraction (stat on "avatars")`](#timeoutms-is-a-whole-number-of-milliseconds-1-or-more-got-a-fraction-stat-on-avatars)
+  - [`bindBucket on "avatars": publicEndpoint is an absolute URL such as https://media.example.com; got a string`](#bindbucket-on-avatars-publicendpoint-is-an-absolute-url-such-as-httpsmediaexamplecom-got-a-string)
+  - [`bindBucket on "avatars": publicEndpoint is an absolute URL such as https://media.example.com; got an empty string`](#bindbucket-on-avatars-publicendpoint-is-an-absolute-url-such-as-httpsmediaexamplecom-got-an-empty-string)
   - [`stat on "avatars": no answer in 5000ms`](#stat-on-avatars-no-answer-in-5000ms)
 - **The service**
   - [`Missing S3 credentials. 'accessKeyId', 'secretAccessKey', 'bucket', and 'endpoint' are required`](#missing-s3-credentials-accesskeyid-secretaccesskey-bucket-and-endpoint-are-required)
@@ -663,12 +665,20 @@ mistake is wiring, not a request: a bare `TypeError` reading `bindBucket on
 
 ### `bindBucket on "avatars": publicEndpoint is an absolute URL such as https://media.example.com; got a string`
 
-**When:** `bindBucket` got a `publicEndpoint` that does not parse as a URL
-(`'media.example.com'`, `''`, a path). A bare `TypeError`: wiring, not a
+**When:** `bindBucket` got a non-empty `publicEndpoint` that does not parse as a
+URL (`'media.example.com'`, a path). A bare `TypeError`: wiring, not a
 request, like the `timeoutMs` one above.
 **Fix:** give the whole origin, scheme included:
 `publicEndpoint: 'https://media.example.com'`. Read it from configuration and
 leave it `undefined` when there is none.
+
+### `bindBucket on "avatars": publicEndpoint is an absolute URL such as https://media.example.com; got an empty string`
+
+**When:** `bindBucket` got `publicEndpoint: ''`, typically an environment
+variable that is set but empty. A bare `TypeError`, thrown at bind time, like
+the entry above.
+**Fix:** pass the origin, or leave the option out. Turn an empty value into
+`undefined` where it is read: `publicEndpoint: env.S3_PUBLIC_ENDPOINT || undefined`.
 
 ### `stat on "avatars": no answer in 5000ms`
 
