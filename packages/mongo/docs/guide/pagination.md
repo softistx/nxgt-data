@@ -71,7 +71,7 @@ do {
 | --- | --- | --- | --- |
 | `after` | `string \| null` | — | the `nextCursor` of the page before; omit it for the first |
 | `limit` | `number` | `20` | lowered to `maxPageSize`; below 1 is a `RangeError` naming the call |
-| `orderBy` | `FieldOf<Def>` | `'_id'` | the field to page along. A field the schema does not have is a `TypeError` |
+| `orderBy` | `FieldOf<Def>` | `'_id'` | the field to page along. A field the schema does not have is a `TypeError`. Null or missing values are allowed, see [Ordering by an optional field](#ordering-by-an-optional-field) |
 | `direction` | `'asc' \| 'desc'` | `'asc'` | |
 | `filter` | `FilterOf<Def>` | `{}` | |
 | `scope` | `string` | — | binds the cursor to one list (a tenant, a filter): see [below](#binding-a-cursor-to-a-list). A value that is not a string is a `TypeError`. Defaults to the collection's `cursorScope` |
@@ -84,18 +84,25 @@ document is repeated or skipped while the collection is written to, where
 It is opaque and URL-safe, and it survives `ObjectId`, `Date` and `bigint`
 values. **It is encoded, not signed**: a client can read it, and forge one.
 
-Two refusals to know about:
+A cursor written for another ordering, or a forged one, is refused:
 
 ```ts
-// A cursor written for another ordering — or a forged one — is refused:
 await collection.paginateByCursor({ after: cursor, orderBy: 'title' });
 // InvalidCursorError: Invalid cursor in paginateByCursor on "posts": it was
 // written for the ordering _id:asc, not title:asc
+```
 
-// Paging along a field a document does not have cannot produce a cursor:
-await collection.paginateByCursor({ orderBy: 'rank' });
-// TypeError: paginateByCursor: "rank" is null in a document of "posts".
-//            Page along a field every document has.
+### Ordering by an optional field
+
+A field some documents lack, or hold as `null`, can be the `orderBy`. Null and
+missing values are ordered as MongoDB sorts them, together and before every
+other value ascending, after them descending. The cursor carries `null` for
+such a last document, and the next page resumes right after it: no document is
+skipped or repeated.
+
+```ts
+// `dueAt` is null or missing on some tasks: they come first.
+const page = await tasks.paginateByCursor({ orderBy: 'dueAt', limit: 20 });
 ```
 
 ### Binding a cursor to a list

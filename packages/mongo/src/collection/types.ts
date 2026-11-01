@@ -315,7 +315,8 @@ export interface CursorPaginateOptions<Def> extends ReadOptions {
 	filter?: FilterOf<Def>;
 	/**
 	 * The field to page along. Default `_id`. Any other is followed by `_id`,
-	 * which breaks its ties, and must be set on every document.
+	 * which breaks its ties. Null or missing values sort first ascending, last
+	 * descending, as MongoDB sorts them.
 	 */
 	orderBy?: FieldOf<Def>;
 	/** Default `'asc'`. */
