@@ -32,6 +32,37 @@ export async function paginate(
 	return toPage(items, total, window);
 }
 
+/**
+ * The filter of the documents after a cursor: `a > x OR (a = x AND b > y)`.
+ * MongoDB sorts null and missing values together, before every other value
+ * (after them when descending), and range operators never match them, so the
+ * null side of the leading field is spelled out. Only the leading field can
+ * be null: `_id`, the tiebreaker, never is. `{ a: null }` matches a null and
+ * a missing `a` alike, as the sort treats them.
+ */
+function keyset(
+	fields: string[],
+	values: readonly unknown[],
+	past: '$gt' | '$lt',
+	direction: OrderDirection,
+): Fields {
+	const [lead, ...rest] = fields as [string, ...string[]];
+	const leadValue = values[0] ?? null;
+	const clauses: Fields[] = [];
+	if (leadValue !== null) {
+		clauses.push({ [lead]: { [past]: leadValue } });
+		// Descending, nulls come last: they follow every non-null value.
+		if (direction === 'desc') clauses.push({ [lead]: null });
+	} else if (direction === 'asc') {
+		// Ascending, nulls come first: every non-null value follows one.
+		clauses.push({ [lead]: { $ne: null } });
+	}
+	rest.forEach((field, i) => {
+		clauses.push({ [lead]: leadValue, [field]: { [past]: values[i + 1] } });
+	});
+	return { $or: clauses };
+}
+
 export async function paginateByCursor(
 	ctx: CollectionContext,
 	opts: Fields = {},
@@ -81,15 +112,7 @@ export async function paginateByCursor(
 				{ collection: ctx.name },
 			);
 		}
-		// `a > x OR (a = x AND b > y)`, the keyset of the ordering.
-		after = {
-			$or: fields.map((field, index) => ({
-				...Object.fromEntries(
-					fields.slice(0, index).map((previous, i) => [previous, values[i]]),
-				),
-				[field]: { [past]: values[index] },
-			})),
-		};
+		after = keyset(fields, values, past, direction);
 	}
 
 	const sort = Object.fromEntries(
@@ -111,15 +134,8 @@ export async function paginateByCursor(
 		return { items, nextCursor: null };
 	}
 
-	const values = fields.map((field) => {
-		const value = last[field];
-		if (value === null || value === undefined) {
-			throw new TypeError(
-				`paginateByCursor: "${field}" is null in a document of "${ctx.name}". ` +
-					'Page along a field every document has.',
-			);
-		}
-		return value;
-	});
+	// A null or missing value is kept as `null`: MongoDB sorts both first
+	// ascending, last descending, and `keyset` resumes from there.
+	const values = fields.map((field) => last[field] ?? null);
 	return { items, nextCursor: encodeCursor({ key, values }) };
 }

@@ -211,22 +211,51 @@ describe('paginateByCursor', () => {
 		expect(new Set(emails).size).toBe(9);
 	});
 
-	test('refuses a field that is null in a document', async () => {
-		const collection = getCollection(t.db, users);
-		await collection.sync();
-		await collection.createMany([
-			{ email: 'a@example.com', name: 'a' },
-			{ email: 'b@example.com', name: 'b' },
-			// MongoDB sorts null first, so a page of two ends on one.
-			{ email: 'c@example.com' },
-			{ email: 'd@example.com' },
-		]);
-		expect(
-			await rejectionMessage(
-				collection.paginateByCursor({ limit: 2, orderBy: 'name' }),
-			),
-		).toContain('"name" is null in a document of "users"');
-	});
+	test.each(['asc', 'desc'] as const)(
+		'pages %s along a field that is null or missing, nulls where MongoDB sorts them',
+		async (direction) => {
+			const collection = getCollection(t.db, users);
+			await collection.sync();
+			await collection.createMany([
+				{ email: 'a@example.com', name: 'a' },
+				{ email: 'b@example.com', name: 'b' },
+				{ email: 'c@example.com' },
+				{ email: 'd@example.com', name: null },
+				{ email: 'e@example.com' },
+				{ email: 'f@example.com', name: 'a' },
+			]);
+			for (const limit of [1, 2, 3]) {
+				const emails: string[] = [];
+				let after: string | null = null;
+				do {
+					const page = await collection.paginateByCursor({
+						after,
+						limit,
+						orderBy: 'name',
+						direction,
+					});
+					emails.push(...page.items.map((user) => user.email));
+					after = page.nextCursor;
+				} while (after);
+				expect(emails).toHaveLength(6);
+				expect(new Set(emails).size).toBe(6);
+				const names = emails.map(
+					(email) =>
+						({
+							'a@example.com': 'a',
+							'f@example.com': 'a',
+							'b@example.com': 'b',
+						})[email] ?? null,
+				);
+				const expected = ['a', 'a', 'b'];
+				expect(names).toEqual(
+					direction === 'asc'
+						? [null, null, null, ...expected]
+						: [...expected.reverse(), null, null, null],
+				);
+			}
+		},
+	);
 
 	test('refuses a forged cursor, or one for another ordering', async () => {
 		const collection = await seedPosts();
