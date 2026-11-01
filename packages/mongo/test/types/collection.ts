@@ -179,5 +179,7 @@ await nestedCollection.paginateByCursor({ orderBy: 'seenAt' });
 await nestedCollection.paginateByCursor({ orderBy: 'quantity.nope' });
 // @ts-expect-error no such head
 await nestedCollection.paginateByCursor({ orderBy: 'nope.baseQuantity' });
+// @ts-expect-error a path never goes through an array
+await nestedCollection.paginateByCursor({ orderBy: 'tags.length' });
 // @ts-expect-error a Date has no paths to follow
 await nestedCollection.paginateByCursor({ orderBy: 'seenAt.getTime' });

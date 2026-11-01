@@ -111,8 +111,8 @@ await items.paginateByCursor({ orderBy: 'quantity.nope' });
 
 The cursor carries the nested value (a `Date` or `bigint` survives it) and the
 `_id` tiebreak, and is bound to the path: `quantity.baseQuantity:desc`. At run
-time only the head of the path is checked against the schema (`TypeError` when
-it is not a field). An index on the path, followed by `_id`, keeps it quick.
+time the whole path is walked through the schema's nested objects (`TypeError`
+naming the full path when a segment is missing, as for an untyped `'quantity.nope'`). An index on the path, followed by `_id`, keeps it quick.
 
 ### Ordering by an optional field
 

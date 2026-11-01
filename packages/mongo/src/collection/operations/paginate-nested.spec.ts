@@ -159,4 +159,15 @@ describe('paginateByCursor orderBy a nested field', () => {
 		);
 		expect(error).toBeInstanceOf(TypeError);
 	});
+
+	test('an untyped path with a missing segment is refused, naming the whole path', async () => {
+		const collection = await seed();
+		for (const path of ['quantity.nope', 'name.length', 'meta.seenAt.x']) {
+			const error = await rejection(
+				collection.paginateByCursor({ orderBy: path } as never),
+			);
+			expect(error).toBeInstanceOf(TypeError);
+			expect((error as Error).message).toContain(`has no field "${path}"`);
+		}
+	});
 });

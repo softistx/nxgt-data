@@ -33,6 +33,7 @@ import type {
 } from './changes/types';
 import type { AsGiven } from './coerce';
 import type { CollectionHooks } from './hooks/types';
+import type { OrderPathOf } from './paths';
 
 export type OrderDirection = 'asc' | 'desc';
 
@@ -42,40 +43,6 @@ export type OrderDirection = 'asc' | 'desc';
  * its head must be a field, which is what catches a misspelt name.
  */
 export type FieldPath<Def> = FieldOf<Def> | `${FieldOf<Def>}.${string}`;
-
-/** Values a path stops at: they hold no fields of their own to follow. */
-type Leaf =
-	| Date
-	| { readonly _bsontype: string }
-	| readonly unknown[]
-	| ((...args: never[]) => unknown);
-
-/**
- * Every dotted path into `Doc`, through plain nested objects only, to a depth
- * of five: `'quantity' | 'quantity.baseQuantity'`. Dates, ObjectIds and arrays
- * are leaves; a path never goes through an array.
- */
-type PathsOf<
-	Doc,
-	Depth extends readonly unknown[] = [],
-> = Depth['length'] extends 5
-	? never
-	: {
-			[K in keyof Doc & string]:
-				| K
-				| (NonNullable<Doc[K]> extends Leaf
-						? never
-						: NonNullable<Doc[K]> extends object
-							? `${K}.${PathsOf<NonNullable<Doc[K]>, [...Depth, unknown]>}`
-							: never);
-		}[keyof Doc & string];
-
-/**
- * A field of the documents, or a dotted path into a nested object
- * (`'quantity.baseQuantity'`). Unlike `FieldPath`, the whole path is checked
- * against the document type.
- */
-export type OrderPathOf<Def> = PathsOf<DocumentOf<Def>>;
 
 /** The fields whose type is a number, for `$inc` and `$mul`. */
 type NumericFieldsOf<Doc> = {
@@ -347,13 +314,7 @@ export interface CursorPaginateOptions<Def> extends ReadOptions {
 	/** Documents per page. Default `20`, at most `maxPageSize`. */
 	limit?: number;
 	filter?: FilterOf<Def>;
-	/**
-	 * The field to page along. Default `_id`. Any other is followed by `_id`,
-	 * which breaks its ties. Null or missing values sort first ascending, last
-	 * descending, as MongoDB sorts them. A dotted path into a nested object
-	 * (`'quantity.baseQuantity'`) is allowed; the cursor then carries the
-	 * nested value.
-	 */
+	/** The field or dotted path to page along; `_id` breaks ties. Default `_id`. */
 	orderBy?: OrderPathOf<Def>;
 	/** Default `'asc'`. */
 	direction?: OrderDirection;

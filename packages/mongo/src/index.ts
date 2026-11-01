@@ -45,6 +45,7 @@ export type {
 	UpsertArgs,
 	WriteOperation,
 } from './collection/hooks/types';
+export type { OrderPathOf } from './collection/paths';
 export type {
 	ActorOf,
 	CollectionApi,
@@ -59,7 +60,6 @@ export type {
 	ManyPatch,
 	NewOf,
 	OrderDirection,
-	OrderPathOf,
 	PaginateOptions,
 	Patch,
 	ProjectionOf,
