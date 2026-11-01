@@ -71,7 +71,7 @@ do {
 | --- | --- | --- | --- |
 | `after` | `string \| null` | — | the `nextCursor` of the page before; omit it for the first |
 | `limit` | `number` | `20` | lowered to `maxPageSize`; below 1 is a `RangeError` naming the call |
-| `orderBy` | `FieldOf<Def>` | `'_id'` | the field to page along. A field the schema does not have is a `TypeError` |
+| `orderBy` | `FieldOf<Def>` | `'_id'` | the field to page along. A field the schema does not have is a `TypeError`. Null or missing values are allowed, see [Ordering by an optional field](#ordering-by-an-optional-field) |
 | `direction` | `'asc' \| 'desc'` | `'asc'` | |
 | `filter` | `FilterOf<Def>` | `{}` | |
 | `scope` | `string` | — | binds the cursor to one list (a tenant, a filter): see [below](#binding-a-cursor-to-a-list). A value that is not a string is a `TypeError`. Defaults to the collection's `cursorScope` |
