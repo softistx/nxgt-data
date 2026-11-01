@@ -1,5 +1,11 @@
 # @nxgt/mongo
 
+## 0.25.3
+
+### Patch Changes
+
+- [#323](https://github.com/softistx/nxgt-data/pull/323) [`dc8e9e3`](https://github.com/softistx/nxgt-data/commit/dc8e9e36c7851651e4ac0b0073c4b9fb7f18e72a) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `paginateByCursor` no longer throws when the `orderBy` field is null or missing on the last document of a page. Null and missing values are ordered as MongoDB sorts them (first ascending, last descending), the cursor carries `null`, and the next page resumes after it without skipping or repeating a document.
+
 ## 0.25.2
 
 ### Patch Changes
