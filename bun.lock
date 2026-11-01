@@ -108,7 +108,7 @@
     },
     "packages/image": {
       "name": "@nxgt/image",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "devDependencies": {
         "@nxgt/s3": "workspace:^",
         "@types/bun": "^1.4.4",
@@ -208,7 +208,7 @@
     },
     "packages/s3": {
       "name": "@nxgt/s3",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "devDependencies": {
         "@types/bun": "^1.4.4",
       },

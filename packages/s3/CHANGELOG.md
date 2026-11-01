@@ -1,5 +1,11 @@
 # @nxgt/s3
 
+## 0.9.0
+
+### Minor Changes
+
+- [#329](https://github.com/softistx/nxgt-data/pull/329) [`5684944`](https://github.com/softistx/nxgt-data/commit/5684944b6f7f0aaeb6cb45f5dfc415398e90f04d) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `bindBucket` takes `publicEndpoint`: the origin browsers reach the service at. `presignGet`, `presignPut` and `presignPost` are signed for it, while every other call keeps using `endpoint`, so a server behind a proxy no longer hairpins through it and no longer needs two bound buckets merged by hand. Left out, nothing changes. A value that is not an absolute URL is a `TypeError`. Fixes [#328](https://github.com/softistx/nxgt-data/issues/328).
+
 ## 0.8.0
 
 ### Minor Changes
